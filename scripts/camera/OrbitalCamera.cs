@@ -22,7 +22,14 @@ public partial class OrbitalCamera : Node3D
 
 	public override void _Ready()
 	{
-		_camera = new Camera3D { Current = true };
+		_camera = new Camera3D
+		{
+			Current = true,
+			// 真实比例星球（半径 6330 km）：far 必须覆盖整颗球，
+			// near/far 比值压到 ~500:1 保证深度精度（默认 0.05/4000 会全被裁剪 + 深度闪动）
+			Near = 100f,
+			Far = 50000f
+		};
 		AddChild(_camera);
 		_distance = _planetRadius * 2f;
 		_targetDistance = _distance;
