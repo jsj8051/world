@@ -31,7 +31,7 @@ public partial class OrbitalCamera : Node3D
 			Far = 50000f
 		};
 		AddChild(_camera);
-		_distance = _planetRadius * 2f;
+		_distance = _planetRadius * 1.7f;  // 初始满屏视图（球视张角 ≈ 72°），滚轮可继续拉近看局部
 		_targetDistance = _distance;
 		UpdatePosition();
 	}

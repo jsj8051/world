@@ -15,7 +15,7 @@ using System.Collections.Generic;
 /// </summary>
 public partial class IndexedPlanet : Node3D
 {
-    [Export] private int subdivisions = 32;
+    [Export] private int subdivisions = 64;
     [Export] private float radiusKm = 6330f;
     [Export] private int seed = 42;
     [Export] private float elevationScaleKm = 10f;
@@ -133,12 +133,11 @@ public partial class IndexedPlanet : Node3D
         arrays[(int)Mesh.ArrayType.Index] = meshIndices.ToArray();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
 
-        // ── 6. Material ──
+        // ── 6. Material: lit (default shading) so terrain relief shows via light/shadow ──
         var material = new StandardMaterial3D
         {
             VertexColorUseAsAlbedo = true,
             AlbedoColor = Colors.White,
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
             CullMode = BaseMaterial3D.CullModeEnum.Disabled // safety net
         };
 
