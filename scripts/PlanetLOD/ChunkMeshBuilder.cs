@@ -100,4 +100,52 @@ public static class ChunkMeshBuilder
         triCount = meshIndices.Count / 3;
         return mesh;
     }
+
+    /// <summary>
+    /// Builds a line mesh of tile edges (each edge drawn exactly once across all
+    /// chunks via the shared drawnEdges set). Endpoints match the main mesh's
+    /// corner positions (face-centroid, elevation-displaced).
+    /// </summary>
+    public static ArrayMesh BuildEdgeMesh(
+        List<HexTile> tiles,
+        float[] faceElev,
+        float radiusKm,
+        float elevationScaleKm,
+        HashSet<long> drawnEdges,
+        out int edgeCount)
+    {
+        var pts = new List<Vector3>();
+        foreach (var tile in tiles)
+        {
+            int n = tile.Corners.Length;
+            if (n < 3)
+                continue;
+
+            for (int i = 0; i < n; i++)
+            {
+                int f1 = tile.CornerFaceIndices[i];
+                int f2 = tile.CornerFaceIndices[(i + 1) % n];
+                long lo = f1 < f2 ? f1 : f2;
+                long hi = f1 < f2 ? f2 : f1;
+                long key = lo * 0x400000L + hi; // face index < 2^22
+                if (!drawnEdges.Add(key))
+                    continue;
+
+                Vector3 p1 = tile.Corners[i].Normalized() * (radiusKm + faceElev[f1] * elevationScaleKm);
+                Vector3 p2 = tile.Corners[(i + 1) % n].Normalized() * (radiusKm + faceElev[f2] * elevationScaleKm);
+                pts.Add(p1);
+                pts.Add(p2);
+            }
+        }
+
+        edgeCount = pts.Count / 2;
+        if (pts.Count == 0)
+            return null; // all edges already drawn by neighboring chunks
+        var mesh = new ArrayMesh();
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = pts.ToArray();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Lines, arrays);
+        return mesh;
+    }
 }

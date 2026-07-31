@@ -1,23 +1,23 @@
-[gd_scene format=3]
+[gd_scene format=3 uid="uid://bb6jgxdhdis0e"]
 
-[ext_resource type="Script" path="res://scripts/PlanetLOD/ChunkPlanet.cs" id="1_7akta"]
-[ext_resource type="Script" path="res://scripts/camera/OrbitalCamera.cs" id="2_gytkr"]
+[ext_resource type="Script" uid="uid://fkd2hfwl6ccm" path="res://scripts/PlanetLOD/ChunkPlanet.cs" id="1_7akta"]
+[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/camera/OrbitalCamera.cs" id="2_gytkr"]
 
 [sub_resource type="Environment" id="Environment_env1"]
 ambient_light_source = 2
 ambient_light_color = Color(1, 1, 1, 1)
 ambient_light_energy = 0.35
 
-[node name="PlanetChunked" type="Node3D"]
+[node name="PlanetChunked" type="Node3D" unique_id=633756189]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1826169881]
 environment = SubResource("Environment_env1")
 
-[node name="Planet" type="Node3D" parent="."]
+[node name="Planet" type="Node3D" parent="." unique_id=1214597598]
 script = ExtResource("1_7akta")
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
-rotation = Vector3(-0.8727, -0.5236, 0)
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2065732396]
+transform = Transform3D(0.8660248, 0.3830344, -0.32138094, 0, 0.6427605, 0.76606715, 0.5000011, -0.66343313, 0.5566465, 0, 0, 0)
 
-[node name="Camera" type="Node3D" parent="."]
+[node name="Camera" type="Node3D" parent="." unique_id=51501728]
 script = ExtResource("2_gytkr")
