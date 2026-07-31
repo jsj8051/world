@@ -79,9 +79,9 @@ public partial class OrbitalCamera : Node3D
 
 		// A/D — 左/右旋转
 		if (Input.IsKeyPressed(Key.A))
-			_theta -= RotationSpeed * dt;
-		if (Input.IsKeyPressed(Key.D))
 			_theta += RotationSpeed * dt;
+		if (Input.IsKeyPressed(Key.D))
+			_theta -= RotationSpeed * dt;
 
 		// 平滑缩放
 		_distance = Mathf.Lerp(_distance, _targetDistance, 1f - Mathf.Exp(-ZoomLerpSpeed * dt));
