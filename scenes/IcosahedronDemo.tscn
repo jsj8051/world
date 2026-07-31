@@ -1,0 +1,8 @@
+[gd_scene format=3 uid="uid://dneh4q2a2wmqc"]
+
+[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/camera/OrbitalCamera.cs" id="2_s2fyn"]
+
+[node name="PlanetDemo" type="Node3D" unique_id=1904023006]
+
+[node name="Camera" type="Node3D" parent="." unique_id=1014033850]
+script = ExtResource("2_s2fyn")

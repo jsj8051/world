@@ -1,0 +1,19 @@
+[gd_scene format=3 uid="uid://cettmorg8v64n"]
+
+[ext_resource type="Script" path="res://scripts/Surface/SatellitePlanet.cs" id="1_7akta"]
+[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/camera/OrbitalCamera.cs" id="2_gytkr"]
+
+[node name="PlanetSatellite" type="Node3D" unique_id=161113870]
+
+[node name="Planet" type="Node3D" parent="." unique_id=417226481]
+script = ExtResource("1_7akta")
+frequency = null
+radius = null
+seed = null
+continentScale = null
+detailScale = null
+showEdges = null
+edgeColor = null
+
+[node name="Camera" type="Node3D" parent="." unique_id=1323456300]
+script = ExtResource("2_gytkr")
