@@ -71,9 +71,7 @@ public partial class ChunkPlanet : Node3D
 
         // ── 5. Per-chunk meshes ──
         var shader = GD.Load<Shader>("res://shaders/planet_detail.gdshader");
-        var drawnEdges = new HashSet<long>();
         long totalTris = 0;
-        int totalEdges = 0;
         for (int f = 0; f < baseFaces.Count; f++)
         {
             var chunkTiles = tilesPerChunk[f];
@@ -89,10 +87,6 @@ public partial class ChunkPlanet : Node3D
                 out int tris);
             totalTris += tris;
 
-            var edgeMesh = ChunkMeshBuilder.BuildEdgeMesh(
-                subset, faceElev, radiusKm, elevationScaleKm, drawnEdges, out int edges);
-            totalEdges += edges;
-
             var instance = new MeshInstance3D
             {
                 Name = $"Chunk{f}",
@@ -100,26 +94,8 @@ public partial class ChunkPlanet : Node3D
                 MaterialOverride = new ShaderMaterial { Shader = shader }
             };
             AddChild(instance);
-
-            // Edge overlay (drawn once per shared edge, dark unshaded lines)
-            if (edgeMesh != null)
-            {
-                var edgeMaterial = new StandardMaterial3D
-                {
-                    ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-                    AlbedoColor = new Color(0.03f, 0.04f, 0.06f),
-                    CullMode = BaseMaterial3D.CullModeEnum.Disabled
-                };
-                var edgeInstance = new MeshInstance3D
-                {
-                    Name = $"Chunk{f}_Edges",
-                    Mesh = edgeMesh,
-                    MaterialOverride = edgeMaterial
-                };
-                AddChild(edgeInstance);
-            }
         }
 
-        GD.Print($"[ChunkPlanet] chunks={baseFaces.Count} tiles={tiles.Count} tris={totalTris} edges={totalEdges}");
+        GD.Print($"[ChunkPlanet] chunks={baseFaces.Count} tiles={tiles.Count} tris={totalTris}");
     }
 }

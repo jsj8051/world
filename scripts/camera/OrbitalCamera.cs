@@ -17,7 +17,7 @@ public partial class OrbitalCamera : Node3D
 
 	private Camera3D _camera;
 
-	private float MinDistance => _planetRadius * 1.15f;
+	private float MinDistance => _planetRadius * 1.02f; // 贴地视角（球面距 ~127km）
 	private float MaxDistance => _planetRadius * 5f;
 
 	public override void _Ready()
@@ -25,9 +25,9 @@ public partial class OrbitalCamera : Node3D
 		_camera = new Camera3D
 		{
 			Current = true,
-			// 真实比例星球（半径 6330 km）：far 必须覆盖整颗球，
-			// near/far 比值压到 ~500:1 保证深度精度（默认 0.05/4000 会全被裁剪 + 深度闪动）
-			Near = 100f,
+			// 真实比例星球（半径 6330 km）：far 必须覆盖整颗球。
+			// near=10 允许贴地视角（最小 1.02× 半径 → 球面距相机 ~127km）
+			Near = 10f,
 			Far = 50000f
 		};
 		AddChild(_camera);
