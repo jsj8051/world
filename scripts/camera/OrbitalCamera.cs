@@ -38,11 +38,11 @@ public partial class OrbitalCamera : Node3D
 
 	public override void _Input(InputEvent @event)
 	{
-		// 鼠标左键拖动旋转
+		// 鼠标左键拖动旋转（向右拖 = 星球表面向右转）
 		if (@event is InputEventMouseMotion motion &&
 			Input.IsMouseButtonPressed(MouseButton.Left))
 		{
-			_theta -= motion.Relative.X * MouseSensitivity;
+			_theta += motion.Relative.X * MouseSensitivity;
 			_phi = Mathf.Clamp(
 				_phi - motion.Relative.Y * MouseSensitivity,
 				0.01f, Mathf.Pi - 0.01f
@@ -79,9 +79,9 @@ public partial class OrbitalCamera : Node3D
 
 		// A/D — 左/右旋转
 		if (Input.IsKeyPressed(Key.A))
-			_theta += RotationSpeed * dt;
-		if (Input.IsKeyPressed(Key.D))
 			_theta -= RotationSpeed * dt;
+		if (Input.IsKeyPressed(Key.D))
+			_theta += RotationSpeed * dt;
 
 		// 平滑缩放
 		_distance = Mathf.Lerp(_distance, _targetDistance, 1f - Mathf.Exp(-ZoomLerpSpeed * dt));
