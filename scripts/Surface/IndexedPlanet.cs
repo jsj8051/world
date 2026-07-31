@@ -15,7 +15,7 @@ using System.Collections.Generic;
 /// </summary>
 public partial class IndexedPlanet : Node3D
 {
-    [Export] private int subdivisions = 64;
+    [Export] private int subdivisions = 96;
     [Export] private float radiusKm = 6330f;
     [Export] private int seed = 42;
     [Export] private float elevationScaleKm = 10f;
@@ -123,7 +123,24 @@ public partial class IndexedPlanet : Node3D
             }
         }
 
-        // ── 5. Create ArrayMesh ──
+        // ── 5. Smooth normals from displaced geometry ──
+        // Sphere-direction normals hide terrain relief (10km bumps vs 6330km radius ≈ 0.1° tilt).
+        // Area-weighted face normals make mountains/valleys visible under lighting.
+        var geomNormals = new Vector3[meshVerts.Count];
+        for (int i = 0; i < meshIndices.Count; i += 3)
+        {
+            int ia = meshIndices[i];
+            int ib = meshIndices[i + 1];
+            int ic = meshIndices[i + 2];
+            Vector3 n = (meshVerts[ib] - meshVerts[ia]).Cross(meshVerts[ic] - meshVerts[ia]);
+            geomNormals[ia] += n;
+            geomNormals[ib] += n;
+            geomNormals[ic] += n;
+        }
+        for (int i = 0; i < meshNormals.Count; i++)
+            meshNormals[i] = geomNormals[i].Normalized();
+
+        // ── 6. Create ArrayMesh ──
         var mesh = new ArrayMesh();
         var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);

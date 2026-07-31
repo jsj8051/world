@@ -1,4 +1,5 @@
 using Godot;
+using System;
 using System.Collections.Generic;
 
 public class SubdividedMesh
@@ -51,9 +52,11 @@ public class SubdividedMesh
 
     private static string VertexKey(Vector3 vertex)
     {
-        int x = Mathf.RoundToInt(vertex.X * 100000f);
-        int y = Mathf.RoundToInt(vertex.Y * 100000f);
-        int z = Mathf.RoundToInt(vertex.Z * 100000f);
+        // 1km quantization (units are km: key = round(v)). See Icosahedron.VertexKey
+        // for the float-noise rationale.
+        long x = (long)Math.Round((double)vertex.X);
+        long y = (long)Math.Round((double)vertex.Y);
+        long z = (long)Math.Round((double)vertex.Z);
         return $"{x}|{y}|{z}";
     }
 
