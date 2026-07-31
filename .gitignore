@@ -1,3 +1,12 @@
 # Godot 4+ specific ignores
 .godot/
 /android/
+
+# C# build artifacts
+*.lscache
+*.old
+bin/
+obj/
+
+# Shader editor cache
+shaders/*.uid
