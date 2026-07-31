@@ -2,16 +2,20 @@ using Godot;
 using System.Collections.Generic;
 
 /// <summary>
-/// Indexed ArrayMesh planet — fully manual mesh construction.
+/// Goldberg hex/pentagon planet — flat per-tile coloring so the grid reads crisply.
 ///
 /// Pipeline:
 ///   1. Icosahedron subdivision → vertices projected onto sphere.
 ///   2. Goldberg dual → hexagon/pentagon tiles (center + corners).
 ///   3. Each polygon split into a triangle fan (center, corner_i, corner_{i+1}).
-///   4. Shared vertices (tile centers, face-centroid corners) are indexed once.
-///   5. Winding order checked per triangle so normals always face outward
-///      (fixes the southern-hemisphere missing-face problem at the source).
-///   6. Vertices displaced radially by elevation; colored by elevation.
+///   4. Vertices are SPLIT per tile (not shared) so every tile gets ONE flat color —
+///      tile boundaries appear as sharp cells and the Goldberg structure is visible.
+///      Corner positions still use face-average elevation, so geometry stays
+///      watertight (no cracks between tiles).
+///   5. Winding checked per triangle so normals always face outward.
+///   6. Vertices displaced radially by elevation; pentagon tiles tinted red
+///      (toggleable) to verify the 12 pentagons.
+///   7. Material: shader mixing flat vertex color with procedural 3D noise detail.
 /// </summary>
 public partial class IndexedPlanet : Node3D
 {
@@ -19,6 +23,7 @@ public partial class IndexedPlanet : Node3D
     [Export] private float radiusKm = 6330f;
     [Export] private int seed = 42;
     [Export] private float elevationScaleKm = 10f;
+    [Export] private bool highlightPentagons = true;
 
     public override void _Ready()
     {
@@ -41,6 +46,7 @@ public partial class IndexedPlanet : Node3D
         foreach (var t in tiles)
             tileElev[t.Id] = t.Elevation;
 
+        // Corner (face-centroid) elevation = mean of its 3 tiles → geometry continuity
         var faceElev = new float[subdividedMesh.Tris.Count];
         for (int i = 0; i < subdividedMesh.Tris.Count; i++)
         {
@@ -48,114 +54,94 @@ public partial class IndexedPlanet : Node3D
             faceElev[i] = (tileElev[tri.v0] + tileElev[tri.v1] + tileElev[tri.v2]) / 3f;
         }
 
-        // ── 3. Build indexed vertex list ──
+        // ── 3. Build mesh — split vertices per tile (flat per-tile color) ──
         var meshVerts = new List<Vector3>();
-        var meshNormals = new List<Vector3>();
         var meshColors = new List<Color>();
         var meshIndices = new List<int>();
 
-        // Each corner = centroid of one triangle face → keyed by face index
-        var cornerVert = new int[subdividedMesh.Tris.Count];
-        for (int f = 0; f < cornerVert.Length; f++) cornerVert[f] = -1;
-
-        // Each tile center → keyed by tile id
-        var centerVert = new int[tiles.Count];
-        for (int t = 0; t < centerVert.Length; t++) centerVert[t] = -1;
-
-        // Helper: add a vertex (displaced by elevation) and return its index
-        int AddVertex(Vector3 spherePoint, float elev)
-        {
-            Vector3 dir = spherePoint.Normalized();
-            Vector3 pos = dir * (radiusKm + elev * elevationScaleKm);
-            meshVerts.Add(pos);
-            meshNormals.Add(dir);
-            meshColors.Add(ElevationToColor(elev));
-            return meshVerts.Count - 1;
-        }
-
         foreach (var tile in tiles)
         {
-            // Tile center vertex
-            if (centerVert[tile.Id] == -1)
-                centerVert[tile.Id] = AddVertex(tile.Center, tileElev[tile.Id]);
-
-            // Corner vertices (shared across tiles — added once per face)
-            for (int i = 0; i < tile.Corners.Length; i++)
-            {
-                int faceIdx = tile.CornerFaceIndices[i];
-                if (cornerVert[faceIdx] == -1)
-                    cornerVert[faceIdx] = AddVertex(tile.Corners[i], faceElev[faceIdx]);
-            }
-        }
-
-        // ── 4. Build triangle indices with winding correction ──
-        foreach (var tile in tiles)
-        {
-            if (tile.Corners == null || tile.Corners.Length < 3)
+            int n = tile.Corners.Length;
+            if (n < 3)
                 continue;
 
-            int centerIdx = centerVert[tile.Id];
-            int cornerCount = tile.Corners.Length;
+            Color tileColor = ElevationToColor(tile.Elevation);
+            if (highlightPentagons && tile.IsPentagon)
+                tileColor = tileColor.Lerp(Colors.Red, 0.55f);
 
-            for (int i = 0; i < cornerCount; i++)
+            // Tile center vertex
+            Vector3 centerPos = tile.Center.Normalized() * (radiusKm + tile.Elevation * elevationScaleKm);
+            int centerIdx = meshVerts.Count;
+            meshVerts.Add(centerPos);
+            meshColors.Add(tileColor);
+
+            // Corner vertices (position continuous across tiles, color is this tile's)
+            int firstCorner = meshVerts.Count;
+            for (int i = 0; i < n; i++)
             {
-                int aIdx = cornerVert[tile.CornerFaceIndices[i]];
-                int bIdx = cornerVert[tile.CornerFaceIndices[(i + 1) % cornerCount]];
+                float fe = faceElev[tile.CornerFaceIndices[i]];
+                Vector3 p = tile.Corners[i].Normalized() * (radiusKm + fe * elevationScaleKm);
+                meshVerts.Add(p);
+                meshColors.Add(tileColor);
+            }
 
-                Vector3 va = meshVerts[aIdx];
-                Vector3 vb = meshVerts[bIdx];
+            // Triangle fan with winding correction (normal must point away from center)
+            for (int i = 0; i < n; i++)
+            {
+                int a = firstCorner + i;
+                int b = firstCorner + (i + 1) % n;
+                Vector3 va = meshVerts[a];
+                Vector3 vb = meshVerts[b];
                 Vector3 vc = meshVerts[centerIdx];
 
-                // Winding check: normal must point away from sphere center
                 Vector3 normal = (va - vc).Cross(vb - vc);
                 if (normal.Dot(vc) < 0f)
                 {
                     meshIndices.Add(centerIdx);
-                    meshIndices.Add(bIdx);
-                    meshIndices.Add(aIdx);
+                    meshIndices.Add(b);
+                    meshIndices.Add(a);
                 }
                 else
                 {
                     meshIndices.Add(centerIdx);
-                    meshIndices.Add(aIdx);
-                    meshIndices.Add(bIdx);
+                    meshIndices.Add(a);
+                    meshIndices.Add(b);
                 }
             }
         }
 
-        // ── 5. Smooth normals from displaced geometry ──
-        // Sphere-direction normals hide terrain relief (10km bumps vs 6330km radius ≈ 0.1° tilt).
-        // Area-weighted face normals make mountains/valleys visible under lighting.
-        var geomNormals = new Vector3[meshVerts.Count];
+        // ── 4. Normals from displaced geometry (split verts → flat facets) ──
+        // Each vertex only sees its own tile's triangles, so faces shade as flat
+        // cells — the low-poly Goldberg look.
+        var accNormals = new Vector3[meshVerts.Count];
         for (int i = 0; i < meshIndices.Count; i += 3)
         {
             int ia = meshIndices[i];
             int ib = meshIndices[i + 1];
             int ic = meshIndices[i + 2];
             Vector3 n = (meshVerts[ib] - meshVerts[ia]).Cross(meshVerts[ic] - meshVerts[ia]);
-            geomNormals[ia] += n;
-            geomNormals[ib] += n;
-            geomNormals[ic] += n;
+            accNormals[ia] += n;
+            accNormals[ib] += n;
+            accNormals[ic] += n;
         }
-        for (int i = 0; i < meshNormals.Count; i++)
-            meshNormals[i] = geomNormals[i].Normalized();
+        var meshNormals = new Vector3[meshVerts.Count];
+        for (int i = 0; i < meshVerts.Count; i++)
+            meshNormals[i] = accNormals[i].Normalized();
 
-        // ── 6. Create ArrayMesh ──
+        // ── 5. Create ArrayMesh ──
         var mesh = new ArrayMesh();
         var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
         arrays[(int)Mesh.ArrayType.Vertex] = meshVerts.ToArray();
-        arrays[(int)Mesh.ArrayType.Normal] = meshNormals.ToArray();
+        arrays[(int)Mesh.ArrayType.Normal] = meshNormals;
         arrays[(int)Mesh.ArrayType.Color] = meshColors.ToArray();
         arrays[(int)Mesh.ArrayType.Index] = meshIndices.ToArray();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
 
-        // ── 6. Material: lit (default shading) so terrain relief shows via light/shadow ──
-        var material = new StandardMaterial3D
+        // ── 6. Material: flat vertex color + procedural noise detail ──
+        var material = new ShaderMaterial
         {
-            VertexColorUseAsAlbedo = true,
-            AlbedoColor = Colors.White,
-            CullMode = BaseMaterial3D.CullModeEnum.Disabled // safety net
+            Shader = GD.Load<Shader>("res://shaders/planet_detail.gdshader")
         };
 
         var instance = new MeshInstance3D
