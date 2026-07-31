@@ -1,0 +1,23 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/PlanetLOD/ChunkPlanet.cs" id="1_7akta"]
+[ext_resource type="Script" path="res://scripts/camera/OrbitalCamera.cs" id="2_gytkr"]
+
+[sub_resource type="Environment" id="Environment_env1"]
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.35
+
+[node name="PlanetChunked" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_env1")
+
+[node name="Planet" type="Node3D" parent="."]
+script = ExtResource("1_7akta")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.8727, -0.5236, 0)
+
+[node name="Camera" type="Node3D" parent="."]
+script = ExtResource("2_gytkr")

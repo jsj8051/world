@@ -134,7 +134,7 @@ public static class Icosahedron
     /// <summary>
     /// The 20 faces of an icosahedron as vertex index triples.
     /// </summary>
-    private static readonly List<(int, int, int)> BaseFaces = new()
+    public static readonly List<(int, int, int)> BaseFaces = new()
     {
         (0, 2, 4), (0, 2, 5), (0, 4, 8), (0, 5, 10), (0, 8, 10),
         (1, 3, 6), (1, 3, 7), (1, 6, 8), (1, 7, 10), (1, 8, 10),
