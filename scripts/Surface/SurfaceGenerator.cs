@@ -22,9 +22,16 @@ public class SurfaceGenerator
 
     public SurfaceGenerator(
         int seed = 42,
-        float continentScale = 0.12f,
-        float detailScale = 0.40f)
+        float continentScale = 0.0002f,
+        float detailScale = 0.0033f)
     {
+        // Frequencies are per km (coordinates are km, radius 6330 = 6330km):
+        //   continent 0.0002 → 5000km wavelength (Earth-like continental blocks)
+        //   mountain  0.0030 → ~333km wavelength (mountain belts)
+        //   hill      0.0050 → 200km wavelength (rolling terrain)
+        // Earlier 0.12/0.40 produced 8km/2.8km wavelengths — far below the
+        // 69km grid cell (n=96), so tile sampling aliased into random noise
+        // and all structure was lost.
         _seed = seed;
         _continentScale = continentScale;
         _detailScale = detailScale;
@@ -98,6 +105,22 @@ public class SurfaceGenerator
             }
         }
 
+        // 统计：陆地比例 + 成片性（相邻 tile 同符号比例）
+        int land = 0, sameSignPairs = 0, totalPairs = 0;
+        foreach (var tile in tiles)
+        {
+            if (tile.Elevation > 0f) land++;
+            foreach (int nb in tile.Neighbors)
+            {
+                if (nb > tile.Id)
+                {
+                    totalPairs++;
+                    if ((tile.Elevation > 0f) == (tiles[nb].Elevation > 0f)) sameSignPairs++;
+                }
+            }
+        }
+        GD.Print($"[SurfaceGenerator] land={100f * land / tiles.Count:F1}%  same-sign adjacent={100f * sameSignPairs / totalPairs:F1}%");
+
         GD.Print($"[SurfaceGenerator] multi-layer noise  min={minVal:F4}  max={maxVal:F4}  range={_range:F4}");
     }
 
@@ -126,11 +149,13 @@ public class SurfaceGenerator
     public float ComputeElevation(Vector3 pos)
     {
         // ── 1. Domain warp ──
+        // Amplitude must be in km and comparable to the warp wavelength (3333km):
+        // 400km offset organically distorts continent edges. (0.6 was 600m = no-op.)
         float warpX = _warpNoise.GetNoise3D(pos.X, pos.Y, pos.Z);
         float warpY = _warpNoise.GetNoise3D(pos.X + 50f, pos.Y + 50f, pos.Z + 50f);
         float warpZ = _warpNoise.GetNoise3D(pos.X - 50f, pos.Y - 50f, pos.Z - 50f);
 
-        Vector3 warped = pos + new Vector3(warpX * 0.6f, warpY * 0.6f, warpZ * 0.6f);
+        Vector3 warped = pos + new Vector3(warpX * 400f, warpY * 400f, warpZ * 400f);
 
         // ── 2. Continent shape ──
         float continent = _continentNoise.GetNoise3D(warped.X, warped.Y, warped.Z);
