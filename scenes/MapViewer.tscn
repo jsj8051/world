@@ -1,0 +1,14 @@
+[gd_scene format=3 uid="uid://cf4tl615kbc50"]
+
+[ext_resource type="Script" uid="uid://dfhmbmy1cf0jg" path="res://scripts/MapView/MapViewer.cs" id="1_view"]
+[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/Camera/OrbitalCamera.cs" id="2_cam"]
+
+[node name="MapViewer" type="Node3D" unique_id=1443163295]
+script = ExtResource("1_view")
+GridN = 256
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=910553809]
+transform = Transform3D(0.8660248, 0, -0.5000011, 0, 1, 0, 0.5000011, 0, 0.8660248, 0, 0, 0)
+
+[node name="OrbitalCamera" type="Node3D" parent="." unique_id=1598182135]
+script = ExtResource("2_cam")
