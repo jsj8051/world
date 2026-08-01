@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://tectonics01"]
+
+[ext_resource type="Script" path="res://scripts/Tectonics/TectonicsTest.cs" id="1_tecto"]
+
+[node name="TectonicsTest" type="Node"]
+script = ExtResource("1_tecto")

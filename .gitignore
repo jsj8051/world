@@ -10,3 +10,6 @@ obj/
 
 # Shader editor cache
 shaders/*.uid
+
+# Godot imported resources (machine-local cache)
+*.import

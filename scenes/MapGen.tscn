@@ -4,3 +4,4 @@
 
 [node name="MapGen" type="Node"]
 script = ExtResource("1_gen")
+Seed = 42

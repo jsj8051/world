@@ -251,7 +251,15 @@ public partial class MapViewer : Node3D
                         return BiomeColors.BiomeToColor(BiomeClassifier.Classify(eNorm, temp, p));
                     }
                 default: // 海拔
-                    return PlanetColors.ElevationToColor(-0.2f + 1.2f * h);
+                    {
+                        // h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
+                        // 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶），
+                        // 否则海平面被映射到高地黄，浅海和低地混色，看不出真实大陆分布。
+                        float range = map.MaxElev - map.MinElev;
+                        float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
+                        float e1 = (h - hSea) / (hSea > 0.5f ? hSea : 1f - hSea);
+                        return PlanetColors.ElevationToColor(e1);
+                    }
             }
         };
     }
