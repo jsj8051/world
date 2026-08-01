@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using World.Biome;
 
 namespace World.MapGen;
@@ -30,12 +31,13 @@ public static class MapArchive
     public const string Magic = "MPA1";
     public const ushort Version = 3;
 
-    /// <summary>v3 球面存档写入。</summary>
+    /// <summary>v3 球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。</summary>
     public static bool WriteSpherical(
         string path, int seed, Vector3[] verts,
         float minElev, float maxElev, float[] elev,
         float[] temp, float[] precip, byte[] biome,
-        float minTemp, float maxTemp, float minPrecip, float maxPrecip)
+        float minTemp, float maxTemp, float minPrecip, float maxPrecip,
+        bool log = true)
     {
         string dir = path.GetBaseDir();
         if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
@@ -65,8 +67,9 @@ public static class MapArchive
         f.StoreFloat(maxPrecip);
         foreach (var p in precip) f.StoreFloat(p);
         foreach (var b in biome) f.Store8(b);
-        GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
-                 $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}])");
+        if (log)
+            GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
+                     $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}])");
         return true;
     }
 
@@ -110,7 +113,7 @@ public static class MapArchive
 
     public static bool Read(string path, out MapData map)
     {
-        map = default;
+        map = new MapData();
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
         if (f == null)
         {
@@ -155,6 +158,8 @@ public static class MapArchive
             for (int i = 0; i < n; i++) map.Biome[i] = f.Get8();
             map.Width = 0;
             map.Height = 0;
+            // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
+            map.EnsureBuckets();
             GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts)");
         }
         else
@@ -186,8 +191,11 @@ public static class MapArchive
     }
 }
 
-/// <summary>加载后的地图数据。v3 = 球面顶点场；v1/v2 = 等距柱状平面场。</summary>
-public struct MapData
+/// <summary>加载后的地图数据。v3 = 球面顶点场；v1/v2 = 等距柱状平面场。
+/// ⚠️ 2026-08-02：必须是 class（非 struct）——球面桶索引 _buckets 是惰性构建的
+///   可变缓存，struct 值传递会让每次采样都重建桶（65 万格 × 4 次采样 × 512 桶
+///   = 6.6 亿次 List.Add → 进入游戏/切图层极慢）。</summary>
+public class MapData
 {
     public int Seed;
     public ushort Version;
@@ -212,6 +220,13 @@ public struct MapData
 
     public bool IsSpherical => Version >= 3;
 
+    // ── 球面桶索引（采样加速，加载后惰性构建）──
+    // ⚠️ 2026-08-02：线性扫描最近邻在 65 万 hex 格 × 10242 顶点 = 1300 亿次距离计算
+    //   （进入游戏/切图层极慢）。桶索引把最近邻降到 O(~180)。
+    private const int BucketsLat = 16;
+    private const int BucketsLon = 32;
+    private List<int>[,] _buckets;
+
     /// <summary>归一化海拔 0..1（球面顶点或平面场）。</summary>
     public float NormalizedElev(float raw)
     {
@@ -219,16 +234,51 @@ public struct MapData
         return range > 1e-6f ? (raw - MinElev) / range : 0.5f;
     }
 
-    /// <summary>球面点 → 最近顶点 id（线性扫描；v3 顶点 ~10k，采样次数多时调用方应缓存）。</summary>
+    /// <summary>构建球面桶索引。⚠️ 必须在主线程调用一次（Read 后），
+    /// 惰性构建 + 并行采样会并发修改集合（Collection was modified 崩溃）。</summary>
+    public void EnsureBuckets()
+    {
+        if (_buckets != null) return;
+        _buckets = new List<int>[BucketsLat, BucketsLon];
+        for (int y = 0; y < BucketsLat; y++)
+            for (int x = 0; x < BucketsLon; x++)
+                _buckets[y, x] = new List<int>();
+        for (int i = 0; i < Verts.Length; i++)
+        {
+            (int by, int bx) = BucketOf(Verts[i]);
+            _buckets[by, bx].Add(i);
+        }
+    }
+
+    private static (int, int) BucketOf(Vector3 v)
+    {
+        float lat = Mathf.Asin(Mathf.Clamp(v.Y, -1f, 1f));
+        float lon = Mathf.Atan2(v.Z, v.X);
+        int by = (int)Mathf.Clamp((lat / Mathf.Pi + 0.5f) * BucketsLat, 0, BucketsLat - 1);
+        int bx = (int)(((lon / Mathf.Pi + 1f) * 0.5f * BucketsLon) % BucketsLon);
+        return (by, bx);
+    }
+
+    /// <summary>球面点 → 最近顶点 id（桶查询，3×3 邻桶）。</summary>
     public int NearestVertex(Vector3 p)
     {
         Vector3 dir = p.Normalized();
+        EnsureBuckets();
+        (int by, int bx) = BucketOf(dir);
         int best = -1;
         float bestD = float.MaxValue;
-        for (int i = 0; i < Verts.Length; i++)
+        for (int dy = -1; dy <= 1; dy++)
         {
-            float d = (Verts[i] - dir).LengthSquared();
-            if (d < bestD) { bestD = d; best = i; }
+            int y = (by + dy + BucketsLat) % BucketsLat;
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int x = (bx + dx + BucketsLon) % BucketsLon;
+                foreach (int id in _buckets[y, x])
+                {
+                    float d = (Verts[id] - dir).LengthSquared();
+                    if (d < bestD) { bestD = d; best = id; }
+                }
+            }
         }
         return best;
     }
@@ -239,23 +289,33 @@ public struct MapData
     {
         Vector3 dir = p.Normalized();
         int id = NearestVertex(dir);
-        // 邻居 = 与最近顶点角距最小的 6 个顶点（线性扫描近邻集）
+        // 邻居 = 同一桶+邻桶内的近邻（桶查询，O(~180) 而非 O(N)）
+        EnsureBuckets();
         float sumW = 0f, sumV = 0f;
         var cands = new int[8];
         var candD = new float[8];
         for (int i = 0; i < 8; i++) { cands[i] = -1; candD[i] = float.MaxValue; }
-        for (int i = 0; i < Verts.Length; i++)
+        (int by, int bx) = BucketOf(dir);
+        for (int dy = -1; dy <= 1; dy++)
         {
-            float d = (Verts[i] - dir).LengthSquared();
-            if (i == id) continue;
-            // 保留 7 个最近（排除最近顶点本身）
-            for (int k = 0; k < 7; k++)
+            int y = (by + dy + BucketsLat) % BucketsLat;
+            for (int dx = -1; dx <= 1; dx++)
             {
-                if (d < candD[k])
+                int x = (bx + dx + BucketsLon) % BucketsLon;
+                foreach (int vi in _buckets[y, x])
                 {
-                    for (int j = 6; j > k; j--) { cands[j] = cands[j - 1]; candD[j] = candD[j - 1]; }
-                    cands[k] = i; candD[k] = d;
-                    break;
+                    if (vi == id) continue;
+                    float d = (Verts[vi] - dir).LengthSquared();
+                    // 保留 7 个最近（排除最近顶点本身）
+                    for (int k = 0; k < 7; k++)
+                    {
+                        if (d < candD[k])
+                        {
+                            for (int j = 6; j > k; j--) { cands[j] = cands[j - 1]; candD[j] = candD[j - 1]; }
+                            cands[k] = vi; candD[k] = d;
+                            break;
+                        }
+                    }
                 }
             }
         }

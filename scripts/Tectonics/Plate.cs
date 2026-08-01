@@ -103,17 +103,26 @@ namespace World.Tectonics
             GlobalToLocal = MatrixOps.Invert(LocalToGlobal);
 
             // 4. 重算映射（全局顶点 → 板局部坐标 → 最近局部顶点）
+            // ⚠️ 优化（2026-08-02）：局部网格=全局网格拓扑（同一 Icosahedron 细分），
+            //   旋转角度小（每步 ~0.01-0.1°）→ 上一步映射是很好的种子，
+            //   种子+邻居爬山（约 7 次距离计算）替代全桶查询（~180 次）→ 快 ~16 倍。
+            //   正确性验证见 NearestIdSeeded 注释（小旋转时爬山=全桶查询）。
             int n = globalGrid.VertexCount;
+            int[] scratch = new int[80];
             for (int i = 0; i < n; i++)
             {
                 Vector3 p = globalGrid.Vertices[i];
                 Vector3 localPos = MatrixOps.MultVector(GlobalToLocal, p);
-                LocalIdsOfGlobalCells[i] = LocalGrid.NearestId(localPos.Normalized());
+                Vector3 dir = localPos.Normalized();
+                int seed = LocalIdsOfGlobalCells[i];   // 上一步的映射（旋转小→仍在附近）
+                LocalIdsOfGlobalCells[i] = LocalGrid.NearestIdSeeded(dir, seed, scratch);
             }
             for (int i = 0; i < LocalGrid.VertexCount; i++)
             {
                 Vector3 localPos = MatrixOps.MultVector(LocalToGlobal, LocalGrid.Vertices[i]);
-                GlobalIdsOfLocalCells[i] = globalGrid.NearestId(localPos.Normalized());
+                Vector3 dir = localPos.Normalized();
+                int seed = GlobalIdsOfLocalCells[i];
+                GlobalIdsOfLocalCells[i] = globalGrid.NearestIdSeeded(dir, seed, scratch);
             }
         }
 

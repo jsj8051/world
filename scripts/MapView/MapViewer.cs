@@ -7,6 +7,7 @@ using World.MapGen;
 using World.HexPlanet;
 using World.PlanetLOD;
 using World.Surface;
+using World.UI;
 
 namespace World.MapView;
 
@@ -80,8 +81,17 @@ public partial class MapViewer : Node3D
     private GeometryData _geometry;
     private volatile bool _geometryReady; // 后台写（BuildAll 内），主线程 RebuildColors 读
 
+    // ── 每格图层值缓存（v3 球面：构建时每格采样一次，切图层 O(1) 查表）──
+    // ⚠️ 2026-08-02：旧版每格每次采样都线性扫描 10242 顶点（65 万格 × 2×10242 ≈ 1300 亿次），
+    //   进入游戏/切图层极慢。预计算后切图层只查数组 → 秒级。
+    private float[] _tileElev;    // 每格归一化海拔 0..1
+    private float[] _tileTemp;    // 每格温度 °C
+    private float[] _tilePrecip;  // 每格降水 mm
+    private byte[] _tileBiome;    // 每格 biome
+
     // ── 异步生成状态 ──
     private Task<MeshData> _buildTask;
+    private System.Threading.CancellationTokenSource _cts; // 切图层/重建时取消旧任务
     private volatile float _progress;   // 0..1，后台线程写、主线程读
     private volatile string _phase = ""; // 当前阶段文字
     private int _buildVersion;           // 递增；过期任务的 FinishGenerate 直接丢弃
@@ -97,6 +107,13 @@ public partial class MapViewer : Node3D
 
     public override void _Ready()
     {
+        // 支持从 UI 菜单进入时指定存档路径（ViewerLauncher 静态字段传参）
+        if (!string.IsNullOrEmpty(ViewerLauncher.PendingPath))
+        {
+            _mapPath = ViewerLauncher.PendingPath;
+            ViewerLauncher.PendingPath = null;
+            GD.Print($"[MapViewer] pending path: {_mapPath}");
+        }
         Generate();
     }
 
@@ -158,11 +175,14 @@ public partial class MapViewer : Node3D
         }
 
         int version = ++_buildVersion;
+        _cts?.Cancel();   // 取消旧任务（切图层/重建时旧任务立即停止）
+        _cts = new System.Threading.CancellationTokenSource();
+        var token = _cts.Token;
         _progress = 0f;
         _phase = "准备生成";
         ShowProgress();
 
-        _buildTask = Task.Run(() => BuildAll(_map, version));
+        _buildTask = Task.Run(() => BuildAll(_map, version, token), token);
         _buildTask.ContinueWith(t =>
         {
             // 线程池回调里只做线程安全的事：失败打印 + CallDeferred 回主线程
@@ -173,28 +193,28 @@ public partial class MapViewer : Node3D
     }
 
     /// <summary>后台线程：纯数据构建（不碰任何 Godot 对象）。</summary>
-    private MeshData BuildAll(MapData map, int version)
+    private MeshData BuildAll(MapData map, int version, System.Threading.CancellationToken token)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         _phase = "细分二十面体";
         _progress = 0.05f;
         Icosahedron.Subdivide(GridN, RadiusKm, out var verts, out var indices);
-        if (version != _buildVersion) return default;
+        if (version != _buildVersion || token.IsCancellationRequested) return default;
         _progress = 0.2f;
 
         _phase = "构建格子拓扑 (Goldberg dual)";
         var mesh = new SubdividedMesh(verts, indices);
         var tiles = new GoldbergBuilder(mesh, RadiusKm, p => _progress = 0.2f + p * 0.3f).Tiles;
-        if (version != _buildVersion) return default;
+        if (version != _buildVersion || token.IsCancellationRequested) return default;
         _progress = 0.5f;
-        GD.Print($"[MapViewer] grid n={GridN} tiles={tiles.Count} (expect 10n²+2={10 * GridN * GridN + 2})");
+        // ⚠️ 后台线程禁止 GD.Print（Godot 线程不安全 → 编辑器卡死）——日志移主线程 FinishGenerate
 
         _phase = "构建几何";
         Func<Vector3, float> elevAt = _ => 0f;
         var geometry = ChunkMeshBuilder.BuildGeometry(tiles, elevAt, RadiusKm, 0f,
             p => _progress = 0.5f + p * 0.3f);
-        if (version != _buildVersion) return default;
+        if (version != _buildVersion || token.IsCancellationRequested) return default;
 
         // 几何就绪 → 缓存（图层切换直接复用），再算颜色
         _tiles = tiles;
@@ -202,13 +222,17 @@ public partial class MapViewer : Node3D
         _geometryReady = true;
         _progress = 0.8f;
 
+        // 预计算每格图层值（v3 球面一次采样；切图层 O(1) 查表）
+        _phase = "预计算图层值";
+        PrecomputeTileValues(map, tiles, token);
+        if (version != _buildVersion || token.IsCancellationRequested) return default;
+
         _phase = "采样并着色";
-        var colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(map), geometry,
+        var colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(), geometry,
             p => _progress = 0.8f + p * 0.2f);
 
         _progress = 1f;
         _phase = "完成";
-        GD.Print($"[MapViewer] data built: {geometry.Indices.Length / 3} tris in {sw.ElapsedMilliseconds}ms");
         return new MeshData
         {
             Verts = geometry.Verts,
@@ -218,53 +242,66 @@ public partial class MapViewer : Node3D
         };
     }
 
-    /// <summary>图层 → 颜色函数（v2 存档查表，v1 存档回退 ClimateGenerator 实时算）。</summary>
-    private Func<HexTile, Color> MakeColorFn(MapData map)
+    /// <summary>预计算每格图层值（v3 球面：每格采样一次，之后切图层 O(1) 查表）。
+    /// ⚠️ 2026-08-02：必须并行化（每格独立）+ 禁止后台线程 GD.Print（Godot 线程不安全会卡死）。
+    ///   GridN=256 = 65 万格 × 4 次采样，串行 ~25s，并行 ~5s。</summary>
+    private void PrecomputeTileValues(MapData map, List<HexTile> tiles, System.Threading.CancellationToken token)
     {
-        var climate = new ClimateGenerator(map.Seed);
+        int n = tiles.Count;
+        _tileElev = new float[n];
+        _tileTemp = new float[n];
+        _tilePrecip = new float[n];
+        _tileBiome = new byte[n];
+        bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
+        float range = map.MaxElev - map.MinElev;
+        float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
+        var elevArr = _tileElev;   // 局部引用（后台线程安全：不同下标不同位置）
+        var tempArr = _tileTemp;
+        var precipArr = _tilePrecip;
+        var biomeArr = _tileBiome;
+        var centers = new Vector3[n];
+        for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
+
+        System.Threading.Tasks.Parallel.For(0, n, i =>
+        {
+            if (token.IsCancellationRequested) return;
+            var c = centers[i];
+            elevArr[i] = map.SampleElevation(c);
+            tempArr[i] = hasTemp ? map.SampleTemperature(c) : 0f;
+            precipArr[i] = hasPrecip ? map.SamplePrecipitation(c) : 0f;
+            biomeArr[i] = hasBiome ? (byte)map.SampleBiome(c) : (byte)BiomeType.DeepOcean;
+        });
+        _hSea = hSea;
+    }
+    private float _hSea = 0.5f;
+
+    /// <summary>图层 → 颜色函数（查预计算缓存，零采样）。</summary>
+    private Func<HexTile, Color> MakeColorFn()
+    {
         return t =>
         {
-            float h = map.SampleElevation(t.Center); // 归一化海拔 0..1
+            int id = t.Id;
             switch (Layer)
             {
                 case 1: // 温度
-                    {
-                        float temp = map.Temp != null
-                            ? map.SampleTemperature(t.Center)
-                            : climate.ComputeTemperature(t.Center, h * 2f - 1f);
-                        return BiomeColors.TemperatureToColor(temp);
-                    }
+                    return BiomeColors.TemperatureToColor(_tileTemp[id]);
                 case 2: // 降水
-                    {
-                        float p = map.Precip != null
-                            ? map.SamplePrecipitation(t.Center)
-                            : climate.ComputePrecipitation(t.Center, h * 2f - 1f);
-                        return BiomeColors.PrecipitationToColor(p);
-                    }
+                    return BiomeColors.PrecipitationToColor(_tilePrecip[id]);
                 case 3: // biome
-                    {
-                        if (map.Biome != null)
-                            return BiomeColors.BiomeToColor(map.SampleBiome(t.Center));
-                        float eNorm = h * 2f - 1f;
-                        float temp = climate.ComputeTemperature(t.Center, h * 2f - 1f);
-                        float p = climate.ComputePrecipitation(t.Center, h * 2f - 1f);
-                        return BiomeColors.BiomeToColor(BiomeClassifier.Classify(eNorm, temp, p));
-                    }
+                    return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
                 default: // 海拔
                     {
+                        float h = _tileElev[id];
                         // h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
-                        // 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶），
-                        // 否则海平面被映射到高地黄，浅海和低地混色，看不出真实大陆分布。
-                        float range = map.MaxElev - map.MinElev;
-                        float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
-                        float e1 = (h - hSea) / (hSea > 0.5f ? hSea : 1f - hSea);
+                        // 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶）。
+                        float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
                         return PlanetColors.ElevationToColor(e1);
                     }
             }
         };
     }
 
-    /// <summary>切图层：几何缓存命中 → 只重算颜色（秒级）；无缓存（首次/GridN 刚变）→ 全量。</summary>
+    /// <summary>切图层：几何缓存命中 → 只重算颜色（查表，秒级）；无缓存（首次/GridN 刚变）→ 全量。</summary>
     private void RebuildColors()
     {
         if (!_geometryReady || _tiles == null)
@@ -274,10 +311,13 @@ public partial class MapViewer : Node3D
         }
 
         int version = ++_buildVersion;
+        _cts?.Cancel();   // 取消旧重算任务
+        _cts = new System.Threading.CancellationTokenSource();
+        var token = _cts.Token;
         _progress = 0f;
         _phase = "重算颜色";
         ShowProgress();
-        _buildTask = Task.Run(() => BuildColorsTask(_map, version));
+        _buildTask = Task.Run(() => BuildColorsTask(_map, version, token), token);
         _buildTask.ContinueWith(t =>
         {
             if (t.IsFaulted)
@@ -286,15 +326,15 @@ public partial class MapViewer : Node3D
         });
     }
 
-    /// <summary>后台线程：只重算颜色（几何复用缓存）。</summary>
-    private MeshData BuildColorsTask(MapData map, int version)
+    /// <summary>后台线程：只重算颜色（查预计算缓存，零采样）。</summary>
+    private MeshData BuildColorsTask(MapData map, int version, System.Threading.CancellationToken token)
     {
         var geometry = _geometry; // 已就绪（_geometryReady 保证，不碰 Godot 对象）
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var colors = ChunkMeshBuilder.BuildColors(_tiles, MakeColorFn(map), geometry,
+        var colors = ChunkMeshBuilder.BuildColors(_tiles, MakeColorFn(), geometry,
             p => _progress = 0.05f + p * 0.9f);
+        if (token.IsCancellationRequested) return default;
         _progress = 1f;
-        GD.Print($"[MapViewer] recolored layer={Layer} in {sw.ElapsedMilliseconds}ms");
         return new MeshData
         {
             Verts = geometry.Verts,
@@ -315,7 +355,7 @@ public partial class MapViewer : Node3D
             var data = _buildTask.Result;
             if (data.Verts == null)
             {
-                GD.PrintErr("[MapViewer] build returned no data (cancelled?)");
+                GD.Print("[MapViewer] build cancelled (superseded by newer request)");
                 return;
             }
             var shader = GD.Load<Shader>("res://shaders/planet_detail.gdshader");
@@ -325,7 +365,7 @@ public partial class MapViewer : Node3D
                 MaterialOverride = new ShaderMaterial { Shader = shader }
             };
             AddChild(mi);
-            GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris");
+            GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0})");
         }
         catch (Exception e)
         {

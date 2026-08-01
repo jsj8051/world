@@ -270,39 +270,74 @@ namespace World.Tectonics
         // ── 主循环 ──
 
         /// <summary>跑 N 百万年。每步：老化 → 移动 → 合并 → 计算位移 → 按体积重解海平面。</summary>
-        public void Run(float megayears, float stepMy)
+        public void Run(float megayears, float stepMy) => RunWithProgress(megayears, stepMy, null);
+
+        /// <summary>
+        /// 跑 N 百万年（带进度回调）。onProgress 在【调用线程】被调用（模拟是纯数据，
+        /// UI 场景下由后台线程驱动，回调只更新 volatile 字段，主线程 _Process 读）。
+        /// </summary>
+        public void RunWithProgress(float megayears, float stepMy, Action<float> onProgress)
         {
             ComputeDisplacement();         // 先算初始位移场
             InitializeOceanVolume(2000f);  // M3-5：水量守恒常量（原版 average_ocean_depth）
             int steps = (int)(megayears / stepMy);
+            var swMove = new System.Diagnostics.Stopwatch();
+            var swMerge = new System.Diagnostics.Stopwatch();
+            var swRift = new System.Diagnostics.Stopwatch();
+            var swErode = new System.Diagnostics.Stopwatch();
+            var swOther = new System.Diagnostics.Stopwatch();
             for (int s = 0; s < steps; s++)
             {
+                swOther.Start();
                 // 洋壳老化：age += stepMy（My→秒单位）。密度随年龄增大，
                 // 超过地幔密度后产生负浮力 → 驱动俯冲/板块运动（Schellart 模型核心）。
                 // 放在 Merge 前：裂谷生成的新洋壳（age=0）本步不老化，保留年轻态。
                 foreach (var plate in Plates)
                     for (int i = 0; i < plate.Crust.Age.Length; i++)
                         plate.Crust.Age[i] += stepMy * Units.MEGAYEAR;
+                swOther.Stop();
 
+                swMove.Start();
                 foreach (var plate in Plates)
                     plate.Move(stepMy, GlobalGrid, Material, SurfaceGravity);
+                swMove.Stop();
+
+                swMerge.Start();
                 MergePlatesToMaster();
+                swMerge.Stop();
                 if (EnableRifting)
                 {
+                    swRift.Start();
                     UpdateRifting();      // M3-2：裂谷生成新洋壳（洋中脊）
                     UpdateSubducted();    // M3-3：俯冲回收老洋壳（洋沟），写入 Accretion
+                    swRift.Stop();
+                    swMerge.Start();
                     MergePlatesToMaster();// 重新合并（裂谷/俯冲改变了板块）
                     ApplyAccretion();     // 增生楔加到顶层板（俯冲上盘造山带）
                     MergePlatesToMaster();// 重新合并（增生楔加入板块后）
+                    swMerge.Stop();
                 }
                 if (EnableSupercontinent && (s + 1) % (int)(SupercontinentCycleMy / stepMy) == 0)
                 {
+                    swOther.Start();
                     ResetPlates(Mathf.Max(Plates.Count, 4));   // M3-4：超级大陆循环（聚合-裂解）
                     MergePlatesToMaster();
+                    swOther.Stop();
                 }
+                swOther.Start();
                 ComputeDisplacement();
                 SolveSeaLevelByVolume();   // M3-5：按水量守恒重解（land% 自然浮动）
-                // 诊断：每 50My 打印位移直方图（陆地高度分布）
+                swOther.Stop();
+                if (EnableErosion)
+                {
+                    swErode.Start();
+                    var delta = ApplySurfaceProcesses(stepMy);  // M3：侵蚀/风化/成岩/变质
+                    SyncWorldToPlates(delta);                   // 净变化量写回各板块（原版 integrate_deltas）
+                    ComputeDisplacement();                      // 重算（侵蚀后位移变了）
+                    SolveSeaLevelByVolume();
+                    swErode.Stop();
+                }
+                // 诊断：每 50My 打印位移直方图（陆地高度分布）+ 耗时
                 if (s % 25 == 0)
                 {
                     int[] bins = new int[6];   // <-4km, -4~0, 0~1km, 1~3km, 3~6km, >6km
@@ -317,6 +352,11 @@ namespace World.Tectonics
                     }
                     GD.Print($"[Tectonics] hist(深<-4k, 海-4~0, 低0~1k, 中1~3k, 高3~6k, 峰>6k): " +
                              $"{bins[0]},{bins[1]},{bins[2]},{bins[3]},{bins[4]},{bins[5]}");
+                    long totalMs = swMove.ElapsedMilliseconds + swMerge.ElapsedMilliseconds
+                        + swRift.ElapsedMilliseconds + swErode.ElapsedMilliseconds + swOther.ElapsedMilliseconds;
+                    GD.Print($"[Tectonics] 耗时 move={swMove.ElapsedMilliseconds}ms merge={swMerge.ElapsedMilliseconds}ms " +
+                             $"rift={swRift.ElapsedMilliseconds}ms erode={swErode.ElapsedMilliseconds}ms " +
+                             $"other={swOther.ElapsedMilliseconds}ms total={totalMs}ms");
                 }
                 if (EnableErosion)
                 {
@@ -327,9 +367,10 @@ namespace World.Tectonics
                 }
                 if (s % 10 == 0 || s == steps - 1)
                     GD.Print($"[Tectonics] step {s}/{steps} ({s * stepMy:F0}My) plates={Plates.Count} " +
-                             $"disp[{FieldOps.Min(Displacement):F0},{FieldOps.Max(Displacement):F0}]m " +
-                             $"land={100f * LandFractionAboveSea():F1}%");
+                             $"disp[{FieldOps.Min(Displacement):F0},{FieldOps.Max(Displacement):F0}]m land={LandFractionAboveSea() * 100:F1}%");
+                onProgress?.Invoke((s + 1f) / steps);
             }
+            SolveSeaLevelByVolume();
         }
 
         /// <summary>

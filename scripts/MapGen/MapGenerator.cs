@@ -142,6 +142,97 @@ public partial class MapGenerator : Node
 			ExportSphericalPreview(simVerts, svElev, minE, maxE);
 	}
 
+	/// <summary>
+	/// 后台生成（UI 用）：纯数据计算跑后台线程（模拟+气候+biome，不碰 Godot 对象），
+	/// 完成后回调主线程写存档。进度 0..1：模拟 0-0.7，气候 0.7-1.0。
+	/// </summary>
+	/// <param name="onProgress">主线程进度回调（0..1）。</param>
+	/// <param name="onDone">主线程完成回调（true=成功写出存档）。</param>
+	public void GenerateAsync(Action<float> onProgress, Action<bool, string> onDone)
+	{
+		int seed = Seed, n = TectonicsGridN, plates = NumPlates;
+		float my = SimMegayears, step = SimStepMy, radius = RadiusKm;
+		string outPath = OutputPath;
+		bool exportPreview = ExportPreview;
+
+		Task.Run(() =>
+		{
+			// ── 板块模拟（纯数据）──
+			var sim = new TectonicsSimulation(n);
+			sim.GenerateInitialCrust(seed);
+			sim.SplitIntoPlates(plates, seed);
+			int totalSteps = (int)(my / step);
+			sim.RunWithProgress(my, step, frac => onProgress(frac * 0.7f));
+			var disp = sim.Displacement;
+			float sea = sim.SeaLevel;
+
+			var simVerts = sim.GlobalGrid.Vertices;
+			int vn = simVerts.Length;
+			var svElev = new float[vn];
+			float minE = float.MaxValue, maxE = float.MinValue;
+			for (int i = 0; i < vn; i++)
+			{
+				svElev[i] = disp[i] - sea;
+				if (svElev[i] < minE) minE = svElev[i];
+				if (svElev[i] > maxE) maxE = svElev[i];
+			}
+
+			// ── 气候 + biome（纯数据，FastNoiseLite 只读线程安全）──
+			var climate = new ClimateGenerator(seed);
+			var svTemp = new float[vn];
+			var svPrecip = new float[vn];
+			var svBiome = new byte[vn];
+			float span = Mathf.Max(-minE, maxE);
+			Parallel.For(0, vn, i =>
+			{
+				Vector3 p = simVerts[i] * radius;
+				float e1 = span > 1e-6f ? svElev[i] / span : 0f;
+				float t = climate.ComputeTemperature(p, e1);
+				float pp = climate.ComputePrecipitation(p, e1);
+				svTemp[i] = t;
+				svPrecip[i] = pp;
+				svBiome[i] = (byte)BiomeClassifier.Classify(e1, t, pp);
+				if ((i & 0xFF) == 0)
+					onProgress(0.7f + 0.3f * i / vn);
+			});
+
+			float minT = float.MaxValue, maxT = float.MinValue;
+			float minP = float.MaxValue, maxP = float.MinValue;
+			for (int i = 0; i < vn; i++)
+			{
+				if (svTemp[i] < minT) minT = svTemp[i];
+				if (svTemp[i] > maxT) maxT = svTemp[i];
+				if (svPrecip[i] < minP) minP = svPrecip[i];
+				if (svPrecip[i] > maxP) maxP = svPrecip[i];
+			}
+
+			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
+				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, log: false);   // 后台线程禁止 GD.Print
+			if (exportPreview)
+				ExportSphericalPreview(simVerts, svElev, minE, maxE);
+			return (ok, outPath);
+		}).ContinueWith(t =>
+		{
+			// 线程池回调：线程安全的事（打印错误）直接做，UI 更新必须主线程
+			if (t.IsFaulted)
+				GD.PrintErr($"[MapGenerator] async failed: {t.Exception?.GetBaseException().Message}");
+			CallDeferred(nameof(FinishAsync), t.IsCompletedSuccessfully && t.Result.ok, t.IsCompletedSuccessfully ? t.Result.outPath : "");
+		});
+		// 注意：onProgress 在后台线程被调用（UI 进度条读写 volatile 由 Godot 主线程 _Process 驱动更安全，
+		// 但 ProgressBar.Value 属性主线程写后台线程读会竞争——这里直接回调，Godot Control 属性非线程安全。
+		// 稳妥做法：onProgress 只记录 volatile 字段，主线程 _Process 读。此处简化：回调里 QueueRedraw 有风险，
+		// 由调用方（MapGenMenu）保证只更新 volatile float。见 MapGenMenu.cs 注释。
+	}
+
+	private void FinishAsync(bool ok, string path)
+	{
+		_asyncDone?.Invoke(ok, path);
+	}
+	private Action<bool, string> _asyncDone;
+
+	/// <summary>后台生成完成回调（主线程）。</summary>
+	public void SetAsyncDoneCallback(Action<bool, string> cb) => _asyncDone = cb;
+
 	/// <summary>球面预览导出：等距柱状投影渲染（仅调试可视化，非存档格式）。</summary>
 	private void ExportSphericalPreview(Vector3[] verts, float[] elev, float minE, float maxE)
 	{
@@ -172,6 +263,6 @@ public partial class MapGenerator : Node
 			}
 		}
 		img.SavePng("user://maps/elev_preview.png");
-		GD.Print("[MapGenerator] elev preview saved: user://maps/elev_preview.png");
-	}
+		// ⚠️ 后台线程禁止 GD.Print——日志由调用方（主线程）打
+		}
 }
