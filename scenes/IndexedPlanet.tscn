@@ -1,7 +1,7 @@
-[gd_scene format=3 uid="uid://cettmorg8v64n"]
+[gd_scene format=3 uid="uid://dajhib6gqrqdk"]
 
-[ext_resource type="Script" uid="uid://bua2ady63lyv7" path="res://scripts/Surface/IndexedPlanet.cs" id="1_7akta"]
-[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/camera/OrbitalCamera.cs" id="2_gytkr"]
+[ext_resource type="Script" path="res://scripts/Surface/IndexedPlanet.cs" id="1_7akta"]
+[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/Camera/OrbitalCamera.cs" id="2_gytkr"]
 
 [sub_resource type="Environment" id="Environment_env1"]
 ambient_light_source = 2
@@ -10,14 +10,19 @@ ambient_light_energy = 0.35
 
 [node name="PlanetSatellite" type="Node3D" unique_id=161113870]
 
-[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=375529563]
 environment = SubResource("Environment_env1")
 
 [node name="Planet" type="Node3D" parent="." unique_id=417226481]
 script = ExtResource("1_7akta")
+subdivisions = 1419
+radiusKm = null
+seed = null
+elevationScaleKm = null
+highlightPentagons = null
 
-[node name="Sun" type="DirectionalLight3D" parent="."]
-rotation = Vector3(-0.8727, -0.5236, 0)
+[node name="Sun" type="DirectionalLight3D" parent="." unique_id=2093898333]
+transform = Transform3D(0.8660248, 0, -0.5000011, 0, 1, 0, 0.5000011, 0, 0.8660248, 0, 0, 0)
 
 [node name="Camera" type="Node3D" parent="." unique_id=1323456300]
 script = ExtResource("2_gytkr")
