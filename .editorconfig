@@ -2,3 +2,49 @@ root = true
 
 [*]
 charset = utf-8
+insert_final_newline = true
+end_of_line = lf
+trim_trailing_whitespace = true
+
+[*.cs]
+# Godot C# 官方风格：4 空格缩进、Allman 大括号（Godot 官方 c_sharp_style_guide）
+indent_style = space
+indent_size = 4
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_open_brace_spacing = none
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+csharp_space_between_method_call_parameter_list_parentheses = false
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+# var 偏好：类型明显时用 var，否则显式
+csharp_style_var_when_type_is_apparent = true:suggestion
+csharp_style_var_elsewhere = false:suggestion
+csharp_style_var_for_built_in_types = false:suggestion
+# 表达式体成员建议用（本项目已大量使用 =>）
+csharp_style_expression_bodied_methods = true:suggestion
+csharp_style_expression_bodied_properties = true:suggestion
+# 私有字段 _camelCase（Godot 官方要求下划线前缀）
+dotnet_naming_rule.private_fields_should_be_camelcase.severity = suggestion
+dotnet_naming_rule.private_fields_should_be_camelcase.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camelcase.style = underscore_camelcase
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+dotnet_naming_style.underscore_camelcase.required_prefix = _
+dotnet_naming_style.underscore_camelcase.capitalization = camel_case
+# 类/方法/属性 PascalCase
+dotnet_naming_rule.types_should_be_pascalcase.severity = suggestion
+dotnet_naming_rule.types_should_be_pascalcase.symbols = types
+dotnet_naming_rule.types_should_be_pascalcase.style = pascalcase
+dotnet_naming_symbols.types.applicable_kinds = class, struct, enum, interface, delegate
+dotnet_naming_style.pascalcase.capitalization = pascal_case
+dotnet_naming_rule.non_private_members_should_be_pascalcase.severity = suggestion
+dotnet_naming_rule.non_private_members_should_be_pascalcase.symbols = non_private_members
+dotnet_naming_rule.non_private_members_should_be_pascalcase.style = pascalcase
+dotnet_naming_symbols.non_private_members.applicable_kinds = property, method, event, field, enum_member
