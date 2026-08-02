@@ -21,6 +21,8 @@ public partial class MapGenMenu : Control
     private VBoxContainer _form;
     private bool _generating;
     private OptionButton _rotBox;   // 自转方向
+    private OptionButton _tiltBox;  // 轴向倾角
+    private OptionButton _distBox;  // 距太阳距离
 
     private MapGenerator _gen;
     private volatile float _progress;   // 后台线程写、主线程 _Process 读
@@ -65,6 +67,12 @@ public partial class MapGenMenu : Control
 
         // 自转方向（盛行风科里奥利偏转方向）
         _form.AddChild(MakeRow("自转方向", _rotBox = MakeRotationOption()));
+
+        // 轴向倾角（季节强度）
+        _form.AddChild(MakeRow("轴向倾角", _tiltBox = MakeTiltOption()));
+
+        // 距太阳距离（恒星辐照度 → 全球温度）
+        _form.AddChild(MakeRow("距太阳距离", _distBox = MakeDistanceOption()));
 
         // ── 按钮区 ──
         var btnRow = new HBoxContainer { CustomMinimumSize = new Vector2(480, 0) };
@@ -172,6 +180,28 @@ public partial class MapGenMenu : Control
         return ob;
     }
 
+    private OptionButton MakeTiltOption()
+    {
+        var ob = new OptionButton();
+        ob.AddItem("0°（无季节，极地温和）", 0);
+        ob.AddItem("23.4°（地球式）", 23);
+        ob.AddItem("45°（强季节）", 45);
+        ob.AddItem("90°（极端季节，极地极寒）", 90);
+        ob.Selected = 1;   // 23.4° 地球默认
+        return ob;
+    }
+
+    private OptionButton MakeDistanceOption()
+    {
+        // id 编码 AU×10：8=0.8AU, 10=1.0AU, 12=1.2AU
+        var ob = new OptionButton();
+        ob.AddItem("0.8 AU（近，全球偏热）", 8);
+        ob.AddItem("1.0 AU（地球）", 10);
+        ob.AddItem("1.2 AU（远，全球偏冷）", 12);
+        ob.Selected = 1;   // 1.0AU 默认
+        return ob;
+    }
+
     private Button MakeBtn(string text, int size)
     {
         var b = new Button { Text = text, CustomMinimumSize = new Vector2(180, 52) };
@@ -197,6 +227,9 @@ public partial class MapGenMenu : Control
         int plates = (int)_platesBox.Value;
         int my = _myBox.GetSelectedId();
         bool prograde = _rotBox.GetSelectedId() == 1;
+        int tilt = _tiltBox.GetSelectedId();
+        float distAu = _distBox.GetSelectedId() / 10f;   // 8→0.8, 10→1.0, 12→1.2
+        float insolation = 1f / (distAu * distAu);       // 能量 ∝ 1/d²
         _lastOutPath = $"user://maps/map_seed{seed}_n{n}.mpa";
 
         _gen = new MapGenerator
@@ -207,6 +240,8 @@ public partial class MapGenMenu : Control
             SimMegayears = my,
             SimStepMy = 2f,
             ProgradeRotation = prograde,   // 自转方向 → 盛行风
+            AxialTilt = tilt,              // 轴向倾角 → 季节/温度带
+            Insolation = insolation,       // 距太阳距离 → 全球温度
             OutputPath = _lastOutPath,
             ExportPreview = false,   // UI 模式不导出 PNG，省时间
             AutoQuit = false,
@@ -215,7 +250,7 @@ public partial class MapGenMenu : Control
         _gen.GenerateAsync(
             p => _progress = p,     // 后台线程写 volatile（线程安全）
             (ok, path) => { });     // 实际完成回调走 SetAsyncDoneCallback（主线程）
-        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} → {_lastOutPath}");
+        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU → {_lastOutPath}");
     }
 
     private void OnGenerateDone(bool ok, string path)

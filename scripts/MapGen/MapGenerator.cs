@@ -29,6 +29,8 @@ public partial class MapGenerator : Node
 	[Export] public float SimStepMy = 2f;      // 模拟时间步（百万年）
 	[Export] public int NumPlates = 8;         // 初始板块数
 	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
+	[Export] public float AxialTilt = 23.4f;   // 轴向倾角（度）：0=无季节，23.4=地球，90=极端季节
+	[Export] public float Insolation = 1.0f;    // 恒星辐照度（相对地球 1AU）：0.7=远、冷，1.3=近、热
 
 	public override void _Ready()
 	{
@@ -59,6 +61,8 @@ public partial class MapGenerator : Node
 			else if (TryInt("TectonicsGridN", g => TectonicsGridN = g)) { }
 			else if (TryFloat("SimMegayears", m => SimMegayears = m)) { }
 			else if (TryInt("NumPlates", p => NumPlates = p)) { }
+			else if (TryFloat("AxialTilt", t => AxialTilt = t)) { }
+			else if (TryFloat("Insolation", i => Insolation = i)) { }
 			else if (v == "AutoQuit" || v == "--AutoQuit" || v == "AutoQuit=true" || v == "--AutoQuit=true") AutoQuit = true;
 			else if (v.StartsWith("ProgradeRotation", StringComparison.OrdinalIgnoreCase))
 			{
@@ -116,7 +120,7 @@ public partial class MapGenerator : Node
 
 		// 气候 + 生物群系（球面顶点上直接算）
 		World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
-		var climate = new ClimateGenerator(Seed);
+		var climate = new ClimateGenerator(Seed, AxialTilt, Insolation);
 		var svTemp = new float[vn];
 		var svPrecip = new float[vn];
 		var svBiome = new byte[vn];
@@ -204,7 +208,7 @@ public partial class MapGenerator : Node
 
 			// ── 气候 + biome（纯数据，FastNoiseLite 只读线程安全）──
 			World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
-			var climate = new ClimateGenerator(seed);
+			var climate = new ClimateGenerator(seed, AxialTilt, Insolation);
 			var svTemp = new float[vn];
 			var svPrecip = new float[vn];
 			var svBiome = new byte[vn];

@@ -185,6 +185,19 @@ public partial class MapViewer : Node3D
             _map = map;
             _mapLoaded = true;
             GD.Print($"[MapViewer] loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}]");
+
+            // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。
+            //   球面存档顶点数 = 10n²+2（Icosahedron 细分）→ 反推 n = sqrt((verts-2)/10)。
+            //   Goldberg hex 格数 = 10×GridN²+2 → GridN=n 时两者恰好相等（10242 格/10242 顶点）。
+            if (map.IsSpherical && map.Verts != null)
+            {
+                int simN = (int)Mathf.Round(Mathf.Sqrt((map.Verts.Length - 2) / 10f));
+                if (simN >= 8 && simN <= 512 && simN != _gridN)
+                {
+                    GD.Print($"[MapViewer] 存档模拟 n={simN}（{map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
+                    _gridN = simN;
+                }
+            }
         }
 
         int version = ++_buildVersion;
