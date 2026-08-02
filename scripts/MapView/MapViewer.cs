@@ -309,10 +309,14 @@ public partial class MapViewer : Node3D
         {
             if (token.IsCancellationRequested) return;
             var c = centers[i];
-            elevArr[i] = map.SampleElevation(c);
-            tempArr[i] = hasTemp ? map.SampleTemperature(c) : 0f;
-            precipArr[i] = hasPrecip ? map.SamplePrecipitation(c) : 0f;
-            biomeArr[i] = hasBiome ? (byte)map.SampleBiome(c) : (byte)BiomeType.DeepOcean;
+            // ⚠️ 2026-08-02 修复：最近顶点直读（无插值）——原 SampleElevation 是 Shepard
+            //   插值（多顶点加权平均）→ 相邻格颜色渐变 → 观感"一团团/有插值/不是等格子"。
+            //   每格 = 最近模拟顶点的真实值（crisp flat per-tile，符合用户偏好）。
+            int vid = map.NearestVertex(c);
+            elevArr[i] = map.NormalizedElev(map.Elev[vid]);
+            tempArr[i] = hasTemp ? map.Temp[vid] : 0f;
+            precipArr[i] = hasPrecip ? map.Precip[vid] : 0f;
+            biomeArr[i] = hasBiome ? map.Biome[vid] : (byte)BiomeType.DeepOcean;
             windArr[i] = World.Biome.WindField.WindAt(c);
         });
         _hSea = hSea;
@@ -861,10 +865,14 @@ public partial class MapViewer : Node3D
         _panel.Visible = false;
 
         // ── 图层切换按钮组（屏幕下方中间）──
+        // ⚠️ 2026-08-02 v3：SVG 图标按钮（每个 42px，整排 ~294px）。
+        //   只显示 4 个的真相 = 后 3 个 SVG 用了 Q/T/A 曲线命令，thorvg 解析器不支持
+        //   → 加载失败空白（非宽度问题）。全部图标已重写为纯直线命令 M/L/H/V/Z。
+        //   悬停 TooltipText 显示中文名。
         var group = new ButtonGroup();
         var hbox = new HBoxContainer();
         hbox.SetAnchorsPreset(Control.LayoutPreset.CenterBottom); // 锚点底部居中
-        hbox.Position = new Vector2(-330, -50);                    // 相对锚点偏移（6 按钮 ≈ 660 宽，居中）
+        hbox.Position = new Vector2(-21f * LayerNames.Length, -50);   // 42px/按钮动态居中
         _uiLayer.AddChild(hbox);
 
         _layerButtons = new Button[LayerNames.Length];
@@ -873,16 +881,58 @@ public partial class MapViewer : Node3D
             int idx = i; // 闭包捕获
             var btn = new Button
             {
-                Text = LayerNames[i],
+                Icon = MakeLayerIcon(i),
+                TooltipText = LayerNames[i],
                 ToggleMode = true,
                 ButtonGroup = group,
-                CustomMinimumSize = new Vector2(110, 38)
+                CustomMinimumSize = new Vector2(42, 38),
+                IconAlignment = HorizontalAlignment.Center,
             };
             btn.Pressed += () => Layer = idx;
             hbox.AddChild(btn);
             _layerButtons[i] = btn;
         }
         SyncLayerButtons();
+    }
+
+    // ── 图层 SVG 图标（纯直线命令 M/L/H/V/Z——thorvg 不支持 Q/T/A 曲线）──
+    private static readonly string[] LayerSvgs =
+    {
+        // 0 海拔：两座山（直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M3 23 L11 8 L16 17 L19 12 L25 23 Z' fill='#eee'/></svg>",
+        // 1 温度：温度计（杆+刻度+圆泡，直线近似）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L14 14 L18 14 L18 20 L10 20 L10 14 L14 14 M10 20 L18 20 M10 17 L18 17' stroke='#eee' stroke-width='2.5' fill='none'/><path d='M11 21 L17 21 L17 24 L11 24 Z' fill='#eee'/></svg>",
+        // 2 降水：菱形雨滴 + 两侧小滴（直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L19 13 L14 23 L9 13 Z' fill='#eee'/><path d='M6 20 L4 25 M22 20 L24 25' stroke='#eee' stroke-width='2'/></svg>",
+        // 3 生物群系：树（三角冠+干，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L20 12 L17 12 L22 20 L6 20 L11 12 L8 12 Z' fill='#eee'/><rect x='12.5' y='20' width='3' height='6' fill='#eee'/></svg>",
+        // 4 盛行风：三条横线 + 箭头（直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M4 8 L18 8 M4 14 L22 14 M4 20 L14 20' stroke='#eee' stroke-width='2'/><path d='M20 4 L25 8 L20 12 Z' fill='#eee'/></svg>",
+        // 5 洋流：锯齿波浪（直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M2 10 L6 6 L10 10 L14 6 L18 10 L22 6 L26 10 M2 18 L6 14 L10 18 L14 14 L18 18 L22 14 L26 18' stroke='#eee' stroke-width='2' fill='none'/></svg>",
+        // 6 河流：折线河道（直线，蓝色）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M6 2 L10 6 L8 10 L14 14 L12 18 L15 22 L14 26' stroke='#6cf' stroke-width='3' fill='none' stroke-linecap='round'/></svg>",
+    };
+
+    private static Texture2D MakeLayerIcon(int idx)
+    {
+        try
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(LayerSvgs[idx]);
+            var img = new Image();   // LoadSvgFromBuffer 是实例方法（返回 Error）
+            if (img.LoadSvgFromBuffer(bytes) != Error.Ok)
+            {
+                GD.PrintErr($"[MapViewer] SVG icon {idx} load failed");
+                return null;
+            }
+            img.Resize(28, 28, Image.Interpolation.Bilinear);
+            return ImageTexture.CreateFromImage(img);
+        }
+        catch (System.Exception e)
+        {
+            GD.PrintErr($"[MapViewer] SVG icon {idx} failed: {e.Message}");
+            return null;
+        }
     }
 
     /// <summary>同步图层按钮的按下态（键盘/Inspector 切图层时 UI 跟随）。</summary>
