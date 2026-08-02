@@ -39,7 +39,7 @@ public static class MapArchive
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
         bool prograde = true, float rotationSpeed = 1f,
         Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
-        byte[] riverLevel = null, int[] riverFlow = null,
+        byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null,
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -82,11 +82,13 @@ public static class MapArchive
             if (currentStrength != null)
                 foreach (var cs in currentStrength) f.StoreFloat(cs);
         }
-        // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes；旧存档无=null）
+        // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无=null）
         if (riverLevel != null && riverFlow != null)
         {
             foreach (var rl in riverLevel) f.Store8(rl);
             foreach (var rf in riverFlow) f.Store32((uint)rf);
+            if (riverVolume != null)
+                foreach (var rv in riverVolume) f.StoreFloat(rv);
         }
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
@@ -192,14 +194,16 @@ public static class MapArchive
                     map.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());
                 map.CurrentWarmth = new float[n];
                 for (int i = 0; i < n; i++) map.CurrentWarmth[i] = f.GetFloat();
-                // 强度段（v3.1 加；旧存档只有 16n 字节 → 无强度，默认 1）
-                if (f.GetPosition() + currentBytes20 <= f.GetLength())
+                // 强度段（v3.1 加；⚠️ 2026-08-02 修复：判断必须用"剩余 ≥ 4n"——
+                //   原用 currentBytes20（整段 20n）从当前位置加必然超长 → strength 永不读
+                //   → 河流段错位读取全乱。旧存档只有 16n 字节 → 无强度，默认 1）
+                if (f.GetPosition() + (ulong)n * 4u <= f.GetLength())
                 {
                     map.CurrentStrength = new float[n];
                     for (int i = 0; i < n; i++) map.CurrentStrength[i] = f.GetFloat();
                 }
             }
-            // 尾部扩展4：河流（级别 n bytes + 流向 n×4 bytes；旧存档无 = null）
+            // 尾部扩展4：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无 = null）
             ulong riverBytes = (ulong)n * 5u;
             if (f.GetPosition() + riverBytes <= f.GetLength())
             {
@@ -207,6 +211,12 @@ public static class MapArchive
                 for (int i = 0; i < n; i++) map.RiverLevel[i] = f.Get8();
                 map.RiverFlow = new int[n];
                 for (int i = 0; i < n; i++) map.RiverFlow[i] = (int)f.Get32();
+                // 流量段（v3.3 加；⚠️ 判断用"剩余 ≥ 4n"——同 strength 修复，防错位）
+                if (f.GetPosition() + (ulong)n * 4u <= f.GetLength())
+                {
+                    map.RiverVolume = new float[n];
+                    for (int i = 0; i < n; i++) map.RiverVolume[i] = f.GetFloat();
+                }
             }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
@@ -256,6 +266,7 @@ public class MapData
     public float[] CurrentStrength;        // 洋流强度 0.3~1.0（v3.1 尾部；null=旧存档无，默认 1）
     public byte[] RiverLevel;              // 河流级别（v3.2 尾部；null=旧存档无）
     public int[] RiverFlow;                // 河流流向（v3.2 尾部；null=旧存档无）
+    public float[] RiverVolume;            // 河流流量 mm（v3.3 尾部；null=旧存档无）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

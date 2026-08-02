@@ -81,6 +81,8 @@ public partial class MapViewer : Node3D
                 _windArrows.Visible = (value == 4);
             if (_currentArrows != null)
                 _currentArrows.Visible = (value == 5);
+            if (_riverMesh != null)
+                _riverMesh.Visible = (value == 6);
         }
     }
     private int _layer;
@@ -103,6 +105,8 @@ public partial class MapViewer : Node3D
     private MeshInstance3D _windArrows;
     // 洋流箭头（图层 5 显示；红=暖流 蓝=寒流）
     private MeshInstance3D _currentArrows;
+    // 河流（图层 6 显示；每条河独立颜色，支流汇合截断）
+    private MeshInstance3D _riverMesh;
 
     // ── 异步生成状态 ──
     private Task<MeshData> _buildTask;
@@ -118,7 +122,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流" };
 
     public override void _Ready()
     {
@@ -143,6 +147,7 @@ public partial class MapViewer : Node3D
             else if (key.Keycode == Key.Key4) layer = 3;
             else if (key.Keycode == Key.Key5) layer = 4;
             else if (key.Keycode == Key.Key6) layer = 5;
+            else if (key.Keycode == Key.Key7) layer = 6;
             if (layer >= 0)
             {
                 Layer = layer;
@@ -159,7 +164,8 @@ public partial class MapViewer : Node3D
         2 => "降水",
         3 => "生物群系",
         4 => "盛行风",
-        _ => "洋流",
+        5 => "洋流",
+        _ => "河流",
     };
 
     public override void _Process(double delta)
@@ -329,6 +335,7 @@ public partial class MapViewer : Node3D
                     return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
                 case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
                 case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
+                case 6: // 河流：浅色底（河道由 _riverMesh 3D 网格显示）
                     {
                         // 淡色底：海洋浅蓝、陆地浅黄绿（低对比，突出箭头）
                         float h = _tileElev[id];
@@ -421,6 +428,8 @@ public partial class MapViewer : Node3D
             BuildWindArrows();
             // 洋流箭头网格（图层 5 显示；暖流红/寒流蓝）
             BuildCurrentArrows();
+            // 河流网格（图层 6 显示；每条河独立颜色，支流汇合截断）
+            BuildRivers();
 
             // 构建中切了图层 → 自动应用最新图层（几何已就绪，走快速重算）
             if (_pendingRecolor)
@@ -685,6 +694,125 @@ public partial class MapViewer : Node3D
         };
         AddChild(_currentArrows);
         GD.Print($"[MapViewer] current arrows built: {ringCount} 闭合环流圈 (from archive)");
+    }
+
+    // ── 河流网格（图层 6 显示）──
+    // 用存档河流（riverLevel + flow）→ RebuildPaths 重建主河道 → 每条河独立颜色
+    // （HSL 黄金角），支流在汇合点截断（painted 集合），主河先画（长→短）。
+    private void BuildRivers()
+    {
+        if (_riverMesh != null)
+        {
+            _riverMesh.QueueFree();
+            _riverMesh = null;
+        }
+        if (_map == null || _map.RiverLevel == null || _map.RiverFlow == null)
+        {
+            GD.Print("[MapViewer] rivers skipped: 存档无河流段（旧版）");
+            return;
+        }
+
+        // 归一化海拔（读档 Elev 是米 → 归一化，<0 = 海洋）
+        var verts = _map.Verts;
+        int n = verts.Length;
+        var eNorm = new float[n];
+        float range = Mathf.Max(-_map.MinElev, _map.MaxElev);
+        for (int i = 0; i < n; i++) eNorm[i] = range > 1e-6f ? _map.Elev[i] / range : 0f;
+
+        // 重建主河道（源头 → 入海/盆地）
+        var paths = World.MapGen.RiverSystem.RebuildPaths(_map.RiverFlow, _map.RiverLevel, eNorm);
+        if (paths.Count == 0)
+        {
+            GD.Print("[MapViewer] rivers: 无主河道");
+            return;
+        }
+
+        float radius = RadiusKm * 1.012f;   // 略高于球面，避免 z-fighting
+        var vertList = new System.Collections.Generic.List<Vector3>();
+        var colorList = new System.Collections.Generic.List<Color>();
+        var indexList = new System.Collections.Generic.List<int>();
+
+        // 主河先画（长→短），支流遇已画顶点截断（汇合点）
+        var painted = new System.Collections.Generic.HashSet<int>();
+        paths.Sort((a, b) => b.Length.CompareTo(a.Length));
+        const float halfW = 0.004f;   // 河宽（球面弧比例 ≈ 25km 观感）
+        int riverCount = 0;
+        foreach (var path in paths)
+        {
+            // 每条河独立颜色：HSL 色相黄金角循环（相邻河差异最大）
+            float hue = (riverCount * 0.6180339887f) % 1f;
+            var c = HslToRgb(hue, 0.9f, 0.55f);
+            riverCount++;
+            bool drawn = false;
+            for (int i = 0; i < path.Length - 1; i++)
+            {
+                int va = path[i], vb = path[i + 1];
+                if (painted.Contains(va)) break;   // 遇汇合点 → 支流段结束
+                painted.Add(va);
+                Vector3 a = verts[va], b = verts[vb];
+                Vector3 seg = b - a;
+                if (seg.LengthSquared() < 1e-12f) continue;
+                Vector3 side = seg.Cross(a).Normalized();
+                Vector3 l0 = (a + side * halfW).Normalized() * radius;
+                Vector3 r0 = (a - side * halfW).Normalized() * radius;
+                Vector3 l1 = (b + side * halfW).Normalized() * radius;
+                Vector3 r1 = (b - side * halfW).Normalized() * radius;
+                int bi = vertList.Count;
+                vertList.Add(l0); vertList.Add(r0); vertList.Add(l1); vertList.Add(r1);
+                colorList.Add(c); colorList.Add(c); colorList.Add(c); colorList.Add(c);
+                indexList.Add(bi); indexList.Add(bi + 1); indexList.Add(bi + 2);
+                indexList.Add(bi + 1); indexList.Add(bi + 3); indexList.Add(bi + 2);
+                drawn = true;
+            }
+            if (!drawn) riverCount--;   // 全被截断（纯支流无独有段）→ 不计
+        }
+
+        if (vertList.Count == 0)
+        {
+            GD.Print("[MapViewer] rivers: 无可见河道");
+            return;
+        }
+
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = vertList.ToArray();
+        arrays[(int)Mesh.ArrayType.Color] = colorList.ToArray();
+        arrays[(int)Mesh.ArrayType.Index] = indexList.ToArray();
+        var mesh = new ArrayMesh();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+
+        var mat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            VertexColorUseAsAlbedo = true,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
+
+        _riverMesh = new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = mat,
+            Visible = (Layer == 6),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_riverMesh);
+        GD.Print($"[MapViewer] rivers built: {riverCount} 条主河道 / {paths.Count} 源 (from archive)");
+    }
+
+    static Color HslToRgb(float h, float s, float l)
+    {
+        float q = l < 0.5f ? l * (1f + s) : l + s - l * s;
+        float p = 2f * l - q;
+        float H2R(float t)
+        {
+            if (t < 0f) t += 1f;
+            if (t > 1f) t -= 1f;
+            if (t < 1f / 6f) return p + (q - p) * 6f * t;
+            if (t < 1f / 2f) return q;
+            if (t < 2f / 3f) return p + (q - p) * (2f / 3f - t) * 6f;
+            return p;
+        }
+        return new Color(H2R(h + 1f / 3f), H2R(h), H2R(h - 1f / 3f));
     }
 
     // ── 进度条 UI ──

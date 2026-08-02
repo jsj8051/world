@@ -141,4 +141,40 @@ public static class RiverSystem
                 riverPaths.Add(path.ToArray());
         }
     }
+
+    /// <summary>
+    /// 从存档数据重建河流路径（MapViewer 用——存档只存 riverLevel + flow，路径重建）。
+    /// 与 Compute 第 4 步逻辑一致：源头 = 无上游河格，沿 flow 正向追踪到入海/盆地。
+    /// </summary>
+    public static List<int[]> RebuildPaths(int[] flow, byte[] riverLevel, float[] elevNorm)
+    {
+        int n = flow.Length;
+        var paths = new List<int[]>();
+        var incoming = new List<int>[n];
+        for (int i = 0; i < n; i++) incoming[i] = new List<int>();
+        for (int i = 0; i < n; i++)
+        {
+            if (riverLevel[i] > 0 && flow[i] != i)
+                incoming[flow[i]].Add(i);
+        }
+        for (int i = 0; i < n; i++)
+        {
+            if (riverLevel[i] == 0) continue;
+            if (incoming[i].Count > 0) continue;
+            var path = new List<int> { i };
+            int cur = i;
+            int guard = 0;
+            while (guard++ < n)
+            {
+                int nxt = flow[cur];
+                if (nxt == cur) break;
+                path.Add(nxt);
+                if (elevNorm[nxt] < 0f) break;
+                cur = nxt;
+            }
+            if (path.Count >= 3)
+                paths.Add(path.ToArray());
+        }
+        return paths;
+    }
 }

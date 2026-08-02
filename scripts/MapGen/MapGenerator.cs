@@ -41,6 +41,7 @@ public partial class MapGenerator : Node
 	// 河流（生成时算好，WriteSpherical 存档；MapViewer 河流图层用）
 	private byte[] _riverLevel;   // 每顶点：0=无河，1-3=级别
 	private int[] _riverFlow;     // 每顶点流向（MapViewer 重建路径用）
+	private float[] _riverVolume; // 每顶点累积水量 mm（降水-蒸发沿流向累积 = 流量）
 
 	public override void _Ready()
 	{
@@ -193,7 +194,7 @@ public partial class MapGenerator : Node
 			var eNorm = new float[vn];
 			for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
 			RiverSystem.Compute(simVerts, grid.Neighbors, eNorm,
-				out _riverFlow, out _, out _riverLevel,
+				out _riverFlow, out _riverVolume, out _riverLevel,
 				out _, out _, precip: svPrecip, temp: svTemp, waterThreshold: 5000f);
 		}
 
@@ -220,7 +221,7 @@ public partial class MapGenerator : Node
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, minE, maxE, svElev,
 			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
-			riverLevel: _riverLevel, riverFlow: _riverFlow);
+			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume);
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, svElev, minE, maxE);
@@ -330,14 +331,14 @@ public partial class MapGenerator : Node
 				var eNorm = new float[vn];
 				for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
 				RiverSystem.Compute(simVerts, grid.Neighbors, eNorm,
-					out _riverFlow, out _, out _riverLevel,
+					out _riverFlow, out _riverVolume, out _riverLevel,
 					out _, out _, precip: svPrecip, temp: svTemp, waterThreshold: 5000f);
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
 				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
-				riverLevel: _riverLevel, riverFlow: _riverFlow, log: false);   // 后台线程禁止 GD.Print
+				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, svElev, minE, maxE);
 			return (ok, outPath);
