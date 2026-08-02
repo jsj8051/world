@@ -71,7 +71,9 @@ public partial class MapViewer : Node3D
             // ⚠️ 即使 _layer == value 也要同步按钮状态：ButtonGroup+ToggleMode 下
             //   点击已选中按钮会取消选中（Pressed 仍触发），若此处直接 return，
             //   按钮 UI 会停在"未选中"状态 → 显示像切换失败。始终同步 + 只在实际变化时重建。
-            if (_layer != value)
+            bool changed = _layer != value;
+            GD.Print($"[MapViewer] Layer.set {value} ({LayerName(value)}) changed={changed} geoReady={_geometryReady} pending={_pendingRecolor}");
+            if (changed)
             {
                 _layer = value;
                 if (IsInsideTree()) RebuildColors();
@@ -91,6 +93,7 @@ public partial class MapViewer : Node3D
     private List<HexTile> _tiles;
     private GeometryData _geometry;
     private volatile bool _geometryReady; // 后台写（BuildAll 内），主线程 RebuildColors 读
+    private MeshInstance3D _planetMesh;   // 当前星球网格（切图层时挂载新网格前清旧的，防叠加）
 
     // ── 每格图层值缓存（v3 球面：构建时每格采样一次，切图层 O(1) 查表）──
     // ⚠️ 2026-08-02：旧版每格每次采样都线性扫描 10242 顶点（65 万格 × 2×10242 ≈ 1300 亿次），
@@ -181,9 +184,11 @@ public partial class MapViewer : Node3D
     private void Generate()
     {
         // 重建时只清掉旧的星球网格（不能动场景自带的灯光/相机子节点）
-        foreach (Node child in GetChildren())
-            if (child is MeshInstance3D)
-                child.QueueFree();
+        if (_planetMesh != null)
+        {
+            _planetMesh.QueueFree();
+            _planetMesh = null;
+        }
 
         // 地图读取用 Godot FileAccess（非线程安全）→ 必须留在主线程。
         // 已缓存（_mapLoaded）则跳过——切图层/改 GridN 不重复读 8MB 文件。
@@ -375,6 +380,7 @@ public partial class MapViewer : Node3D
         if (!_geometryReady || _tiles == null)
         {
             _pendingRecolor = true;   // 构建完成后自动重算颜色（用最新 Layer）
+            GD.Print($"[MapViewer] RebuildColors: 几何未就绪 → pendingRecolor（Layer={_layer}）");
             return;
         }
 
@@ -386,6 +392,7 @@ public partial class MapViewer : Node3D
         _progress = 0f;
         _phase = "重算颜色";
         ShowProgress();
+        GD.Print($"[MapViewer] RebuildColors: v{version} Layer={layer} 启动后台着色");
         _buildTask = Task.Run(() => BuildColorsTask(_map, version, token, layer), token);
         _buildTask.ContinueWith(t =>
         {
@@ -424,6 +431,7 @@ public partial class MapViewer : Node3D
     /// <summary>主线程：把后台构建好的数据包成 ArrayMesh 并挂载。</summary>
     private void FinishGenerate(int version)
     {
+        GD.Print($"[MapViewer] FinishGenerate v{version} (当前 _buildVersion={_buildVersion}, Layer={_layer})");
         if (version != _buildVersion)
             return; // 用户在生成期间又改了 GridN，丢弃过期结果
 
@@ -436,12 +444,21 @@ public partial class MapViewer : Node3D
                 return;
             }
             var shader = GD.Load<Shader>("res://shaders/planet_detail.gdshader");
+            // ⚠️ 2026-08-02 关键修复：挂载新星球前清掉旧的——原 RebuildColors(切图层) 路径
+            //   不清旧网格 → 每次切图层 AddChild 叠加一个星球 MeshInstance3D → 多个星球
+            //   重叠渲染显示旧图层颜色 → "未切换成功"！
+            if (_planetMesh != null)
+            {
+                _planetMesh.QueueFree();
+                _planetMesh = null;
+            }
             var mi = new MeshInstance3D
             {
                 Mesh = ChunkMeshBuilder.CreateMesh(data),
                 MaterialOverride = new ShaderMaterial { Shader = shader }
             };
             AddChild(mi);
+            _planetMesh = mi;
             GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0})");
 
             // 盛行风箭头网格（图层 4 显示；稀疏采样，非每格）
