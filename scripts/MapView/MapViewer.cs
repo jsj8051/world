@@ -79,6 +79,8 @@ public partial class MapViewer : Node3D
             SyncLayerButtons();
             if (_windArrows != null)
                 _windArrows.Visible = (value == 4);
+            if (_currentArrows != null)
+                _currentArrows.Visible = (value == 5);
         }
     }
     private int _layer;
@@ -99,6 +101,8 @@ public partial class MapViewer : Node3D
 
     // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
     private MeshInstance3D _windArrows;
+    // 洋流箭头（图层 5 显示；红=暖流 蓝=寒流）
+    private MeshInstance3D _currentArrows;
 
     // ── 异步生成状态 ──
     private Task<MeshData> _buildTask;
@@ -114,7 +118,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流" };
 
     public override void _Ready()
     {
@@ -138,6 +142,7 @@ public partial class MapViewer : Node3D
             else if (key.Keycode == Key.Key3) layer = 2;
             else if (key.Keycode == Key.Key4) layer = 3;
             else if (key.Keycode == Key.Key5) layer = 4;
+            else if (key.Keycode == Key.Key6) layer = 5;
             if (layer >= 0)
             {
                 Layer = layer;
@@ -153,7 +158,8 @@ public partial class MapViewer : Node3D
         1 => "温度",
         2 => "降水",
         3 => "生物群系",
-        _ => "盛行风",
+        4 => "盛行风",
+        _ => "洋流",
     };
 
     public override void _Process(double delta)
@@ -322,6 +328,7 @@ public partial class MapViewer : Node3D
                 case 3: // biome
                     return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
                 case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
+                case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
                     {
                         // 淡色底：海洋浅蓝、陆地浅黄绿（低对比，突出箭头）
                         float h = _tileElev[id];
@@ -412,6 +419,8 @@ public partial class MapViewer : Node3D
 
             // 盛行风箭头网格（图层 4 显示；稀疏采样，非每格）
             BuildWindArrows();
+            // 洋流箭头网格（图层 5 显示；暖流红/寒流蓝）
+            BuildCurrentArrows();
 
             // 构建中切了图层 → 自动应用最新图层（几何已就绪，走快速重算）
             if (_pendingRecolor)
@@ -510,6 +519,176 @@ public partial class MapViewer : Node3D
         GD.Print($"[MapViewer] wind arrows built: {verts.Count / 3} arrows");
     }
 
+    // ── 洋流箭头网格（图层 5 显示）──
+    // 用存档洋流场（生成时流函数法算好存 v3.1 尾部）：方向 + 冷暖。
+    // ⚠️ 2026-08-02 v2：用户纠正——真实洋流图（网上）是【特定流线】不铺满海洋。
+    //   从均匀种子沿洋流方向场追踪流线（streamline），只保留长度足够的流线，
+    //   沿流线画箭头 → 湾流/黑潮式清晰流线束，开阔大洋空白。
+    //   暖流（warmth>0.05）→ 红橙，寒流（< -0.05）→ 蓝，中性 → 灰白。
+    private void BuildCurrentArrows()
+    {
+        if (_currentArrows != null)
+        {
+            _currentArrows.QueueFree();
+            _currentArrows = null;
+        }
+        if (_map == null || _map.CurrentDirs == null || _map.CurrentWarmth == null)
+        {
+            GD.Print("[MapViewer] current arrows skipped: 存档无洋流段（旧版）");
+            return;
+        }
+
+        const float arrowLen = 0.05f;
+        const float tailW = 0.02f;
+        float radius = RadiusKm * 1.01f;
+
+        var verts = new System.Collections.Generic.List<Vector3>();
+        var colors = new System.Collections.Generic.List<Color>();
+        var indices = new System.Collections.Generic.List<int>();
+        int arrowCount = 0, lineCount = 0;
+
+        // 种子点：均匀球面网格（15° 环 × 24 经度），每个种子沿洋流场追踪流线
+        var seeds = new System.Collections.Generic.List<Vector3>();
+        for (float lat = -82.5f; lat <= 82.5f; lat += 15f)
+        {
+            float la = Mathf.DegToRad(lat);
+            float cosLa = Mathf.Cos(la);
+            int lonCount = Mathf.Max(6, Mathf.RoundToInt(24 * cosLa));
+            for (int j = 0; j < lonCount; j++)
+            {
+                float lo = Mathf.Tau * j / lonCount;
+                seeds.Add(new Vector3(cosLa * Mathf.Cos(lo), Mathf.Sin(la), cosLa * Mathf.Sin(lo)));
+            }
+        }
+
+        // ⚠️ 2026-08-02：流线间距约束——收敛场会让多条流线挤进同一条强流带（重叠）。
+        //   已接受流线点入桶，追踪时每步检查与已接受流线的球面距离，< minSpacing 终止。
+        //   → 流线之间保持最小间距，不再多层重叠，分布均匀。
+        const int BLat = 16, BLon = 32;
+        var acceptedBuckets = new System.Collections.Generic.List<Vector3>[BLat * BLon];
+        for (int i = 0; i < acceptedBuckets.Length; i++) acceptedBuckets[i] = new System.Collections.Generic.List<Vector3>();
+        float minSpacing = 0.10f;   // 流线最小间距（rad ≈ 5.7°）
+
+        void AddAccepted(Vector3 p)
+        {
+            float la = Mathf.Asin(Mathf.Clamp(p.Y, -1f, 1f));
+            float lo = Mathf.Atan2(p.Z, p.X);
+            int by = Mathf.Clamp((int)((la + Mathf.Pi / 2f) / Mathf.Pi * BLat), 0, BLat - 1);
+            int bx = Mathf.Clamp((int)((lo + Mathf.Pi) / Mathf.Tau * BLon), 0, BLon - 1);
+            acceptedBuckets[by * BLon + bx].Add(p);
+        }
+        bool TooClose(Vector3 p)
+        {
+            float la = Mathf.Asin(Mathf.Clamp(p.Y, -1f, 1f));
+            float lo = Mathf.Atan2(p.Z, p.X);
+            int by = Mathf.Clamp((int)((la + Mathf.Pi / 2f) / Mathf.Pi * BLat), 0, BLat - 1);
+            int bx = Mathf.Clamp((int)((lo + Mathf.Pi) / Mathf.Tau * BLon), 0, BLon - 1);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int y = (by + dy + BLat) % BLat;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int x = (bx + dx + BLon) % BLon;
+                    foreach (var q in acceptedBuckets[y * BLon + x])
+                    {
+                        if (Mathf.Acos(Mathf.Clamp(p.Dot(q), -1f, 1f)) < minSpacing)
+                            return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        foreach (var seed in seeds)
+        {
+            // 流线追踪：沿洋流方向场积分（最大 150 步，步长 0.025 rad）
+            var line = new System.Collections.Generic.List<Vector3> { seed };
+            Vector3 pos = seed;
+            bool valid = true;
+            for (int s = 0; s < 150; s++)
+            {
+                // 间距约束：离已接受流线太近 → 终止（防重叠）
+                if (TooClose(pos)) { valid = false; break; }
+                int id = _map.NearestVertex(pos);
+                if (_map.SampleSpherical(pos, _map.Elev) >= 0f) { valid = false; break; }  // 碰陆地
+                Vector3 dir = _map.CurrentDirs[id];
+                if (dir.LengthSquared() < 1e-9f) { valid = false; break; }                 // 无洋流
+                Vector3 next = (pos + dir * 0.025f).Normalized();
+                // 闭合检测：回到起点附近（环流圈）
+                if (line.Count > 12 && (next - seed).Length() < 0.06f) break;
+                line.Add(next);
+                pos = next;
+            }
+            // 只保留足够长的流线（主要洋流束），避免开阔大洋短线噪声
+            if (!valid || line.Count < 30) continue;
+            lineCount++;
+
+            // 接受此流线：点入桶（供后续流线避让）
+            foreach (var p in line) AddAccepted(p);
+
+            // 沿流线画箭头（每 5 步一个，含方向色）
+            for (int i = 0; i < line.Count - 1; i += 5)
+            {
+                Vector3 dir = line[i + 1] - line[i];
+                if (dir.LengthSquared() < 1e-12f) continue;
+                dir = dir.Normalized();
+                int id = _map.NearestVertex(line[i]);
+                float warmth = _map.CurrentWarmth[id];
+                Color c = warmth > 0.05f ? new Color(1f, 0.45f, 0.2f)
+                    : warmth < -0.05f ? new Color(0.25f, 0.55f, 1f)
+                    : new Color(0.85f, 0.85f, 0.85f);
+
+                Vector3 center = line[i];
+                Vector3 side = center.Cross(dir).Normalized();
+                // ⚠️ 2026-08-02：箭头尺寸随洋流强度（强流带箭头大、开阔弱流小）
+                float str = _map.CurrentStrength != null ? _map.CurrentStrength[id] : 1f;
+                Vector3 tailC = center - dir * arrowLen * 0.35f * str;
+                Vector3 tip = center + dir * arrowLen * 0.65f * str;
+                Vector3 t1 = (tailC + side * tailW * str).Normalized() * radius;
+                Vector3 t2 = (tailC - side * tailW * str).Normalized() * radius;
+                Vector3 tipS = tip.Normalized() * radius;
+
+                int baseIdx = verts.Count;
+                verts.Add(t1); verts.Add(tipS); verts.Add(t2);
+                colors.Add(c); colors.Add(c); colors.Add(c);
+                indices.Add(baseIdx); indices.Add(baseIdx + 1); indices.Add(baseIdx + 2);
+                arrowCount++;
+            }
+        }
+
+        if (verts.Count == 0)
+        {
+            GD.Print("[MapViewer] current arrows: 无有效流线");
+            return;
+        }
+
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = verts.ToArray();
+        arrays[(int)Mesh.ArrayType.Color] = colors.ToArray();
+        arrays[(int)Mesh.ArrayType.Index] = indices.ToArray();
+        var mesh = new ArrayMesh();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+
+        // unshaded + 顶点色
+        var mat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            VertexColorUseAsAlbedo = true,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
+
+        _currentArrows = new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = mat,
+            Visible = (Layer == 5),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_currentArrows);
+        GD.Print($"[MapViewer] current arrows built: {arrowCount} arrows / {lineCount} 流线 (from archive)");
+    }
+
     // ── 进度条 UI ──
 
     private void ShowProgress()
@@ -559,7 +738,7 @@ public partial class MapViewer : Node3D
         var group = new ButtonGroup();
         var hbox = new HBoxContainer();
         hbox.SetAnchorsPreset(Control.LayoutPreset.CenterBottom); // 锚点底部居中
-        hbox.Position = new Vector2(-275, -50);                    // 相对锚点偏移（5 按钮 ≈ 550 宽，居中）
+        hbox.Position = new Vector2(-330, -50);                    // 相对锚点偏移（6 按钮 ≈ 660 宽，居中）
         _uiLayer.AddChild(hbox);
 
         _layerButtons = new Button[LayerNames.Length];

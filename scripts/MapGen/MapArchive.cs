@@ -37,7 +37,9 @@ public static class MapArchive
         float minElev, float maxElev, float[] elev,
         float[] temp, float[] precip, byte[] biome,
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
-        bool prograde = true, float rotationSpeed = 1f, bool log = true)
+        bool prograde = true, float rotationSpeed = 1f,
+        Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
+        bool log = true)
     {
         string dir = path.GetBaseDir();
         if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
@@ -69,6 +71,16 @@ public static class MapArchive
         foreach (var b in biome) f.Store8(b);
         f.Store8((byte)(prograde ? 1 : 0));   // 尾部扩展1：自转方向（盛行风图层用；旧存档无此字节=默认顺转）
         f.StoreFloat(rotationSpeed);          // 尾部扩展2：自转速度（科里奥利强度；旧存档无=1.0 地球）
+        // 尾部扩展3（2026-08-02）：洋流方向+冷暖+强度（流函数法；MapViewer 洋流图层用）
+        //   每顶点：方向 3 float（零=内陆无洋流）+ 冷暖 1 float + 强度 1 float。
+        //   旧存档无此段=默认无洋流。
+        if (currentDirs != null && currentWarmth != null)
+        {
+            foreach (var cd in currentDirs) { f.StoreFloat(cd.X); f.StoreFloat(cd.Y); f.StoreFloat(cd.Z); }
+            foreach (var cw in currentWarmth) f.StoreFloat(cw);
+            if (currentStrength != null)
+                foreach (var cs in currentStrength) f.StoreFloat(cs);
+        }
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
                      $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}] prograde={prograde})");
@@ -163,9 +175,26 @@ public static class MapArchive
             // 尾部扩展：自转方向（旧存档没有此字节 → 默认顺转）+ 自转速度（旧存档没有 → 1.0）
             map.ProgradeRotation = f.GetPosition() < f.GetLength() ? f.Get8() != 0 : true;
             map.RotationSpeed = f.GetPosition() + 4 <= f.GetLength() ? f.GetFloat() : 1f;
+            // 尾部扩展3（v3.1）：洋流段（方向 3n floats + 冷暖 n floats [+ 强度 n floats]；旧存档无 = null）
+            ulong currentBytes16 = (ulong)n * 16u;   // 3 方向 + 1 冷暖 = 16 字节/顶点
+            ulong currentBytes20 = (ulong)n * 20u;   // + 1 强度 = 20 字节/顶点
+            if (f.GetPosition() + currentBytes16 <= f.GetLength())
+            {
+                map.CurrentDirs = new Vector3[n];
+                for (int i = 0; i < n; i++)
+                    map.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());
+                map.CurrentWarmth = new float[n];
+                for (int i = 0; i < n; i++) map.CurrentWarmth[i] = f.GetFloat();
+                // 强度段（v3.1 加；旧存档只有 16n 字节 → 无强度，默认 1）
+                if (f.GetPosition() + currentBytes20 <= f.GetLength())
+                {
+                    map.CurrentStrength = new float[n];
+                    for (int i = 0; i < n; i++) map.CurrentStrength[i] = f.GetFloat();
+                }
+            }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed})");
+            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")})");
         }
         else
         {
@@ -206,6 +235,9 @@ public class MapData
     public ushort Version;
     public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
     public float RotationSpeed = 1f;       // 自转速度（v3 尾部 float；旧存档默认 1.0 地球）
+    public Vector3[] CurrentDirs;          // 洋流方向（v3.1 尾部；null=旧存档无）
+    public float[] CurrentWarmth;          // 洋流冷暖（v3.1 尾部；null=旧存档无）
+    public float[] CurrentStrength;        // 洋流强度 0.3~1.0（v3.1 尾部；null=旧存档无，默认 1）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

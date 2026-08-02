@@ -33,6 +33,11 @@ public partial class MapGenerator : Node
 	[Export] public float Insolation = 1.0f;    // 恒星辐照度（相对地球 1AU）：0.7=远、冷，1.3=近、热
 	[Export] public float RotationSpeed = 1.0f; // 自转速度（相对地球 24h=1.0）：0.2=慢（金星式），5=快（木星式）
 
+	// 洋流场（生成时算好，WriteSpherical 存档 + 气候修正用）
+	private Vector3[] _curDirs;
+	private float[] _curWarmth;
+	private float[] _curStrength;
+
 	public override void _Ready()
 	{
 		// headless 调参支持：-- --seed=7 / -- --seed 7 / --seed=7 覆盖 [Export]
@@ -136,6 +141,38 @@ public partial class MapGenerator : Node
 			int id = grid.NearestId(dir);
 			return span > 1e-6f ? svElev[id] / span : 0f;
 		};
+
+		// 洋流场（2026-08-02 v2：风应力旋度 + 流函数 → 闭合环流；替代"方向=风向"）
+		{
+			// 归一化海拔数组
+			var eNorm = new float[vn];
+			for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
+			World.Biome.OceanCurrent.Compute(simVerts, grid.Neighbors, eNorm,
+				out _curDirs, out _curWarmth, out _curStrength);
+		}
+		// 沿岸采样：球面点 → 最近海洋顶点的冷暖+强度（陆地点查邻域最近海洋，距离衰减）
+		//   强度（0.3~1.0）用于修正系数动态化：强流带影响大、开阔弱流影响小
+		System.Func<Vector3, (float warm, float str)> warmthSampler = p =>
+		{
+			Vector3 dir = p.Normalized();
+			int id = grid.NearestId(dir);
+			if (_curWarmth[id] != 0f)
+				return (_curWarmth[id], _curStrength != null ? _curStrength[id] : 1f);   // 海洋点直接用
+			// 陆地点：查邻居找最近海洋冷暖（沿岸陆地受影响）
+			float best = 0f, bestD = 1e9f, bestStr = 1f;
+			foreach (var nb in grid.Neighbors[id])
+			{
+				if (_curWarmth[nb] != 0f)
+				{
+					float d = Mathf.Acos(Mathf.Clamp(simVerts[id].Dot(simVerts[nb]), -1f, 1f));
+					if (d < bestD) { bestD = d; best = _curWarmth[nb]; bestStr = _curStrength != null ? _curStrength[nb] : 1f; }
+				}
+			}
+			float decay = Mathf.Exp(-bestD / 0.08f);   // 距岸衰减（0.08rad ≈ 500km）
+			return (best * decay, bestStr);
+		};
+		climate.SetOceanCurrent(warmthSampler);
+
 		Parallel.For(0, vn, i =>
 		{
 			Vector3 p = simVerts[i] * RadiusKm;   // 球面点（km）
@@ -168,7 +205,8 @@ public partial class MapGenerator : Node
 		GD.Print(sb.ToString());
 
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, minE, maxE, svElev,
-			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed);
+			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
+			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength);
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, svElev, minE, maxE);
@@ -225,6 +263,31 @@ public partial class MapGenerator : Node
 				int id = grid.NearestId(dir);
 				return span > 1e-6f ? svElev[id] / span : 0f;
 			};
+			// 洋流场（v2 流函数法，与同步路径一致）
+			{
+				var eNorm = new float[vn];
+				for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
+				World.Biome.OceanCurrent.Compute(simVerts, grid.Neighbors, eNorm,
+					out _curDirs, out _curWarmth, out _curStrength);
+			}
+			System.Func<Vector3, (float warm, float str)> warmthSampler = p =>
+			{
+				Vector3 dir = p.Normalized();
+				int id = grid.NearestId(dir);
+				if (_curWarmth[id] != 0f)
+					return (_curWarmth[id], _curStrength != null ? _curStrength[id] : 1f);
+				float best = 0f, bestD = 1e9f, bestStr = 1f;
+				foreach (var nb in grid.Neighbors[id])
+				{
+					if (_curWarmth[nb] != 0f)
+					{
+						float d = Mathf.Acos(Mathf.Clamp(simVerts[id].Dot(simVerts[nb]), -1f, 1f));
+						if (d < bestD) { bestD = d; best = _curWarmth[nb]; bestStr = _curStrength != null ? _curStrength[nb] : 1f; }
+					}
+				}
+				return (best * Mathf.Exp(-bestD / 0.08f), bestStr);
+			};
+			climate.SetOceanCurrent(warmthSampler);
 			Parallel.For(0, vn, i =>
 			{
 				Vector3 p = simVerts[i] * radius;
@@ -249,7 +312,8 @@ public partial class MapGenerator : Node
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
-				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed, log: false);   // 后台线程禁止 GD.Print
+				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
+				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, svElev, minE, maxE);
 			return (ok, outPath);

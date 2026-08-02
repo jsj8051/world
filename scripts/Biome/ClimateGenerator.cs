@@ -16,6 +16,7 @@ public class ClimateGenerator
     private readonly FastNoiseLite _precipNoise;
     private readonly float _tiltRad;   // 轴向倾角（弧度）
     private readonly float _insolation; // 恒星辐照度（相对地球 1AU = 1.0）
+    private System.Func<Vector3, (float warm, float str)> _sampleCurrent;   // 洋流（冷暖-1~1, 强度0.3~1），null=无洋流
 
     /// <summary>轴向倾角（度）。默认 23.4（地球）。影响年均温度带：倾角大 → 高纬年均更冷
     /// （夏季直射但冬季极夜更长）、季节振幅更大；倾角 0 → 无季节、极地温和。
@@ -88,9 +89,26 @@ public class ClimateGenerator
         // 大陆性噪声：±7°C
         float noise = _tempNoise.GetNoise3D(dir.X, dir.Y, dir.Z) * 7f;
 
+        // 洋流修正（2026-08-02）：暖流沿岸升温、寒流降温。
+        //   ⚠️ 动态化：修正 = 冷暖(warm -1~1) × 强度(str 0.3~1.0) × 5°C——
+        //     强流带（湾流式，str≈1）修正大（±5°C），开阔弱流（str≈0.3）影响小（±1.5°C）。
+        //     旧固定系数 3°C 不分强弱。
+        float oceanT = 0f;
+        if (_sampleCurrent != null)
+        {
+            var (warm, str) = _sampleCurrent(dir);
+            oceanT = warm * str * 5f;
+        }
+
         // 海拔递减：6.5°C/km，最高 10km（归一化 1.0）
         float elevKm = Mathf.Max(0f, elevNorm) * 10f;
-        return baseT + noise - 6.5f * elevKm;
+        return baseT + noise + oceanT - 6.5f * elevKm;
+    }
+
+    /// <summary>设置洋流冷暖+强度查询（沿岸陆地：暖流升温增湿、寒流降温减湿；强流影响大）。</summary>
+    public void SetOceanCurrent(System.Func<Vector3, (float warm, float str)> sampleCurrent)
+    {
+        _sampleCurrent = sampleCurrent;
     }
 
     /// <summary>
@@ -126,6 +144,14 @@ public class ClimateGenerator
         // ⚠️ 2026-08-02：噪声从 ±45% 降到 ±12%——之前噪声摆动比盛行风修正（±35%）还大，
         //   把信风带/雨影的物理信号淹没了。现在纬度带基准是骨架、盛行风是主要调节、噪声只是小扰动。
         float mod = 1f + noise * 0.12f; // 0.88..1.12
+
+        // 洋流修正（2026-08-02）：暖流沿岸蒸发强 → 增湿；寒流沿岸 → 减湿。
+        //   ⚠️ 动态化：修正 = 冷暖 × 强度 × 25%（强流带 ±25%，开阔弱流 ±7.5%）
+        if (_sampleCurrent != null)
+        {
+            var (warm, str) = _sampleCurrent(dir);
+            baseP *= 1f + warm * str * 0.25f;
+        }
 
         if (elevNorm > 0f)
             baseP *= 1f + Mathf.Min(elevNorm, 1f) * 0.4f; // 地形抬升增雨
