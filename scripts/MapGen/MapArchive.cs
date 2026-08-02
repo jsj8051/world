@@ -39,6 +39,7 @@ public static class MapArchive
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
         bool prograde = true, float rotationSpeed = 1f,
         Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
+        byte[] riverLevel = null, int[] riverFlow = null,
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -80,6 +81,12 @@ public static class MapArchive
             foreach (var cw in currentWarmth) f.StoreFloat(cw);
             if (currentStrength != null)
                 foreach (var cs in currentStrength) f.StoreFloat(cs);
+        }
+        // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes；旧存档无=null）
+        if (riverLevel != null && riverFlow != null)
+        {
+            foreach (var rl in riverLevel) f.Store8(rl);
+            foreach (var rf in riverFlow) f.Store32((uint)rf);
         }
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
@@ -192,9 +199,18 @@ public static class MapArchive
                     for (int i = 0; i < n; i++) map.CurrentStrength[i] = f.GetFloat();
                 }
             }
+            // 尾部扩展4：河流（级别 n bytes + 流向 n×4 bytes；旧存档无 = null）
+            ulong riverBytes = (ulong)n * 5u;
+            if (f.GetPosition() + riverBytes <= f.GetLength())
+            {
+                map.RiverLevel = new byte[n];
+                for (int i = 0; i < n; i++) map.RiverLevel[i] = f.Get8();
+                map.RiverFlow = new int[n];
+                for (int i = 0; i < n; i++) map.RiverFlow[i] = (int)f.Get32();
+            }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")})");
+            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")})");
         }
         else
         {
@@ -238,6 +254,8 @@ public class MapData
     public Vector3[] CurrentDirs;          // 洋流方向（v3.1 尾部；null=旧存档无）
     public float[] CurrentWarmth;          // 洋流冷暖（v3.1 尾部；null=旧存档无）
     public float[] CurrentStrength;        // 洋流强度 0.3~1.0（v3.1 尾部；null=旧存档无，默认 1）
+    public byte[] RiverLevel;              // 河流级别（v3.2 尾部；null=旧存档无）
+    public int[] RiverFlow;                // 河流流向（v3.2 尾部；null=旧存档无）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

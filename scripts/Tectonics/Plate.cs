@@ -75,7 +75,11 @@ namespace World.Tectonics
         ///   3. local_to_global = local_to_global × rotation
         ///   4. 重算局部↔全局映射（Voronoi 最近邻）
         /// </summary>
-        public void Move(float megayears, SphereGrid globalGrid, MaterialDensity material, float surfaceGravity)
+        /// <param name="resyncMappings">⚠️ 2026-08-02 性能优化 A：周期全量重同步。
+        ///   板块旋转角随模拟时间累积 → 上一步映射当爬山种子越来越不准 → 候选打满 80
+        ///   退化成近似全桶查询（profile：n=64 每 50My Move 涨 3 倍，100-150My 段 13.6s）。
+        ///   每 25 步调用一次全桶 NearestId 重建映射 → 中间 24 步种子保持准（~7 次）。</param>
+        public void Move(float megayears, SphereGrid globalGrid, MaterialDensity material, float surfaceGravity, bool resyncMappings = false)
         {
             // 1. 速度场：v = boundary_normal × buoyancy × k
             //    buoyancy ≤0（负浮力=下沉的俯冲板片），方向指向板边界外侧
@@ -103,28 +107,32 @@ namespace World.Tectonics
             GlobalToLocal = MatrixOps.Invert(LocalToGlobal);
 
             // 4. 重算映射（全局顶点 → 板局部坐标 → 最近局部顶点）
-            // ⚠️ 优化（2026-08-02）：局部网格=全局网格拓扑（同一 Icosahedron 细分），
-            //   旋转角度小（每步 ~0.01-0.1°）→ 上一步映射是很好的种子，
-            //   种子+邻居爬山（约 7 次距离计算）替代全桶查询（~180 次）→ 快 ~16 倍。
-            //   正确性验证见 NearestIdSeeded 注释（小旋转时爬山=全桶查询）。
+            // ⚠️ 优化（2026-08-02 v2）：种子爬山 + 失败兜底全桶（自适应，不依赖参数）。
+            //   v1 用 resync 周期全桶——成本 O(n)×频繁 随 n/速度失效（n=64 后段 Move 44s+）。
+            //   现在：正常顶点爬山（~7 次距离），爬山超 64 候选（种子错）→ -1 → 全桶精确纠错。
+            //   错误每步纠正不传播 → 不随 n/自转速度/板块数退化。
             int n = globalGrid.VertexCount;
-            int[] scratch = new int[80];
+            if (_scratch == null) _scratch = new int[300];   // 复用；上限 300（BFS 栈，64 后判失败）
             for (int i = 0; i < n; i++)
             {
                 Vector3 p = globalGrid.Vertices[i];
                 Vector3 localPos = MatrixOps.MultVector(GlobalToLocal, p);
                 Vector3 dir = localPos.Normalized();
                 int seed = LocalIdsOfGlobalCells[i];   // 上一步的映射（旋转小→仍在附近）
-                LocalIdsOfGlobalCells[i] = LocalGrid.NearestIdSeeded(dir, seed, scratch);
+                int r = LocalGrid.NearestIdSeeded(dir, seed, _scratch);
+                LocalIdsOfGlobalCells[i] = r >= 0 ? r : LocalGrid.NearestId(dir);   // 兜底全桶纠错
             }
             for (int i = 0; i < LocalGrid.VertexCount; i++)
             {
                 Vector3 localPos = MatrixOps.MultVector(LocalToGlobal, LocalGrid.Vertices[i]);
                 Vector3 dir = localPos.Normalized();
                 int seed = GlobalIdsOfLocalCells[i];
-                GlobalIdsOfLocalCells[i] = globalGrid.NearestIdSeeded(dir, seed, scratch);
+                int r = globalGrid.NearestIdSeeded(dir, seed, _scratch);
+                GlobalIdsOfLocalCells[i] = r >= 0 ? r : globalGrid.NearestId(dir);   // 兜底全桶纠错
             }
         }
+
+        private int[] _scratch;   // 爬山候选数组（复用，GC 优化）
 
         /// <summary>板质心（质量加权，局部坐标，单位向量）。</summary>
         public Vector3 GetCenterOfMass(float[] mass)

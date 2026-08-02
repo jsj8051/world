@@ -32,6 +32,8 @@ namespace World.Tectonics
 
         public float[] TopPlateMap;              // 每全局顶点 → 顶层板块 id
         public int[] PlateCount;                 // 每全局顶点 → 覆盖的板块数（M3-2）
+        private byte[] _mergeGlobalMask;         // Merge 复用缓冲区（GC 优化 C）
+        private Crust _mergeGlobalizedCrust;     // Merge 复用板重采样缓冲（GC 优化 C2）
         public Crust Accretion;                  // 俯冲增生楔（M3-3，全局 delta，加到顶层板）
         public int GridN = 16;                   // Icosahedron 细分（verts≈2562）
         public bool EnableErosion = true;        // M3：地表过程（侵蚀/风化/成岩/变质）开关
@@ -298,8 +300,14 @@ namespace World.Tectonics
                 swOther.Stop();
 
                 swMove.Start();
-                foreach (var plate in Plates)
-                    plate.Move(stepMy, GlobalGrid, Material, SurfaceGravity);
+                // ⚠️ 优化 B（2026-08-02）：各板块 Move 完全独立（不同局部网格）→ 并行。
+                //   n=64 有 ~8 板块，多核 CPU 理论 ×4-8。NearestId 桶索引只读（并行安全，
+                //   但桶必须已构建——Move 前由 ResampleCrustToGlobal 等预热或首次构建，
+                //   ⚠️ 惰性构建在并行时并发修改集合会崩溃，见 EnsureBuckets 注释）。
+                System.Threading.Tasks.Parallel.For(0, Plates.Count, pi =>
+                {
+                    Plates[pi].Move(stepMy, GlobalGrid, Material, SurfaceGravity);
+                });
                 swMove.Stop();
 
                 swMerge.Start();
@@ -391,14 +399,19 @@ namespace World.Tectonics
             var masterDensity = new float[n];
             Array.Fill(masterDensity, float.MaxValue);
 
-            var globalizedCrust = new Crust(GlobalGrid); // 临时：板 crust 重采样结果
+            // ⚠️ GC 优化 C2（2026-08-02）：原每步 3 次 new Crust（8 数组 × 40962 ≈ 1.3MB）——
+            //   300 步 × 3 = 1.2GB 分配 → 老年代 GC 压力随时间涨（Merge 21.6→31.7s/段）。
+            //   复用字段（ResampleCrustToGlobal 每次全量覆盖，无残留）。
+            if (_mergeGlobalizedCrust == null) _mergeGlobalizedCrust = new Crust(GlobalGrid);
+            var globalizedCrust = _mergeGlobalizedCrust;
 
             foreach (var plate in Plates)
             {
                 // 重采样板 crust 到全局
                 plate.ResampleCrustToGlobal(globalizedCrust);
                 // 板 mask 全局化（局部 mask → 全局）
-                var globalMask = new byte[n];
+                if (_mergeGlobalMask == null) _mergeGlobalMask = new byte[n];   // GC 优化 C：复用
+                var globalMask = _mergeGlobalMask;
                 for (int i = 0; i < n; i++)
                     globalMask[i] = plate.Mask[plate.LocalIdsOfGlobalCells[i]];
 
@@ -407,14 +420,17 @@ namespace World.Tectonics
                     plate.Crust.GetThickness(Material),
                     Material.MaficVolcanicMin);
 
+                // ⚠️ GC 优化 C（2026-08-02）：ConservedPools 每次 new 5 元素引用数组——
+                //   内循环 40962 次 × 2 调用 = 8 万次小分配/merge × 3 merge/步 = GC 风暴。
+                //   移出循环（每 plate 一次）。
+                var c1 = WorldCrust.ConservedPools();
+                var c2 = globalizedCrust.ConservedPools();
                 for (int i = 0; i < n; i++)
                 {
                     if (globalMask[i] == 0) continue;
                     PlateCount[i]++;   // M3-2：覆盖板块数 +1
                     bool onTop = plateDensity[plate.LocalIdsOfGlobalCells[i]] < masterDensity[i];
                     // 守恒组叠加（felsic 类，碰撞增厚）
-                    var c1 = WorldCrust.ConservedPools();
-                    var c2 = globalizedCrust.ConservedPools();
                     for (int k = 0; k < 5; k++) c1[k][i] += c2[k][i];
                     if (onTop)
                     {

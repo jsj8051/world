@@ -122,19 +122,23 @@ namespace World.Tectonics
         /// 适用：查询点 p 靠近 seed（如刚体旋转后上一步的映射），旋转角小于网格间距时
         /// 结果与全桶查询一致（实测 500 次移动后仅 10/10242 差 1 格 = 0.1%，误差在
         /// Merge 重采样时被平滑，物理无影响），但只需 ~7-20 次距离计算（vs 全桶 ~180 次）。
-        /// ⚠️ 2026-08-02：Move 步骤 4 用（每板每步 2×10242 次查询是唯一热点，实测快 ~16 倍）。
+        /// ⚠️ 2026-08-02 v2：扩展超阈值（种子不可靠，如错误种子传播）→ 返回 -1，
+        ///   调用方兜底全桶 NearestId 精确纠错。根治"爬山从错误种子出发一直错"的
+        ///   累积退化（profile：n=64 后段 Move 44s+，resync 全桶方案成本 O(n) 也失效）。
         /// </summary>
         public int NearestIdSeeded(Vector3 p, int seed, int[] scratch)
         {
+            // 正确种子 ~7-20 候选；超 64 = 种子漂移（错误）→ 返回 -1 兜底
+            const int MaxCandidates = 64;
             int best = seed;
             float bestD = (Vertices[best] - p).LengthSquared();
             int stackCount = 0;
             scratch[stackCount++] = best;
             // BFS：检查种子及其邻居，若邻居更近则继续扩展（爬山）
-            // 最多扩展 80 个候选（三层邻居，覆盖更大旋转角，降低局部最优概率）
             int head = 0;
-            while (head < stackCount && stackCount < scratch.Length)
+            while (head < stackCount)
             {
+                if (stackCount > MaxCandidates) return -1;   // 种子不可靠 → 调用方全桶
                 int id = scratch[head++];
                 foreach (int nb in Neighbors[id])
                 {
