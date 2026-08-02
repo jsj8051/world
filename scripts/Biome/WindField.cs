@@ -22,6 +22,13 @@ public static class WindField
     /// <summary>自转方向（true=顺转，地球式自西向东；false=逆转，金星式）。</summary>
     public static bool Prograde = true;
 
+    /// <summary>自转速度（相对地球 24h = 1.0）。科里奥利力 ∝ Ω：
+    /// 0.2（~5 天/圈，慢速）→ 偏转弱 → 风带模糊、全球均一（金星式）；
+    /// 1.0（地球）→ 标准信风/西风带；5（~5h/圈，快速）→ 偏转强 → 纬向急流、风带分明。
+    /// ⚠️ 2026-08-02：科里奥利偏转强度 = sin|lat| × speed^0.7（亚线性——气候响应
+    ///   对 Ω 是非线性的，地球 1.0 标定不变）。</summary>
+    public static float RotationSpeed = 1.0f;
+
     /// <summary>
     /// 纬度 → 环流带类型（按 |lat|）。
     /// </summary>
@@ -71,7 +78,8 @@ public static class WindField
         //   即 east 分量 = mer × sin|lat| × coriolisHemi
         //   南半球左偏 → 符号翻转；逆转自转（金星式）→ 再翻转
         float coriolisHemi = (north ? 1f : -1f) * (Prograde ? 1f : -1f);
-        float deflect = Mathf.Sin(Mathf.Abs(lat));   // 赤道 0 → 极地 1
+        // 偏转强度 = sin|lat| × 自转速度^0.7（科里奥利 ∝ Ω，亚线性标定）
+        float deflect = Mathf.Sin(Mathf.Abs(lat)) * Mathf.Pow(RotationSpeed, 0.7f);
         Vector3 wind = northDir * mer + east * (mer * deflect * coriolisHemi);
 
         return wind.LengthSquared() > 1e-9f ? wind.Normalized() : east;
@@ -79,23 +87,35 @@ public static class WindField
 
     /// <summary>
     /// 风"从海洋来"的程度：-1 = 纯大陆风（干燥），+1 = 纯海洋风（湿润）。
-    /// 需要调用方提供海陆判断（elevNorm &lt; 0 = 海洋）。用风向上的采样判断。
-    /// ⚠️ 采样距离必须 > 网格顶点间距（n=16 时 ~7°；n=32 时 ~3.5°）——
-    ///   距离太短会落在同一 Voronoi 胞内，海陆判断失效（实测 0.04rad 无效果）。
+    /// 需要调用方提供海陆判断（elevNorm &lt; 0 = 海洋）。
+    ///
+    /// ⚠️ 2026-08-02 v3：连续指数衰减模型（替代 3 点布尔 → 4 离散档位的阈值型）。
+    ///   物理：气团从海洋携带水汽，每走一段路降水损失固定比例 → exp(-d/L) 衰减。
+    ///   沿上风向采 10 点，海洋贡献按距离衰减加权：
+    ///     快自转 → L 大（水汽输送远、深入内陆，海陆差异小）
+    ///     慢自转 → L 小（水汽近岸耗尽，海岸湿内陆干，海陆差异大）
+    ///   结果连续 0~1，风向渐变 → 湿润度连续响应（不再需要扫过海岸线才突变）。
     /// </summary>
     public static float MaritimeScore(Vector3 pos, float elevNorm, System.Func<Vector3, float> sampleElev)
     {
         Vector3 dir = pos.Normalized();
         Vector3 wind = WindAt(dir);
-        // 沿风向（上风向，即 -wind）采样 3 个点，看是否经过海洋
-        // 0.10/0.18/0.26 弧度 ≈ 5.7°/10.3°/14.9°：跨过多个顶点胞
-        float score = 0f;
-        for (int i = 1; i <= 3; i++)
+        // 水汽衰减尺度：地球 1× 时 L≈0.15 rad（~1000km 内贡献 37%）；∝ speed^0.5
+        //   0.2× → 0.067（~450km 就耗尽）；5× → 0.335（~2200km 仍有效）
+        float L = 0.15f * Mathf.Pow(RotationSpeed, 0.5f);
+        // 采样范围 = 3L（覆盖到贡献可忽略处），最远 0.3~1.0 rad；至少 0.25 rad 跨过顶点胞
+        float range = Mathf.Clamp(3f * L, 0.25f, 0.9f);
+        const int M = 10;
+        float sumW = 0f, sumOcean = 0f;
+        for (int i = 1; i <= M; i++)
         {
-            Vector3 up = (dir - wind * (0.10f * i)).Normalized();   // 上风向
-            if (sampleElev(up) < 0f) score += 0.5f;                  // 海洋湿润
-            else score -= 0.25f;                                     // 陆地干燥
+            float d = range * i / M;
+            Vector3 up = (dir - wind * d).Normalized();   // 上风向
+            float w = Mathf.Exp(-d / L);
+            sumW += w;
+            if (sampleElev(up) < 0f) sumOcean += w;        // 海洋点贡献权重
         }
-        return Mathf.Clamp(score, -1f, 1f);
+        float score = sumW > 1e-9f ? sumOcean / sumW : 0f;  // 0~1 连续
+        return (score - 0.5f) * 2f;                         // -1（全陆）~ +1（全海）
     }
 }

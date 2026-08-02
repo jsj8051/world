@@ -37,7 +37,7 @@ public static class MapArchive
         float minElev, float maxElev, float[] elev,
         float[] temp, float[] precip, byte[] biome,
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
-        bool prograde = true, bool log = true)
+        bool prograde = true, float rotationSpeed = 1f, bool log = true)
     {
         string dir = path.GetBaseDir();
         if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
@@ -67,7 +67,8 @@ public static class MapArchive
         f.StoreFloat(maxPrecip);
         foreach (var p in precip) f.StoreFloat(p);
         foreach (var b in biome) f.Store8(b);
-        f.Store8((byte)(prograde ? 1 : 0));   // 尾部扩展：自转方向（盛行风图层用；旧存档无此字节=默认顺转）
+        f.Store8((byte)(prograde ? 1 : 0));   // 尾部扩展1：自转方向（盛行风图层用；旧存档无此字节=默认顺转）
+        f.StoreFloat(rotationSpeed);          // 尾部扩展2：自转速度（科里奥利强度；旧存档无=1.0 地球）
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
                      $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}] prograde={prograde})");
@@ -159,11 +160,12 @@ public static class MapArchive
             for (int i = 0; i < n; i++) map.Biome[i] = f.Get8();
             map.Width = 0;
             map.Height = 0;
-            // 尾部扩展字节：自转方向（旧存档没有此字节 → 默认顺转）
+            // 尾部扩展：自转方向（旧存档没有此字节 → 默认顺转）+ 自转速度（旧存档没有 → 1.0）
             map.ProgradeRotation = f.GetPosition() < f.GetLength() ? f.Get8() != 0 : true;
+            map.RotationSpeed = f.GetPosition() + 4 <= f.GetLength() ? f.GetFloat() : 1f;
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation})");
+            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed})");
         }
         else
         {
@@ -203,6 +205,7 @@ public class MapData
     public int Seed;
     public ushort Version;
     public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
+    public float RotationSpeed = 1f;       // 自转速度（v3 尾部 float；旧存档默认 1.0 地球）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

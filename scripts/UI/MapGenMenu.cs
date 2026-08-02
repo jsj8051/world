@@ -23,6 +23,7 @@ public partial class MapGenMenu : Control
     private OptionButton _rotBox;   // 自转方向
     private OptionButton _tiltBox;  // 轴向倾角
     private OptionButton _distBox;  // 距太阳距离
+    private OptionButton _speedBox; // 自转速度
 
     private MapGenerator _gen;
     private volatile float _progress;   // 后台线程写、主线程 _Process 读
@@ -73,6 +74,9 @@ public partial class MapGenMenu : Control
 
         // 距太阳距离（恒星辐照度 → 全球温度）
         _form.AddChild(MakeRow("距太阳距离", _distBox = MakeDistanceOption()));
+
+        // 自转速度（科里奥利强度 → 风带）
+        _form.AddChild(MakeRow("自转速度", _speedBox = MakeSpeedOption()));
 
         // ── 按钮区 ──
         var btnRow = new HBoxContainer { CustomMinimumSize = new Vector2(480, 0) };
@@ -202,6 +206,17 @@ public partial class MapGenMenu : Control
         return ob;
     }
 
+    private OptionButton MakeSpeedOption()
+    {
+        // id 编码速度×10：2=0.2×, 10=1.0×, 50=5.0×
+        var ob = new OptionButton();
+        ob.AddItem("慢速 0.2×（~5天/圈，金星式均一）", 2);
+        ob.AddItem("正常 1.0×（24h，地球）", 10);
+        ob.AddItem("快速 5.0×（~5h/圈，木星式急流）", 50);
+        ob.Selected = 1;   // 1.0× 默认
+        return ob;
+    }
+
     private Button MakeBtn(string text, int size)
     {
         var b = new Button { Text = text, CustomMinimumSize = new Vector2(180, 52) };
@@ -230,6 +245,7 @@ public partial class MapGenMenu : Control
         int tilt = _tiltBox.GetSelectedId();
         float distAu = _distBox.GetSelectedId() / 10f;   // 8→0.8, 10→1.0, 12→1.2
         float insolation = 1f / (distAu * distAu);       // 能量 ∝ 1/d²
+        float speed = _speedBox.GetSelectedId() / 10f;   // 2→0.2, 10→1.0, 50→5.0
         _lastOutPath = $"user://maps/map_seed{seed}_n{n}.mpa";
 
         _gen = new MapGenerator
@@ -242,6 +258,7 @@ public partial class MapGenMenu : Control
             ProgradeRotation = prograde,   // 自转方向 → 盛行风
             AxialTilt = tilt,              // 轴向倾角 → 季节/温度带
             Insolation = insolation,       // 距太阳距离 → 全球温度
+            RotationSpeed = speed,         // 自转速度 → 科里奥利强度
             OutputPath = _lastOutPath,
             ExportPreview = false,   // UI 模式不导出 PNG，省时间
             AutoQuit = false,
@@ -250,7 +267,7 @@ public partial class MapGenMenu : Control
         _gen.GenerateAsync(
             p => _progress = p,     // 后台线程写 volatile（线程安全）
             (ok, path) => { });     // 实际完成回调走 SetAsyncDoneCallback（主线程）
-        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU → {_lastOutPath}");
+        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× → {_lastOutPath}");
     }
 
     private void OnGenerateDone(bool ok, string path)

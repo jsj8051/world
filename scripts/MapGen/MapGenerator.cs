@@ -31,6 +31,7 @@ public partial class MapGenerator : Node
 	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
 	[Export] public float AxialTilt = 23.4f;   // 轴向倾角（度）：0=无季节，23.4=地球，90=极端季节
 	[Export] public float Insolation = 1.0f;    // 恒星辐照度（相对地球 1AU）：0.7=远、冷，1.3=近、热
+	[Export] public float RotationSpeed = 1.0f; // 自转速度（相对地球 24h=1.0）：0.2=慢（金星式），5=快（木星式）
 
 	public override void _Ready()
 	{
@@ -63,6 +64,7 @@ public partial class MapGenerator : Node
 			else if (TryInt("NumPlates", p => NumPlates = p)) { }
 			else if (TryFloat("AxialTilt", t => AxialTilt = t)) { }
 			else if (TryFloat("Insolation", i => Insolation = i)) { }
+			else if (TryFloat("RotationSpeed", r => RotationSpeed = r)) { }
 			else if (v == "AutoQuit" || v == "--AutoQuit" || v == "AutoQuit=true" || v == "--AutoQuit=true") AutoQuit = true;
 			else if (v.StartsWith("ProgradeRotation", StringComparison.OrdinalIgnoreCase))
 			{
@@ -120,6 +122,7 @@ public partial class MapGenerator : Node
 
 		// 气候 + 生物群系（球面顶点上直接算）
 		World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
+		World.Biome.WindField.RotationSpeed = RotationSpeed; // 自转速度 → 科里奥利强度
 		var climate = new ClimateGenerator(Seed, AxialTilt, Insolation);
 		var svTemp = new float[vn];
 		var svPrecip = new float[vn];
@@ -165,7 +168,7 @@ public partial class MapGenerator : Node
 		GD.Print(sb.ToString());
 
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, minE, maxE, svElev,
-			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation);
+			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed);
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, svElev, minE, maxE);
@@ -208,6 +211,7 @@ public partial class MapGenerator : Node
 
 			// ── 气候 + biome（纯数据，FastNoiseLite 只读线程安全）──
 			World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
+		World.Biome.WindField.RotationSpeed = RotationSpeed; // 自转速度 → 科里奥利强度
 			var climate = new ClimateGenerator(seed, AxialTilt, Insolation);
 			var svTemp = new float[vn];
 			var svPrecip = new float[vn];
@@ -245,7 +249,7 @@ public partial class MapGenerator : Node
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
-				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, log: false);   // 后台线程禁止 GD.Print
+				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, svElev, minE, maxE);
 			return (ok, outPath);

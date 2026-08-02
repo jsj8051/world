@@ -290,8 +290,9 @@ public partial class MapViewer : Node3D
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
 
-        // 盛行风图层：用存档自转方向（旧存档默认顺转）
+        // 盛行风图层：用存档自转方向/速度（旧存档默认顺转 1.0）
         World.Biome.WindField.Prograde = map.ProgradeRotation;
+        World.Biome.WindField.RotationSpeed = map.RotationSpeed;
         System.Threading.Tasks.Parallel.For(0, n, i =>
         {
             if (token.IsCancellationRequested) return;
@@ -444,6 +445,7 @@ public partial class MapViewer : Node3D
         if (_tileWind == null || _tiles == null) return;
 
         World.Biome.WindField.Prograde = _map.ProgradeRotation;   // 自转方向 → 风向
+        World.Biome.WindField.RotationSpeed = _map.RotationSpeed; // 自转速度 → 科里奥利强度
         const float arrowLen = 0.09f;    // 箭头长度（球面弧比例，半径 1）
         const float tailW = 0.035f;      // 尾半宽
         // ⚠️ 浮在球面上方 1%（半径×1.01）：顶点与球面同一半径会 z-fighting
