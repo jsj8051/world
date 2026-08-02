@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://cf4tl615kbc50"]
 
 [ext_resource type="Script" uid="uid://dfhmbmy1cf0jg" path="res://scripts/MapView/MapViewer.cs" id="1_view"]
-[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/Camera/OrbitalCamera.cs" id="2_cam"]
+[ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="2_cam"]
 
 [node name="MapViewer" type="Node3D" unique_id=1443163295]
 script = ExtResource("1_view")

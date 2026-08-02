@@ -20,6 +20,7 @@ public partial class MapGenMenu : Control
     private Label _status;
     private VBoxContainer _form;
     private bool _generating;
+    private OptionButton _rotBox;   // 自转方向
 
     private MapGenerator _gen;
     private volatile float _progress;   // 后台线程写、主线程 _Process 读
@@ -61,6 +62,9 @@ public partial class MapGenMenu : Control
         _form.AddChild(platesRow);
 
         _form.AddChild(MakeRow("模拟时长", _myBox = MakeMyOption()));
+
+        // 自转方向（盛行风科里奥利偏转方向）
+        _form.AddChild(MakeRow("自转方向", _rotBox = MakeRotationOption()));
 
         // ── 按钮区 ──
         var btnRow = new HBoxContainer { CustomMinimumSize = new Vector2(480, 0) };
@@ -159,6 +163,15 @@ public partial class MapGenMenu : Control
         return ob;
     }
 
+    private OptionButton MakeRotationOption()
+    {
+        var ob = new OptionButton();
+        ob.AddItem("顺转（地球式，自西向东）", 1);
+        ob.AddItem("逆转（金星式，自东向西）", 0);
+        ob.Selected = 0;   // 顺转默认
+        return ob;
+    }
+
     private Button MakeBtn(string text, int size)
     {
         var b = new Button { Text = text, CustomMinimumSize = new Vector2(180, 52) };
@@ -183,6 +196,7 @@ public partial class MapGenMenu : Control
         int n = _gridNBox.GetSelectedId();
         int plates = (int)_platesBox.Value;
         int my = _myBox.GetSelectedId();
+        bool prograde = _rotBox.GetSelectedId() == 1;
         _lastOutPath = $"user://maps/map_seed{seed}_n{n}.mpa";
 
         _gen = new MapGenerator
@@ -192,6 +206,7 @@ public partial class MapGenMenu : Control
             NumPlates = plates,
             SimMegayears = my,
             SimStepMy = 2f,
+            ProgradeRotation = prograde,   // 自转方向 → 盛行风
             OutputPath = _lastOutPath,
             ExportPreview = false,   // UI 模式不导出 PNG，省时间
             AutoQuit = false,
@@ -200,7 +215,7 @@ public partial class MapGenMenu : Control
         _gen.GenerateAsync(
             p => _progress = p,     // 后台线程写 volatile（线程安全）
             (ok, path) => { });     // 实际完成回调走 SetAsyncDoneCallback（主线程）
-        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My → {_lastOutPath}");
+        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} → {_lastOutPath}");
     }
 
     private void OnGenerateDone(bool ok, string path)

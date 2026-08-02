@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://bu07q2weovgmr"]
 
-[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/Camera/OrbitalCamera.cs" id="2_s2fyn"]
+[ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="2_s2fyn"]
 
 [node name="PlanetDemo" type="Node3D" unique_id=1904023006]
 

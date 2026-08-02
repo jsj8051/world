@@ -68,10 +68,17 @@ public partial class MapViewer : Node3D
         get => _layer;
         set
         {
-            if (_layer == value) return;
-            _layer = value;
-            SyncLayerButtons(); // UI 存在时同步按钮按下态（不触发重建）
-            if (IsInsideTree()) RebuildColors();
+            // ⚠️ 即使 _layer == value 也要同步按钮状态：ButtonGroup+ToggleMode 下
+            //   点击已选中按钮会取消选中（Pressed 仍触发），若此处直接 return，
+            //   按钮 UI 会停在"未选中"状态 → 显示像切换失败。始终同步 + 只在实际变化时重建。
+            if (_layer != value)
+            {
+                _layer = value;
+                if (IsInsideTree()) RebuildColors();
+            }
+            SyncLayerButtons();
+            if (_windArrows != null)
+                _windArrows.Visible = (value == 4);
         }
     }
     private int _layer;
@@ -88,6 +95,10 @@ public partial class MapViewer : Node3D
     private float[] _tileTemp;    // 每格温度 °C
     private float[] _tilePrecip;  // 每格降水 mm
     private byte[] _tileBiome;    // 每格 biome
+    private Vector3[] _tileWind;  // 每格盛行风向（单位切向量，盛行风图层用）
+
+    // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
+    private MeshInstance3D _windArrows;
 
     // ── 异步生成状态 ──
     private Task<MeshData> _buildTask;
@@ -103,7 +114,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风" };
 
     public override void _Ready()
     {
@@ -126,6 +137,7 @@ public partial class MapViewer : Node3D
             else if (key.Keycode == Key.Key2) layer = 1;
             else if (key.Keycode == Key.Key3) layer = 2;
             else if (key.Keycode == Key.Key4) layer = 3;
+            else if (key.Keycode == Key.Key5) layer = 4;
             if (layer >= 0)
             {
                 Layer = layer;
@@ -140,7 +152,8 @@ public partial class MapViewer : Node3D
         0 => "海拔",
         1 => "温度",
         2 => "降水",
-        _ => "biome",
+        3 => "生物群系",
+        _ => "盛行风",
     };
 
     public override void _Process(double delta)
@@ -252,6 +265,7 @@ public partial class MapViewer : Node3D
         _tileTemp = new float[n];
         _tilePrecip = new float[n];
         _tileBiome = new byte[n];
+        _tileWind = new Vector3[n];
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -259,9 +273,12 @@ public partial class MapViewer : Node3D
         var tempArr = _tileTemp;
         var precipArr = _tilePrecip;
         var biomeArr = _tileBiome;
+        var windArr = _tileWind;
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
 
+        // 盛行风图层：用存档自转方向（旧存档默认顺转）
+        World.Biome.WindField.Prograde = map.ProgradeRotation;
         System.Threading.Tasks.Parallel.For(0, n, i =>
         {
             if (token.IsCancellationRequested) return;
@@ -270,6 +287,7 @@ public partial class MapViewer : Node3D
             tempArr[i] = hasTemp ? map.SampleTemperature(c) : 0f;
             precipArr[i] = hasPrecip ? map.SamplePrecipitation(c) : 0f;
             biomeArr[i] = hasBiome ? (byte)map.SampleBiome(c) : (byte)BiomeType.DeepOcean;
+            windArr[i] = World.Biome.WindField.WindAt(c);
         });
         _hSea = hSea;
     }
@@ -289,6 +307,13 @@ public partial class MapViewer : Node3D
                     return BiomeColors.PrecipitationToColor(_tilePrecip[id]);
                 case 3: // biome
                     return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
+                case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
+                    {
+                        // 淡色底：海洋浅蓝、陆地浅黄绿（低对比，突出箭头）
+                        float h = _tileElev[id];
+                        bool ocean = h < _hSea;
+                        return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);
+                    }
                 default: // 海拔
                     {
                         float h = _tileElev[id];
@@ -301,12 +326,15 @@ public partial class MapViewer : Node3D
         };
     }
 
-    /// <summary>切图层：几何缓存命中 → 只重算颜色（查表，秒级）；无缓存（首次/GridN 刚变）→ 全量。</summary>
+    /// <summary>切图层：几何缓存命中 → 只重算颜色（查表，秒级）；无缓存（首次/GridN 刚变）→ 全量。
+    /// ⚠️ 2026-08-02：几何未就绪时【禁止】调用 Generate()——构建中切图层会取消当前构建并重启，
+    ///   快速连点=无限取消重启，几何永远构建不完 → 图层不切换。改为设置 _pendingRecolor，
+    ///   等当前构建完成（FinishGenerate）后自动应用最新图层。</summary>
     private void RebuildColors()
     {
         if (!_geometryReady || _tiles == null)
         {
-            Generate();
+            _pendingRecolor = true;   // 构建完成后自动重算颜色（用最新 Layer）
             return;
         }
 
@@ -325,6 +353,7 @@ public partial class MapViewer : Node3D
             CallDeferred(nameof(FinishGenerate), version);
         });
     }
+    private volatile bool _pendingRecolor;   // 构建中切图层 → 完成后自动重算
 
     /// <summary>后台线程：只重算颜色（查预计算缓存，零采样）。</summary>
     private MeshData BuildColorsTask(MapData map, int version, System.Threading.CancellationToken token)
@@ -366,6 +395,16 @@ public partial class MapViewer : Node3D
             };
             AddChild(mi);
             GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0})");
+
+            // 盛行风箭头网格（图层 4 显示；稀疏采样，非每格）
+            BuildWindArrows();
+
+            // 构建中切了图层 → 自动应用最新图层（几何已就绪，走快速重算）
+            if (_pendingRecolor)
+            {
+                _pendingRecolor = false;
+                RebuildColors();
+            }
         }
         catch (Exception e)
         {
@@ -375,6 +414,85 @@ public partial class MapViewer : Node3D
         {
             HideProgress();
         }
+    }
+
+    // ── 盛行风箭头网格（图层 4 显示）──
+    // 稀疏采样：纬度每 ~12° 一环，每环按经度均匀分布（极区环点数少）。
+    // 每个箭头 = 实体三角形（ArrayMesh + unshaded 亮橙），贴球面。
+    // ⚠️ 2026-08-02 v2：线条(1px)正对相机退化成点→屏幕中间看不到；
+    //   白色线条与浅色底接近→看不清。改实体三角形+亮橙 unshaded 材质。
+    private void BuildWindArrows()
+    {
+        if (_windArrows != null)
+        {
+            _windArrows.QueueFree();
+            _windArrows = null;
+        }
+        if (_tileWind == null || _tiles == null) return;
+
+        World.Biome.WindField.Prograde = _map.ProgradeRotation;   // 自转方向 → 风向
+        const float arrowLen = 0.09f;    // 箭头长度（球面弧比例，半径 1）
+        const float tailW = 0.035f;      // 尾半宽
+        // ⚠️ 浮在球面上方 1%（半径×1.01）：顶点与球面同一半径会 z-fighting
+        //   （深度冲突，球面把箭头盖掉 → 完全看不到，2026-08-02 修复）
+        float radius = RadiusKm * 1.01f;
+
+        var verts = new System.Collections.Generic.List<Vector3>();
+        var indices = new System.Collections.Generic.List<int>();
+
+        // 纬度环采样（±84°，步 12°→15 环）；每环经度点数随 cos(lat) 递减（极区少点）
+        for (float lat = -84f; lat <= 84f; lat += 12f)
+        {
+            float la = Mathf.DegToRad(lat);
+            float cosLa = Mathf.Cos(la);
+            int lonCount = Mathf.Max(8, Mathf.RoundToInt(36 * cosLa));   // 赤道 36，极区 8
+            for (int j = 0; j < lonCount; j++)
+            {
+                float lo = Mathf.Tau * j / lonCount;
+                var dir = new Vector3(cosLa * Mathf.Cos(lo), Mathf.Sin(la), cosLa * Mathf.Sin(lo));
+                var wind = World.Biome.WindField.WindAt(dir);   // 单位切向量（指向下风向）
+                var side = dir.Cross(wind).Normalized();        // 垂直风向的切向
+
+                // 箭头三角形：尾(宽) → 尖(窄)，在球面切平面内
+                // ⚠️ 先构建平面三角形（含侧向偏移）再投影回球面——直接 Normalized
+                //   会把侧移(0.035 vs 半径 6330)吃掉 → 三点重合退化成线
+                Vector3 tailC = dir - wind * arrowLen * 0.35f;
+                Vector3 tip = dir + wind * arrowLen * 0.65f;
+                Vector3 t1 = (tailC + side * tailW).Normalized() * radius;
+                Vector3 t2 = (tailC - side * tailW).Normalized() * radius;
+                Vector3 tipS = tip.Normalized() * radius;
+
+                int baseIdx = verts.Count;
+                verts.Add(t1); verts.Add(tipS); verts.Add(t2);
+                indices.Add(baseIdx); indices.Add(baseIdx + 1); indices.Add(baseIdx + 2);
+            }
+        }
+
+        // ArrayMesh：位置 + 索引
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = verts.ToArray();
+        arrays[(int)Mesh.ArrayType.Index] = indices.ToArray();
+        var mesh = new ArrayMesh();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+
+        // unshaded 亮橙材质（不随光照变暗；双面渲染）
+        var mat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            AlbedoColor = new Color(1f, 0.55f, 0.15f),
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
+
+        _windArrows = new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = mat,
+            Visible = (Layer == 4),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_windArrows);
+        GD.Print($"[MapViewer] wind arrows built: {verts.Count / 3} arrows");
     }
 
     // ── 进度条 UI ──
@@ -426,7 +544,7 @@ public partial class MapViewer : Node3D
         var group = new ButtonGroup();
         var hbox = new HBoxContainer();
         hbox.SetAnchorsPreset(Control.LayoutPreset.CenterBottom); // 锚点底部居中
-        hbox.Position = new Vector2(-220, -50);                    // 相对锚点偏移（4 按钮 ≈ 440 宽，居中）
+        hbox.Position = new Vector2(-275, -50);                    // 相对锚点偏移（5 按钮 ≈ 550 宽，居中）
         _uiLayer.AddChild(hbox);
 
         _layerButtons = new Button[LayerNames.Length];

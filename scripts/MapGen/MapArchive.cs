@@ -37,7 +37,7 @@ public static class MapArchive
         float minElev, float maxElev, float[] elev,
         float[] temp, float[] precip, byte[] biome,
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
-        bool log = true)
+        bool prograde = true, bool log = true)
     {
         string dir = path.GetBaseDir();
         if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
@@ -67,9 +67,10 @@ public static class MapArchive
         f.StoreFloat(maxPrecip);
         foreach (var p in precip) f.StoreFloat(p);
         foreach (var b in biome) f.Store8(b);
+        f.Store8((byte)(prograde ? 1 : 0));   // 尾部扩展：自转方向（盛行风图层用；旧存档无此字节=默认顺转）
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
-                     $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}])");
+                     $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}] prograde={prograde})");
         return true;
     }
 
@@ -158,9 +159,11 @@ public static class MapArchive
             for (int i = 0; i < n; i++) map.Biome[i] = f.Get8();
             map.Width = 0;
             map.Height = 0;
+            // 尾部扩展字节：自转方向（旧存档没有此字节 → 默认顺转）
+            map.ProgradeRotation = f.GetPosition() < f.GetLength() ? f.Get8() != 0 : true;
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts)");
+            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation})");
         }
         else
         {
@@ -199,6 +202,7 @@ public class MapData
 {
     public int Seed;
     public ushort Version;
+    public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）
@@ -255,7 +259,15 @@ public class MapData
         float lat = Mathf.Asin(Mathf.Clamp(v.Y, -1f, 1f));
         float lon = Mathf.Atan2(v.Z, v.X);
         int by = (int)Mathf.Clamp((lat / Mathf.Pi + 0.5f) * BucketsLat, 0, BucketsLat - 1);
-        int bx = (int)(((lon / Mathf.Pi + 1f) * 0.5f * BucketsLon) % BucketsLon);
+        // ⚠️ 极区（最北/最南纬桶）：经度在极点汇聚，按经度分桶会让 3×3 邻桶
+        //   查不到真正最近顶点（经度弧长 = 11.25°×cos(85°) ≈ 0.98° < 顶点间距 1.6°）
+        //   → 采样错乱 → 3D 球体两极出现辐射条纹（2026-08-02 修复）。
+        //   极区单桶：所有经度放同一桶，3×3 邻桶自然覆盖全部极区顶点。
+        int bx;
+        if (by == 0 || by == BucketsLat - 1)
+            bx = 0;
+        else
+            bx = (int)(((lon / Mathf.Pi + 1f) * 0.5f * BucketsLon) % BucketsLon);
         return (by, bx);
     }
 

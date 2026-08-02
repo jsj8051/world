@@ -28,6 +28,7 @@ public partial class MapGenerator : Node
 	[Export] public float SimMegayears = 600f; // 板块模拟时长（百万年）
 	[Export] public float SimStepMy = 2f;      // 模拟时间步（百万年）
 	[Export] public int NumPlates = 8;         // 初始板块数
+	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
 
 	public override void _Ready()
 	{
@@ -59,8 +60,23 @@ public partial class MapGenerator : Node
 			else if (TryFloat("SimMegayears", m => SimMegayears = m)) { }
 			else if (TryInt("NumPlates", p => NumPlates = p)) { }
 			else if (v == "AutoQuit" || v == "--AutoQuit" || v == "AutoQuit=true" || v == "--AutoQuit=true") AutoQuit = true;
+			else if (v.StartsWith("ProgradeRotation", StringComparison.OrdinalIgnoreCase))
+			{
+				// 支持：--ProgradeRotation false/true/0/1（空格或 =）或裸参数（=顺转）
+				// ⚠️ else if 链会短路：此分支必须单独处理，内部自己消费后续参数
+				if (v.Contains("false") || v.Contains("=0")) ProgradeRotation = false;
+				else if (v.Contains("true") || v.Contains("=1")) ProgradeRotation = true;
+				else if (i + 1 < ua.Length)
+				{
+					string nv = ua[i + 1].ToLowerInvariant();
+					if (nv == "false" || nv == "0") { ProgradeRotation = false; i++; }
+					else if (nv == "true" || nv == "1") { ProgradeRotation = true; i++; }
+					else ProgradeRotation = true;   // 后续参数不是 bool → 裸参数=顺转
+				}
+				else ProgradeRotation = true;
+			}
 		}
-		GD.Print($"[MapGenerator] user args: {string.Join(" | ", ua)}  -> seed={Seed} n={TectonicsGridN} {NumPlates}plates {SimMegayears}My");
+		GD.Print($"[MapGenerator] user args: {string.Join(" | ", ua)}  -> seed={Seed} n={TectonicsGridN} {NumPlates}plates {SimMegayears}My ProgradeRotation={ProgradeRotation}");
 		Generate();
 		if (AutoQuit)
 			GetTree().Quit();
@@ -99,17 +115,26 @@ public partial class MapGenerator : Node
 		}
 
 		// 气候 + 生物群系（球面顶点上直接算）
+		World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
 		var climate = new ClimateGenerator(Seed);
 		var svTemp = new float[vn];
 		var svPrecip = new float[vn];
 		var svBiome = new byte[vn];
 		float span = Mathf.Max(-minE, maxE);
+		// 盛行风降水回调：球面点 → 归一化海拔（最近顶点，桶查询）
+		var grid = sim.GlobalGrid;
+		System.Func<Vector3, float> elevSampler = p =>
+		{
+			Vector3 dir = p.Normalized();
+			int id = grid.NearestId(dir);
+			return span > 1e-6f ? svElev[id] / span : 0f;
+		};
 		Parallel.For(0, vn, i =>
 		{
 			Vector3 p = simVerts[i] * RadiusKm;   // 球面点（km）
 			float e1 = span > 1e-6f ? svElev[i] / span : 0f; // -1..1，0=海平面
 			float t = climate.ComputeTemperature(p, e1);
-			float pp = climate.ComputePrecipitation(p, e1);
+			float pp = climate.ComputePrecipitation(p, e1, elevSampler);
 			svTemp[i] = t;
 			svPrecip[i] = pp;
 			svBiome[i] = (byte)BiomeClassifier.Classify(e1, t, pp);
@@ -136,7 +161,7 @@ public partial class MapGenerator : Node
 		GD.Print(sb.ToString());
 
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, minE, maxE, svElev,
-			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP);
+			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation);
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, svElev, minE, maxE);
@@ -178,17 +203,26 @@ public partial class MapGenerator : Node
 			}
 
 			// ── 气候 + biome（纯数据，FastNoiseLite 只读线程安全）──
+			World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
 			var climate = new ClimateGenerator(seed);
 			var svTemp = new float[vn];
 			var svPrecip = new float[vn];
 			var svBiome = new byte[vn];
 			float span = Mathf.Max(-minE, maxE);
+			// 盛行风降水回调：球面点 → 归一化海拔（最近顶点，桶查询）
+			var grid = sim.GlobalGrid;
+			System.Func<Vector3, float> elevSampler = p =>
+			{
+				Vector3 dir = p.Normalized();
+				int id = grid.NearestId(dir);
+				return span > 1e-6f ? svElev[id] / span : 0f;
+			};
 			Parallel.For(0, vn, i =>
 			{
 				Vector3 p = simVerts[i] * radius;
 				float e1 = span > 1e-6f ? svElev[i] / span : 0f;
 				float t = climate.ComputeTemperature(p, e1);
-				float pp = climate.ComputePrecipitation(p, e1);
+				float pp = climate.ComputePrecipitation(p, e1, elevSampler);
 				svTemp[i] = t;
 				svPrecip[i] = pp;
 				svBiome[i] = (byte)BiomeClassifier.Classify(e1, t, pp);
@@ -207,7 +241,7 @@ public partial class MapGenerator : Node
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
-				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, log: false);   // 后台线程禁止 GD.Print
+				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, svElev, minE, maxE);
 			return (ok, outPath);

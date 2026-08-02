@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://2j28ps80wag5"]
 
 [ext_resource type="Script" path="res://scripts/PlanetLOD/ChunkPlanet.cs" id="1_7akta"]
-[ext_resource type="Script" uid="uid://36v0hpeeysni" path="res://scripts/Camera/OrbitalCamera.cs" id="2_gytkr"]
+[ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="2_gytkr"]
 
 [sub_resource type="Environment" id="Environment_env1"]
 ambient_light_source = 2
