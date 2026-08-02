@@ -220,7 +220,7 @@ public partial class MapViewer : Node3D
         _phase = "准备生成";
         ShowProgress();
 
-        _buildTask = Task.Run(() => BuildAll(_map, version, token), token);
+        _buildTask = Task.Run(() => BuildAll(_map, version, token, _layer), token);   // _layer 主线程读（快照）
         _buildTask.ContinueWith(t =>
         {
             // 线程池回调里只做线程安全的事：失败打印 + CallDeferred 回主线程
@@ -230,8 +230,9 @@ public partial class MapViewer : Node3D
         });
     }
 
-    /// <summary>后台线程：纯数据构建（不碰任何 Godot 对象）。</summary>
-    private MeshData BuildAll(MapData map, int version, System.Threading.CancellationToken token)
+    /// <summary>后台线程：纯数据构建（不碰任何 Godot 对象）。
+    /// ⚠️ 2026-08-02：layer 参数化快照（后台不读共享 _layer 字段）。</summary>
+    private MeshData BuildAll(MapData map, int version, System.Threading.CancellationToken token, int layer)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -266,8 +267,13 @@ public partial class MapViewer : Node3D
         if (version != _buildVersion || token.IsCancellationRequested) return default;
 
         _phase = "采样并着色";
-        var colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(), geometry,
-            p => _progress = 0.8f + p * 0.2f);
+        var colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(layer), geometry,
+            p =>
+            {
+                if (token.IsCancellationRequested)
+                    throw new OperationCanceledException(token);
+                _progress = 0.8f + p * 0.2f;
+            });
 
         _progress = 1f;
         _phase = "完成";
@@ -323,39 +329,41 @@ public partial class MapViewer : Node3D
     }
     private float _hSea = 0.5f;
 
-    /// <summary>图层 → 颜色函数（查预计算缓存，零采样）。</summary>
-    private Func<HexTile, Color> MakeColorFn()
+    /// <summary>图层 → 颜色函数（查预计算缓存，零采样）。
+    /// ⚠️ 2026-08-02 大改进：参数化 layer（不读共享字段）——原内部 switch(Layer) 在后台
+    ///   线程每次调用读 _layer，主线程切图层写它 → 竞态 → 偶发颜色错图层/"未切换成功"。</summary>
+    private Func<HexTile, Color> MakeColorFn(int layer)
     {
-        return t =>
-        {
-            int id = t.Id;
-            switch (Layer)
-            {
-                case 1: // 温度
-                    return BiomeColors.TemperatureToColor(_tileTemp[id]);
-                case 2: // 降水
-                    return BiomeColors.PrecipitationToColor(_tilePrecip[id]);
-                case 3: // biome
-                    return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
-                case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
-                case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
-                case 6: // 河流：浅色底（河道由 _riverMesh 3D 网格显示）
-                    {
-                        // 淡色底：海洋浅蓝、陆地浅黄绿（低对比，突出箭头）
-                        float h = _tileElev[id];
-                        bool ocean = h < _hSea;
-                        return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);
-                    }
-                default: // 海拔
-                    {
-                        float h = _tileElev[id];
-                        // h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
-                        // 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶）。
-                        float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
-                        return PlanetColors.ElevationToColor(e1);
-                    }
-            }
-        };
+    	return t =>
+    	{
+    		int id = t.Id;
+    		switch (layer)
+    		{
+    			case 1: // 温度
+    				return BiomeColors.TemperatureToColor(_tileTemp[id]);
+    			case 2: // 降水
+    				return BiomeColors.PrecipitationToColor(_tilePrecip[id]);
+    			case 3: // biome
+    				return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
+    			case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
+    			case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
+    			case 6: // 河流：浅色底（河道由 _riverMesh 3D 网格显示）
+    				{
+    					// 淡色底：海洋浅蓝、陆地浅黄绿（低对比，突出箭头）
+    					float h = _tileElev[id];
+    					bool ocean = h < _hSea;
+    					return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);
+    				}
+    			default: // 海拔
+    				{
+    					float h = _tileElev[id];
+    					// h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
+    					// 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶）。
+    					float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
+    					return PlanetColors.ElevationToColor(e1);
+    				}
+    		}
+    	};
     }
 
     /// <summary>切图层：几何缓存命中 → 只重算颜色（查表，秒级）；无缓存（首次/GridN 刚变）→ 全量。
@@ -371,29 +379,37 @@ public partial class MapViewer : Node3D
         }
 
         int version = ++_buildVersion;
+        int layer = _layer;   // ⚠️ 主线程快照（后台只读快照，不碰共享字段）
         _cts?.Cancel();   // 取消旧重算任务
         _cts = new System.Threading.CancellationTokenSource();
         var token = _cts.Token;
         _progress = 0f;
         _phase = "重算颜色";
         ShowProgress();
-        _buildTask = Task.Run(() => BuildColorsTask(_map, version, token), token);
+        _buildTask = Task.Run(() => BuildColorsTask(_map, version, token, layer), token);
         _buildTask.ContinueWith(t =>
         {
             if (t.IsFaulted)
-                GD.PrintErr($"[MapViewer] recolor failed: {t.Exception?.GetBaseException().Message}");
+                GD.PrintErr($"[MapViewer] recolor failed: {t.Exception?.GetBaseException().Message}\n{t.Exception?.GetBaseException().StackTrace}");
             CallDeferred(nameof(FinishGenerate), version);
         });
     }
     private volatile bool _pendingRecolor;   // 构建中切图层 → 完成后自动重算
 
-    /// <summary>后台线程：只重算颜色（查预计算缓存，零采样）。</summary>
-    private MeshData BuildColorsTask(MapData map, int version, System.Threading.CancellationToken token)
+    /// <summary>后台线程：只重算颜色（查预计算缓存，零采样）。
+    /// ⚠️ 2026-08-02 大改进：layer 参数化快照——后台不读 _layer 字段（消除竞态）；
+    ///   进度回调查 token，取消可中断（旧任务快速让位新图层）。</summary>
+    private MeshData BuildColorsTask(MapData map, int version, System.Threading.CancellationToken token, int layer)
     {
         var geometry = _geometry; // 已就绪（_geometryReady 保证，不碰 Godot 对象）
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var colors = ChunkMeshBuilder.BuildColors(_tiles, MakeColorFn(), geometry,
-            p => _progress = 0.05f + p * 0.9f);
+        var colors = ChunkMeshBuilder.BuildColors(_tiles, MakeColorFn(layer), geometry,
+            p =>
+            {
+                if (token.IsCancellationRequested)
+                    throw new OperationCanceledException(token);   // 取消中断（快速让位）
+                _progress = 0.05f + p * 0.9f;
+            });
         if (token.IsCancellationRequested) return default;
         _progress = 1f;
         return new MeshData
@@ -444,7 +460,14 @@ public partial class MapViewer : Node3D
         }
         catch (Exception e)
         {
-            GD.PrintErr($"[MapViewer] finish failed: {e.Message}");
+            // ⚠️ 2026-08-02：任务被取消（切图层/重建）时 Result 抛 AggregateException
+            //   （Inner = OperationCanceledException）——正常路径，不误报。
+            if (e is AggregateException ae && ae.InnerException is OperationCanceledException)
+            {
+                GD.Print("[MapViewer] build cancelled (superseded by newer request)");
+                return;
+            }
+            GD.PrintErr($"[MapViewer] finish failed: {e}\n{e.StackTrace}");
         }
         finally
         {
