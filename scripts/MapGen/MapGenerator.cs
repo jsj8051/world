@@ -44,6 +44,7 @@ public partial class MapGenerator : Node
 	private float[] _riverVolume; // 每顶点累积水量 mm（河流图层/断流判定用）
 	private byte[] _lakeLevel;    // 每顶点湖泊标记（0/1）
 	private byte[] _mineralLevel; // 每顶点矿藏（v3.5：(富度<<4)|矿种；0=无）
+	private byte[] _soilLevel;    // 每顶点土壤肥力 1-5（0=海洋；v3.6）
 
 	public override void _Ready()
 	{
@@ -129,6 +130,7 @@ public partial class MapGenerator : Node
 		int vn = simVerts.Length;
 		_riverFlow = pipe.RiverFlow; _riverVolume = pipe.RiverVolume;
 		_riverLevel = pipe.RiverLevel; _lakeLevel = pipe.LakeLevel; _mineralLevel = pipe.MineralLevel;
+		_soilLevel = pipe.SoilLevel;
 		_curDirs = pipe.CurrentDirs; _curWarmth = pipe.CurrentWarmth; _curStrength = pipe.CurrentStrength;
 
 		GD.Print($"[MapGenerator] 河岸带 {pipe.RiparianCount} 格");
@@ -162,7 +164,7 @@ public partial class MapGenerator : Node
 			prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
 			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
-			mineralLevel: _mineralLevel);
+			mineralLevel: _mineralLevel, soilLevel: _soilLevel);
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
@@ -212,6 +214,7 @@ public partial class MapGenerator : Node
 			}, frac => onProgress(0.7f + 0.3f * frac));
 			_riverFlow = pipe.RiverFlow; _riverVolume = pipe.RiverVolume;
 			_riverLevel = pipe.RiverLevel; _lakeLevel = pipe.LakeLevel; _mineralLevel = pipe.MineralLevel;
+			_soilLevel = pipe.SoilLevel;
 			_curDirs = pipe.CurrentDirs; _curWarmth = pipe.CurrentWarmth; _curStrength = pipe.CurrentStrength;
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
@@ -219,7 +222,7 @@ public partial class MapGenerator : Node
 				prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
 				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
-				mineralLevel: _mineralLevel, log: false);   // 后台线程禁止 GD.Print
+				mineralLevel: _mineralLevel, soilLevel: _soilLevel, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
 			return (ok, outPath);

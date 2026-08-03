@@ -35,6 +35,7 @@ public class PlanetPipeline
     public int[] RiverFlow;
     public float[] RiverVolume;
     public byte[] RiverLevel, LakeLevel, MineralLevel;
+    public byte[] SoilLevel;       // 土壤肥力 1-5（0=海洋；2026-08-03）
     public Vector3[] CurrentDirs;
     public float[] CurrentWarmth, CurrentStrength;
     public float MinElev, MaxElev, MinTemp, MaxTemp, MinPrecip, MaxPrecip;
@@ -65,6 +66,7 @@ public class PlanetPipeline
         onProgress?.Invoke(0.9f);
         StageRiparian(sim, p, sea);
         StageMinerals(sim, p, span);
+        StageSoil(sim, p, span);
         onProgress?.Invoke(0.97f);
         ComputeStats();
     }
@@ -177,7 +179,18 @@ public class PlanetPipeline
             sim.WorldCrust, p.Seed, out MineralLevel);
     }
 
-    // ── Stage5 统计：存档范围 ──
+    // ── Stage5 土壤肥力：biome 基础 + 冲积/火山加成 − 坡度/气候惩罚 ──
+    private void StageSoil(TectonicsSimulation sim, PlanetParams p, float span)
+    {
+        var grid = sim.GlobalGrid;
+        int vn = Elev.Length;
+        var eNorm = new float[vn];
+        for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? Elev[i] / span : 0f;
+        SoilSystem.ComputeSoil(eNorm, Biome, Precip, Temp,
+            sim.WorldCrust?.MaficVolcanic, RiverFlow, out SoilLevel);
+    }
+
+    // ── Stage6 统计：存档范围 ──
     private void ComputeStats()
     {
         MinTemp = float.MaxValue; MaxTemp = float.MinValue;

@@ -107,6 +107,7 @@ public partial class MapViewer : Node3D
     private int[] _tileWatershed; // 每格流域 id（-1=海洋；读档后从 flow 现场算，不存档）
     private int[] _vertexWatershed; // 每模拟顶点流域 id（现场算）
     private byte[] _tileMineral;  // 每格矿藏（(富度<<4)|矿种；0=无）
+    private byte[] _tileSoil;     // 每格土壤肥力 1-5（0=海洋）
 
     // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
     private MeshInstance3D _windArrows;
@@ -129,7 +130,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流", "流域", "矿藏" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流", "流域", "矿藏", "土壤" };
 
     public override void _Ready()
     {
@@ -157,6 +158,7 @@ public partial class MapViewer : Node3D
             else if (key.Keycode == Key.Key7) layer = 6;
             else if (key.Keycode == Key.Key8) layer = 7;
             else if (key.Keycode == Key.Key9) layer = 8;
+            else if (key.Keycode == Key.Key0) layer = 9;
             if (layer >= 0)
             {
                 Layer = layer;
@@ -176,7 +178,8 @@ public partial class MapViewer : Node3D
         5 => "洋流",
         6 => "河流",
         7 => "流域",
-        _ => "矿藏",
+        8 => "矿藏",
+        _ => "土壤",
     };
 
     public override void _Process(double delta)
@@ -332,6 +335,7 @@ public partial class MapViewer : Node3D
         _tileWatershed = new int[n];
         System.Array.Fill(_tileWatershed, -1);
         _tileMineral = new byte[n];
+        _tileSoil = new byte[n];
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -343,6 +347,7 @@ public partial class MapViewer : Node3D
         var lakeArr = _tileLake;
         var wsArr = _tileWatershed;
         var minArr = _tileMineral;
+        var soilArr = _tileSoil;
         bool hasLake = map.LakeLevel != null;
         bool hasMineral = map.MineralLevel != null;
         var centers = new Vector3[n];
@@ -367,6 +372,7 @@ public partial class MapViewer : Node3D
             lakeArr[i] = hasLake ? map.LakeLevel[vid] : (byte)0;
             wsArr[i] = _vertexWatershed != null ? _vertexWatershed[vid] : -1;
             minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
+            soilArr[i] = map.SoilLevel != null ? map.SoilLevel[vid] : (byte)0;
         });
         _hSea = hSea;
     }
@@ -422,6 +428,13 @@ public partial class MapViewer : Node3D
     					var baseC = MineralColors[MineralSystem.TypeOf(m) % MineralColors.Length];
     					float bright = MineralSystem.RichnessOf(m) switch { 1 => 0.55f, 2 => 0.78f, _ => 1.0f };
     					return baseC * bright;
+    				}
+    			case 9: // 土壤肥力：5 档色带（深绿=肥沃 → 灰=贫瘠）；海洋浅蓝
+    				{
+    					byte s = _tileSoil[id];
+    					if (s == 0)
+    						return new Color(0.45f, 0.55f, 0.70f);   // 海洋
+    					return SoilColors[Mathf.Clamp(s, 1, 5)];
     				}
     			default: // 海拔
     				{
@@ -905,6 +918,10 @@ public partial class MapViewer : Node3D
         };
         AddChild(_riverMesh);
         GD.Print($"[MapViewer] rivers built: {riverCount} 条主河道 / {paths.Count} 源 (from archive)");
+        // ⚠️ 2026-08-03：headless 验证构建完成即退——取消 --quit-after 800 帧空转
+        //   （构建完不再等帧数；验证循环 n=16 从 ~51s 减到 ~15s）
+        if (OS.HasFeature("headless"))
+            GetTree().Quit();
     }
 
     static Color HslToRgb(float h, float s, float l)
@@ -1014,6 +1031,17 @@ public partial class MapViewer : Node3D
         new Color(0.62f, 0.30f, 0.78f),                    // 8 宝石：紫
     };
 
+    /// <summary>土壤肥力 5 档色带（索引 1-5：深绿=肥沃 → 灰=贫瘠；0 不用）。</summary>
+    private static readonly Color[] SoilColors =
+    {
+        Colors.Gray,                                       // 0 海洋（不使用）
+        new Color(0.55f, 0.48f, 0.38f),                    // 1 贫瘠：灰棕
+        new Color(0.62f, 0.52f, 0.36f),                    // 2 差：棕
+        new Color(0.72f, 0.62f, 0.35f),                    // 3 中：黄
+        new Color(0.45f, 0.68f, 0.35f),                    // 4 好：绿
+        new Color(0.20f, 0.55f, 0.25f),                    // 5 肥沃：深绿
+    };
+
     /// <summary>图层按钮 SVG 图标（纯直线 M/L/H/V/Z——thorvg 不支持 Q/T/A 曲线）。</summary>
     private static readonly string[] LayerIcons =
     {
@@ -1035,6 +1063,8 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L7 13 L4 24 M14 3 L21 13 L24 24 M14 3 L14 24' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
         // 8 矿藏：矿石晶体（菱形，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 2 L24 9 L22 20 L14 26 L6 20 L4 9 Z M14 2 L14 26 M4 9 L14 14 L24 9 M6 20 L14 14 L22 20' stroke='#fd8' stroke-width='1.5' fill='none'/></svg>",
+        // 9 土壤：层状土层（横线，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M3 6 H25 M3 12 H25 M3 18 H25 M3 24 H25' stroke='#8a6' stroke-width='3' fill='none'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)
