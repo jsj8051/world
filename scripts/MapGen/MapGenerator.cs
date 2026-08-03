@@ -197,6 +197,13 @@ public partial class MapGenerator : Node
 			RiverSystem.Compute(simVerts, grid.Neighbors, eNorm,
 				out _riverFlow, out _riverVolume, out _riverLevel,
 				out _, out _, out _lakeLevel, precip: svPrecip, temp: svTemp, waterThreshold: 5000f);
+
+			// ── 河流侵蚀沉积（2026-08-02）：河谷下切 + 入海口三角洲，原地修正海拔 ──
+			// 放在气候计算之后（温度/降水不受影响）、写档之前（存档含河谷/三角洲）。
+			RiverSystem.ApplyErosionDeposition(svElev, _riverLevel, _riverVolume, _riverFlow, eNorm, sea);
+			// 修正后更新 minE/maxE（存档范围）
+			minE = float.MaxValue; maxE = float.MinValue;
+			foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
 		}
 
 		// ── 统计 ──
@@ -334,6 +341,10 @@ public partial class MapGenerator : Node
 				RiverSystem.Compute(simVerts, grid.Neighbors, eNorm,
 					out _riverFlow, out _riverVolume, out _riverLevel,
 					out _, out _, out _lakeLevel, precip: svPrecip, temp: svTemp, waterThreshold: 5000f);
+				// 河流侵蚀沉积（同同步路径）
+				RiverSystem.ApplyErosionDeposition(svElev, _riverLevel, _riverVolume, _riverFlow, eNorm, sea);
+				minE = float.MaxValue; maxE = float.MinValue;
+				foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,

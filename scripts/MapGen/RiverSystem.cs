@@ -144,6 +144,7 @@ public static class RiverSystem
             {
                 int nxt = flow[cur];
                 if (nxt == cur) break;                    // 盆地/海洋终点
+                if (riverLevel[nxt] == 0) break;          // ⚠️ 2026-08-02 断流：遇非河格（水量<阈值，干旱区蒸发干涸）→ 河消失
                 path.Add(nxt);
                 if (elevNorm[nxt] < 0f) break;            // 入海
                 cur = nxt;
@@ -179,6 +180,7 @@ public static class RiverSystem
             {
                 int nxt = flow[cur];
                 if (nxt == cur) break;
+                if (riverLevel[nxt] == 0) break;   // 断流（同 Compute）
                 path.Add(nxt);
                 if (elevNorm[nxt] < 0f) break;
                 cur = nxt;
@@ -187,5 +189,42 @@ public static class RiverSystem
                 paths.Add(path.ToArray());
         }
         return paths;
+    }
+
+    /// <summary>
+    /// 河流侵蚀沉积（2026-08-02）：生成后处理，原地修正海拔（米）。
+    /// 河流对地形的反馈，不迭代（小幅修正不改变流向格局）：
+    ///   - 侵蚀：河格下切（河谷/峡谷）——流量越大挖得越深，上限 erodeMax，
+    ///     且不挖穿海平面（留 5m 余量，防地形反转）
+    ///   - 沉积：入海口格（流向海洋）堆积（三角洲/冲积扇）——贴海平面低平
+    /// 幅度标定：n=64 每格 ~110km，河谷 ≤150m、三角洲 ≤80m（观感真实、不破坏流向）。
+    /// </summary>
+    public static void ApplyErosionDeposition(
+        float[] elevM,       // 海拔（米，原地修改）
+        byte[] riverLevel,   // 河级别（0=无河）
+        float[] riverVolume, // 每格水量 mm（流量）
+        int[] flow,          // 流向
+        float[] elevNorm,    // 归一化海拔（&lt;0 = 海洋）
+        float seaLevelM,     // 海平面海拔（米）
+        float erodeMax = 150f, float depoMax = 80f, float fullFlow = 10000f)
+    {
+        int n = elevM.Length;
+        // 侵蚀：河格下切
+        for (int i = 0; i < n; i++)
+        {
+            if (elevM[i] <= seaLevelM || riverLevel[i] == 0) continue;
+            float erode = erodeMax * Mathf.Clamp(riverVolume[i] / fullFlow, 0f, 1f);
+            elevM[i] = Mathf.Max(seaLevelM + 5f, elevM[i] - erode);
+        }
+        // 沉积：入海口（流向海洋）堆积三角洲
+        for (int i = 0; i < n; i++)
+        {
+            if (elevM[i] <= seaLevelM) continue;
+            if (flow[i] != i && elevNorm[flow[i]] < 0f)
+            {
+                float depo = depoMax * Mathf.Clamp(riverVolume[i] / fullFlow, 0f, 1f);
+                elevM[i] += depo;
+            }
+        }
     }
 }

@@ -42,6 +42,21 @@ public partial class RiverDiag : Node
 		RiverSystem.Compute(verts, neighbors, eNorm,
 			out var flow, out var area, out var riverLevel,
 			out var paths, out var lakeIds, out var lakeLevel, precip: precip, temp: temp, waterThreshold: 5000f);
+		// 侵蚀沉积（复制海拔，原地修正后对比）
+		var elevBefore = (float[])disp.Clone();
+		var elevAfter = (float[])disp.Clone();
+		float seaM = sim.SeaLevel;
+		RiverSystem.ApplyErosionDeposition(elevAfter, riverLevel, area, flow, eNorm, seaM);
+		{
+			float maxCut = 0f, maxDep = 0f; int cut = 0, dep = 0;
+			for (int i = 0; i < vn; i++)
+			{
+				float d = elevAfter[i] - elevBefore[i];
+				if (d < -0.5f) { cut++; maxCut = Mathf.Min(maxCut, d); }
+				if (d > 0.5f) { dep++; maxDep = Mathf.Max(maxDep, d); }
+			}
+			GD.Print($"[RiverDiag] 侵蚀沉积: 下切格 {cut} 最大切深 {maxCut:F0}m | 堆积格 {dep} 最大堆积 {maxDep:F0}m");
+		}
 		sw.Stop();
 
 		// 统计
