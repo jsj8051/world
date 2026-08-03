@@ -1,5 +1,6 @@
 using Godot;
-using System;
+using System.Collections.Generic;
+using System.Threading;
 
 namespace World.Tectonics
 {
@@ -112,27 +113,28 @@ namespace World.Tectonics
             //   现在：正常顶点爬山（~7 次距离），爬山超 64 候选（种子错）→ -1 → 全桶精确纠错。
             //   错误每步纠正不传播 → 不随 n/自转速度/板块数退化。
             int n = globalGrid.VertexCount;
-            if (_scratch == null) _scratch = new int[300];   // 复用；上限 300（BFS 栈，64 后判失败）
-            for (int i = 0; i < n; i++)
+            // ⚠️ 2026-08-03 性能：板内顶点级并行（桶构造时已构建=只读安全）；
+            //   _scratch 改 ThreadLocal（共享数组并行竞态）
+            System.Threading.Tasks.Parallel.For(0, n, i =>
             {
                 Vector3 p = globalGrid.Vertices[i];
                 Vector3 localPos = MatrixOps.MultVector(GlobalToLocal, p);
                 Vector3 dir = localPos.Normalized();
                 int seed = LocalIdsOfGlobalCells[i];   // 上一步的映射（旋转小→仍在附近）
-                int r = LocalGrid.NearestIdSeeded(dir, seed, _scratch);
+                int r = LocalGrid.NearestIdSeeded(dir, seed, _scratchLocal.Value);
                 LocalIdsOfGlobalCells[i] = r >= 0 ? r : LocalGrid.NearestId(dir);   // 兜底全桶纠错
-            }
-            for (int i = 0; i < LocalGrid.VertexCount; i++)
+            });
+            System.Threading.Tasks.Parallel.For(0, LocalGrid.VertexCount, i =>
             {
                 Vector3 localPos = MatrixOps.MultVector(LocalToGlobal, LocalGrid.Vertices[i]);
                 Vector3 dir = localPos.Normalized();
                 int seed = GlobalIdsOfLocalCells[i];
-                int r = globalGrid.NearestIdSeeded(dir, seed, _scratch);
+                int r = globalGrid.NearestIdSeeded(dir, seed, _scratchLocal.Value);
                 GlobalIdsOfLocalCells[i] = r >= 0 ? r : globalGrid.NearestId(dir);   // 兜底全桶纠错
-            }
+            });
         }
 
-        private int[] _scratch;   // 爬山候选数组（复用，GC 优化）
+        private ThreadLocal<int[]> _scratchLocal = new(() => new int[300]);   // 爬山候选（每线程独立，GC 优化）
 
         /// <summary>板质心（质量加权，局部坐标，单位向量）。</summary>
         public Vector3 GetCenterOfMass(float[] mass)

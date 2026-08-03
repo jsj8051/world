@@ -40,6 +40,7 @@ public static class MapArchive
         bool prograde = true, float rotationSpeed = 1f,
         Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
         byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null, byte[] lakeLevel = null,
+        byte[] mineralLevel = null,
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -92,6 +93,9 @@ public static class MapArchive
                 foreach (var rv in riverVolume) f.StoreFloat(rv);
             if (lakeLevel != null)
                 foreach (var ll in lakeLevel) f.Store8(ll);
+            // 尾部扩展6（2026-08-02）：矿藏（级别 n bytes；(富度<<4)|矿种；旧存档无=null）
+            if (mineralLevel != null)
+                foreach (var ml in mineralLevel) f.Store8(ml);
         }
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
@@ -226,6 +230,12 @@ public static class MapArchive
                     map.LakeLevel = new byte[n];
                     for (int i = 0; i < n; i++) map.LakeLevel[i] = f.Get8();
                 }
+                // 矿藏段（v3.5 加；判断用"剩余 ≥ n"）
+                if (f.GetPosition() + (ulong)n <= f.GetLength())
+                {
+                    map.MineralLevel = new byte[n];
+                    for (int i = 0; i < n; i++) map.MineralLevel[i] = f.Get8();
+                }
             }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
@@ -277,6 +287,7 @@ public class MapData
     public int[] RiverFlow;                // 河流流向（v3.2 尾部；null=旧存档无）
     public float[] RiverVolume;            // 河流流量 mm（v3.3 尾部；null=旧存档无）
     public byte[] LakeLevel;               // 湖泊级别（v3.4 尾部；null=旧存档无）
+    public byte[] MineralLevel;            // 矿藏（v3.5 尾部；(富度<<4)|矿种；null=旧存档无）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

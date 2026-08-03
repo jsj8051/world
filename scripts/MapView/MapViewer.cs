@@ -106,6 +106,7 @@ public partial class MapViewer : Node3D
     private byte[] _tileLake;     // 每格湖泊标记（0/1；最近顶点直读）
     private int[] _tileWatershed; // 每格流域 id（-1=海洋；读档后从 flow 现场算，不存档）
     private int[] _vertexWatershed; // 每模拟顶点流域 id（现场算）
+    private byte[] _tileMineral;  // 每格矿藏（(富度<<4)|矿种；0=无）
 
     // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
     private MeshInstance3D _windArrows;
@@ -128,7 +129,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流", "流域" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流", "流域", "矿藏" };
 
     public override void _Ready()
     {
@@ -155,6 +156,7 @@ public partial class MapViewer : Node3D
             else if (key.Keycode == Key.Key6) layer = 5;
             else if (key.Keycode == Key.Key7) layer = 6;
             else if (key.Keycode == Key.Key8) layer = 7;
+            else if (key.Keycode == Key.Key9) layer = 8;
             if (layer >= 0)
             {
                 Layer = layer;
@@ -173,7 +175,8 @@ public partial class MapViewer : Node3D
         4 => "盛行风",
         5 => "洋流",
         6 => "河流",
-        _ => "流域",
+        7 => "流域",
+        _ => "矿藏",
     };
 
     public override void _Process(double delta)
@@ -328,6 +331,7 @@ public partial class MapViewer : Node3D
         _tileLake = new byte[n];
         _tileWatershed = new int[n];
         System.Array.Fill(_tileWatershed, -1);
+        _tileMineral = new byte[n];
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -338,7 +342,9 @@ public partial class MapViewer : Node3D
         var windArr = _tileWind;
         var lakeArr = _tileLake;
         var wsArr = _tileWatershed;
+        var minArr = _tileMineral;
         bool hasLake = map.LakeLevel != null;
+        bool hasMineral = map.MineralLevel != null;
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
 
@@ -360,6 +366,7 @@ public partial class MapViewer : Node3D
             windArr[i] = World.Biome.WindField.WindAt(c);
             lakeArr[i] = hasLake ? map.LakeLevel[vid] : (byte)0;
             wsArr[i] = _vertexWatershed != null ? _vertexWatershed[vid] : -1;
+            minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
         });
         _hSea = hSea;
     }
@@ -401,6 +408,20 @@ public partial class MapViewer : Node3D
     							? new Color(0.45f, 0.55f, 0.70f)   // 海洋
     							: new Color(0.60f, 0.58f, 0.50f);  // 边缘排水区（直接入海，非河）
     					return HslToRgb((ws * 0.6180339887f) % 1f, 0.55f, 0.62f);
+    				}
+    			case 8: // 矿藏：矿种固定色 × 富度明度（贫暗/富中/巨型亮）；无矿淡地形底
+    				{
+    					byte m = _tileMineral[id];
+    					if (m == 0)
+    					{
+    						float h = _tileElev[id];
+    						return h < _hSea
+    							? new Color(0.45f, 0.55f, 0.70f)
+    							: new Color(0.55f, 0.52f, 0.42f);
+    					}
+    					var baseC = MineralColors[MineralSystem.TypeOf(m) % MineralColors.Length];
+    					float bright = MineralSystem.RichnessOf(m) switch { 1 => 0.55f, 2 => 0.78f, _ => 1.0f };
+    					return baseC * bright;
     				}
     			default: // 海拔
     				{
@@ -978,8 +999,23 @@ public partial class MapViewer : Node3D
         SyncLayerButtons();
     }
 
-    // ── 图层 SVG 图标（纯直线命令 M/L/H/V/Z——thorvg 不支持 Q/T/A 曲线）──
-    private static readonly string[] LayerSvgs =
+    /// <summary>矿种固定色（索引 = MineralSystem 矿种：1铁 2铜 3锡 4金 5煤 6盐 7石料 8宝石）。
+    /// 显示时 × 富度明度（贫 0.55 / 富 0.78 / 巨型 1.0）——用户确认：固定色 + 富度深浅。</summary>
+    private static readonly Color[] MineralColors =
+    {
+        Colors.Gray,                                       // 0 无（不使用）
+        new Color(0.55f, 0.50f, 0.45f),                    // 1 铁：灰褐
+        new Color(0.75f, 0.45f, 0.20f),                    // 2 铜：铜橙
+        new Color(0.75f, 0.75f, 0.80f),                    // 3 锡：银白
+        new Color(0.95f, 0.75f, 0.15f),                    // 4 金：金黄
+        new Color(0.18f, 0.18f, 0.20f),                    // 5 煤：黑
+        new Color(0.95f, 0.95f, 0.90f),                    // 6 盐：白
+        new Color(0.70f, 0.68f, 0.62f),                    // 7 石料：石灰
+        new Color(0.62f, 0.30f, 0.78f),                    // 8 宝石：紫
+    };
+
+    /// <summary>图层按钮 SVG 图标（纯直线 M/L/H/V/Z——thorvg 不支持 Q/T/A 曲线）。</summary>
+    private static readonly string[] LayerIcons =
     {
         // 0 海拔：两座山（直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M3 23 L11 8 L16 17 L19 12 L25 23 Z' fill='#eee'/></svg>",
@@ -997,13 +1033,15 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M6 2 L10 6 L8 10 L14 14 L12 18 L15 22 L14 26' stroke='#6cf' stroke-width='3' fill='none' stroke-linecap='round'/></svg>",
         // 7 流域：分水岭+两支流（直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L7 13 L4 24 M14 3 L21 13 L24 24 M14 3 L14 24' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
-        };
+        // 8 矿藏：矿石晶体（菱形，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 2 L24 9 L22 20 L14 26 L6 20 L4 9 Z M14 2 L14 26 M4 9 L14 14 L24 9 M6 20 L14 14 L22 20' stroke='#fd8' stroke-width='1.5' fill='none'/></svg>",
+    };
 
     private static Texture2D MakeLayerIcon(int idx)
     {
         try
         {
-            var bytes = System.Text.Encoding.UTF8.GetBytes(LayerSvgs[idx]);
+            var bytes = System.Text.Encoding.UTF8.GetBytes(LayerIcons[idx]);
             var img = new Image();   // LoadSvgFromBuffer 是实例方法（返回 Error）
             if (img.LoadSvgFromBuffer(bytes) != Error.Ok)
             {
