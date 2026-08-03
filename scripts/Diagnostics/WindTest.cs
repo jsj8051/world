@@ -1,6 +1,7 @@
 using Godot;
 using World.Biome;
 using System;
+using World.MapGen;
 using World.Tectonics;
 
 namespace World.Diagnostics;
@@ -14,10 +15,64 @@ public partial class WindTest : Node
 {
     public override void _Ready()
     {
-        RunSeed(42);
-        RunSeed(7);
+        string arch = ArchiveDiag.ResolveArchPath();
+        if (arch != null)
+        {
+            if (!ArchiveDiag.TryLoad(arch, out var ctx))
+            {
+                GD.PrintErr("[WindTest] 存档直读失败");
+                GetTree().Quit(1);
+                return;
+            }
+            RunFromArchive(ctx);
+        }
+        else
+        {
+            // 原流程（无存档）：每 seed 重跑板块模拟（n=16 600My）
+            RunSeed(42);
+            RunSeed(7);
+        }
         GD.Print("[WindTest] 完成");
         GetTree().Quit();
+    }
+
+    /// <summary>存档直读：用存档海拔重算降水，扫多速度——改 ClimateGenerator 后秒级验证雨影。</summary>
+    private void RunFromArchive(DiagContext ctx)
+    {
+        const float radius = 6330f;
+        int vn = ctx.VertexCount;
+        var verts = ctx.Verts;
+        var eNorm = ctx.ElevNorm;
+
+        System.Func<Vector3, float> elevOf = p => eNorm[ctx.Grid.NearestId(p)];
+
+        foreach (var sp in new[] { 0.2f, 1f, 5f })
+        {
+            WindField.Prograde = ctx.Map.ProgradeRotation;
+            WindField.RotationSpeed = sp;
+            var climate = new ClimateGenerator(ctx.Map.Seed);
+            var precip = new float[vn];
+            for (int i = 0; i < vn; i++)
+            {
+                Vector3 p = verts[i] * radius;
+                float e1 = eNorm[i];
+                precip[i] = climate.ComputePrecipitation(p, e1, elevOf);
+            }
+
+            int coast = 0, inland = 0;
+            float coastP = 0, inlandP = 0;
+            for (int i = 0; i < vn; i++)
+            {
+                if (eNorm[i] <= 0f) continue;
+                var w = WindField.WindAt(verts[i]);
+                Vector3 up = (verts[i] - w * 0.12f).Normalized();
+                if (eNorm[ctx.Grid.NearestId(up)] < 0f) { coast++; coastP += precip[i]; }
+                else { inland++; inlandP += precip[i]; }
+            }
+            string c = coast > 0 ? $"{coastP / coast:F0}mm" : "N/A";
+            string inc = inland > 0 ? $"{inlandP / inland:F0}mm" : "N/A";
+            GD.Print($"[WindTest] 直读 seed={ctx.Map.Seed} 速度{sp}×: 迎风海岸({coast}点)={c} 内陆({inland}点)={inc} 海陆差={(coast > 0 && inland > 0 ? coastP / coast - inlandP / inland : 0):F0}mm");
+        }
     }
 
     private void RunSeed(int seed)

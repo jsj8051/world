@@ -68,7 +68,22 @@ public class PlanetPipeline
         StageMinerals(sim, p, span);
         StageSoil(sim, p, span);
         onProgress?.Invoke(0.97f);
+        SanitizeNaNs();   // 浮点 NaN 消毒（防存档污染；Stage2 河流侵蚀后 Elev 可能含 NaN）
         ComputeStats();
+    }
+
+    /// <summary>NaN → 0 消毒（写档前最后防线；河流侵蚀等浮点链路偶发 0/0）。</summary>
+    private void SanitizeNaNs()
+    {
+        int nan = 0;
+        for (int i = 0; i < Elev.Length; i++)
+        {
+            if (float.IsNaN(Elev[i])) { Elev[i] = 0f; nan++; }
+            if (Temp != null && float.IsNaN(Temp[i])) Temp[i] = 0f;
+            if (Precip != null && float.IsNaN(Precip[i])) Precip[i] = 0f;
+        }
+        if (nan > 0)
+            GD.Print($"[PlanetPipeline] ⚠️ NaN 消毒：海拔 {nan} 顶点 → 0");
     }
 
     // ── Stage1 气候：温度/降水/biome + 洋流场 ──
