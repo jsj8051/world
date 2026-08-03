@@ -26,7 +26,7 @@ public partial class MapGenerator : Node
 	[Export] public bool ExportPreview = true; // 生成后导出海拔预览 PNG（headless 调参可视化）
 	[Export] public int TectonicsGridN = 32;   // 板块模拟 Icosahedron 细分（32→10242 顶点）
 	[Export] public float SimMegayears = 600f; // 板块模拟时长（百万年）
-	[Export] public float SimStepMy = 4f;      // 模拟时间步（百万年）——2026-08-03：2→4 性能（板块 7 块后 600My 5→3 分钟，质量一致验证）
+	[Export] public float SimStepMy = 4f;      // 模拟时间步（百万年）——2026-08-03：2→4 已验证质量一致（板块 7 块后性能）
 	[Export] public int NumPlates = 8;         // 初始板块数
 	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
 	[Export] public float AxialTilt = 23.4f;   // 轴向倾角（度）：0=无季节，23.4=地球，90=极端季节
@@ -118,117 +118,20 @@ public partial class MapGenerator : Node
 		foreach (var d in disp) { if (d < minD) minD = d; if (d > maxD) maxD = d; }
 		GD.Print($"[MapGenerator] 板块模拟完成 disp[{minD:F0},{maxD:F0}]m sealevel={sea:F0}m land={sim.LandFractionAboveSea() * 100:F1}%");
 
-		// ── 球面直通：模拟结果直接存档（无平面中转、无投影）──
-		// 2026-08-02：用户决定去掉平面中转（等距柱状摊平→贴回会引入投影变形/南极拉伸）。
-		// 海拔/气候/biome 全部计算在球面顶点上，存档 v3 = 顶点数组。
+		// ── 阶段化管线（2026-08-03 重构：气候→水文→生态→资源→统计；同步/异步共用）──
+		var pipe = new PlanetPipeline();
+		pipe.Run(sim, new PlanetParams
+		{
+			Seed = Seed, AxialTilt = AxialTilt, Insolation = Insolation,
+			ProgradeRotation = ProgradeRotation, RotationSpeed = RotationSpeed, RadiusKm = RadiusKm,
+		});
 		var simVerts = sim.GlobalGrid.Vertices;   // 单位方向
 		int vn = simVerts.Length;
-		var svElev = new float[vn];
-		float minE = float.MaxValue, maxE = float.MinValue;
-		for (int i = 0; i < vn; i++)
-		{
-			svElev[i] = disp[i] - sea;   // 米，0=海平面
-			if (svElev[i] < minE) minE = svElev[i];
-			if (svElev[i] > maxE) maxE = svElev[i];
-		}
+		_riverFlow = pipe.RiverFlow; _riverVolume = pipe.RiverVolume;
+		_riverLevel = pipe.RiverLevel; _lakeLevel = pipe.LakeLevel; _mineralLevel = pipe.MineralLevel;
+		_curDirs = pipe.CurrentDirs; _curWarmth = pipe.CurrentWarmth; _curStrength = pipe.CurrentStrength;
 
-		// 气候 + 生物群系（球面顶点上直接算）
-		World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
-		World.Biome.WindField.RotationSpeed = RotationSpeed; // 自转速度 → 科里奥利强度
-		var climate = new ClimateGenerator(Seed, AxialTilt, Insolation);
-		var svTemp = new float[vn];
-		var svPrecip = new float[vn];
-		var svBiome = new byte[vn];
-		float span = Mathf.Max(-minE, maxE);
-		// 盛行风降水回调：球面点 → 归一化海拔（最近顶点，桶查询）
-		var grid = sim.GlobalGrid;
-		System.Func<Vector3, float> elevSampler = p =>
-		{
-			Vector3 dir = p.Normalized();
-			int id = grid.NearestId(dir);
-			return span > 1e-6f ? svElev[id] / span : 0f;
-		};
-
-		// 洋流场（2026-08-02 v2：风应力旋度 + 流函数 → 闭合环流；替代"方向=风向"）
-		{
-			// 归一化海拔数组
-			var eNorm = new float[vn];
-			for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
-			World.Biome.OceanCurrent.Compute(simVerts, grid.Neighbors, eNorm,
-				out _curDirs, out _curWarmth, out _curStrength);
-		}
-		// 沿岸采样：球面点 → 最近海洋顶点的冷暖+强度（陆地点查邻域最近海洋，距离衰减）
-		//   强度（0.3~1.0）用于修正系数动态化：强流带影响大、开阔弱流影响小
-		System.Func<Vector3, (float warm, float str)> warmthSampler = p =>
-		{
-			Vector3 dir = p.Normalized();
-			int id = grid.NearestId(dir);
-			if (_curWarmth[id] != 0f)
-				return (_curWarmth[id], _curStrength != null ? _curStrength[id] : 1f);   // 海洋点直接用
-			// 陆地点：查邻居找最近海洋冷暖（沿岸陆地受影响）
-			float best = 0f, bestD = 1e9f, bestStr = 1f;
-			foreach (var nb in grid.Neighbors[id])
-			{
-				if (_curWarmth[nb] != 0f)
-				{
-					float d = Mathf.Acos(Mathf.Clamp(simVerts[id].Dot(simVerts[nb]), -1f, 1f));
-					if (d < bestD) { bestD = d; best = _curWarmth[nb]; bestStr = _curStrength != null ? _curStrength[nb] : 1f; }
-				}
-			}
-			float decay = Mathf.Exp(-bestD / 0.08f);   // 距岸衰减（0.08rad ≈ 500km）
-			return (best * decay, bestStr);
-		};
-		climate.SetOceanCurrent(warmthSampler);
-
-		Parallel.For(0, vn, i =>
-		{
-			Vector3 p = simVerts[i] * RadiusKm;   // 球面点（km）
-			float e1 = span > 1e-6f ? svElev[i] / span : 0f; // -1..1，0=海平面
-			float t = climate.ComputeTemperature(p, e1);
-			float pp = climate.ComputePrecipitation(p, e1, elevSampler);
-			svTemp[i] = t;
-			svPrecip[i] = pp;
-			svBiome[i] = (byte)BiomeClassifier.Classify(e1, t, pp);
-		});
-
-		// ── 河流（2026-08-02 v2：迭代演化——动态流向 + 输沙侵蚀沉积）──
-		{
-			var eNorm = new float[vn];
-			for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
-			RiverSystem.ComputeIterative(simVerts, grid.Neighbors, eNorm, svElev,
-				svPrecip, svTemp, waterThreshold: 5000f, lakeThreshold: 200f,
-				seaLevelM: 0f, elevSpan: span, rounds: 4,
-				out _riverFlow, out _riverVolume, out _riverLevel, out _lakeLevel, out _);
-
-			// 修正后更新 minE/maxE（存档范围；svElev 含河谷/三角洲）
-			minE = float.MaxValue; maxE = float.MinValue;
-			foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
-
-			// ── 河岸生态带（2026-08-02）：沿岸陆地格（邻居有河/湖）→ Riparian 翠绿。
-			//   干旱区沙漠沿岸变绿洲线（真实：尼罗河/撒哈拉绿洲）；湿润区沿岸清晰河岸林。
-			{
-				int riparianCount = 0;
-				for (int i = 0; i < vn; i++)
-				{
-					if (svElev[i] <= sea) continue;                    // 海洋不算
-					if (_riverLevel[i] > 0 || _lakeLevel[i] > 0) continue;   // 水格本身不算
-					bool wet = false;
-					foreach (var nb in grid.Neighbors[i])
-						if (_riverLevel[nb] > 0 || _lakeLevel[nb] > 0) { wet = true; break; }
-					if (wet) { svBiome[i] = (byte)BiomeType.Riparian; riparianCount++; }
-				}
-				GD.Print($"[MapGenerator] 河岸带 {riparianCount} 格");
-			}
-		}
-
-	// ── 矿藏（2026-08-02：岩性/构造/气候推断 + 确定性概率，稀疏标注）──
-	{
-		var eNorm2 = new float[vn];
-		for (int i = 0; i < vn; i++) eNorm2[i] = span > 1e-6f ? svElev[i] / span : 0f;
-		MineralSystem.ComputeMinerals(simVerts, grid.Neighbors, _riverFlow, eNorm2, svPrecip,
-			sim.WorldCrust?.Age, sim.MineralHydro, sim.MineralSed, sim.MineralMeta,
-			sim.WorldCrust, Seed,
-			out _mineralLevel);
+		GD.Print($"[MapGenerator] 河岸带 {pipe.RiparianCount} 格");
 		int mineralCount = 0;
 		var mdist = new int[9];
 		for (int i = 0; i < vn; i++)
@@ -240,47 +143,13 @@ public partial class MapGenerator : Node
 		GD.Print($"[MapGenerator] 矿藏 {mineralCount} 格 ({mineralCount * 100f / vn:F1}%)" +
 			$" 铁={mdist[1]} 铜={mdist[2]} 锡={mdist[3]} 金={mdist[4]} 煤={mdist[5]} 盐={mdist[6]} 石料={mdist[7]} 宝石={mdist[8]}");
 
-		// 岩性池分布诊断（标定阈值用）
-		var c2 = sim.WorldCrust;
-		if (c2 != null)
-		{
-			int sedN = 0, metaN = 0, felPN = 0, mafVN = 0, felVN = 0, ageOld = 0;
-			for (int i = 0; i < vn; i++)
-			{
-				if (c2.Sedimentary != null && c2.Sedimentary[i] > 0.05f) sedN++;
-				if (c2.Metamorphic != null && c2.Metamorphic[i] > 0.05f) metaN++;
-				if (c2.FelsicPlutonic != null && c2.FelsicPlutonic[i] > 0.05f) felPN++;
-				if (c2.MaficVolcanic != null && c2.MaficVolcanic[i] > 0.05f) mafVN++;
-				if (c2.FelsicVolcanic != null && c2.FelsicVolcanic[i] > 0.05f) felVN++;
-				if (c2.Age != null && c2.Age[i] > 800f) ageOld++;
-			}
-			int bnd = 0;
-			var plateOf = new int[vn];
-			System.Array.Fill(plateOf, -1);
-			foreach (var pl in sim.Plates)
-				foreach (var g in pl.GlobalIdsOfLocalCells)
-					if (g >= 0 && g < vn) plateOf[g] = sim.Plates.IndexOf(pl);
-			for (int i = 0; i < vn; i++)
-				if (plateOf[i] >= 0)
-					foreach (var nb in grid.Neighbors[i])
-						if (plateOf[nb] != plateOf[i]) { bnd++; break; }
-			GD.Print($"[MapGenerator] 岩性池(>0.05): 沉积={sedN} 变质={metaN} 长英深成={felPN} 镁铁火山={mafVN} 长英火山={felVN} | 老地壳(>800My)={ageOld} | 板块边界格={bnd} 板块数={sim.Plates.Count}");
-		}
-	}
-
-	// ── 统计 ──
-	float minT = float.MaxValue, maxT = float.MinValue;
-		float minP = float.MaxValue, maxP = float.MinValue;
-		var dist = new int[14];   // biome 0..13（含 Riparian）
-		foreach (var t in svTemp) { if (t < minT) minT = t; if (t > maxT) maxT = t; }
-		foreach (var p in svPrecip) { if (p < minP) minP = p; if (p > maxP) maxP = p; }
-		foreach (var b in svBiome) dist[b]++;
 		sw.Stop();
-
-		GD.Print($"[MapGenerator] seed={Seed} 球面顶点 {vn} elev[{minE:F4},{maxE:F4}] " +
-				 $"temp[{minT:F1},{maxT:F1}]°C precip[{minP:F0},{maxP:F0}]mm took {sw.ElapsedMilliseconds}ms");
+		GD.Print($"[MapGenerator] seed={Seed} 球面顶点 {vn} elev[{pipe.MinElev:F4},{pipe.MaxElev:F4}] " +
+			 $"temp[{pipe.MinTemp:F1},{pipe.MaxTemp:F1}]°C precip[{pipe.MinPrecip:F0},{pipe.MaxPrecip:F0}]mm took {sw.ElapsedMilliseconds}ms");
 		long total = vn;
 		var sb = new System.Text.StringBuilder("[MapGenerator] biome dist: ");
+		var dist = new int[14];   // biome 0..13（含 Riparian）
+		foreach (var b in pipe.Biome) dist[b]++;
 		for (int i = 0; i < dist.Length; i++)
 		{
 			var name = ((BiomeType)i).ToString();
@@ -288,14 +157,15 @@ public partial class MapGenerator : Node
 		}
 		GD.Print(sb.ToString());
 
-		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, minE, maxE, svElev,
-			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
+		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
+			pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
+			prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
 			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
 			mineralLevel: _mineralLevel);
 
 		if (ExportPreview)
-			ExportSphericalPreview(simVerts, svElev, minE, maxE);
+			ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
 	}
 
 	/// <summary>
@@ -333,109 +203,25 @@ public partial class MapGenerator : Node
 				if (svElev[i] > maxE) maxE = svElev[i];
 			}
 
-			// ── 气候 + biome（纯数据，FastNoiseLite 只读线程安全）──
-			World.Biome.WindField.Prograde = ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
-		World.Biome.WindField.RotationSpeed = RotationSpeed; // 自转速度 → 科里奥利强度
-			var climate = new ClimateGenerator(seed, AxialTilt, Insolation);
-			var svTemp = new float[vn];
-			var svPrecip = new float[vn];
-			var svBiome = new byte[vn];
-			float span = Mathf.Max(-minE, maxE);
-			// 盛行风降水回调：球面点 → 归一化海拔（最近顶点，桶查询）
-			var grid = sim.GlobalGrid;
-			System.Func<Vector3, float> elevSampler = p =>
+			// ── 阶段化管线（气候→水文→生态→资源；后台线程纯计算，共用同步逻辑）──
+			var pipe = new PlanetPipeline();
+			pipe.Run(sim, new PlanetParams
 			{
-				Vector3 dir = p.Normalized();
-				int id = grid.NearestId(dir);
-				return span > 1e-6f ? svElev[id] / span : 0f;
-			};
-			// 洋流场（v2 流函数法，与同步路径一致）
-			{
-				var eNorm = new float[vn];
-				for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
-				World.Biome.OceanCurrent.Compute(simVerts, grid.Neighbors, eNorm,
-					out _curDirs, out _curWarmth, out _curStrength);
-			}
-			System.Func<Vector3, (float warm, float str)> warmthSampler = p =>
-			{
-				Vector3 dir = p.Normalized();
-				int id = grid.NearestId(dir);
-				if (_curWarmth[id] != 0f)
-					return (_curWarmth[id], _curStrength != null ? _curStrength[id] : 1f);
-				float best = 0f, bestD = 1e9f, bestStr = 1f;
-				foreach (var nb in grid.Neighbors[id])
-				{
-					if (_curWarmth[nb] != 0f)
-					{
-						float d = Mathf.Acos(Mathf.Clamp(simVerts[id].Dot(simVerts[nb]), -1f, 1f));
-						if (d < bestD) { bestD = d; best = _curWarmth[nb]; bestStr = _curStrength != null ? _curStrength[nb] : 1f; }
-					}
-				}
-				return (best * Mathf.Exp(-bestD / 0.08f), bestStr);
-			};
-			climate.SetOceanCurrent(warmthSampler);
-			Parallel.For(0, vn, i =>
-			{
-				Vector3 p = simVerts[i] * radius;
-				float e1 = span > 1e-6f ? svElev[i] / span : 0f;
-				float t = climate.ComputeTemperature(p, e1);
-				float pp = climate.ComputePrecipitation(p, e1, elevSampler);
-				svTemp[i] = t;
-				svPrecip[i] = pp;
-				svBiome[i] = (byte)BiomeClassifier.Classify(e1, t, pp);
-				if ((i & 0xFF) == 0)
-					onProgress(0.7f + 0.3f * i / vn);
-			});
+				Seed = seed, AxialTilt = AxialTilt, Insolation = Insolation,
+				ProgradeRotation = ProgradeRotation, RotationSpeed = RotationSpeed, RadiusKm = radius,
+			}, frac => onProgress(0.7f + 0.3f * frac));
+			_riverFlow = pipe.RiverFlow; _riverVolume = pipe.RiverVolume;
+			_riverLevel = pipe.RiverLevel; _lakeLevel = pipe.LakeLevel; _mineralLevel = pipe.MineralLevel;
+			_curDirs = pipe.CurrentDirs; _curWarmth = pipe.CurrentWarmth; _curStrength = pipe.CurrentStrength;
 
-			float minT = float.MaxValue, maxT = float.MinValue;
-			float minP = float.MaxValue, maxP = float.MinValue;
-			for (int i = 0; i < vn; i++)
-			{
-				if (svTemp[i] < minT) minT = svTemp[i];
-				if (svTemp[i] > maxT) maxT = svTemp[i];
-				if (svPrecip[i] < minP) minP = svPrecip[i];
-				if (svPrecip[i] > maxP) maxP = svPrecip[i];
-			}
-
-			// 河流（后台线程安全：纯计算；迭代演化 v2）
-			{
-				var eNorm = new float[vn];
-				for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
-				RiverSystem.ComputeIterative(simVerts, grid.Neighbors, eNorm, svElev,
-					svPrecip, svTemp, waterThreshold: 5000f, lakeThreshold: 200f,
-					seaLevelM: 0f, elevSpan: span, rounds: 4,
-					out _riverFlow, out _riverVolume, out _riverLevel, out _lakeLevel, out _);
-				minE = float.MaxValue; maxE = float.MinValue;
-				foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
-
-				// 河岸生态带（同同步路径；后台线程禁止 GD.Print——不打印）
-				for (int i = 0; i < vn; i++)
-				{
-					if (svElev[i] <= sea) continue;
-					if (_riverLevel[i] > 0 || _lakeLevel[i] > 0) continue;
-					bool wet = false;
-					foreach (var nb in grid.Neighbors[i])
-						if (_riverLevel[nb] > 0 || _lakeLevel[nb] > 0) { wet = true; break; }
-					if (wet) svBiome[i] = (byte)BiomeType.Riparian;
-				}
-				// 矿藏（后台线程安全：纯计算；不打印）
-				{
-					var eNorm2 = new float[vn];
-					for (int i = 0; i < vn; i++) eNorm2[i] = span > 1e-6f ? svElev[i] / span : 0f;
-					MineralSystem.ComputeMinerals(simVerts, grid.Neighbors, _riverFlow, eNorm2, svPrecip,
-						sim.WorldCrust?.Age, sim.MineralHydro, sim.MineralSed, sim.MineralMeta,
-						sim.WorldCrust, Seed,
-						out _mineralLevel);
-				}
-			}
-
-			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
-				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
+			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
+				pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
+				prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
 				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
 				mineralLevel: _mineralLevel, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
-				ExportSphericalPreview(simVerts, svElev, minE, maxE);
+				ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
 			return (ok, outPath);
 		}).ContinueWith(t =>
 		{
