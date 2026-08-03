@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using World.HexPlanet;
-using World.Surface;
 
 namespace World.PlanetLOD
 {
@@ -20,140 +19,6 @@ namespace World.PlanetLOD
 	/// </summary>
 	public static class ChunkMeshBuilder
 	{
-		public static ArrayMesh BuildMesh(
-			List<HexTile> tiles,
-			float[] tileElev,
-			float[] faceElev,
-			float radiusKm,
-			float elevationScaleKm,
-			bool highlightPentagons,
-			out int triCount)
-		{
-			var meshVerts = new List<Vector3>();
-			var meshColors = new List<Color>();
-			var meshIndices = new List<int>();
-
-			foreach (var tile in tiles)
-			{
-				int n = tile.Corners.Length;
-				if (n < 3)
-					continue;
-
-				Color tileColor = PlanetColors.ElevationToColor(tileElev[tile.Id]);
-				if (highlightPentagons && tile.IsPentagon)
-					tileColor = tileColor.Lerp(Colors.Red, 0.55f);
-
-				Vector3 centerPos = tile.Center.Normalized() * (radiusKm + tileElev[tile.Id] * elevationScaleKm);
-				int centerIdx = meshVerts.Count;
-				meshVerts.Add(centerPos);
-				var centerColor = tileColor;
-				centerColor.A = 1f; // tile interior
-				meshColors.Add(centerColor);
-
-				int firstCorner = meshVerts.Count;
-				for (int i = 0; i < n; i++)
-				{
-					float fe = faceElev[tile.CornerFaceIndices[i]];
-					Vector3 p = tile.Corners[i].Normalized() * (radiusKm + fe * elevationScaleKm);
-					meshVerts.Add(p);
-					var cornerColor = tileColor;
-					cornerColor.A = 0f; // on the tile boundary → outline
-					meshColors.Add(cornerColor);
-				}
-
-				for (int i = 0; i < n; i++)
-				{
-					int a = firstCorner + i;
-					int b = firstCorner + (i + 1) % n;
-					Vector3 va = meshVerts[a];
-					Vector3 vb = meshVerts[b];
-					Vector3 vc = meshVerts[centerIdx];
-
-					Vector3 normal = (va - vc).Cross(vb - vc);
-					if (normal.Dot(vc) < 0f)
-					{
-						meshIndices.Add(centerIdx);
-						meshIndices.Add(b);
-						meshIndices.Add(a);
-					}
-					else
-					{
-						meshIndices.Add(centerIdx);
-						meshIndices.Add(a);
-						meshIndices.Add(b);
-					}
-				}
-			}
-
-			var accNormals = new Vector3[meshVerts.Count];
-			for (int i = 0; i < meshIndices.Count; i += 3)
-			{
-				int ia = meshIndices[i];
-				int ib = meshIndices[i + 1];
-				int ic = meshIndices[i + 2];
-				Vector3 nrm = (meshVerts[ib] - meshVerts[ia]).Cross(meshVerts[ic] - meshVerts[ia]);
-				accNormals[ia] += nrm;
-				accNormals[ib] += nrm;
-				accNormals[ic] += nrm;
-			}
-			var meshNormals = new Vector3[meshVerts.Count];
-			for (int i = 0; i < meshVerts.Count; i++)
-				meshNormals[i] = accNormals[i].Normalized();
-
-			var mesh = new ArrayMesh();
-			var arrays = new Godot.Collections.Array();
-			arrays.Resize((int)Mesh.ArrayType.Max);
-			arrays[(int)Mesh.ArrayType.Vertex] = meshVerts.ToArray();
-			arrays[(int)Mesh.ArrayType.Normal] = meshNormals;
-			arrays[(int)Mesh.ArrayType.Color] = meshColors.ToArray();
-			arrays[(int)Mesh.ArrayType.Index] = meshIndices.ToArray();
-			mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
-			triCount = meshIndices.Count / 3;
-			return mesh;
-		}
-
-		/// <summary>
-		/// Builds a flat per-tile colored ArrayMesh where every vertex elevation is
-		/// sampled independently (elevAt) — same value at the same position across
-		/// chunks and LOD levels, so adjacent chunks are watertight even at
-		/// different detail levels.
-		/// </summary>
-		public static ArrayMesh BuildMeshSampled(
-			List<HexTile> tiles,
-			Func<Vector3, float> elevAt,
-			Func<HexTile, Color> colorFn,
-			float radiusKm,
-			float elevationScaleKm,
-			out int triCount)
-		{
-			var d = BuildMeshData(tiles, elevAt, colorFn, radiusKm, elevationScaleKm, out triCount);
-			return CreateMesh(d);
-		}
-
-		/// <summary>几何 + 颜色一次构建（组合接口，向后兼容）。</summary>
-		public static MeshData BuildMeshData(
-			List<HexTile> tiles,
-			Func<Vector3, float> elevAt,
-			Func<HexTile, Color> colorFn,
-			float radiusKm,
-			float elevationScaleKm,
-			out int triCount,
-			Action<float> progress = null)
-		{
-			var g = BuildGeometry(tiles, elevAt, radiusKm, elevationScaleKm,
-				progress == null ? null : p => progress(p * 0.7f));
-			var colors = BuildColors(tiles, colorFn, g,
-				progress == null ? null : p => progress(0.7f + p * 0.3f));
-			triCount = g.Indices.Length / 3;
-			return new MeshData
-			{
-				Verts = g.Verts,
-				Normals = g.Normals,
-				Colors = colors,
-				Indices = g.Indices
-			};
-		}
-
 		/// <summary>
 		/// 几何构建（纯数据，后台线程安全）：顶点/索引/fan 法线。
 		/// 结果可缓存——图层切换只需重算颜色。
@@ -301,20 +166,6 @@ namespace World.PlanetLOD
 			return colors;
 		}
 
-		/// <summary>Wraps geometry + colors into an ArrayMesh. Main thread only.</summary>
-		public static ArrayMesh CreateMesh(GeometryData g, Color[] colors)
-		{
-			var mesh = new ArrayMesh();
-			var arrays = new Godot.Collections.Array();
-			arrays.Resize((int)Mesh.ArrayType.Max);
-			arrays[(int)Mesh.ArrayType.Vertex] = g.Verts;
-			arrays[(int)Mesh.ArrayType.Normal] = g.Normals;
-			arrays[(int)Mesh.ArrayType.Color] = colors;
-			arrays[(int)Mesh.ArrayType.Index] = g.Indices;
-			mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
-			return mesh;
-		}
-
 		/// <summary>Wraps pre-built data into an ArrayMesh. Main thread only.</summary>
 		public static ArrayMesh CreateMesh(MeshData d)
 		{
@@ -330,6 +181,7 @@ namespace World.PlanetLOD
 		}
 	}
 
+	/// <summary>几何+颜色打包（异步构建任务返回类型，MapViewer 用）。</summary>
 	public struct MeshData
 	{
 		public Vector3[] Verts;

@@ -106,44 +106,6 @@ public static class MapArchive
         return true;
     }
 
-    /// <summary>v2 平面存档写入（兼容保留：供调试/对比导出用）。</summary>
-    public static bool Write(
-        string path, int seed, int width, int height,
-        float minElev, float maxElev, float[] elev,
-        float[] temp, float[] precip, byte[] biome,
-        float minTemp, float maxTemp, float minPrecip, float maxPrecip)
-    {
-        string dir = path.GetBaseDir();
-        if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
-            DirAccess.MakeDirRecursiveAbsolute(dir);
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
-        if (f == null)
-        {
-            GD.PrintErr($"[MapArchive] cannot open {path} for write: {FileAccess.GetOpenError()}");
-            return false;
-        }
-        f.Store8((byte)'M');
-        f.Store8((byte)'P');
-        f.Store8((byte)'A');
-        f.Store8((byte)'1');
-        f.Store16(2);   // v2 平面
-        f.Store32((uint)seed);
-        f.Store32((uint)width);
-        f.Store32((uint)height);
-        f.StoreFloat(minElev);
-        f.StoreFloat(maxElev);
-        foreach (var e in elev) f.StoreFloat(e);
-        f.StoreFloat(minTemp);
-        f.StoreFloat(maxTemp);
-        foreach (var t in temp) f.StoreFloat(t);
-        f.StoreFloat(minPrecip);
-        f.StoreFloat(maxPrecip);
-        foreach (var p in precip) f.StoreFloat(p);
-        foreach (var b in biome) f.Store8(b);
-        GD.Print($"[MapArchive] wrote v2 {path} ({width}x{height})");
-        return true;
-    }
-
     public static bool Read(string path, out MapData map)
     {
         map = new MapData();
