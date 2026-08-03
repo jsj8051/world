@@ -408,4 +408,76 @@ public static class RiverSystem
         }
         paths = RebuildPaths(flow, riverLevel, elevNorm);
     }
+
+    /// <summary>
+    /// 流域划分（2026-08-02 v3 以河流为中心，无阈值）：
+    ///   流域终点 = 河格出口（河格入海/入盆地）+ 内流盆地——不是所有海岸格！
+    ///   - 河格：沿 flow 走到终点 → 一条河一个流域（流域数 = 河流系统数）
+    ///   - 非河格：沿 flow 链走，遇河格 → 继承该河流域；遇盆地 → 内流；
+    ///     直接入海（链上无河格）→ 边缘排水区（-1，不显示）
+    /// ⚠️ v1/v2 教训：入海口判定过宽（任何流向海洋的格自开流域 → 3400 碎片）+ 面积
+    ///   阈值硬合并（隐藏参数，随 n 失效）——v3 弃用两者，流域数天然 = 河流数+内流盆地数。
+    /// 不存档——读档后从 flow/riverLevel 现场算（纯计算，毫秒级）。
+    /// </summary>
+    public static void ComputeWatersheds(float[] elevNorm, int[] flow, byte[] riverLevel,
+        out int[] watershedId, out List<int> outlets)
+    {
+        int n = flow.Length;
+        watershedId = new int[n];
+        System.Array.Fill(watershedId, -1);
+        outlets = new List<int>();
+        var riverToWs = new int[n];   // 河格 → 流域 id
+        System.Array.Fill(riverToWs, -1);
+        int nextId = 0;
+
+        // ── 1. 河格流域：河格沿 flow 走到终点（入海/盆地），一条河一个流域 ──
+        for (int i = 0; i < n; i++)
+        {
+            if (riverLevel[i] == 0 || riverToWs[i] >= 0) continue;
+            var chain = new List<int>();
+            int cur = i;
+            int guard = 0;
+            while (guard++ < n)
+            {
+                chain.Add(cur);
+                int f = flow[cur];
+                if (f == cur) break;                 // 盆地终点
+                if (elevNorm[f] < 0f) break;         // 入海终点
+                if (riverLevel[f] == 0) break;       // 断流处（异常链终止）
+                cur = f;
+            }
+            foreach (var v in chain)
+                if (riverLevel[v] > 0 && riverToWs[v] < 0)
+                    riverToWs[v] = nextId;
+            outlets.Add(chain[^1]);
+            nextId++;
+        }
+
+        // ── 2. 非河格归属：沿 flow 链遇河格继承；盆地 → 内流；直接入海 → 边缘 -1 ──
+        for (int i = 0; i < n; i++)
+        {
+            if (elevNorm[i] < 0f) continue;                  // 海洋
+            if (riverLevel[i] > 0) { watershedId[i] = riverToWs[i]; continue; }
+            int cur = i;
+            int ws = -1;
+            int guard = 0;
+            while (guard++ < n)
+            {
+                if (riverLevel[cur] > 0) { ws = riverToWs[cur]; break; }   // 遇河格 → 继承
+                int f = flow[cur];
+                if (f == cur) { ws = -2; break; }            // 盆地终点 → 内流
+                if (elevNorm[f] < 0f) { ws = -1; break; }    // 直接入海 → 边缘
+                cur = f;
+            }
+            watershedId[i] = ws;
+        }
+
+        // ── 3. 内流盆地（-2）分配独立流域 id ──
+        for (int i = 0; i < n; i++)
+            if (watershedId[i] == -2)
+            {
+                watershedId[i] = nextId++;
+                outlets.Add(i);
+            }
+    }
 }

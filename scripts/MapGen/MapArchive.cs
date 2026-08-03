@@ -369,6 +369,38 @@ public class MapData
         return best;
     }
 
+    /// <summary>读档后现场重建邻接表（Icosahedron 拓扑：桶内球面距离 < 1.5×平均格距）。
+    /// 存档不存拓扑，流域合并等需要邻接的操作用此方法（纯计算，毫秒级）。</summary>
+    public int[][] BuildNeighbors()
+    {
+        EnsureBuckets();
+        int n = Verts.Length;
+        float cell = Mathf.Sqrt(4f * Mathf.Pi / n);        // 平均格距（rad）
+        float cosR = Mathf.Cos(cell * 1.5f);               // 邻居半径 1.5×格距
+        var result = new int[n][];
+        for (int i = 0; i < n; i++)
+        {
+            var list = new System.Collections.Generic.List<int>();
+            (int by, int bx) = BucketOf(Verts[i]);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                int y = (by + dy + BucketsLat) % BucketsLat;
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    int x = (bx + dx + BucketsLon) % BucketsLon;
+                    foreach (int j in _buckets[y, x])
+                    {
+                        if (j == i) continue;
+                        if (Verts[i].Dot(Verts[j]) > cosR)
+                            list.Add(j);
+                    }
+                }
+            }
+            result[i] = list.ToArray();
+        }
+        return result;
+    }
+
     /// <summary>球面 Shepard 插值：最近顶点 + 其邻居按 cos⁴ 加权（v3 用）。</summary>
     /// <param name="field">顶点字段数组（Elev/Temp/Precip）。</param>
     public float SampleSpherical(Vector3 p, float[] field)

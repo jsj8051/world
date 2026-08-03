@@ -104,6 +104,8 @@ public partial class MapViewer : Node3D
     private byte[] _tileBiome;    // 每格 biome
     private Vector3[] _tileWind;  // 每格盛行风向（单位切向量，盛行风图层用）
     private byte[] _tileLake;     // 每格湖泊标记（0/1；最近顶点直读）
+    private int[] _tileWatershed; // 每格流域 id（-1=海洋；读档后从 flow 现场算，不存档）
+    private int[] _vertexWatershed; // 每模拟顶点流域 id（现场算）
 
     // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
     private MeshInstance3D _windArrows;
@@ -126,7 +128,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流", "流域" };
 
     public override void _Ready()
     {
@@ -152,6 +154,7 @@ public partial class MapViewer : Node3D
             else if (key.Keycode == Key.Key5) layer = 4;
             else if (key.Keycode == Key.Key6) layer = 5;
             else if (key.Keycode == Key.Key7) layer = 6;
+            else if (key.Keycode == Key.Key8) layer = 7;
             if (layer >= 0)
             {
                 Layer = layer;
@@ -169,7 +172,8 @@ public partial class MapViewer : Node3D
         3 => "生物群系",
         4 => "盛行风",
         5 => "洋流",
-        _ => "河流",
+        6 => "河流",
+        _ => "流域",
     };
 
     public override void _Process(double delta)
@@ -215,6 +219,24 @@ public partial class MapViewer : Node3D
                     GD.Print($"[MapViewer] 存档模拟 n={simN}（{map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
                     _gridN = simN;
                 }
+            }
+
+            // ⚠️ 2026-08-02：流域现场算（不存档——纯计算毫秒级）。
+            //   用存档 Elev（相对海平面 0）+ RiverFlow → 每顶点流域 id（-1=海洋）。
+            _vertexWatershed = null;
+            if (map.RiverFlow != null)
+            {
+                int vn2 = map.Verts.Length;
+                var eNorm = new float[vn2];
+                float range = map.MaxElev - map.MinElev;
+                for (int i = 0; i < vn2; i++)
+                    eNorm[i] = range > 1e-6f ? map.Elev[i] / range : 0f;   // 0=海平面（同生成端）
+                RiverSystem.ComputeWatersheds(eNorm, map.RiverFlow, map.RiverLevel ?? new byte[vn2],
+                    out _vertexWatershed, out _);
+                int wsCount = 0;
+                for (int i = 0; i < vn2; i++)
+                    if (_vertexWatershed[i] > wsCount) wsCount = _vertexWatershed[i];
+                GD.Print($"[MapViewer] 流域 {wsCount + 1} 个（现场算）");
             }
         }
 
@@ -304,6 +326,8 @@ public partial class MapViewer : Node3D
         _tileBiome = new byte[n];
         _tileWind = new Vector3[n];
         _tileLake = new byte[n];
+        _tileWatershed = new int[n];
+        System.Array.Fill(_tileWatershed, -1);
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -313,6 +337,7 @@ public partial class MapViewer : Node3D
         var biomeArr = _tileBiome;
         var windArr = _tileWind;
         var lakeArr = _tileLake;
+        var wsArr = _tileWatershed;
         bool hasLake = map.LakeLevel != null;
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
@@ -334,6 +359,7 @@ public partial class MapViewer : Node3D
             biomeArr[i] = hasBiome ? map.Biome[vid] : (byte)BiomeType.DeepOcean;
             windArr[i] = World.Biome.WindField.WindAt(c);
             lakeArr[i] = hasLake ? map.LakeLevel[vid] : (byte)0;
+            wsArr[i] = _vertexWatershed != null ? _vertexWatershed[vid] : -1;
         });
         _hSea = hSea;
     }
@@ -366,6 +392,15 @@ public partial class MapViewer : Node3D
     					float h = _tileElev[id];
     					bool ocean = h < _hSea;
     					return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);
+    				}
+    			case 7: // 流域：每流域独立颜色（黄金角）；海洋浅蓝、边缘排水区灰绿
+    				{
+    					int ws = _tileWatershed[id];
+    					if (ws < 0)
+    						return _tileElev[id] < _hSea
+    							? new Color(0.45f, 0.55f, 0.70f)   // 海洋
+    							: new Color(0.60f, 0.58f, 0.50f);  // 边缘排水区（直接入海，非河）
+    					return HslToRgb((ws * 0.6180339887f) % 1f, 0.55f, 0.62f);
     				}
     			default: // 海拔
     				{
@@ -960,7 +995,9 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M2 10 L6 6 L10 10 L14 6 L18 10 L22 6 L26 10 M2 18 L6 14 L10 18 L14 14 L18 18 L22 14 L26 18' stroke='#eee' stroke-width='2' fill='none'/></svg>",
         // 6 河流：折线河道（直线，蓝色）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M6 2 L10 6 L8 10 L14 14 L12 18 L15 22 L14 26' stroke='#6cf' stroke-width='3' fill='none' stroke-linecap='round'/></svg>",
-    };
+        // 7 流域：分水岭+两支流（直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L7 13 L4 24 M14 3 L21 13 L24 24 M14 3 L14 24' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
+        };
 
     private static Texture2D MakeLayerIcon(int idx)
     {
