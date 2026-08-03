@@ -41,8 +41,9 @@ public partial class MapGenerator : Node
 	// 河流（生成时算好，WriteSpherical 存档；MapViewer 河流图层用）
 	private byte[] _riverLevel;   // 每顶点：0=无河，1-3=级别
 	private int[] _riverFlow;     // 每顶点流向（MapViewer 重建路径用）
-	private float[] _riverVolume; // 每顶点累积水量 mm（降水-蒸发沿流向累积 = 流量）
-	private byte[] _lakeLevel;    // 每顶点：0=无湖，1=湖（陆地盆地 + 水量 ≥ 阈值）
+	private float[] _riverVolume; // 每顶点累积水量 mm（河流图层/断流判定用）
+	private byte[] _lakeLevel;    // 每顶点湖泊标记（0/1）
+	private byte[] _mineralLevel; // 每顶点矿藏（v3.5：(富度<<4)|矿种；0=无）
 
 	public override void _Ready()
 	{
@@ -220,6 +221,52 @@ public partial class MapGenerator : Node
 			}
 		}
 
+	// ── 矿藏（2026-08-02：岩性/构造/气候推断 + 确定性概率，稀疏标注）──
+	{
+		var eNorm2 = new float[vn];
+		for (int i = 0; i < vn; i++) eNorm2[i] = span > 1e-6f ? svElev[i] / span : 0f;
+		MineralSystem.ComputeMinerals(simVerts, grid.Neighbors, _riverFlow, eNorm2, svPrecip,
+			sim.WorldCrust?.Age, sim.WorldCrust, Seed,
+			out _mineralLevel);
+		int mineralCount = 0;
+		var mdist = new int[9];
+		for (int i = 0; i < vn; i++)
+			if (_mineralLevel[i] != 0)
+			{
+				mineralCount++;
+				mdist[MineralSystem.TypeOf(_mineralLevel[i])]++;
+			}
+		GD.Print($"[MapGenerator] 矿藏 {mineralCount} 格 ({mineralCount * 100f / vn:F1}%)" +
+			$" 铁={mdist[1]} 铜={mdist[2]} 锡={mdist[3]} 金={mdist[4]} 煤={mdist[5]} 盐={mdist[6]} 石料={mdist[7]} 宝石={mdist[8]}");
+
+		// 岩性池分布诊断（标定阈值用）
+		var c2 = sim.WorldCrust;
+		if (c2 != null)
+		{
+			int sedN = 0, metaN = 0, felPN = 0, mafVN = 0, felVN = 0, ageOld = 0;
+			for (int i = 0; i < vn; i++)
+			{
+				if (c2.Sedimentary != null && c2.Sedimentary[i] > 0.05f) sedN++;
+				if (c2.Metamorphic != null && c2.Metamorphic[i] > 0.05f) metaN++;
+				if (c2.FelsicPlutonic != null && c2.FelsicPlutonic[i] > 0.05f) felPN++;
+				if (c2.MaficVolcanic != null && c2.MaficVolcanic[i] > 0.05f) mafVN++;
+				if (c2.FelsicVolcanic != null && c2.FelsicVolcanic[i] > 0.05f) felVN++;
+				if (c2.Age != null && c2.Age[i] > 800f) ageOld++;
+			}
+			int bnd = 0;
+			var plateOf = new int[vn];
+			System.Array.Fill(plateOf, -1);
+			foreach (var pl in sim.Plates)
+				foreach (var g in pl.GlobalIdsOfLocalCells)
+					if (g >= 0 && g < vn) plateOf[g] = sim.Plates.IndexOf(pl);
+			for (int i = 0; i < vn; i++)
+				if (plateOf[i] >= 0)
+					foreach (var nb in grid.Neighbors[i])
+						if (plateOf[nb] != plateOf[i]) { bnd++; break; }
+			GD.Print($"[MapGenerator] 岩性池(>0.05): 沉积={sedN} 变质={metaN} 长英深成={felPN} 镁铁火山={mafVN} 长英火山={felVN} | 老地壳(>800My)={ageOld} | 板块边界格={bnd} 板块数={sim.Plates.Count}");
+		}
+	}
+
 	// ── 统计 ──
 	float minT = float.MaxValue, maxT = float.MinValue;
 		float minP = float.MaxValue, maxP = float.MinValue;
@@ -243,7 +290,8 @@ public partial class MapGenerator : Node
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, minE, maxE, svElev,
 			svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
-			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel);
+			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
+			mineralLevel: _mineralLevel);
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, svElev, minE, maxE);
@@ -369,12 +417,21 @@ public partial class MapGenerator : Node
 						if (_riverLevel[nb] > 0 || _lakeLevel[nb] > 0) { wet = true; break; }
 					if (wet) svBiome[i] = (byte)BiomeType.Riparian;
 				}
+				// 矿藏（后台线程安全：纯计算；不打印）
+				{
+					var eNorm2 = new float[vn];
+					for (int i = 0; i < vn; i++) eNorm2[i] = span > 1e-6f ? svElev[i] / span : 0f;
+					MineralSystem.ComputeMinerals(simVerts, grid.Neighbors, _riverFlow, eNorm2, svPrecip,
+						sim.WorldCrust?.Age, sim.WorldCrust, Seed,
+						out _mineralLevel);
+				}
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,
 				svTemp, svPrecip, svBiome, minT, maxT, minP, maxP, prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
 				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
-				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel, log: false);   // 后台线程禁止 GD.Print
+				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
+				mineralLevel: _mineralLevel, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, svElev, minE, maxE);
 			return (ok, outPath);
