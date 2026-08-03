@@ -41,6 +41,8 @@ namespace World.Tectonics
         public bool EnableSupercontinent = true; // M3-4：超级大陆循环（150My 重新分割）开关
         public float SupercontinentCycleMy = 150f;  // 聚合-裂解周期（百万年）
         public float TotalOceanDepth = 0f;       // M3-5：总水量（平均海洋深度 m，守恒常量）
+        public int Seed = 0;                     // 初始地壳种子（ResetPlates 洋壳年龄重置用，方案 A）
+        public int InitialPlateCount = 8;        // 初始板块数（ResetPlates 固定请求数，防棘轮收缩）
 
         public TectonicsSimulation(int gridN = 16)
         {
@@ -69,6 +71,7 @@ namespace World.Tectonics
         public void GenerateInitialCrust(int seed, float oceanFraction = 0.6f)
         {
             int n = GlobalGrid.VertexCount;
+            Seed = seed;
 
             // 1. 每格高度排名：球面低频噪声（多路独立求和，块形完整）
             //    对应 JS World 初始化的 height_ranks（噪声驱动，非逐格随机）
@@ -248,6 +251,7 @@ namespace World.Tectonics
             }
 
             // 每板：mask + crust（从全局复制本板区域）
+            InitialPlateCount = numPlates;   // 记录初始板块数（重分割时固定请求数，见 ResetPlates）
             for (int p = 0; p < numPlates; p++)
             {
                 var mask = new byte[n];
@@ -328,7 +332,11 @@ namespace World.Tectonics
                 if (EnableSupercontinent && (s + 1) % (int)(SupercontinentCycleMy / stepMy) == 0)
                 {
                     swOther.Start();
-                    ResetPlates(Mathf.Max(Plates.Count, 4));   // M3-4：超级大陆循环（聚合-裂解）
+                    // ⚠️ 2026-08-03：请求数固定 = 初始板块数（原版 JS 固定 7）。
+                    //   旧实现 Mathf.Max(Plates.Count, 4) 是"请求棘轮"：请求数每周期只降不升，
+                    //   分割结果 ≤ 请求数 → 板块数单调下降（8→7→6→5→4→3）。
+                    //   控制变量实验（ResetDiag 实验3）：请求恒 8 时 592My 侵蚀开仍分割出 7 块。
+                    ResetPlates(Mathf.Max(InitialPlateCount, 4));   // M3-4：超级大陆循环（聚合-裂解）
                     MergePlatesToMaster();
                     swOther.Stop();
                 }
@@ -686,25 +694,54 @@ namespace World.Tectonics
             var plateMap = Tectonophysics.GuessPlateMap(GlobalGrid, angular, numPlates, minSegmentSize);
 
             // 4. 重建板块（继承 WorldCrust）
+            // ⚠️ 2026-08-03 板块数收敛根因（控制变量实验 ResetDiag 结论）：
+            //   "洋壳年龄饱和"不是主因（v1 只改年龄：饱和率 92%→57% 板块数轨迹不变；
+            //   298My 未重置 94% 饱和的场反而分割出 6 块）——主因是**请求棘轮**：
+            //   旧实现 ResetPlates(Mathf.Max(Plates.Count,4)) 请求数每周期只降不升，
+            //   分割结果 ≤ 请求数 → 单调掉块（8→7→6→5→4→3，900My 固定 2-3 块）。
+            //   请求恒 8 时 592My 侵蚀开仍分割出 7 块（ResetDiag 实验3）。
+            //   修复：请求数固定 = 初始板块数（RunWithProgress 已改）。
+            //   年龄重置（本函数）：超级大陆裂解 = 威尔逊旋回，纯洋壳格重新注入 0~200My
+            //   年龄梯度（与初始地壳同结构低频噪声）——洋壳不再只老不新（原版无重置时
+            //   600My 全饱和 → 海底过深过均匀），恢复密度差驱动的物理。大陆/造山带 age 不动
+            //   （felsic 密度固定，age 只影响 mafic）。
             Plates.Clear();
             var plateIds = new System.Collections.Generic.HashSet<int>();
             for (int i = 0; i < n; i++) if (plateMap[i] > 0) plateIds.Add(plateMap[i]);
 
+            var ageNoise1 = new FastNoiseLite();
+            ageNoise1.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
+            ageNoise1.Frequency = 0.00016f;   // 波长 ~6250km（与 GenerateInitialCrust 一致）
+            ageNoise1.Seed = Seed;
+            var ageNoise2 = new FastNoiseLite();
+            ageNoise2.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
+            ageNoise2.Frequency = 0.00026f;   // 波长 ~3850km
+            ageNoise2.Seed = Seed + 100;
+
+            var wPools = WorldCrust.AllPools();
             foreach (int pid in plateIds)
             {
                 var mask = new byte[n];
                 var crust = new Crust(GlobalGrid);
+                var cPools = crust.AllPools();
                 for (int i = 0; i < n; i++)
                 {
                     if (plateMap[i] != pid) continue;
                     mask[i] = 1;
-                    var wPools = WorldCrust.AllPools();
-                    var cPools = crust.AllPools();
                     for (int k = 0; k < 8; k++) cPools[k][i] = wPools[k][i];
+                    // 洋壳年龄重置：mafic 为主的格（排除大陆核心 felsic≥1e7）
+                    float felsic = wPools[3][i] + wPools[4][i];
+                    if (wPools[5][i] > 1e6f && felsic < 1e7f)
+                    {
+                        Vector3 p = GlobalGrid.Vertices[i] * 6330f;   // km 坐标（噪声频率标定）
+                        float t = 0.5f * (ageNoise1.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f)
+                                + 0.5f * (ageNoise2.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f);
+                        crust.Age[i] = Mathf.Clamp(t, 0f, 1f) * 200f * Units.MEGAYEAR;
+                    }
                 }
                 Plates.Add(new Plate(pid, GlobalGrid, crust, mask));
             }
-            GD.Print($"[Tectonics] 超级大陆循环: 重新分割为 {Plates.Count} 块板");
+            GD.Print($"[Tectonics] 超级大陆循环: 重新分割为 {Plates.Count} 块板（洋壳年龄已重置）");
         }
 
         /// <summary>
