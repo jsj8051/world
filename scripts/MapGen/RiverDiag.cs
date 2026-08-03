@@ -41,7 +41,7 @@ public partial class RiverDiag : Node
 		var sw = System.Diagnostics.Stopwatch.StartNew();
 		RiverSystem.Compute(verts, neighbors, eNorm,
 			out var flow, out var area, out var riverLevel,
-			out var paths, out var lakeIds, precip: precip, temp: temp, waterThreshold: 5000f);
+			out var paths, out var lakeIds, out var lakeLevel, precip: precip, temp: temp, waterThreshold: 5000f);
 		sw.Stop();
 
 		// 统计
@@ -59,7 +59,24 @@ public partial class RiverDiag : Node
 		int maxLen = 0, maxPath = -1;
 		for (int p = 0; p < paths.Count; p++)
 			if (paths[p].Length > maxLen) { maxLen = paths[p].Length; maxPath = p; }
-		GD.Print($"[RiverDiag] n={n} 河流格: 1级={levelCount[1]} 2级={levelCount[2]} 3级={levelCount[3]} | 路径 {paths.Count} 条 | 最长 {maxLen} 格 | 湖泊候选 {lakeIds.Count} | 耗时 {sw.ElapsedMilliseconds}ms");
+		int lakeCount = 0;
+		for (int i = 0; i < lakeLevel.Length; i++) if (lakeLevel[i] > 0) lakeCount++;   // ⚠️ 用数组长度，非模拟 n（64≠顶点数 40962）
+		// 盆地水量分布（标定 lakeThreshold）
+		var basinWaters = new List<float>();
+		foreach (var b in lakeIds) basinWaters.Add(area[b]);
+		basinWaters.Sort();
+		if (basinWaters.Count > 0)
+		{
+			float med = basinWaters[basinWaters.Count / 2];
+			float p90 = basinWaters[(int)(basinWaters.Count * 0.9f)];
+			GD.Print($"[RiverDiag] 盆地水量: 中位 {med:F0} p90 {p90:F0} 最大 {basinWaters[^1]:F0}mm");
+		}
+		for (int s = 0; s < Mathf.Min(3, lakeIds.Count); s++)
+		{
+			int b = lakeIds[s];
+			GD.Print($"[RiverDiag] 样本盆地 {s}: id={b} water={area[b]:F0} lakeLevel={lakeLevel[b]}");
+		}
+		GD.Print($"[RiverDiag] n={n} 河流格: 1级={levelCount[1]} 2级={levelCount[2]} 3级={levelCount[3]} | 路径 {paths.Count} 条 | 最长 {maxLen} 格 | 盆地候选 {lakeIds.Count} 湖 {lakeCount} | 耗时 {sw.ElapsedMilliseconds}ms");
 
 		// 等距柱状图（1024×512）：深蓝海/暗绿陆/蓝河/红主河/亮蓝湖
 		const int W = 1024, H = 512;

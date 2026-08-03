@@ -9,7 +9,7 @@ public partial class RiverCheck : Node
     public override void _Ready()
     {
         if (!MapArchive.Read("user://maps/map1.mpa", out var map)) { GetTree().Quit(); return; }
-        GD.Print($"[RiverCheck] n={map.Verts.Length} rivers={(map.RiverLevel != null ? "yes" : "no")} strength={(map.CurrentStrength != null ? "yes" : "no")} vol={(map.RiverVolume != null ? "yes" : "no")} dirs={(map.CurrentDirs != null ? "yes" : "no")}");
+        GD.Print($"[RiverCheck] n={map.Verts.Length} rivers={(map.RiverLevel != null ? "yes" : "no")} strength={(map.CurrentStrength != null ? "yes" : "no")} vol={(map.RiverVolume != null ? "yes" : "no")} lake={(map.LakeLevel != null ? "yes" : "no")} dirs={(map.CurrentDirs != null ? "yes" : "no")}");
         if (map.RiverLevel == null) { GetTree().Quit(); return; }
         int flowMin = int.MaxValue, flowMax = -1, bad = 0;
         for (int i = 0; i < map.RiverFlow.Length; i++)

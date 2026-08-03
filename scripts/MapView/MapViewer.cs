@@ -103,6 +103,7 @@ public partial class MapViewer : Node3D
     private float[] _tilePrecip;  // 每格降水 mm
     private byte[] _tileBiome;    // 每格 biome
     private Vector3[] _tileWind;  // 每格盛行风向（单位切向量，盛行风图层用）
+    private byte[] _tileLake;     // 每格湖泊标记（0/1；最近顶点直读）
 
     // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
     private MeshInstance3D _windArrows;
@@ -302,6 +303,7 @@ public partial class MapViewer : Node3D
         _tilePrecip = new float[n];
         _tileBiome = new byte[n];
         _tileWind = new Vector3[n];
+        _tileLake = new byte[n];
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -310,6 +312,8 @@ public partial class MapViewer : Node3D
         var precipArr = _tilePrecip;
         var biomeArr = _tileBiome;
         var windArr = _tileWind;
+        var lakeArr = _tileLake;
+        bool hasLake = map.LakeLevel != null;
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
 
@@ -329,6 +333,7 @@ public partial class MapViewer : Node3D
             precipArr[i] = hasPrecip ? map.Precip[vid] : 0f;
             biomeArr[i] = hasBiome ? map.Biome[vid] : (byte)BiomeType.DeepOcean;
             windArr[i] = World.Biome.WindField.WindAt(c);
+            lakeArr[i] = hasLake ? map.LakeLevel[vid] : (byte)0;
         });
         _hSea = hSea;
     }
@@ -352,9 +357,12 @@ public partial class MapViewer : Node3D
     				return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
     			case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
     			case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
-    			case 6: // 河流：浅色底（河道由 _riverMesh 3D 网格显示）
+    			case 6: // 河流：浅色底（河道由 _riverMesh 3D 网格显示，湖格填湖蓝）
     				{
-    					// 淡色底：海洋浅蓝、陆地浅黄绿（低对比，突出箭头）
+    					// ⚠️ 2026-08-02：湖泊 = 陆地盆地 + 水量≥阈值（RiverSystem 已过滤干湖）。
+    					//   湖格单色湖蓝（用户确认：单色、放河流图层）；其他格淡色底突出河道。
+    					if (_tileLake[id] > 0)
+    						return new Color(0.25f, 0.45f, 0.75f);   // 湖蓝（单色）
     					float h = _tileElev[id];
     					bool ocean = h < _hSea;
     					return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);

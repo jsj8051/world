@@ -39,7 +39,7 @@ public static class MapArchive
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
         bool prograde = true, float rotationSpeed = 1f,
         Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
-        byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null,
+        byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null, byte[] lakeLevel = null,
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -83,12 +83,15 @@ public static class MapArchive
                 foreach (var cs in currentStrength) f.StoreFloat(cs);
         }
         // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无=null）
+        // 尾部扩展5（2026-08-02）：湖泊（级别 n bytes；旧存档无=null）
         if (riverLevel != null && riverFlow != null)
         {
             foreach (var rl in riverLevel) f.Store8(rl);
             foreach (var rf in riverFlow) f.Store32((uint)rf);
             if (riverVolume != null)
                 foreach (var rv in riverVolume) f.StoreFloat(rv);
+            if (lakeLevel != null)
+                foreach (var ll in lakeLevel) f.Store8(ll);
         }
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
@@ -217,6 +220,12 @@ public static class MapArchive
                     map.RiverVolume = new float[n];
                     for (int i = 0; i < n; i++) map.RiverVolume[i] = f.GetFloat();
                 }
+                // 湖泊段（v3.4 加；判断用"剩余 ≥ n"）
+                if (f.GetPosition() + (ulong)n <= f.GetLength())
+                {
+                    map.LakeLevel = new byte[n];
+                    for (int i = 0; i < n; i++) map.LakeLevel[i] = f.Get8();
+                }
             }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
@@ -267,6 +276,7 @@ public class MapData
     public byte[] RiverLevel;              // 河流级别（v3.2 尾部；null=旧存档无）
     public int[] RiverFlow;                // 河流流向（v3.2 尾部；null=旧存档无）
     public float[] RiverVolume;            // 河流流量 mm（v3.3 尾部；null=旧存档无）
+    public byte[] LakeLevel;               // 湖泊级别（v3.4 尾部；null=旧存档无）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

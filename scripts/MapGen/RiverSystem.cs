@@ -36,9 +36,10 @@ public static class RiverSystem
     public static void Compute(
         Vector3[] verts, int[][] neighbors, float[] elevNorm,
         out int[] flow, out float[] area, out byte[] riverLevel,
-        out List<int[]> riverPaths, out List<int> lakeIds,
+        out List<int[]> riverPaths, out List<int> lakeIds, out byte[] lakeLevel,
         float areaThreshold = 12f,
-        float[] precip = null, float[] temp = null, float waterThreshold = 400f)
+        float[] precip = null, float[] temp = null, float waterThreshold = 400f,
+        float lakeThreshold = 200f)
     {
         int n = verts.Length;
         flow = new int[n];
@@ -46,6 +47,7 @@ public static class RiverSystem
         riverLevel = new byte[n];
         riverPaths = new List<int[]>();
         lakeIds = new List<int>();
+        lakeLevel = new byte[n];
         bool useWater = (precip != null && temp != null);   // 水量版（气候驱动）
 
         // ── 1. 流向：最低邻居（陆地顶点）；海洋顶点流向自身（终点）──
@@ -94,12 +96,21 @@ public static class RiverSystem
         // area 输出 = 水量（水量版）或面积（面积版），供调用方使用
         System.Array.Copy(water, area, n);
 
-        // ── 3. 河流标记 + 盆地收集 ──
+        // ── 3. 河流标记 + 湖泊判定 ──
+        // ⚠️ 2026-08-02：湖泊 = 陆地盆地（flow==i 无出流）且汇入水量 ≥ 湖泊阈值
+        //   （lakeThreshold 默认 200mm——湖泊阈值远低于河流阈值 5000：盆地是局部洼地
+        //   汇水区小，水量达不到河流标准；只要净降水持续汇入（水量>0）就成湖。
+        //   干涸盆地（水量≤阈值）= 盐湖/干湖不显示——用户确认：干湖不显示、单色、放河流图层）。
         for (int i = 0; i < n; i++)
         {
-            if (elevNorm[i] < 0f) continue;       // 海洋无河
+            if (elevNorm[i] < 0f) continue;       // 海洋无河无湖
             if (flow[i] == i && elevNorm[i] > 0f)
+            {
                 lakeIds.Add(i);                    // 陆地盆地 = 湖泊候选
+                float lt = useWater ? lakeThreshold : areaThreshold;
+                if (water[i] >= lt)
+                    lakeLevel[i] = 1;              // 有水才成湖（干涸盆地排除）
+            }
             float threshold = useWater ? waterThreshold : areaThreshold;
             if (water[i] >= threshold)
             {
