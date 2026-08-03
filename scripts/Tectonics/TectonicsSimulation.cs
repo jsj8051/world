@@ -33,6 +33,12 @@ namespace World.Tectonics
         public float[] TopPlateMap;              // 每全局顶点 → 顶层板块 id
         public int[] PlateCount;                 // 每全局顶点 → 覆盖的板块数（M3-2）
         private byte[] _mergeGlobalMask;         // Merge 复用缓冲区（GC 优化 C）
+        private float[] _erodeSurface;           // 侵蚀复用（GC 优化：每步 1.3MB × 300 步）
+        private Crust _erodeDeltaReusable;       // 侵蚀 delta 复用（8 数组 × n）
+        private float[] _mergeMasterDensity;     // Merge masterDensity 复用（C3）
+        private float[] _mergeMassBuf;           // Merge plate 密度复用（C4）
+        private float[] _mergeThickBuf;          // C4
+        private float[] _mergeDensityBuf;        // C4
         private Crust _mergeGlobalizedCrust;     // Merge 复用板重采样缓冲（GC 优化 C2）
         public Crust Accretion;                  // 俯冲增生楔（M3-3，全局 delta，加到顶层板）
         public int GridN = 16;                   // Icosahedron 细分（verts≈2562）
@@ -404,7 +410,9 @@ namespace World.Tectonics
             Array.Fill(TopPlateMap, -1f);
             Array.Clear(PlateCount, 0, n);
 
-            var masterDensity = new float[n];
+            // ⚠️ GC 优化 C3（2026-08-02）：masterDensity 字段复用（每 merge 160KB × 300 步）
+            if (_mergeMasterDensity == null) _mergeMasterDensity = new float[n];
+            var masterDensity = _mergeMasterDensity;
             Array.Fill(masterDensity, float.MaxValue);
 
             // ⚠️ GC 优化 C2（2026-08-02）：原每步 3 次 new Crust（8 数组 × 40962 ≈ 1.3MB）——
@@ -423,10 +431,15 @@ namespace World.Tectonics
                 for (int i = 0; i < n; i++)
                     globalMask[i] = plate.Mask[plate.LocalIdsOfGlobalCells[i]];
 
+                // ⚠️ GC 优化 C4（2026-08-02）：plateDensity 系列复用（GetTotalMass/Thickness/
+                //   Density 原每 plate 各 new 160KB → 每步 7×3 = 3.4MB × 300 步 ≈ 1GB）
+                if (_mergeMassBuf == null) _mergeMassBuf = new float[n];
+                if (_mergeThickBuf == null) _mergeThickBuf = new float[n];
+                if (_mergeDensityBuf == null) _mergeDensityBuf = new float[n];
                 var plateDensity = plate.Crust.GetDensity(
-                    plate.Crust.GetTotalMass(),
-                    plate.Crust.GetThickness(Material),
-                    Material.MaficVolcanicMin);
+                    plate.Crust.GetTotalMass(_mergeMassBuf),
+                    plate.Crust.GetThickness(Material, _mergeThickBuf),
+                    Material.MaficVolcanicMin, _mergeDensityBuf);
 
                 // ⚠️ GC 优化 C（2026-08-02）：ConservedPools 每次 new 5 元素引用数组——
                 //   内循环 40962 次 × 2 调用 = 8 万次小分配/merge × 3 merge/步 = GC 风暴。
@@ -484,6 +497,9 @@ namespace World.Tectonics
             const float RiftMafic = 7100f * 2890f;   // mafic_volcanic 质量面密度（kg/m²）
 
             // 全局：is_riftable = (count==0) || (count==1 && top==i)
+            // ⚠️ 2026-08-02：并行版已回滚——n=64 实测更慢（82s/段 vs 33s）+ 模拟结果改变
+            //   （湖 62→1484）——并行体与串行语义不等价（FieldOps 内部状态/竞态待查），
+            //   性能优先方案改用 GC 复用（C3/C4/Erode）。
             foreach (var plate in Plates)
             {
                 // 全局可裂谷掩码（对每块板独立判断）
@@ -758,13 +774,16 @@ namespace World.Tectonics
             int n = GlobalGrid.VertexCount;
             float seconds = stepMy * Units.MEGAYEAR;   // My → 秒
 
-            // 表面高度（相对海平面，≥0）
-            var surfaceHeight = new float[n];
+            // 表面高度（相对海平面，≥0）——⚠️ 2026-08-02 性能：字段复用（每步 new 1.3MB × 300 步）
+            if (_erodeSurface == null) _erodeSurface = new float[n];
+            var surfaceHeight = _erodeSurface;
             for (int i = 0; i < n; i++)
                 surfaceHeight[i] = Mathf.Max(Displacement[i] - SeaLevel, 0f);
 
-            // 侵蚀（先生成 delta）
-            var delta = new Crust(GlobalGrid);
+            // 侵蚀（先生成 delta）——⚠️ 2026-08-02 性能：字段复用 Crust（8 数组 × n）
+            if (_erodeDeltaReusable == null) _erodeDeltaReusable = new Crust(GlobalGrid);
+            var delta = _erodeDeltaReusable;
+            delta.Reset();
             Crust.ModelErosion(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta);
             Crust.ModelWeathering(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta);
             Crust.ModelLithification(surfaceHeight, seconds, Material, WorldCrust, delta);

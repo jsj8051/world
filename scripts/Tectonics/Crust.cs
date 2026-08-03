@@ -102,6 +102,15 @@ namespace World.Tectonics
             return mass;
         }
 
+        /// <summary>复用版（2026-08-02 性能：Merge 每 plate 调用，避免每步 3.4MB 分配）。</summary>
+        public float[] GetTotalMass(float[] into)
+        {
+            System.Array.Clear(into, 0, into.Length);
+            foreach (var pool in MassPools())
+                for (int i = 0; i < into.Length; i++) into[i] += pool[i];
+            return into;
+        }
+
         /// <summary>每格总厚度（km）：质量/密度。对应 Crust.get_thickness。
         /// 密度：mafic 用随年龄插值（0→min, 250My→max），felsic 用固定密度。</summary>
         public float[] GetThickness(MaterialDensity materialDensity)
@@ -127,6 +136,28 @@ namespace World.Tectonics
             return thickness;
         }
 
+        /// <summary>复用版（2026-08-02 性能）。</summary>
+        public float[] GetThickness(MaterialDensity materialDensity, float[] into)
+        {
+            int n = Grid.VertexCount;
+            for (int i = 0; i < n; i++)
+            {
+                float frac = FieldOps.Linearstep(0f, 250f * Units.MEGAYEAR, Age[i]);
+                float maficDensity = materialDensity.MaficVolcanicMin
+                    + (materialDensity.MaficVolcanicMax - materialDensity.MaficVolcanicMin) * frac;
+                float t = 0;
+                t += MaficPlutonic[i] / maficDensity;
+                t += MaficVolcanic[i] / maficDensity;
+                t += Sediment[i] / materialDensity.Sediment;
+                t += Sedimentary[i] / materialDensity.Sedimentary;
+                t += Metamorphic[i] / materialDensity.Metamorphic;
+                t += FelsicPlutonic[i] / materialDensity.FelsicPlutonic;
+                t += FelsicVolcanic[i] / materialDensity.FelsicVolcanic;
+                into[i] = t;
+            }
+            return into;
+        }
+
         /// <summary>每格平均密度。对应 Crust.get_density。</summary>
         public float[] GetDensity(float[] totalMass, float[] thickness, float defaultDensity)
         {
@@ -134,6 +165,14 @@ namespace World.Tectonics
             for (int i = 0; i < totalMass.Length; i++)
                 density[i] = thickness[i] > 0 ? totalMass[i] / thickness[i] : defaultDensity;
             return density;
+        }
+
+        /// <summary>复用版（2026-08-02 性能）。</summary>
+        public float[] GetDensity(float[] totalMass, float[] thickness, float defaultDensity, float[] into)
+        {
+            for (int i = 0; i < totalMass.Length; i++)
+                into[i] = thickness[i] > 0 ? totalMass[i] / thickness[i] : defaultDensity;
+            return into;
         }
 
         /// <summary>每格净浮力（N/m³，≤0）。对应 Crust.get_buoyancy。</summary>
