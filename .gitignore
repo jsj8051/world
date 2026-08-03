@@ -8,8 +8,6 @@
 bin/
 obj/
 
-# Shader editor cache
-shaders/*.uid
-
-# Godot imported resources (machine-local cache)
-*.import
+# Godot 导入元数据（.import 入库：官方 VCS 指南要求提交，保证 uid 稳定；
+# 已入库 icon.svg.import 与 addons/**/*.import。docs/ 有 .gdignore 不参与导入）
+# Godot 4.4+ 资源/脚本 uid 文件（.uid）一律入库，与场景 ext_resource 的 uid= 引用配套
