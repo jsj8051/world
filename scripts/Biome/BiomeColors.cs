@@ -22,6 +22,7 @@ public static class BiomeColors
         BiomeType.TropicalForest => new Color(0.08f, 0.40f, 0.14f),
         BiomeType.TropicalDryForest => new Color(0.42f, 0.52f, 0.18f),
         BiomeType.Alpine => new Color(0.58f, 0.55f, 0.52f),
+        BiomeType.Riparian => new Color(0.20f, 0.72f, 0.38f),   // 河岸带：翠绿（沙漠绿洲线）
         _ => Colors.Magenta,
     };
 

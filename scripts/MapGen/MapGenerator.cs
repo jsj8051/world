@@ -202,12 +202,28 @@ public partial class MapGenerator : Node
 			// 修正后更新 minE/maxE（存档范围；svElev 含河谷/三角洲）
 			minE = float.MaxValue; maxE = float.MinValue;
 			foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
+
+			// ── 河岸生态带（2026-08-02）：沿岸陆地格（邻居有河/湖）→ Riparian 翠绿。
+			//   干旱区沙漠沿岸变绿洲线（真实：尼罗河/撒哈拉绿洲）；湿润区沿岸清晰河岸林。
+			{
+				int riparianCount = 0;
+				for (int i = 0; i < vn; i++)
+				{
+					if (svElev[i] <= sea) continue;                    // 海洋不算
+					if (_riverLevel[i] > 0 || _lakeLevel[i] > 0) continue;   // 水格本身不算
+					bool wet = false;
+					foreach (var nb in grid.Neighbors[i])
+						if (_riverLevel[nb] > 0 || _lakeLevel[nb] > 0) { wet = true; break; }
+					if (wet) { svBiome[i] = (byte)BiomeType.Riparian; riparianCount++; }
+				}
+				GD.Print($"[MapGenerator] 河岸带 {riparianCount} 格");
+			}
 		}
 
-		// ── 统计 ──
-		float minT = float.MaxValue, maxT = float.MinValue;
+	// ── 统计 ──
+	float minT = float.MaxValue, maxT = float.MinValue;
 		float minP = float.MaxValue, maxP = float.MinValue;
-		var dist = new int[13];
+		var dist = new int[14];   // biome 0..13（含 Riparian）
 		foreach (var t in svTemp) { if (t < minT) minT = t; if (t > maxT) maxT = t; }
 		foreach (var p in svPrecip) { if (p < minP) minP = p; if (p > maxP) maxP = p; }
 		foreach (var b in svBiome) dist[b]++;
@@ -342,6 +358,17 @@ public partial class MapGenerator : Node
 					out _riverFlow, out _riverVolume, out _riverLevel, out _lakeLevel, out _);
 				minE = float.MaxValue; maxE = float.MinValue;
 				foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
+
+				// 河岸生态带（同同步路径；后台线程禁止 GD.Print——不打印）
+				for (int i = 0; i < vn; i++)
+				{
+					if (svElev[i] <= sea) continue;
+					if (_riverLevel[i] > 0 || _lakeLevel[i] > 0) continue;
+					bool wet = false;
+					foreach (var nb in grid.Neighbors[i])
+						if (_riverLevel[nb] > 0 || _lakeLevel[nb] > 0) { wet = true; break; }
+					if (wet) svBiome[i] = (byte)BiomeType.Riparian;
+				}
 			}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, minE, maxE, svElev,

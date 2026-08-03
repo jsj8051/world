@@ -19,4 +19,5 @@ public enum BiomeType : byte
     TropicalForest = 10,    // 热带雨林（热带湿润）
     TropicalDryForest = 11, // 热带疏林/季雨林（热带半湿润）
     Alpine = 12,            // 高山（高海拔，温度不够低）
+    Riparian = 13,          // 河岸带（2026-08-02：沿岸陆地格，河湖湿润 → 翠绿绿洲线）
 }
