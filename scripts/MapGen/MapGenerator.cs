@@ -26,7 +26,7 @@ public partial class MapGenerator : Node
 	[Export] public bool ExportPreview = true; // 生成后导出海拔预览 PNG（headless 调参可视化）
 	[Export] public int TectonicsGridN = 32;   // 板块模拟 Icosahedron 细分（32→10242 顶点）
 	[Export] public float SimMegayears = 600f; // 板块模拟时长（百万年）
-	[Export] public float SimStepMy = 2f;      // 模拟时间步（百万年）
+	[Export] public float SimStepMy = 4f;      // 模拟时间步（百万年）——2026-08-03：2→4 性能（板块 7 块后 600My 5→3 分钟，质量一致验证）
 	[Export] public int NumPlates = 8;         // 初始板块数
 	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
 	[Export] public float AxialTilt = 23.4f;   // 轴向倾角（度）：0=无季节，23.4=地球，90=极端季节

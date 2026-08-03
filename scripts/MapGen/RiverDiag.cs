@@ -13,7 +13,7 @@ public partial class RiverDiag : Node
 		var sim = new TectonicsSimulation(n);
 		sim.GenerateInitialCrust(42);
 		sim.SplitIntoPlates(8, 42);
-		sim.Run(600f, 2f);
+		sim.Run(600f, 4f);   // ⚠️ 2026-08-03：stepMy 2→4 性能实验（300→150 步，快 2 倍）
 		var verts = sim.GlobalGrid.Vertices;
 		var neighbors = sim.GlobalGrid.Neighbors;
 		var disp = sim.Displacement;
