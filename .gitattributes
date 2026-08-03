@@ -1,3 +1,4 @@
 *.cs text eol=lf
 *.tscn text eol=lf
 *.gdshader text eol=lf
+*.md text eol=lf
