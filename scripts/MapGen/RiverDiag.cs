@@ -39,23 +39,22 @@ public partial class RiverDiag : Node
 		}
 
 		var sw = System.Diagnostics.Stopwatch.StartNew();
-		RiverSystem.Compute(verts, neighbors, eNorm,
-			out var flow, out var area, out var riverLevel,
-			out var paths, out var lakeIds, out var lakeLevel, precip: precip, temp: temp, waterThreshold: 5000f);
-		// 侵蚀沉积（复制海拔，原地修正后对比）
-		var elevBefore = (float[])disp.Clone();
-		var elevAfter = (float[])disp.Clone();
-		float seaM = sim.SeaLevel;
-		RiverSystem.ApplyErosionDeposition(elevAfter, riverLevel, area, flow, eNorm, seaM);
+		// 迭代演化 v2（4 轮 + 收敛检测：动态流向 + 输沙侵蚀沉积）
+		var eNormWork = (float[])eNorm.Clone();
+		var elevWork = (float[])disp.Clone();
+		RiverSystem.ComputeIterative(verts, neighbors, eNormWork, elevWork,
+			precip, temp, waterThreshold: 5000f, lakeThreshold: 200f,
+			seaLevelM: 0f, elevSpan: span, rounds: 4,
+			out var flow, out var area, out var riverLevel, out var lakeLevel, out var paths);
 		{
 			float maxCut = 0f, maxDep = 0f; int cut = 0, dep = 0;
 			for (int i = 0; i < vn; i++)
 			{
-				float d = elevAfter[i] - elevBefore[i];
+				float d = elevWork[i] - disp[i];
 				if (d < -0.5f) { cut++; maxCut = Mathf.Min(maxCut, d); }
 				if (d > 0.5f) { dep++; maxDep = Mathf.Max(maxDep, d); }
 			}
-			GD.Print($"[RiverDiag] 侵蚀沉积: 下切格 {cut} 最大切深 {maxCut:F0}m | 堆积格 {dep} 最大堆积 {maxDep:F0}m");
+			GD.Print($"[RiverDiag] 侵蚀沉积(v2输沙): 下切格 {cut} 最大切深 {maxCut:F0}m | 堆积格 {dep} 最大堆积 {maxDep:F0}m");
 		}
 		sw.Stop();
 
@@ -76,6 +75,10 @@ public partial class RiverDiag : Node
 			if (paths[p].Length > maxLen) { maxLen = paths[p].Length; maxPath = p; }
 		int lakeCount = 0;
 		for (int i = 0; i < lakeLevel.Length; i++) if (lakeLevel[i] > 0) lakeCount++;   // ⚠️ 用数组长度，非模拟 n（64≠顶点数 40962）
+		// 盆地候选 = 陆地 flow==自身 的格（迭代版标记后重收集）
+		var lakeIds = new List<int>();
+		for (int i = 0; i < vn; i++)
+			if (eNorm[i] >= 0f && flow[i] == i) lakeIds.Add(i);
 		// 盆地水量分布（标定 lakeThreshold）
 		var basinWaters = new List<float>();
 		foreach (var b in lakeIds) basinWaters.Add(area[b]);

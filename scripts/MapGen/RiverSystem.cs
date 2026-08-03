@@ -144,7 +144,8 @@ public static class RiverSystem
             {
                 int nxt = flow[cur];
                 if (nxt == cur) break;                    // 盆地/海洋终点
-                if (riverLevel[nxt] == 0) break;          // ⚠️ 2026-08-02 断流：遇非河格（水量<阈值，干旱区蒸发干涸）→ 河消失
+                if (riverLevel[nxt] == 0) break;          // 断流：遇非河格 → 河消失
+                if (elevNorm[nxt] >= elevNorm[cur]) break; // 非单调（盆地溢流/异常）：防无限链
                 path.Add(nxt);
                 if (elevNorm[nxt] < 0f) break;            // 入海
                 cur = nxt;
@@ -226,5 +227,185 @@ public static class RiverSystem
                 elevM[i] += depo;
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 迭代演化模块（2026-08-02 v2）：动态流向 + 输沙模型
+    //   地貌演化的正确模型：侵蚀沉积改变海拔 → 流向实时更新（最低邻居）
+    //   → 河流自然改道（黄河模式）——不需要显式触发事件。
+    //   ⚠️ 2026-08-02：盆地溢流（SpillBasins）已移除——溢流把水量传给"最低邻居"
+    //   （盆地邻居都 ≥ 自身 → 上坡链）→ 水量分布破坏 + 路径无限链（n=32 河格 83→7）。
+    //   盆地 = 蓄水终点（湖），溢流增强（内流湖→外流）留作后续。
+    // ═══════════════════════════════════════════════════════════════
+
+    /// <summary>流向：陆地格 → 海拔最低邻居（无更低 = 盆地，flow=自身）；海洋 = 自身。</summary>
+    public static void ComputeFlow(Vector3[] verts, int[][] neighbors, float[] elevNorm, int[] flow)
+    {
+        int n = verts.Length;
+        for (int i = 0; i < n; i++)
+        {
+            if (elevNorm[i] < 0f) { flow[i] = i; continue; }   // 海洋 = 终点
+            var nbs = neighbors[i];
+            int best = i;
+            float bestE = elevNorm[i];
+            foreach (var nb in nbs)
+            {
+                float e = elevNorm[nb];
+                if (e < bestE) { bestE = e; best = nb; }
+            }
+            flow[i] = best;   // 无更低邻居 → best=i（盆地）
+        }
+    }
+
+    /// <summary>水量累积：海拔降序遍历，净水量（降水-蒸发）沿流向累积。</summary>
+    public static void ComputeWater(
+        Vector3[] verts, float[] elevNorm, int[] flow,
+        float[] precip, float[] temp, float[] water)
+    {
+        int n = verts.Length;
+        System.Array.Clear(water, 0, n);
+        var order = new int[n];
+        for (int i = 0; i < n; i++) order[i] = i;
+        System.Array.Sort(order, (a, b) => elevNorm[b].CompareTo(elevNorm[a]));
+        for (int i = 0; i < n; i++)
+        {
+            int v = order[i];
+            float net = precip != null && temp != null
+                ? precip[v] - (20f + 20f * Mathf.Max(0f, temp[v]))
+                : 1f;
+            water[v] += net;
+            if (flow[v] != v)
+                water[flow[v]] += water[v];
+        }
+    }
+
+    /// <summary>河流/湖泊标记：水量 ≥ 河流阈值 → 河（级别=超阈值倍数）；陆地盆地+水量≥湖阈值 → 湖。</summary>
+    public static void MarkRiversLakes(
+        float[] water, int[] flow, float[] elevNorm,
+        float waterThreshold, float lakeThreshold,
+        byte[] riverLevel, byte[] lakeLevel, List<int> lakeIds)
+    {
+        int n = water.Length;
+        System.Array.Clear(riverLevel, 0, n);
+        System.Array.Clear(lakeLevel, 0, n);
+        lakeIds?.Clear();
+        for (int i = 0; i < n; i++)
+        {
+            if (elevNorm[i] < 0f) continue;
+            if (flow[i] == i)
+            {
+                lakeIds?.Add(i);
+                if (water[i] >= lakeThreshold) lakeLevel[i] = 1;
+            }
+            float ratio = water[i] / waterThreshold;
+            if (ratio >= 64f) riverLevel[i] = 3;
+            else if (ratio >= 16f) riverLevel[i] = 2;
+            else if (ratio >= 1f) riverLevel[i] = 1;
+        }
+    }
+
+    /// <summary>
+    /// 输沙侵蚀沉积 v2：携带能力 C = k × 坡度 × 流量，海拔降序单向传递泥沙。
+    ///   C &gt; 来沙 → 侵蚀（挖河床，产沙传给下游）；C &lt; 来沙 → 沉积（落沙）。
+    ///   侵蚀下限 = 下游海拔 + 最小坡降（河道单调下降，保流向）；
+    ///   沉积上限 = 海平面 + depoCap（冲积平原不无限堆高，模拟改道转走）。
+    /// ⚠️ seaLevelM 语义：elevM 已相对海平面（0=海平面）时传 0。
+    /// 自限性：侵蚀降低坡度 → C 下降 → 侵蚀减弱 → 自然收敛。
+    /// </summary>
+    public static void ApplyErosionDepositionV2(
+        float[] elevM, int[] flow, int[][] neighbors, float[] elevNorm,
+        float[] water, float[] sedimentIn, float[] sedimentOut,
+        float seaLevelM, float kCarry = 0.05f, float kErode = 0.4f, float kDepo = 0.3f,
+        float minSlope = 0.001f, float maxErode = 40f, float depoCap = 300f)
+    {
+        int n = elevM.Length;
+        System.Array.Clear(sedimentOut, 0, n);
+        var order = new int[n];
+        for (int i = 0; i < n; i++) order[i] = i;
+        System.Array.Sort(order, (a, b) => elevNorm[b].CompareTo(elevNorm[a]));
+
+        for (int idx = 0; idx < n; idx++)
+        {
+            int i = order[idx];
+            if (elevNorm[i] < 0f) continue;          // 海洋不侵蚀不沉积
+            if (flow[i] == i) continue;              // 盆地：蓄水终点，不输沙
+            int down = flow[i];
+            if (down < 0 || down >= n || down == i) continue;
+
+            float slope = Mathf.Max(0f, elevNorm[i] - elevNorm[down]);
+            float carry = kCarry * slope * Mathf.Max(water[i], 0f);
+            float sIn = sedimentIn[i];
+
+            if (sIn > carry)
+            {
+                // 来沙超能力 → 沉积（冲积平原；上限 = 海平面 + depoCap）
+                float dep = Mathf.Min((sIn - carry) * kDepo, Mathf.Max(0f, seaLevelM + depoCap - elevM[i]));
+                elevM[i] += dep;
+                sedimentOut[i] = carry;
+            }
+            else
+            {
+                // 能力过剩 → 侵蚀（下切河谷；下限 = 下游+minSlope 或海平面，保流向单调）
+                float erode = Mathf.Min((carry - sIn) * kErode, maxErode);
+                float downElev = elevM[down];
+                float minElev = Mathf.Max(seaLevelM, downElev + minSlope * (elevM[i] - seaLevelM));
+                elevM[i] = Mathf.Max(minElev, elevM[i] - erode);
+                sedimentOut[i] = carry;
+            }
+            sedimentIn[down] += sedimentOut[i];
+        }
+    }
+
+    /// <summary>
+    /// 迭代演化主入口：rounds 轮上限（收敛检测自适应提前停，不依赖网格 n）。
+    /// 每轮：流向 → 水量 → 河流/湖标记 → 输沙侵蚀沉积（改 elevM+elevNorm）。
+    /// 输出最终 flow/water/riverLevel/lakeLevel + paths（含断流/非单调截断）。
+    /// ⚠️ 2026-08-02：seaLevelM 传 0（elevM 已相对海平面）——传 sea 会导致 eNorm
+    ///   整体平移 → 海陆判定错位 → 海洋被侵蚀（最低点 -1200m）→ 水系崩溃。
+    /// </summary>
+    public static void ComputeIterative(
+        Vector3[] verts, int[][] neighbors, float[] elevNorm, float[] elevM,
+        float[] precip, float[] temp,
+        float waterThreshold, float lakeThreshold,
+        float seaLevelM, float elevSpan, int rounds,
+        out int[] flow, out float[] water, out byte[] riverLevel,
+        out byte[] lakeLevel, out List<int[]> paths)
+    {
+        int n = verts.Length;
+        flow = new int[n];
+        water = new float[n];
+        riverLevel = new byte[n];
+        lakeLevel = new byte[n];
+        var lakeIds = new List<int>();
+        var sedIn = new float[n];
+        var sedOut = new float[n];
+        var prevFlow = new int[n];
+
+        for (int r = 0; r < rounds; r++)
+        {
+            ComputeFlow(verts, neighbors, elevNorm, flow);
+            ComputeWater(verts, elevNorm, flow, precip, temp, water);
+            MarkRiversLakes(water, flow, elevNorm, waterThreshold, lakeThreshold, riverLevel, lakeLevel, lakeIds);
+
+            // 收敛检测：流向变化 <0.5% 即停（自适应，不依赖手动轮数；n=32 粗网格防振荡过度）
+            if (r > 0)
+            {
+                int changed = 0;
+                for (int i = 0; i < n; i++)
+                    if (flow[i] != prevFlow[i]) changed++;
+                if (changed <= n / 200)
+                    break;
+            }
+            System.Array.Copy(flow, prevFlow, n);
+
+            if (r < rounds - 1)
+            {
+                System.Array.Clear(sedIn, 0, n);
+                ApplyErosionDepositionV2(elevM, flow, neighbors, elevNorm, water, sedIn, sedOut, seaLevelM);
+                for (int i = 0; i < n; i++)
+                    elevNorm[i] = elevSpan > 1e-6f ? (elevM[i] - seaLevelM) / elevSpan : 0f;
+            }
+        }
+        paths = RebuildPaths(flow, riverLevel, elevNorm);
     }
 }

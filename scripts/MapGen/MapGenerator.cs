@@ -190,18 +190,16 @@ public partial class MapGenerator : Node
 			svBiome[i] = (byte)BiomeClassifier.Classify(e1, t, pp);
 		});
 
-		// ── 河流（2026-08-02：水量版——降水-蒸发累积，地形决定流向）──
+		// ── 河流（2026-08-02 v2：迭代演化——动态流向 + 输沙侵蚀沉积）──
 		{
 			var eNorm = new float[vn];
 			for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
-			RiverSystem.Compute(simVerts, grid.Neighbors, eNorm,
-				out _riverFlow, out _riverVolume, out _riverLevel,
-				out _, out _, out _lakeLevel, precip: svPrecip, temp: svTemp, waterThreshold: 5000f);
+			RiverSystem.ComputeIterative(simVerts, grid.Neighbors, eNorm, svElev,
+				svPrecip, svTemp, waterThreshold: 5000f, lakeThreshold: 200f,
+				seaLevelM: 0f, elevSpan: span, rounds: 4,
+				out _riverFlow, out _riverVolume, out _riverLevel, out _lakeLevel, out _);
 
-			// ── 河流侵蚀沉积（2026-08-02）：河谷下切 + 入海口三角洲，原地修正海拔 ──
-			// 放在气候计算之后（温度/降水不受影响）、写档之前（存档含河谷/三角洲）。
-			RiverSystem.ApplyErosionDeposition(svElev, _riverLevel, _riverVolume, _riverFlow, eNorm, sea);
-			// 修正后更新 minE/maxE（存档范围）
+			// 修正后更新 minE/maxE（存档范围；svElev 含河谷/三角洲）
 			minE = float.MaxValue; maxE = float.MinValue;
 			foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
 		}
@@ -334,15 +332,14 @@ public partial class MapGenerator : Node
 				if (svPrecip[i] > maxP) maxP = svPrecip[i];
 			}
 
-			// 河流（后台线程安全：纯计算）
+			// 河流（后台线程安全：纯计算；迭代演化 v2）
 			{
 				var eNorm = new float[vn];
 				for (int i = 0; i < vn; i++) eNorm[i] = span > 1e-6f ? svElev[i] / span : 0f;
-				RiverSystem.Compute(simVerts, grid.Neighbors, eNorm,
-					out _riverFlow, out _riverVolume, out _riverLevel,
-					out _, out _, out _lakeLevel, precip: svPrecip, temp: svTemp, waterThreshold: 5000f);
-				// 河流侵蚀沉积（同同步路径）
-				RiverSystem.ApplyErosionDeposition(svElev, _riverLevel, _riverVolume, _riverFlow, eNorm, sea);
+				RiverSystem.ComputeIterative(simVerts, grid.Neighbors, eNorm, svElev,
+					svPrecip, svTemp, waterThreshold: 5000f, lakeThreshold: 200f,
+					seaLevelM: 0f, elevSpan: span, rounds: 4,
+					out _riverFlow, out _riverVolume, out _riverLevel, out _lakeLevel, out _);
 				minE = float.MaxValue; maxE = float.MinValue;
 				foreach (var e in svElev) { if (e < minE) minE = e; if (e > maxE) maxE = e; }
 			}
