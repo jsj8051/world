@@ -43,14 +43,6 @@ public partial class RidgeDiag : Node
         }
 
         // 手动构造三个风向（切平面）
-        Vector3 WindFrom(float wlatDeg, float wlonDeg)
-        {
-            float wla = Mathf.DegToRad(wlatDeg), wlo = Mathf.DegToRad(wlonDeg);
-            // 风来的方向 = 从 (wlat,wlon) 指向 p 的方向？简化：直接取该点的东/北切向组合
-            // 西风 = 向东吹 = (0,0,1) 方向在东经 0 处；这里用球面东向
-            return new Vector3(-Mathf.Sin(wlo), 0f, Mathf.Cos(wlo)); // 近似东向
-        }
-
         // 直接测沿风向坡度：s = elev(p + wind*0.12) - elev(p - wind*0.12)
         void Test(string name, Vector3 wind)
         {

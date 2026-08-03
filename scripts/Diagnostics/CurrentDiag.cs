@@ -10,7 +10,6 @@ public partial class CurrentDiag : Node
     public override void _Ready()
     {
         const int n = 16;
-        const float radius = 6330f;
         var sim = new TectonicsSimulation(n);
         sim.GenerateInitialCrust(42);
         sim.SplitIntoPlates(8, 42);

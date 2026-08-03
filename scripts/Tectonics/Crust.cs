@@ -289,7 +289,6 @@ namespace World.Tectonics
             const float Precip = 1.05f / 365.25f / 24f / 3600f;  // m/s
             const float WeatheringFactor = 1.8e-7f;
             const float CriticalSedimentThickness = 1f;  // m
-            const float EarthGravity = 9.8f;
 
             int n = grid.VertexCount;
             var neighbors = grid.Neighbors;
