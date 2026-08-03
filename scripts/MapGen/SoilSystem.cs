@@ -39,13 +39,30 @@ public static class SoilSystem
         };
     }
 
-    /// <summary>土壤肥力标注：每格 1 字节（0=海洋，1-5=肥力级）。</summary>
+    /// <summary>土壤肥力标注：每格 1 字节（0=海洋，1-5=肥力级）。
+    /// ⚠️ 2026-08-03：坡度/气候惩罚用【分位数相对阈值】（该星球分布 P15/P80/P95/P10）——
+    ///   固定阈值（150mm/-10°C/0.03 坡度）绑定特定星球，湿润/干旱/高坡星球失效（同矿藏教训）。</summary>
     public static void ComputeSoil(
         float[] elevNorm, byte[] biome, float[] precip, float[] temp,
         float[] maficVolcanic, int[] flow, out byte[] soil)
     {
         int n = elevNorm.Length;
         soil = new byte[n];
+
+        // ── 分位预计算（该星球相对分布）──
+        float slopeP80 = 0f, slopeP95 = float.MaxValue, precipP15 = float.MinValue, precipP30 = float.MinValue,
+              precipP95 = float.MaxValue, tempP10 = float.MinValue;
+        var slopeArr = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            if (flow != null && flow[i] >= 0 && flow[i] < n)
+                slopeArr[i] = Mathf.Max(0f, elevNorm[i] - elevNorm[flow[i]]);
+        }
+        slopeP80 = Percentile(slopeArr, 0.80f);
+        slopeP95 = Percentile(slopeArr, 0.95f);
+        if (precip != null) { precipP15 = Percentile(precip, 0.15f); precipP30 = Percentile(precip, 0.30f); precipP95 = Percentile(precip, 0.95f); }
+        if (temp != null) tempP10 = Percentile(temp, 0.10f);
+
         for (int i = 0; i < n; i++)
         {
             if (elevNorm[i] < 0f) continue;            // 海洋
@@ -56,20 +73,26 @@ public static class SoilSystem
             if (maficVolcanic != null && maficVolcanic[i] > 0.1f)
                 f++;
 
-            // 坡度惩罚：与下游高差（陡坡水土流失/薄土）
-            if (flow != null && flow[i] >= 0 && flow[i] < n)
-            {
-                float slope = Mathf.Max(0f, elevNorm[i] - elevNorm[flow[i]]);
-                if (slope > 0.06f) f -= 2;
-                else if (slope > 0.03f) f -= 1;
-            }
+            // 坡度惩罚（相对：>P80 陡坡 −1；>P95 极陡 −2——水土流失/薄土）
+            if (slopeArr[i] > slopeP95) f -= 2;
+            else if (slopeArr[i] > slopeP80) f -= 1;
 
-            // 气候惩罚：极干 / 极寒 / 极湿淋溶
-            if (precip != null && precip[i] < 150f) f -= 2;       // 荒漠勉强耕作
-            if (temp != null && temp[i] < -10f) f -= 2;           // 冻土短生长期
-            else if (precip != null && precip[i] > 3000f) f -= 1; // 雨林养分流失
+            // 气候惩罚（相对分位）：极干 <P15 −2 / 干 <P30 −1 / 极寒 <P10 −2 / 极湿淋溶 >P95 −1
+            if (precip != null && precip[i] < precipP15) f -= 2;
+            else if (precip != null && precip[i] < precipP30) f -= 1;
+            if (temp != null && temp[i] < tempP10) f -= 2;
+            if (precip != null && precip[i] > precipP95) f -= 1;
 
             soil[i] = (byte)Mathf.Clamp(f, 1, 5);
         }
+    }
+
+    /// <summary>数组第 p 分位数（排序；p∈0..1）。</summary>
+    private static float Percentile(float[] arr, float p)
+    {
+        var copy = (float[])arr.Clone();
+        System.Array.Sort(copy);
+        int idx = Mathf.Clamp((int)(copy.Length * p), 0, copy.Length - 1);
+        return copy[idx];
     }
 }
