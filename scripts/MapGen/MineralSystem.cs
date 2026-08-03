@@ -35,17 +35,17 @@ public static class MineralSystem
     public static readonly string[] Names = { "无", "铁", "铜", "锡", "金", "煤", "盐", "石料", "宝石" };
 
     /// <summary>
-    /// 矿藏标注 v2（分位数模型，通用）：
-    ///   每格对每矿种算"成矿倾向分"（软条件乘法组合，全部相对该星球分布归一化——
-    ///   不依赖绝对阈值，任何星球参数/网格 n 下稀有度恒定）。
-    ///   倾向分 > 该矿种固定百分位 → 成矿；一格多矿中签 → 取倾向最高者（主矿）。
-    ///   每格 1 字节 = (富度&lt;&lt;4)|矿种；0=无矿。
-    /// 小随机波动：倾向分 × (0.9~1.1)（Hash(seed+矿种) 确定性微扰——同 seed 复现，
-    ///   换 seed 仅边界格变动，主体分布由物理决定）。
+    /// 矿藏标注 v3（矿藏模拟化 + 分位数，通用）：
+    ///   矿化强度在板块模拟中事件驱动累积（MineralHydro 裂谷/俯冲/增生热液、
+    ///   MineralSed 沉积增厚、MineralMeta 变质累积——矿在演化中"长出来"）。
+    ///   倾向分 = 矿化强度（主项）× 岩性/地形/气候软条件，全部相对该星球分布归一化；
+    ///   倾向分 > 固定百分位 → 成矿（任何星球参数/网格 n 下稀有度恒定）。
+    ///   小随机波动：× (0.9~1.1)（Hash(seed) 确定性微扰）。
     /// </summary>
     public static void ComputeMinerals(
         Vector3[] verts, int[][] neighbors, int[] flow,
         float[] elevNorm, float[] precip, float[] age,
+        float[] mineralHydro, float[] mineralSed, float[] mineralMeta,
         Crust crust, int seed, out byte[] minerals)
     {
         int n = verts.Length;
@@ -63,6 +63,9 @@ public static class MineralSystem
         float minP = float.MaxValue, maxP = float.MinValue;
         var ageRel = new float[n];
         float minA = float.MaxValue, maxA = float.MinValue;
+        // 矿化强度相对值
+        var hydroR = new float[n]; var sedMR = new float[n]; var metaMR = new float[n];
+        float maxH = 1f, maxS = 1f, maxM = 1f;
         // 池相对值（每池 / 该池星球最大值）
         var sedR = new float[n]; var metaR = new float[n]; var fpR = new float[n];
         var mvR = new float[n]; var fvR = new float[n];
@@ -85,6 +88,9 @@ public static class MineralSystem
                 if (age[i] < minA) minA = age[i];
                 if (age[i] > maxA) maxA = age[i];
             }
+            if (mineralHydro != null && mineralHydro[i] > maxH) maxH = mineralHydro[i];
+            if (mineralSed != null && mineralSed[i] > maxS) maxS = mineralSed[i];
+            if (mineralMeta != null && mineralMeta[i] > maxM) maxM = mineralMeta[i];
             if (sed != null && sed[i] > maxSed) maxSed = sed[i];
             if (meta != null && meta[i] > maxMeta) maxMeta = meta[i];
             if (felP != null && felP[i] > maxFp) maxFp = felP[i];
@@ -97,6 +103,9 @@ public static class MineralSystem
             elevRel[i] = maxElev > 1e-6f ? elevNorm[i] / maxElev : 0f;
             if (precip != null) precipRel[i] = maxP > minP ? (precip[i] - minP) / (maxP - minP) : 0.5f;
             if (age != null) ageRel[i] = maxA > minA ? (age[i] - minA) / (maxA - minA) : 0.5f;
+            hydroR[i] = mineralHydro != null ? mineralHydro[i] / maxH : 0f;
+            sedMR[i] = mineralSed != null ? mineralSed[i] / maxS : 0f;
+            metaMR[i] = mineralMeta != null ? mineralMeta[i] / maxM : 0f;
             sedR[i] = sed != null ? sed[i] / maxSed : 0f;
             metaR[i] = meta != null ? meta[i] / maxMeta : 0f;
             fpR[i] = felP != null ? felP[i] / maxFp : 0f;
@@ -104,7 +113,7 @@ public static class MineralSystem
             fvR[i] = felV != null ? felV[i] / maxFv : 0f;
         }
 
-        // ── 2. 每矿种倾向分（物理分 × 微扰 0.9~1.1）──
+        // ── 2. 每矿种倾向分（矿化强度主项 × 软条件 × 微扰 0.9~1.1）──
         // 矿种：1铁 2铜 3锡 4金 5煤 6盐 7石料 8宝石
         var scores = new float[9][];
         for (int t = 1; t <= 8; t++) scores[t] = new float[n];
@@ -118,14 +127,16 @@ public static class MineralSystem
             float pert2 = 0.9f + 0.2f * Hash(i, seed + 7);
             float felsic = Mathf.Max(fpR[i], fvR[i]);                  // 长英质（石英脉/花岗岩）
 
-            scores[1][i] = ((metaR[i] + sedR[i]) * 0.5f) * Mathf.Pow(ageRel[i], 1.5f) * pert;          // 铁：老克拉通
-            scores[2][i] = mvR[i] * Mathf.Pow(sN, 0.8f) * pert2;                                      // 铜：火山弧
-            scores[3][i] = fpR[i] * pert;                                                             // 锡：花岗岩
-            scores[4][i] = felsic * sN * pert2;                                                       // 金：石英脉
-            scores[5][i] = sedR[i] * (1f - elevRel[i]) * precipRel[i] * pert;                         // 煤：湿润低地沉积
-            scores[6][i] = (1f - precipRel[i]) * (1f - elevRel[i]) * pert2;                           // 盐：干旱低地
-            scores[7][i] = elevRel[i] * pert;                                                         // 石料：高山
-            scores[8][i] = metaR[i] * pert2;                                                          // 宝石：变质
+            // ⚠️ v3 矿藏模拟化：热液/沉积/变质强度为增强项（模拟中事件累积——但裂谷/俯冲
+            //   多在海洋（洋中脊/海沟），陆地矿以岩性/构造为主项 + 热液增强（0.5+0.5×hydroR））
+            scores[1][i] = (metaMR[i] * 0.7f + hydroR[i] * 0.3f) * Mathf.Pow(ageRel[i], 1.2f) * pert;  // 铁：变质矿化 + 老克拉通
+            scores[2][i] = mvR[i] * (0.5f + 0.5f * hydroR[i]) * pert2;   // 铜：陆地火山岩 + 热液增强
+            scores[3][i] = fpR[i] * (0.5f + 0.5f * hydroR[i]) * pert;    // 锡：花岗岩 + 热液增强
+            scores[4][i] = felsic * sN * (0.5f + 0.5f * hydroR[i]) * pert2;  // 金：造山带 + 热液增强
+            scores[5][i] = sedMR[i] * (1f - elevRel[i]) * precipRel[i] * pert;   // 煤：沉积矿化 × 湿润低地
+            scores[6][i] = (1f - precipRel[i]) * (1f - elevRel[i]) * pert2;      // 盐：干旱低地
+            scores[7][i] = elevRel[i] * pert;                          // 石料：高山
+            scores[8][i] = metaMR[i] * pert2;                          // 宝石：变质矿化（0.5% 极稀）
         }
 
         // ── 3. 百分位阈值 + 标记（每矿种固定占比，通用）──

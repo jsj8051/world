@@ -226,7 +226,8 @@ public partial class MapGenerator : Node
 		var eNorm2 = new float[vn];
 		for (int i = 0; i < vn; i++) eNorm2[i] = span > 1e-6f ? svElev[i] / span : 0f;
 		MineralSystem.ComputeMinerals(simVerts, grid.Neighbors, _riverFlow, eNorm2, svPrecip,
-			sim.WorldCrust?.Age, sim.WorldCrust, Seed,
+			sim.WorldCrust?.Age, sim.MineralHydro, sim.MineralSed, sim.MineralMeta,
+			sim.WorldCrust, Seed,
 			out _mineralLevel);
 		int mineralCount = 0;
 		var mdist = new int[9];
@@ -422,7 +423,8 @@ public partial class MapGenerator : Node
 					var eNorm2 = new float[vn];
 					for (int i = 0; i < vn; i++) eNorm2[i] = span > 1e-6f ? svElev[i] / span : 0f;
 					MineralSystem.ComputeMinerals(simVerts, grid.Neighbors, _riverFlow, eNorm2, svPrecip,
-						sim.WorldCrust?.Age, sim.WorldCrust, Seed,
+						sim.WorldCrust?.Age, sim.MineralHydro, sim.MineralSed, sim.MineralMeta,
+						sim.WorldCrust, Seed,
 						out _mineralLevel);
 				}
 			}

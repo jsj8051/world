@@ -41,6 +41,10 @@ namespace World.Tectonics
         private float[] _mergeDensityBuf;        // C4
         private Crust _mergeGlobalizedCrust;     // Merge 复用板重采样缓冲（GC 优化 C2）
         public Crust Accretion;                  // 俯冲增生楔（M3-3，全局 delta，加到顶层板）
+        // ⚠️ 2026-08-03 矿藏模拟化：矿化强度（事件驱动累积——矿在板块演化中"长出来"）
+        public float[] MineralHydro;             // 热液矿化强度（裂谷/俯冲/增生事件累积 → 铜/金）
+        public float[] MineralSed;               // 沉积矿化强度（沉积增厚累积 → 煤/盐）
+        public float[] MineralMeta;              // 变质矿化强度（变质累积 → 宝石/铁）
         public int GridN = 16;                   // Icosahedron 细分（verts≈2562）
         public bool EnableErosion = true;        // M3：地表过程（侵蚀/风化/成岩/变质）开关
         public bool EnableRifting = true;        // M3-2：裂谷（离散边界生成新洋壳）开关
@@ -293,6 +297,19 @@ namespace World.Tectonics
             ComputeDisplacement();         // 先算初始位移场
             InitializeOceanVolume(2000f);  // M3-5：水量守恒常量（原版 average_ocean_depth）
             int steps = (int)(megayears / stepMy);
+            // 矿化强度初始化（矿藏模拟化：事件累积）
+            if (MineralHydro == null || MineralHydro.Length != GlobalGrid.VertexCount)
+            {
+                MineralHydro = new float[GlobalGrid.VertexCount];
+                MineralSed = new float[GlobalGrid.VertexCount];
+                MineralMeta = new float[GlobalGrid.VertexCount];
+            }
+            else
+            {
+                Array.Clear(MineralHydro, 0, MineralHydro.Length);
+                Array.Clear(MineralSed, 0, MineralSed.Length);
+                Array.Clear(MineralMeta, 0, MineralMeta.Length);
+            }
             var swMove = new System.Diagnostics.Stopwatch();
             var swMerge = new System.Diagnostics.Stopwatch();
             var swRift = new System.Diagnostics.Stopwatch();
@@ -532,6 +549,9 @@ namespace World.Tectonics
                 {
                     if (isRifting[i] == 0) continue;
                     plate.Mask[i] = 1;
+                    // ⚠️ 2026-08-03 矿藏模拟化：裂谷新洋壳 = 洋中脊热液活动（铜硫化物矿化）
+                    int gi = plate.GlobalIdsOfLocalCells[i];
+                    if (gi >= 0 && gi < n) MineralHydro[gi] += 1f;
                     plate.Crust.MaficVolcanic[i] = RiftMafic;
                     plate.Crust.MaficPlutonic[i] = 0;
                     plate.Crust.Sediment[i] = 0;
@@ -577,6 +597,13 @@ namespace World.Tectonics
                 for (int i = 0; i < LocalGridCount; i++)
                 {
                     if (localSubducted[i] == 0) continue;
+                    // ⚠️ 2026-08-03 矿藏模拟化：俯冲带深埋 = 变质矿化（宝石/铁前体）+ 岩浆弧热液
+                    int gi = plate.GlobalIdsOfLocalCells[i];
+                    if (gi >= 0 && gi < n)
+                    {
+                        MineralMeta[gi] += 1f;
+                        MineralHydro[gi] += 0.5f;   // 岩浆弧热液（俯冲上盘，金/铜）
+                    }
                     plate.Crust.Metamorphic[i] += plate.Crust.Sediment[i] + plate.Crust.Sedimentary[i]
                         + plate.Crust.FelsicPlutonic[i] + plate.Crust.FelsicVolcanic[i];
                     plate.Crust.Sediment[i] = 0;
@@ -629,6 +656,9 @@ namespace World.Tectonics
                 {
                     if ((int)TopPlateMap[i] != p) continue;
                     int li = plate.LocalIdsOfGlobalCells[i];
+                    // ⚠️ 2026-08-03 矿藏模拟化：增生楔 = 造山带热液（金/铜）
+                    if (aPools[1][i] > 0f || aPools[2][i] > 0f)
+                        MineralHydro[i] += 1f;
                     for (int k = 0; k < 8; k++)
                         pPools[k][li] += aPools[k][i];
                 }
@@ -788,6 +818,16 @@ namespace World.Tectonics
             Crust.ModelWeathering(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta);
             Crust.ModelLithification(surfaceHeight, seconds, Material, WorldCrust, delta);
             Crust.ModelMetamorphosis(surfaceHeight, seconds, Material, WorldCrust, delta);
+
+            // ⚠️ 2026-08-03 矿藏模拟化：沉积增厚/变质累积 = 矿化事件
+            var dPools = delta.AllPools();   // 0=Sediment 1=Sedimentary 2=Metamorphic
+            var dSed = dPools[1];
+            var dMeta = dPools[2];
+            for (int i = 0; i < n; i++)
+            {
+                if (dSed[i] > 0f) MineralSed[i] += 1f;    // 沉积盆地（煤/盐前体）
+                if (dMeta[i] > 0f) MineralMeta[i] += 1f;  // 变质矿化（宝石/铁）
+            }
 
             // 应用 delta（质量守恒：侵蚀/风化把 felsic 转 sediment，成岩/变质反向）
             Crust.AddDelta(WorldCrust, delta);
