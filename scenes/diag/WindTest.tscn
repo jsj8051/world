@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/Biome/WindTest.cs" id="1_wt"]
+[ext_resource type="Script" path="res://scripts/Diagnostics/WindTest.cs" id="1_wt"]
 
 [node name="WindTest" type="Node"]
 script = ExtResource("1_wt")

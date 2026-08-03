@@ -1,8 +1,10 @@
 using Godot;
+using World.Biome;
+using World.MapGen;
 using System.Collections.Generic;
 using World.Tectonics;
 
-namespace World.MapGen;
+namespace World.Diagnostics;
 
 /// <summary>河流诊断：n=64 生成 → 河流统计 + 等距柱状图（河线+陆地+海洋）。</summary>
 public partial class RiverDiag : Node

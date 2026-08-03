@@ -3,7 +3,7 @@ using System;
 using World.MapGen;
 using World.Surface;
 
-namespace World.Tectonics;
+namespace World.Diagnostics;
 
 /// <summary>
 /// 极区放大诊断（headless）：读 v3 存档，导出极区（lat 55°~90°）放大图

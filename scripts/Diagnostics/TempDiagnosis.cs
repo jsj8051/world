@@ -2,7 +2,7 @@ using Godot;
 using World.MapGen;
 using World.Biome;
 
-namespace World.Tectonics;
+namespace World.Diagnostics;
 
 /// <summary>温度图诊断：导出等距柱状温度图 + 打印极寒色值。</summary>
 public partial class TempDiagnosis : Node

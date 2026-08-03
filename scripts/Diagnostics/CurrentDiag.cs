@@ -2,7 +2,7 @@ using Godot;
 using World.Biome;
 using World.Tectonics;
 
-namespace World.MapGen;
+namespace World.Diagnostics;
 
 /// <summary>洋流验证：顺转/逆转的洋流冷暖分布 + 导出冷暖图。</summary>
 public partial class CurrentDiag : Node

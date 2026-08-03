@@ -1,7 +1,7 @@
 using Godot;
 using World.MapGen;
 
-namespace World.Tectonics;
+namespace World.Diagnostics;
 
 /// <summary>流线诊断：用存档洋流场追踪流线，画到等距柱状图验证形状。</summary>
 public partial class StreamlineDiag : Node

@@ -1,7 +1,7 @@
 using Godot;
 using System;
 
-namespace World.MapGen;
+namespace World.Diagnostics;
 
 /// <summary>
 /// headless 验证工具（2026-08-03）：

@@ -1,4 +1,5 @@
 using Godot;
+using World.HexPlanet;
 using System;
 using World.Tectonics;
 
@@ -7,7 +8,7 @@ namespace World.Tectonics
     /// <summary>
     /// tectonics.js 移植验证场景（headless）：
     ///   跑板块模拟 → 诊断打印 → 位移场导出等距柱状预览 PNG。
-    /// 运行：Godot --headless res://scenes/TectonicsTest.tscn --quit-after N -- --seed 42 -- --run 300
+    /// 运行：Godot --headless res://scenes/diag/TectonicsTest.tscn --quit-after N -- --seed 42 -- --run 300
     ///
     /// 参数：
     ///   --seed N / --s N          随机种子

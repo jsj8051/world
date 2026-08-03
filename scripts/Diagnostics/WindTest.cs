@@ -1,8 +1,9 @@
 using Godot;
+using World.Biome;
 using System;
 using World.Tectonics;
 
-namespace World.Biome;
+namespace World.Diagnostics;
 
 /// <summary>
 /// 自转速度验证（headless）：同 seed 下 0.2×/1×/5× 的降水空间分布差异。

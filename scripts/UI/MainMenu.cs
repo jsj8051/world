@@ -33,14 +33,14 @@ public partial class MainMenu : Control
         var genBtn = MakeButton("🛠  生成地图");
         genBtn.SetAnchorsPreset(LayoutPreset.Center);
         genBtn.Position = new Vector2(-200, -160);
-        genBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/MapGenMenu.tscn");
+        genBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapGenMenu.tscn");
         AddChild(genBtn);
 
         // 进入游戏按钮：屏幕中央下方
         var playBtn = MakeButton("▶  进入游戏");
         playBtn.SetAnchorsPreset(LayoutPreset.Center);
         playBtn.Position = new Vector2(-200, -40);
-        playBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/MapSelectMenu.tscn");
+        playBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapSelectMenu.tscn");
         AddChild(playBtn);
 
         // 底部版本信息

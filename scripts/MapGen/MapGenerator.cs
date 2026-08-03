@@ -100,7 +100,7 @@ public partial class MapGenerator : Node
 		if (AutoQuit)
 			GetTree().Quit();
 		else
-			GetTree().CallDeferred(SceneTree.MethodName.ChangeSceneToFile, "res://scenes/MapViewer.tscn");
+			GetTree().CallDeferred(SceneTree.MethodName.ChangeSceneToFile, "res://scenes/core/MapViewer.tscn");
 	}
 
 	public void Generate()

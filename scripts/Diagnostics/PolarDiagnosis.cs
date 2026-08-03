@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using World.HexPlanet;
 
-namespace World.Tectonics;
+namespace World.Diagnostics;
 
 /// <summary>
 /// 极区网格拓扑诊断（headless）：

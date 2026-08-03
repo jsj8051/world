@@ -53,7 +53,7 @@ public partial class MapSelectMenu : Control
 
         var backBtn = new Button { Text = "← 返回", CustomMinimumSize = new Vector2(180, 48) };
         backBtn.AddThemeFontSizeOverride("font_size", 22);
-        backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/MainMenu.tscn");
+        backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
         root.AddChild(backBtn);
 
         RefreshList();
@@ -119,6 +119,6 @@ public partial class MapSelectMenu : Control
     private void EnterViewer(string path)
     {
         ViewerLauncher.PendingPath = path;
-        GetTree().ChangeSceneToFile("res://scenes/MapViewer.tscn");
+        GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 }

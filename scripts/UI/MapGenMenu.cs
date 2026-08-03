@@ -85,7 +85,7 @@ public partial class MapGenMenu : Control
         _form.AddChild(btnRow);
 
         _backBtn = MakeBtn("← 返回", 24);
-        _backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/MainMenu.tscn");
+        _backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
         btnRow.AddChild(_backBtn);
 
         _startBtn = MakeBtn("开始生成", 24);
@@ -300,7 +300,7 @@ public partial class MapGenMenu : Control
         // 简单方案：MapViewer 支持命令行/user args 不可行（运行时），
         // 用静态字段传递：MapViewer 的 MapPath 属性在 _Ready 前可被设置。
         ViewerLauncher.PendingPath = path;
-        GetTree().ChangeSceneToFile("res://scenes/MapViewer.tscn");
+        GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 }
 

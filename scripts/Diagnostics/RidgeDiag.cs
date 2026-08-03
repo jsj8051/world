@@ -1,7 +1,7 @@
 using Godot;
 using World.Biome;
 
-namespace World.Tectonics;
+namespace World.Diagnostics;
 
 /// <summary>
 /// 山脉走向 vs 雨影诊断：

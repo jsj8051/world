@@ -1,6 +1,6 @@
 [gd_scene load_steps=2 format=3]
 
-[ext_resource type="Script" path="res://scripts/Tectonics/TiltDiag.cs" id="1_td"]
+[ext_resource type="Script" path="res://scripts/Diagnostics/TiltDiag.cs" id="1_td"]
 
 [node name="TiltDiag" type="Node"]
 script = ExtResource("1_td")
