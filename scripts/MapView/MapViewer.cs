@@ -114,6 +114,12 @@ public partial class MapViewer : Node3D
     private byte[] _tileMonthPrecip; // 每格当月降水比例 0-255（v3.8 月降水图层；月份切换时刷新）
     private byte[] _tileMonthTemp;   // 每格当月温度 −60~60°C→0-255（v3.8 月温度图层；月份切换时刷新）
     private int[] _tileVerts;      // 每格最近模拟顶点 id（月降水/月温度刷新用）
+    // 文明图层（.cmp 游玩地图；v1 石器时代：人口/文化/部落）
+    private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
+    private float[] _tilePop;       // 每格人口（0=无人/海洋）
+    private byte[] _tileCulture;    // 每格文化标签（0=无）
+    private int[] _tileTribe;       // 每格部落谱系 id（-1=无）
+    private float _civPopMax;       // 人口图层色带上限（对数归一化用）
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
     private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
     private float _monthPrecipMin, _monthPrecipMax; // 陆地当月月降水 min/max（RefreshMonthPrecip 统计）
@@ -147,10 +153,32 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落" };
+
+    /// <summary>文明图层调色板（文化/部落标签取色；高区分度 8 色循环）。</summary>
+    private static readonly Color[] CulturePalette =
+    {
+        new(0.95f, 0.30f, 0.25f),  // 红
+        new(0.25f, 0.55f, 0.95f),  // 蓝
+        new(0.30f, 0.80f, 0.35f),  // 绿
+        new(0.95f, 0.70f, 0.20f),  // 橙
+        new(0.70f, 0.40f, 0.90f),  // 紫
+        new(0.20f, 0.80f, 0.80f),  // 青
+        new(0.90f, 0.50f, 0.70f),  // 粉
+        new(0.60f, 0.60f, 0.20f),  // 橄榄
+    };
 
     public override void _Ready()
     {
+        // 支持命令行 --map=user://maps/xxx（headless 验证/快捷启动，.cmp/.mpa 均可）
+        var ua = OS.GetCmdlineUserArgs();
+        for (int i = 0; i < ua.Length; i++)
+        {
+            string a = ua[i];
+            string v = a.StartsWith("--") ? a.Substring(2) : a;
+            if (v.StartsWith("map=", System.StringComparison.OrdinalIgnoreCase))
+                _mapPath = v.Substring(4);
+        }
         // 支持从 UI 菜单进入时指定存档路径（ViewerLauncher 静态字段传参）
         if (!string.IsNullOrEmpty(ViewerLauncher.PendingPath))
         {
@@ -199,6 +227,9 @@ public partial class MapViewer : Node3D
         9 => "土壤",
         10 => "月降水",
         11 => "月温度",
+        12 => "人口",
+        13 => "文化",
+        14 => "部落",
         _ => "风场",
     };
     public override void _Process(double delta)
@@ -224,24 +255,42 @@ public partial class MapViewer : Node3D
         // 已缓存（_mapLoaded）则跳过——切图层/改 GridN 不重复读 8MB 文件。
         if (!_mapLoaded)
         {
-            if (!MapArchive.Read(_mapPath, out var map))
+            if (_mapPath.EndsWith(".cmp", System.StringComparison.OrdinalIgnoreCase))
+            {
+                // 文明游玩地图：读 GameGrid + 文明演化结果 → 转 MapData 供自然图层，文明图层直读 ctx
+                if (!World.CivSim.CivMapArchive.Read(_mapPath, out var grid, out var civResult))
+                {
+                    GD.PrintErr($"[MapViewer] failed to load civ map {_mapPath}");
+                    return;
+                }
+                _map = grid.ToMapData();
+                _civCtx = civResult.Context;
+                _mapLoaded = true;
+                GD.Print($"[MapViewer] loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
+                         $"epoch={civResult.Context.Epoch.Name} ticks={civResult.FinalTick} pop={TotalCivPop(civResult.Context):F0} tribes={civResult.Context.Tribes.Count})");
+            }
+            else if (!MapArchive.Read(_mapPath, out var map))
             {
                 GD.PrintErr($"[MapViewer] failed to load {_mapPath}");
                 return;
             }
-            _map = map;
-            _mapLoaded = true;
-            GD.Print($"[MapViewer] loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}]");
+            else
+            {
+                _map = map;
+                _civCtx = null;
+                _mapLoaded = true;
+                GD.Print($"[MapViewer] loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}]");
+            }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。
             //   球面存档顶点数 = 10n²+2（Icosahedron 细分）→ 反推 n = sqrt((verts-2)/10)。
             //   Goldberg hex 格数 = 10×GridN²+2 → GridN=n 时两者恰好相等（10242 格/10242 顶点）。
-            if (map.IsSpherical && map.Verts != null)
+            if (_map.IsSpherical && _map.Verts != null)
             {
-                int simN = (int)Mathf.Round(Mathf.Sqrt((map.Verts.Length - 2) / 10f));
+                int simN = (int)Mathf.Round(Mathf.Sqrt((_map.Verts.Length - 2) / 10f));
                 if (simN >= 8 && simN <= 512 && simN != _gridN)
                 {
-                    GD.Print($"[MapViewer] 存档模拟 n={simN}（{map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
+                    GD.Print($"[MapViewer] 存档模拟 n={simN}（{_map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
                     _gridN = simN;
                 }
             }
@@ -249,14 +298,14 @@ public partial class MapViewer : Node3D
             // ⚠️ 2026-08-02：流域现场算（不存档——纯计算毫秒级）。
             //   用存档 Elev（相对海平面 0）+ RiverFlow → 每顶点流域 id（-1=海洋）。
             _vertexWatershed = null;
-            if (map.RiverFlow != null)
+            if (_map.RiverFlow != null)
             {
-                int vn2 = map.Verts.Length;
+                int vn2 = _map.Verts.Length;
                 var eNorm = new float[vn2];
-                float range = map.MaxElev - map.MinElev;
+                float range = _map.MaxElev - _map.MinElev;
                 for (int i = 0; i < vn2; i++)
-                    eNorm[i] = range > 1e-6f ? map.Elev[i] / range : 0f;   // 0=海平面（同生成端）
-                RiverSystem.ComputeWatersheds(eNorm, map.RiverFlow, map.RiverLevel ?? new byte[vn2],
+                    eNorm[i] = range > 1e-6f ? _map.Elev[i] / range : 0f;   // 0=海平面（同生成端）
+                RiverSystem.ComputeWatersheds(eNorm, _map.RiverFlow, _map.RiverLevel ?? new byte[vn2],
                     out _vertexWatershed, out _);
                 int wsCount = 0;
                 for (int i = 0; i < vn2; i++)
@@ -359,6 +408,11 @@ public partial class MapViewer : Node3D
         _tileMonthPrecip = new byte[n];
         _tileMonthTemp = new byte[n];
         _tileVerts = new int[n];
+        _tilePop = new float[n];
+        _tileCulture = new byte[n];
+        _tileTribe = new int[n];
+        System.Array.Fill(_tileTribe, -1);
+        bool hasCiv = _civCtx != null;
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -399,7 +453,19 @@ public partial class MapViewer : Node3D
             minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
             soilArr[i] = map.SoilLevel != null ? map.SoilLevel[vid] : (byte)0;
             monsoonArr[i] = map.MonsoonLevel != null ? map.MonsoonLevel[vid] : (byte)0;
+            // 文明图层（.cmp：格 id = 模拟顶点 id，零重采样直读）
+            if (hasCiv)
+            {
+                var civ = _civCtx.Cells[vid];
+                _tilePop[i] = civ.Population;
+                _tileCulture[i] = civ.Culture;
+                _tileTribe[i] = civ.TribeId;
+            }
         });
+        // 人口图层色带上限（对数归一化；无文明数据 → 1 避免除零）
+        _civPopMax = 1f;
+        for (int i = 0; i < n; i++)
+            if (_tilePop[i] > _civPopMax) _civPopMax = _tilePop[i];
         // ⚠️ 2026-08-16：年降水自适应色带 min/max（用户拍板：最低到最高归一化，不用固定 2000mm）
         _precipMin = float.MaxValue;
         _precipMax = float.MinValue;
@@ -414,7 +480,15 @@ public partial class MapViewer : Node3D
     }
     private float _hSea = 0.5f;
 
-    /// <summary>图层 → 颜色函数（查预计算缓存，零采样）。
+    /// <summary>文明演化总人口（.cmp 加载日志/摘要用）。</summary>
+    private static float TotalCivPop(World.CivSim.CivSimContext ctx)
+    {
+        float s = 0f;
+        for (int i = 0; i < ctx.Cells.Length; i++) s += ctx.Cells[i].Population;
+        return s;
+    }
+
+    /// <summary>图层 → 颜色函数（查预计算缓存，零采样）。</summary>
     /// ⚠️ 2026-08-02 大改进：参数化 layer（不读共享字段）——原内部 switch(Layer) 在后台
     ///   线程每次调用读 _layer，主线程切图层写它 → 竞态 → 偶发颜色错图层/"未切换成功"。</summary>
     private Func<HexTile, Color> MakeColorFn(int layer)
@@ -495,7 +569,29 @@ public partial class MapViewer : Node3D
     										: new Color(0.72f, 0.70f, 0.58f);
     								float tC = _tileMonthTemp[id] / 255f * 120f - 60f;   // byte → °C
     								return BiomeColors.TemperatureToColor(tC);
-    							}
+    								}
+    								case 12: // 人口：对数色带（无人=暗灰；黄→橙红，对数归一化防极端值拉爆）
+    								{
+    								if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								float p = _tilePop[id];
+    								if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
+    								float x = Mathf.Log(p + 1f) / Mathf.Log(_civPopMax + 1f);
+    								return new Color(0.95f, 0.75f, 0.25f).Lerp(new Color(0.80f, 0.15f, 0.05f), x);
+    								}
+    								case 13: // 文化：标签调色板
+    								    {
+    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        byte cult = _tileCulture[id];
+    								        if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
+    								        return CulturePalette[cult % CulturePalette.Length];
+    								    }
+    								case 14: // 部落：谱系调色板
+    								    {
+    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        int tribeId = _tileTribe[id];
+    								        if (tribeId < 0) return new Color(0.25f, 0.25f, 0.28f);
+    								        return CulturePalette[tribeId % CulturePalette.Length];
+    								    }
     			default: // 海拔
     				{
     					float h = _tileElev[id];
@@ -1217,6 +1313,12 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><rect x='4' y='6' width='20' height='18' fill='none' stroke='#7cf' stroke-width='2'/><path d='M4 12 H24 M9 3 V9 M19 3 V9' stroke='#7cf' stroke-width='2'/><path d='M8 18 H14 M8 22 H20' stroke='#7cf' stroke-width='2'/></svg>",
         // 11 月温度：温度计+月相环（直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L14 14 L18 14 L18 20 L10 20 L10 14 L14 14 M10 20 L18 20 M10 17 L18 17' stroke='#fa6' stroke-width='2.5' fill='none'/><circle cx='14' cy='23' r='4' fill='none' stroke='#fa6' stroke-width='2'/><path d='M14 20 A4 4 0 0 1 14 26 Z' fill='#fa6'/></svg>",
+        // 12 人口：人群（三个圆头+身线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='9' cy='7' r='3' fill='#fd8'/><circle cx='19' cy='7' r='3' fill='#fd8'/><circle cx='14' cy='15' r='3' fill='#fd8'/><path d='M9 13 L9 25 M19 13 L19 25 M14 21 L14 25' stroke='#fd8' stroke-width='2.5' stroke-linecap='round'/></svg>",
+        // 13 文化：旗帜（旗杆+飘旗，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M12 3 L12 25 M12 6 L24 6 L21 11 L24 16 L12 16' fill='#fa6' stroke='#fa6' stroke-width='1.5' stroke-linejoin='miter'/></svg>",
+        // 14 部落：帐篷（三角形+地面线，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 24 L4 24 Z M8 24 L20 24 M11 13 L17 13' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)

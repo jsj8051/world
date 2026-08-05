@@ -118,6 +118,43 @@ public class GameGrid
         return a;
     }
 
+    /// <summary>转回 MapData（MapViewer 等以 MapData 为输入的工具复用；自然层数据零改动）。
+    /// ⚠️ 返回前主线程预构建桶索引（EnsureBuckets）——惰性构建 + 并行采样 = 并发修改集合崩溃
+    ///   （MapArchive.Read 也做了同样的事，这里必须补，否则 ToMapData 产物会在 Parallel 里崩）。</summary>
+    public MapData ToMapData()
+    {
+        var m = new MapData
+        {
+            Version = 3,
+            Seed = Seed,
+            ProgradeRotation = ProgradeRotation,
+            RotationSpeed = RotationSpeed,
+            AxialTilt = AxialTilt,
+            Verts = (Vector3[])Verts.Clone(),
+            Elev = (float[])Elev.Clone(),
+            Temp = (float[])Temp.Clone(),
+            Precip = (float[])Precip.Clone(),
+            Biome = (byte[])Biome.Clone(),
+            MinElev = MinElev, MaxElev = MaxElev,
+            MinTemp = MinTemp, MaxTemp = MaxTemp,
+            MinPrecip = MinPrecip, MaxPrecip = MaxPrecip,
+            CurrentDirs = (Vector3[])CurrentDirs.Clone(),
+            CurrentWarmth = (float[])CurrentWarmth.Clone(),
+            CurrentStrength = (float[])CurrentStrength.Clone(),
+            RiverLevel = (byte[])RiverLevel.Clone(),
+            RiverFlow = (int[])RiverFlow.Clone(),
+            RiverVolume = (float[])RiverVolume.Clone(),
+            LakeLevel = (byte[])LakeLevel.Clone(),
+            MineralLevel = (byte[])MineralLevel.Clone(),
+            SoilLevel = (byte[])SoilLevel.Clone(),
+            MonsoonLevel = (byte[])MonsoonLevel.Clone(),
+            MonthPrecip = Clone2D(MonthPrecip),
+            MonthTemp = Clone2D(MonthTemp),
+        };
+        m.EnsureBuckets();
+        return m;
+    }
+
     // ── 查询 ──
 
     /// <summary>球面邻接表（确定性重建：桶内球面距离 &lt; 1.5×平均格距；与 MapData 同算法）。</summary>

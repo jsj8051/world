@@ -32,16 +32,23 @@ public partial class MainMenu : Control
         // 生成地图按钮：屏幕中央上方
         var genBtn = MakeButton("🛠  生成地图");
         genBtn.SetAnchorsPreset(LayoutPreset.Center);
-        genBtn.Position = new Vector2(-200, -160);
+        genBtn.Position = new Vector2(-200, -200);
         genBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapGenMenu.tscn");
         AddChild(genBtn);
 
-        // 进入游戏按钮：屏幕中央下方
-        var playBtn = MakeButton("▶  进入游戏");
-        playBtn.SetAnchorsPreset(LayoutPreset.Center);
-        playBtn.Position = new Vector2(-200, -40);
-        playBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapSelectMenu.tscn");
-        AddChild(playBtn);
+        // 读取自然地图按钮（读 .mpa/.gmp 用 MapViewer 查看自然图层；原"进入游戏"改名——它读的是自然地图）
+        var viewBtn = MakeButton("🗺  读取自然地图");
+        viewBtn.SetAnchorsPreset(LayoutPreset.Center);
+        viewBtn.Position = new Vector2(-200, -80);
+        viewBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapSelectMenu.tscn");
+        AddChild(viewBtn);
+
+        // 读取文明存档按钮（读 .cmp 游玩地图 → 开始游戏：MapViewer 显示文明图层）
+        var civBtn = MakeButton("🎮  读取文明存档");
+        civBtn.SetAnchorsPreset(LayoutPreset.Center);
+        civBtn.Position = new Vector2(-200, 40);
+        civBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/CmpSelectMenu.tscn");
+        AddChild(civBtn);
 
         // 底部版本信息
         var footer = new Label
