@@ -56,14 +56,16 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
     public string Domain => "陆地";
     public override float Magnitude => 300f;   // m/演化期（净速率量级）
     public string Stage => "板块";
-    public override string[] DependsOn() => new[] { "海拔", "年降水" };
+    public override string[] DependsOn() => new[] { "海拔", "年降水", "月温度" };   // 风蚀项消费年合成风场（MonthWind，月温度场产出）
 
     public void Compute()
     {
         var pipe = _pipe;
         int n = pipe.Verts.Length;
         var e = pipe.ENorm;
-        // 出站量（每格对下坡邻居的高度差和；降水/倍率/密度为统一缩放，分布由坡度决定）
+        var net = new float[n];
+
+        // ── 1. 水蚀项（坡面径流：坡度×降水，相邻下坡搬运；高山侵蚀→低处堆积）──
         var outbound = new float[n];
         for (int i = 0; i < n; i++)
         {
@@ -76,8 +78,6 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
             }
             outbound[i] = sum;
         }
-        // 净沉积 = 接收（上坡邻居的搬运）− 出站；×标定 → m/演化期量级（正=堆积、负=侵蚀）
-        pipe.ErosionNet = new float[n];
         for (int i = 0; i < n; i++)
         {
             float recv = 0f;
@@ -87,8 +87,57 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
                 float diff = e[nb] - hi;
                 if (diff > 0f) recv += diff;
             }
-            pipe.ErosionNet[i] = (recv - outbound[i]) * 300f;
+            net[i] = recv - outbound[i];
         }
+
+        // ── 2. 风蚀项（2026-08-16 用户拍板：风蚀沿风场逐步沉积，高山被侵蚀填到低处）──
+        //    干旱区（降水少裸露）风卷沙 → 沿统一风场年合成方向搬运 → 沉积率由【局部风强】决定：
+        //    depositRate ∝ (1 − wMag)——强风处颗粒悬浮不易沉（搬运远）、风弱处快速落沙
+        //    （"风减弱处沉积"= 黄土/沙丘式沉积带的物理机制）。搬运距离由沉积率自然涌现，
+        //    步数仅是防死循环兜底（非定死距离）。
+        var windYear = new Vector3[n];
+        for (int m = 0; m < 12; m++)
+            for (int i = 0; i < n; i++) windYear[i] += pipe.MonthWind[m][i] / 12f;
+        const float KWind = 0.3f;      // 风蚀强度系数（相对水蚀，全球占比 ~10-20%）
+        const float KSettle = 0.5f;    // 沉降系数：depositRate = KSettle×(1−wMag)（风弱沉积快）
+        const int MaxSteps = 100;      // 兜底上限（防风场闭环死循环；正常由沉积率终止）
+        for (int i = 0; i < n; i++)
+        {
+            if (e[i] < 0.02f) continue;          // 只陆地风蚀（海洋无地表物质）
+            var w = windYear[i];
+            float wMag = w.Length();
+            if (wMag < 1e-6f) continue;
+            float arid = 1f - Mathf.Clamp(pipe.Precip[i] / 800f, 0f, 1f);   // 干旱度（降水<800mm 裸露）
+            float src = wMag * arid * KWind;     // 风蚀源（相对量）
+            if (src < 1e-5f) continue;
+            net[i] -= src;                       // 风蚀（源格被卷走）
+            float remain = src;
+            int cur = i;
+            var windDir = w / wMag;
+            for (int s = 0; s < MaxSteps && remain > 1e-5f; s++)
+            {
+                // 沉积率 ∝ 风减弱程度（局部风强弱 → 落沙快）
+                float wLocal = windYear[cur].Length();
+                float depositRate = KSettle * (1f - Mathf.Min(wLocal, 1f));
+                float deposit = remain * depositRate;
+                net[cur] += deposit;             // 路径沉积（风弱处落沙）
+                remain -= deposit;
+                // 沿风向走：邻居中方向投影最大者（贪心爬，风场发散点停）
+                int next = cur; float bestProj = -0.5f;
+                foreach (var nb in pipe.Neighbors[cur])
+                {
+                    var dirN = (pipe.Verts[nb] - pipe.Verts[cur]).Normalized();
+                    float proj = windDir.Dot(dirN);
+                    if (proj > bestProj) { bestProj = proj; next = nb; }
+                }
+                if (next == cur) break;
+                cur = next;
+            }
+        }
+
+        // 标定 → m/演化期量级（正=堆积、负=侵蚀）
+        pipe.ErosionNet = new float[n];
+        for (int i = 0; i < n; i++) pipe.ErosionNet[i] = net[i] * 300f;
     }
 
     public override bool Verify() => _pipe.ErosionNet != null && AnyNonZero(_pipe.ErosionNet);
