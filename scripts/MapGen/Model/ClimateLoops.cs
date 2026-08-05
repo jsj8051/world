@@ -91,7 +91,7 @@ public sealed class ErosionLoop : ModelBase, ILoopRole
     public string Status => "Cut";
     public override float Magnitude => 0f;
     public void Apply() { }   // 闭环行为：Closed 环后续实现，Cut/Ignored 无操作
-    public string Decision => "Stage2 侵蚀改海拔（河谷/沉积），不回流 Stage1 气候（两层架构单向流保证）。生成一次，非长期演化";
+    public string Decision => "侵蚀-堆积（搬运平衡）改海拔（山地夷平/低地堆积/河谷三角洲），不回流 Stage1 气候（两层架构单向流保证）。生成一次，非长期演化（板块模拟内自然侵蚀已含，Stage2 河流另加）";
 }
 
 /// <summary>环8：洋流→降水→洋流（截断）。</summary>
