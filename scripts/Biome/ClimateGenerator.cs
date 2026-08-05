@@ -187,13 +187,14 @@ public class ClimateGenerator
     public float ComputePrecipitationMonthBase(Vector3 pos, float elevNorm, float itczShiftDeg)
     {
         Vector3 dir = pos.Normalized();
-        float latDeg = Mathf.Abs(Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(dir.Y, -1f, 1f)))); // 0..90
+        float latSigned = Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(dir.Y, -1f, 1f))); // -90..90 带符号（北+ 南−）
+        float latDeg = Mathf.Abs(latSigned); // 0..90（对称带：极锋/副热带）
 
-        // 月 ITCZ 带（中心随 itczShiftDeg 摆动，σ=12°）
-        // ⚠️ 2026-08-16 月化标定：峰值 = 年标定(1400)/雨季月数(~3) ≈ 480——月带摆动只有
-        //   2-3 个月靠近赤道格，年 = Σ 月自动 ≈ 旧年公式量级（直接沿用年标定会高 ~3 倍，
-        //   实测聚合 max 3.2 万 mm 失真）
-        float equatorBand = 480f * Mathf.Exp(-(latDeg - Mathf.Abs(itczShiftDeg)) * (latDeg - Mathf.Abs(itczShiftDeg)) / (2f * 12f * 12f));
+        // 月 ITCZ 带（中心随 itczShiftDeg 南北摆动：1月南纬 −23.4 / 7月北纬 +23.4）
+        // ⚠️ 2026-08-05 修：不能用 Mathf.Abs(itczShiftDeg)——摆动被截断到正半轴后
+        //   12 个月 ITCZ 全锁北纬 23.4°，南半球雨季永久消失、北纬 0-23° 全年多雨。
+        //   必须带符号纬度（latSigned）配带符号偏移，南北半球季节才正确交替。
+        float equatorBand = 480f * Mathf.Exp(-(latSigned - itczShiftDeg) * (latSigned - itczShiftDeg) / (2f * 12f * 12f));
         float polarFront = 200f * Mathf.Exp(-(latDeg - 62f) * (latDeg - 62f) / (2f * 14f * 14f)); // 60° 极锋
         float tiltDeg = Mathf.RadToDeg(_tiltRad);
         float subCenter = 26f + (tiltDeg - 23.4f) * 0.12f;

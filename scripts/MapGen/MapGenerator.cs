@@ -192,7 +192,7 @@ public partial class MapGenerator : Node
 			monthPrecip[m] = new byte[vn];
 			for (int i = 0; i < vn; i++)
 			{
-				float ratio = pipe.Precip[i] > 1e-3f ? pipe.MonthPrecip[m][i] / pipe.Precip[i] : 0f;
+				float ratio = pipe.MonthPrecip[m][i];   // ⚠️ 2026-08-05 修：月→年改造后已是比例(Σ=1)，勿再除年降水（双重归一化→byte≈0→图层全黄）
 				monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
 			}
 		}
@@ -280,7 +280,7 @@ public partial class MapGenerator : Node
 				monthPrecip[m] = new byte[vn];
 				for (int i = 0; i < vn; i++)
 				{
-					float ratio = pipe.Precip[i] > 1e-3f ? pipe.MonthPrecip[m][i] / pipe.Precip[i] : 0f;
+					float ratio = pipe.MonthPrecip[m][i];   // ⚠️ 2026-08-05 修：月→年改造后已是比例(Σ=1)，勿再除年降水（双重归一化→byte≈0→图层全黄）
 					monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
 				}
 			}

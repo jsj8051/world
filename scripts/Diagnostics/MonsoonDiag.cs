@@ -79,7 +79,7 @@ public partial class MonsoonDiag : Node
             monthPrecip[m] = new byte[n];
             for (int i = 0; i < n; i++)
             {
-                float ratio = ctx.Precip[i] > 1e-3f ? monthP[m][i] / ctx.Precip[i] : 0f;
+                float ratio = monthP[m][i];   // ⚠️ 2026-08-05 修：MonsoonSystem 输出已是比例(Σ=1)，勿再除年降水（双重归一化→byte≈0→图层全黄）
                 monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
             }
         }
