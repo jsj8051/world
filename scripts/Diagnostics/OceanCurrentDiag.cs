@@ -36,6 +36,20 @@ public partial class OceanCurrentDiag : Node
         GD.Print($"[OceanCurrentDiag] {arch} n={map.Verts.Length} 海洋格={ocean} 洋流格={withDir} " +
                  $"({100f * withDir / Mathf.Max(1, ocean):F1}%) 暖流={warm} 寒流={cold}");
 
+        // 强度分布（显示层筛选阈值校准；用重算的 strength——SOR 求解效果验证）
+        {
+            int s035 = 0, s030 = 0, s025 = 0;
+            for (int i = 0; i < map.Verts.Length; i++)
+            {
+                if (eNorm[i] >= 0f || strength[i] <= 0f) continue;
+                float s = strength[i];
+                if (s > 0.35f) s035++;
+                if (s > 0.30f) s030++;
+                if (s > 0.25f) s025++;
+            }
+            GD.Print($"[OceanCurrentDiag] 强度分布(重算): >0.25={s025} >0.30={s030} >0.35={s035}");
+        }
+
         // 温度/降水/biome 分布检查（biome 异常连带排查）
         float tMin = 1e9f, tMax = -1e9f, pMin = 1e9f, pMax = -1e9f;
         int land = 0;

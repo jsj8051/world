@@ -129,13 +129,16 @@ public static class MineralSystem
 
             // ⚠️ v3 矿藏模拟化：热液/沉积/变质强度为增强项（模拟中事件累积——但裂谷/俯冲
             //   多在海洋（洋中脊/海沟），陆地矿以岩性/构造为主项 + 热液增强（0.5+0.5×hydroR））
-            scores[1][i] = (metaMR[i] * 0.7f + hydroR[i] * 0.3f) * Mathf.Pow(ageRel[i], 1.2f) * pert;  // 铁：变质矿化 + 老克拉通
+            // ⚠️ 2026-08-06：铁/金加沉积项——原公式铁=变质、金=造山带坡度 → 矿点几乎全挤在
+            //   山脉（用户反馈"矿藏太集中山脉"）。现实：条带状/鲕状沉积铁矿在沉积盆地、
+            //   砂金在河谷冲积层（铁煤伴生）——低地也有矿，分布分散。
+            scores[1][i] = (metaMR[i] * 0.5f + sedMR[i] * 0.3f + hydroR[i] * 0.2f) * Mathf.Pow(ageRel[i], 1.2f) * pert;  // 铁：变质 + 沉积铁矿 + 热液
             scores[2][i] = mvR[i] * (0.5f + 0.5f * hydroR[i]) * pert2;   // 铜：陆地火山岩 + 热液增强
             scores[3][i] = fpR[i] * (0.5f + 0.5f * hydroR[i]) * pert;    // 锡：花岗岩 + 热液增强
-            scores[4][i] = felsic * sN * (0.5f + 0.5f * hydroR[i]) * pert2;  // 金：造山带 + 热液增强
+            scores[4][i] = (felsic * sN * 0.5f + sedMR[i] * 0.5f) * (0.5f + 0.5f * hydroR[i]) * pert2;  // 金：造山带 + 沉积区（砂金/伴生）
             scores[5][i] = sedMR[i] * (1f - elevRel[i]) * precipRel[i] * pert;   // 煤：沉积矿化 × 湿润低地
             scores[6][i] = (1f - precipRel[i]) * (1f - elevRel[i]) * pert2;      // 盐：干旱低地
-            scores[7][i] = elevRel[i] * pert;                          // 石料：高山
+            scores[7][i] = elevRel[i] * pert;                          // 石料：高山（采石场本就在山地）
             scores[8][i] = metaMR[i] * pert2;                          // 宝石：变质矿化（0.5% 极稀）
         }
 

@@ -102,9 +102,13 @@ public static class OceanCurrent
             }
         }
 
-        // ── 2. 解 ∇²ψ = curl（Gauss-Seidel 迭代，均匀权重拉普拉斯）──
+        // ── 2. 解 ∇²ψ = curl（SOR 迭代，ω=1.7 加速收敛；均匀权重拉普拉斯）──
         //    陆地顶点 ψ = 0（边界条件：洋流沿大陆绕行）
+        //    ⚠️ 2026-08-06：Gauss-Seidel 在大网格(n=128)收敛太慢——600 次迭代 ψ 未成形，
+        //    |∇ψ| 普遍偏小 → strength 几乎全弱流(0.3) → 显示层筛不出主要洋流。
+        //    SOR(ω=1.7) 收敛 3-5 倍加速，等效迭代 ~2000+。
         var psi = new float[n];
+        const float sorOmega = 1.7f;
         for (int iter = 0; iter < iterations; iter++)
         {
             float maxErr = 0f;
@@ -115,7 +119,8 @@ public static class OceanCurrent
                 if (nbs == null || nbs.Length < 3) continue;
                 float sum = 0f;
                 foreach (var nb in nbs) sum += psi[nb];
-                float next = (sum - curl[i]) / nbs.Length;
+                float gs = (sum - curl[i]) / nbs.Length;
+                float next = psi[i] + sorOmega * (gs - psi[i]);   // SOR 外推
                 float err = Mathf.Abs(next - psi[i]);
                 if (err > maxErr) maxErr = err;
                 psi[i] = next;

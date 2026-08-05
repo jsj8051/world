@@ -620,11 +620,12 @@ public partial class MapViewer : Node3D
     								        if (tribeId < 0) return new Color(0.25f, 0.25f, 0.28f);
     								        return CulturePalette[tribeId % CulturePalette.Length];
     								    }
-    								case 15: // 科技：主导部落最高技术时代色带（石器灰→新石器绿→青铜橙→铁器蓝→古典紫）
+    								case 15: // 科技：主导部落最高技术时代色带（石器棕→新石器绿→青铜橙→铁器蓝→古典紫）
     								    {
     								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								        byte ep = _tileTechEpoch[id];
-    								        if (ep == 0) return new Color(0.55f, 0.55f, 0.55f);
+    								        if (ep == 0) return new Color(0.55f, 0.42f, 0.28f);   // 石器：棕（有基础技术，非"无"）
     								        return TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];
     								    }
     								case 16: // 宗教：阶段色带（万物有灵绿→萨满黄绿→祖先橙→多神蓝→一神紫）
@@ -919,10 +920,13 @@ public partial class MapViewer : Node3D
         var verts = new System.Collections.Generic.List<Vector3>();
         var colors = new System.Collections.Generic.List<Color>();
         var indices = new System.Collections.Generic.List<int>();
-        int ringCount = 0;
 
-        // ── 种子点：均匀球面网格（10° 环 × 36 经度）──
-        var seeds = new System.Collections.Generic.List<Vector3>();
+        // ── 用户拍板(2026-08-06)：格点稀疏箭头——放弃闭合环追踪（n=128 追踪全失败）。
+        //    稀疏采样（lat 10°≈隔 10 格）+ 强度筛选（只画主要洋流带，不铺满——网上洋流图式），
+        //    箭头大小固定为星球比例（不随分辨率变——n=64/n=128 观感一致）。
+        const float arrowLen = 0.045f;    // 箭头长（球面弧比例，固定）
+        const float arrowTailW = 0.016f;
+        int drawn = 0;
         for (float lat = -85f; lat <= 85f; lat += 10f)
         {
             float la = Mathf.DegToRad(lat);
@@ -931,108 +935,36 @@ public partial class MapViewer : Node3D
             for (int j = 0; j < lonCount; j++)
             {
                 float lo = Mathf.Tau * j / lonCount;
-                seeds.Add(new Vector3(cosLa * Mathf.Cos(lo), Mathf.Sin(la), cosLa * Mathf.Sin(lo)));
-            }
-        }
-
-        // ── 阶段1：追踪所有闭合环（不绘制）──
-        //   ⚠️ 2026-08-02 v6：去重改【环带重叠检测】——原中心点距离对不规则环流圈
-        //   （被大陆挤压成非圆）不可靠，内外圈中心算偏 → 重复画同一环。
-        var rings = new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
-        foreach (var seed in seeds)
-        {
-            var line = new System.Collections.Generic.List<Vector3> { seed };
-            Vector3 pos = seed;
-            bool closed = false;
-            bool valid = true;
-            for (int s = 0; s < 400; s++)
-            {
-                int id = _map.NearestVertex(pos);
-                if (_map.SampleSpherical(pos, _map.Elev) >= 0f) { valid = false; break; }  // 碰陆地
-                Vector3 dir = _map.CurrentDirs[id];
-                if (dir.LengthSquared() < 1e-9f) { valid = false; break; }                 // 无洋流
-                Vector3 next = (pos + dir * 0.025f).Normalized();
-                // 闭合检测：回到起点附近（环流圈闭合）
-                if (line.Count > 15 && (next - seed).Length() < 0.08f) { closed = true; break; }
-                line.Add(next);
-                pos = next;
-            }
-            if (!valid || !closed || line.Count < 25) continue;   // 只收闭合环
-            rings.Add(line);
-        }
-
-        // ── 阶段2：重叠去重（每环只留最外层 = 周长最大）──
-        //   环带重叠检测：环 A 采样点是否接近环 B 任一点（< 0.18 rad ≈ 10°）
-        //   → 视为描述同一环流圈，保留周长大的（最外层）
-        rings.Sort((a, b) => b.Count.CompareTo(a.Count));   // 周长降序（大环优先）
-        var kept = new System.Collections.Generic.List<System.Collections.Generic.List<Vector3>>();
-        bool Overlaps(System.Collections.Generic.List<Vector3> a, System.Collections.Generic.List<Vector3> b)
-        {
-            int hit = 0, total = 0;
-            int stepA = Mathf.Max(1, a.Count / 12);   // 采样 12 点
-            foreach (var pa in a)
-            {
-                if (total++ >= 12) break;
-                foreach (var pb in b)
-                {
-                    if (Mathf.Acos(Mathf.Clamp(pa.Dot(pb), -1f, 1f)) < 0.18f) { hit++; break; }
-                }
-            }
-            return total > 0 && hit >= total / 2;   // 一半点接近 → 同一环
-        }
-        foreach (var r in rings)
-        {
-            bool dup = false;
-            foreach (var k in kept)
-            {
-                if (Overlaps(r, k)) { dup = true; break; }
-            }
-            if (!dup) kept.Add(r);
-        }
-        ringCount = kept.Count;
-        GD.Print($"[MapViewer] 洋流环：追踪 {rings.Count} 个，去重后保留 {kept.Count} 个");
-
-        // ── 阶段3：绘制保留的环（离散小箭头串）──
-        //   每 6 步一个独立箭头（间隔 6×0.025=0.15 rad ≈ 8.6°），方向 = 流动方向。
-        //   ⚠️ 2026-08-02 v7：颜色改【每箭头按位置冷暖】——环平均会让整个环流圈
-        //   一个色，丢失"环流圈西暖东寒"（湾流暖/加那利寒是同一环的两侧）。
-        const float arrowLen = 0.028f;
-        const float arrowTailW = 0.013f;
-        foreach (var line in kept)
-        {
-            int n = line.Count;
-            for (int i = 0; i < n; i += 6)
-            {
-                Vector3 a = line[i];
-                Vector3 b = line[(i + 6) % n];   // 闭合：尾部连回首部
-                Vector3 seg = b - a;
-                if (seg.LengthSquared() < 1e-12f) continue;
-                Vector3 dir = seg.Normalized();
-                Vector3 side = seg.Cross(a).Normalized();
-
-                // 每箭头独立冷暖色（该位置顶点的洋流冷暖）
-                int id = _map.NearestVertex(a);
-                float w = _map.CurrentWarmth[id];
-                Color ringColor = w > 0.05f ? new Color(1f, 0.45f, 0.2f)
-                    : w < -0.05f ? new Color(0.25f, 0.55f, 1f)
-                    : new Color(0.85f, 0.85f, 0.85f);
-
-                // 独立小箭头（三角形，指向流动方向）
-                Vector3 tailC = a - dir * arrowLen * 0.35f;
-                Vector3 tip = a + dir * arrowLen * 0.65f;
+                var pos = new Vector3(cosLa * Mathf.Cos(lo), Mathf.Sin(la), cosLa * Mathf.Sin(lo));
+                int vid = _map.NearestVertex(pos);
+                if (_map.SampleSpherical(pos, _map.Elev) >= 0f) continue;   // 陆地不画
+                var cur = _map.CurrentDirs[vid];
+                if (cur.LengthSquared() < 1e-9f) continue;                   // 无洋流不画
+                if (_map.CurrentStrength != null && _map.CurrentStrength[vid] < 0.35f) continue;   // 只画主要洋流带
+                var wDir = cur.Normalized();
+                var side = pos.Cross(wDir).Normalized();
+                Vector3 tailC = pos - wDir * arrowLen * 0.35f;
+                Vector3 tip = pos + wDir * arrowLen * 0.65f;
                 Vector3 t1 = (tailC + side * arrowTailW).Normalized() * radius;
                 Vector3 t2 = (tailC - side * arrowTailW).Normalized() * radius;
                 Vector3 tipS = tip.Normalized() * radius;
+                // 每箭头独立冷暖色（湾流暖 / 加那利寒是同一环两侧）
+                float w = _map.CurrentWarmth[vid];
+                Color c = w > 0.05f ? new Color(1f, 0.45f, 0.2f)
+                    : w < -0.05f ? new Color(0.25f, 0.55f, 1f)
+                    : new Color(0.85f, 0.85f, 0.85f);
                 int ai = verts.Count;
                 verts.Add(t1); verts.Add(tipS); verts.Add(t2);
-                colors.Add(ringColor); colors.Add(ringColor); colors.Add(ringColor);
+                colors.Add(c); colors.Add(c); colors.Add(c);
                 indices.Add(ai); indices.Add(ai + 1); indices.Add(ai + 2);
+                drawn++;
             }
         }
+        GD.Print($"[MapViewer] current arrows built: {drawn} 箭头（格点稀疏采样，固定大小）");
 
         if (verts.Count == 0)
         {
-            GD.Print("[MapViewer] current arrows: 无闭合环流圈");
+            GD.Print("[MapViewer] current arrows: 无洋流数据");
             return;
         }
 
@@ -1060,7 +992,7 @@ public partial class MapViewer : Node3D
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_currentArrows);
-        GD.Print($"[MapViewer] current arrows built: {ringCount} 闭合环流圈 (from archive)");
+        GD.Print($"[MapViewer] current arrows built: {drawn} 箭头（稀疏采样，固定大小） (from archive)");
     }
 
     // ── 河流网格（图层 6 显示）──
