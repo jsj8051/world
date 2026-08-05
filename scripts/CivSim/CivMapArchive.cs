@@ -7,21 +7,21 @@ namespace World.CivSim;
 /// 游玩地图存档 .cmp（文明演化输出；自包含——自然层快照 + 文明层，独立于 .mpa/.gmp）。
 /// 源自然地图只读，演化不修改任何自然字段。
 ///
-/// v2（2026-08-05，部落模型重构）：
+/// v3（2026-08-05，文化分层 + 宗教）：
 ///   [4B]  magic "CMP1"
-///   [2B]  version = 2
+///   [2B]  version = 3
 ///   [4B]  civSeed | [2B] epoch | [4B] finalTick | [4B] tickYears | [4B] originCount
 ///   GameMapArchive.WriteBody（自然层，与 .gmp 布局一致）
 ///   部落表（部落=格内社会单元，一格多部落）：
 ///     [4B] tribeCount
-///     每个：[4B] id | [4B] cell | [4B] population(float) | [1B] culture
-///           [8B] techFlags(ulong) | [4B] originCell | [4B] bornTick
+///     每个：[4B] id | [4B] cell | [4B] population(float) | [1B] culture | [1B] cultureGroup
+///           [1B] religion | [8B] techFlags(ulong) | [4B] originCell | [4B] bornTick
 ///   统计：[4B] fissions | [4B] absorptions | [4B] merges | [4B] migrations | [8B] tradeContacts
 /// </summary>
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 2;
+    public const ushort Version = 3;
 
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {
@@ -53,6 +53,8 @@ public static class CivMapArchive
             f.Store32((uint)t.Cell);
             f.StoreFloat(t.Population);
             f.Store8(t.Culture);
+            f.Store8(t.CultureGroup);
+            f.Store8(t.Religion);
             f.Store64(t.TechFlags);
             f.Store32((uint)t.OriginCell);
             f.Store32((uint)t.BornTick);
@@ -62,6 +64,7 @@ public static class CivMapArchive
         f.Store32((uint)ctx.Merges);
         f.Store32((uint)ctx.Migrations);
         f.Store64((ulong)ctx.TradeContacts);
+        f.Store32((uint)ctx.CultureGroupCount);
         if (log)
             GD.Print($"[CivMapArchive] wrote v{Version} {path} (epoch={ctx.Epoch.Name} ticks={result.FinalTick} " +
                      $"tribes={ctx.Tribes.Count} pop={ctx.TotalPopulation():F0} fission={ctx.Fissions} absorb={ctx.Absorptions})");
@@ -111,6 +114,8 @@ public static class CivMapArchive
                 Cell = (int)f.Get32(),
                 Population = f.GetFloat(),
                 Culture = f.Get8(),
+                CultureGroup = f.Get8(),
+                Religion = f.Get8(),
                 TechFlags = f.Get64(),
                 OriginCell = (int)f.Get32(),
                 BornTick = (int)f.Get32(),
@@ -123,6 +128,7 @@ public static class CivMapArchive
         int merges = (int)f.Get32();
         int migrations = (int)f.Get32();
         long tradeContacts = (long)f.Get64();
+        int cultureGroupCount = (int)f.Get32();
 
         var ctx = new CivSimContext
         {
@@ -140,6 +146,7 @@ public static class CivMapArchive
             Merges = merges,
             Migrations = migrations,
             TradeContacts = tradeContacts,
+            CultureGroupCount = cultureGroupCount,
         };
         // 重建承载场 + 每格状态
         float cellArea = g.CellAreaKm2;

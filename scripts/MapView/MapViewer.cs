@@ -118,6 +118,8 @@ public partial class MapViewer : Node3D
     private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
     private float[] _tilePop;       // 每格总人口（Σ 部落，0=无人/海洋）
     private byte[] _tileCulture;    // 每格主导文化标签（0=无）
+    private byte[] _tileCultureGroup; // 每格主导文化群（0=无）
+    private byte[] _tileReligion;   // 每格主导宗教 0-4（万物有灵→一神教）
     private int[] _tileTribe;       // 每格主导部落 id（-1=无）
     private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
     private float _civPopMax;       // 人口图层色带上限（对数归一化用）
@@ -154,7 +156,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技", "宗教" };
 
     /// <summary>文明图层调色板（文化/部落标签取色；高区分度 8 色循环）。</summary>
     private static readonly Color[] CulturePalette =
@@ -176,6 +178,16 @@ public partial class MapViewer : Node3D
         new(0.90f, 0.60f, 0.20f),  // 青铜：橙（冶金）
         new(0.30f, 0.50f, 0.85f),  // 铁器：蓝（铁兵）
         new(0.65f, 0.40f, 0.85f),  // 古典/中世纪：紫（帝国）
+    };
+
+    /// <summary>宗教图层色带（ReligionType 0-4）。</summary>
+    private static readonly Color[] ReligionColors =
+    {
+        new(0.45f, 0.72f, 0.45f),  // 万物有灵：绿（旧石器泛灵论）
+        new(0.75f, 0.78f, 0.30f),  // 萨满/图腾：黄绿（洞穴壁画时代）
+        new(0.90f, 0.55f, 0.30f),  // 祖先崇拜：橙（新石器，哥贝克力）
+        new(0.35f, 0.55f, 0.85f),  // 多神教：蓝（青铜神庙神系）
+        new(0.60f, 0.35f, 0.80f),  // 一神教：紫（铁器/古典圣典宗教）
     };
 
     public override void _Ready()
@@ -241,6 +253,7 @@ public partial class MapViewer : Node3D
         13 => "文化",
         14 => "部落",
         15 => "科技",
+        16 => "宗教",
         _ => "风场",
     };
     public override void _Process(double delta)
@@ -421,6 +434,8 @@ public partial class MapViewer : Node3D
         _tileVerts = new int[n];
         _tilePop = new float[n];
         _tileCulture = new byte[n];
+        _tileCultureGroup = new byte[n];
+        _tileReligion = new byte[n];
         _tileTribe = new int[n];
         _tileTechEpoch = new byte[n];
         System.Array.Fill(_tileTribe, -1);
@@ -476,6 +491,8 @@ public partial class MapViewer : Node3D
                     for (int k = 1; k < tlist.Count; k++)
                         if (tlist[k].Population > dom.Population) dom = tlist[k];
                     _tileCulture[i] = dom.Culture;
+                    _tileCultureGroup[i] = dom.CultureGroup;
+                    _tileReligion[i] = dom.Religion;
                     _tileTribe[i] = dom.Id;
                     _tileTechEpoch[i] = (byte)World.CivSim.TechTable.MaxEpoch(dom.TechFlags);
                 }
@@ -609,6 +626,12 @@ public partial class MapViewer : Node3D
     								        byte ep = _tileTechEpoch[id];
     								        if (ep == 0) return new Color(0.55f, 0.55f, 0.55f);
     								        return TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];
+    								    }
+    								case 16: // 宗教：阶段色带（万物有灵绿→萨满黄绿→祖先橙→多神蓝→一神紫）
+    								    {
+    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
+    								        return ReligionColors[Mathf.Clamp(_tileReligion[id], 0, ReligionColors.Length - 1)];
     								    }
     			default: // 海拔
     				{
@@ -1339,6 +1362,8 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 24 L4 24 Z M8 24 L20 24 M11 13 L17 13' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
         // 15 科技：灯泡（灯丝+底座，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='14' cy='11' r='7' fill='none' stroke='#8f8' stroke-width='2'/><path d='M11 19 H17 M12.5 23 H15.5 M14 16 V19' stroke='#8f8' stroke-width='2' stroke-linecap='round'/></svg>",
+        // 16 宗教：神庙（三角顶+立柱，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 22 L4 22 Z M8 22 L8 26 M12 22 L12 26 M16 22 L16 26 M20 22 L20 26' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)

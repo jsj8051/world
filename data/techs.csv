@@ -6,7 +6,7 @@ id,name,epoch,req,invPop,invEnv,invProb,spread,effect,value
 4,细石器,0,2,80,any,0.015,0.04,carry,1.3
 5,弓箭,0,4,120,any,0.01,0.035,carry,1.4
 6,独木舟,0,1;2,100,coast,0.01,0.02,unlock_sea,1
-7,农业,1,5,-1,river;grass;mediterranean,0.005,0.02,carry,4
+7,农业,1,5,-1,river;grass;mediterranean,0.004,0.015,carry,4
 8,陶器,1,7,500,any,0.01,0.03,carry,1.2
 9,驯化动物,1,7,400,grass,0.01,0.025,carry,1.3
 10,纺织,1,7,300,any,0.01,0.03,carry,1.1

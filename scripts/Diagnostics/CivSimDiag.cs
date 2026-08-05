@@ -109,6 +109,17 @@ public partial class CivSimDiag : Node
         GD.Print($"[CivSimDiag] 事件: 分裂 {c.Fissions} | 吞并 {c.Absorptions} | 和平合并 {c.Merges} | 迁徙 {c.Migrations} | 贸易接触 {c.TradeContacts}");
         GD.Print($"[CivSimDiag] 时代分布(部落): 石器{techEpochTribes[0]} 新石器{techEpochTribes[1]} 青铜{techEpochTribes[2]} 铁器{techEpochTribes[3]} 古典+{techEpochTribes[4]} | 农业部落 {agriTribes}");
         GD.Print(techSb.ToString());
+
+        // 宗教分布 + 文化群
+        var relNames = new[] { "万物有灵", "萨满图腾", "祖先崇拜", "多神教", "一神教" };
+        var relDist = new int[5];
+        var cultureGroups = new HashSet<byte>();
+        foreach (var t in c.Tribes)
+        {
+            relDist[Mathf.Clamp(t.Religion, 0, 4)]++;
+            cultureGroups.Add(t.CultureGroup);
+        }
+        GD.Print($"[CivSimDiag] 宗教分布: 万物有灵{relDist[0]} 萨满图腾{relDist[1]} 祖先崇拜{relDist[2]} 多神教{relDist[3]} 一神教{relDist[4]} | 文化群 {cultureGroups.Count} 个");
         GD.Print($"[CivSimDiag] 校验: 自然层零改动={(natOk ? "PASS" : "FAIL")} 部落表往返={(rtOk ? "PASS" : "FAIL")} " +
                  $"复现性={(reproducible ? "PASS" : "FAIL")} 农业复现={(agriRepro ? "PASS" : "FAIL")} → {(natOk && rtOk && reproducible && agriRepro ? "全部PASS" : "有失败!")}");
         GD.Print($"[CivSimDiag] 导出 {(ok ? "成功" : "失败")} → {outPath}");

@@ -37,7 +37,8 @@ public sealed class CivModelRegistry
             .Register(new FissionModel())
             .Register(new MigrationModel())
             .Register(new ContactModel())
-            .Register(new TechModel());
+            .Register(new TechModel())
+            .Register(new ReligionModel());
     }
 }
 
@@ -53,18 +54,23 @@ public sealed class OriginModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         if (ctx.Tick > 0) return;
+        // 起源格从富饶区选（前 30% 承载）——智人摇篮在东非稀树草原（富饶区），
+        // 且避免随机选到贫瘠区导致整局演化停滞（各 seed 结果更稳定）
         var land = new List<int>();
         for (int i = 0; i < ctx.Grid.N; i++)
             if (ctx.Grid.IsLandCell(i) && ctx.BaseK[i] > 0f)
                 land.Add(i);
         if (land.Count == 0) return;
+        land.Sort((a, b) => ctx.BaseK[b].CompareTo(ctx.BaseK[a]));
+        int rich = Mathf.Max(8, land.Count * 30 / 100);
+        var pool = land.GetRange(0, Mathf.Min(rich, land.Count));
         int count = Mathf.Min(ctx.OriginCount, land.Count);
         var used = new HashSet<int>();
         for (int k = 0; k < count; k++)
         {
             int pick;
             int guard = 0;
-            do { pick = land[ctx.Rng.Next(land.Count)]; guard++; }
+            do { pick = pool[ctx.Rng.Next(pool.Count)]; guard++; }
             while (used.Contains(pick) && guard < 64);
             used.Add(pick);
             var tribe = new Tribe
@@ -73,6 +79,8 @@ public sealed class OriginModel : CivModelBase
                 Cell = pick,
                 Population = 100f,
                 Culture = (byte)k,          // 每摇篮独立文化标签
+                CultureGroup = (byte)k,     // 每摇篮独立文化群（语言-文化大群）
+                Religion = (byte)ReligionType.Animism,   // 起源部落：万物有灵
                 TechFlags = TechTable.Set(0UL, 0),   // 自带石核 T01
                 OriginCell = pick,
                 BornTick = 0,
@@ -80,6 +88,7 @@ public sealed class OriginModel : CivModelBase
             ctx.Tribes.Add(tribe);
             ctx.CellTribes[pick].Add(tribe);
         }
+        ctx.CultureGroupCount = count;   // 文化群 id 计数从起源数开始
     }
 }
 
@@ -142,10 +151,16 @@ public sealed class FissionModel : CivModelBase
                 Cell = t.Cell,
                 Population = newPop,
                 Culture = t.Culture,
+                CultureGroup = t.CultureGroup,     // 分裂瞬间文化群相同
+                Religion = t.Religion,
                 TechFlags = t.TechFlags,     // 分裂瞬间技术相同，此后分道扬镳
                 OriginCell = t.Cell,
                 BornTick = ctx.Tick,
             };
+            // 文化群分化：分裂 = 社会分割，子部落小概率演化出子文化群（方言→语言群，
+            // segmentary lineage 分化模式）——对消吞并灭绝，保持多文化群并存
+            if (ctx.CultureGroupCount < 250 && ctx.Rng.NextDouble() < 0.005)
+                nt.CultureGroup = (byte)ctx.CultureGroupCount++;
             ctx.Tribes.Add(nt);
             ctx.CellTribes[t.Cell].Add(nt);
             ctx.Fissions++;
@@ -181,18 +196,19 @@ public sealed class MigrationModel : CivModelBase
             if (target < 0) continue;
             float move = tmax.Population * CivSimContext.MigrateShare;
             tmax.Population -= move;
+            ctx.CellPop[i] -= move;      // 立即更新（防同 tick 重复迁徙判断）
             SpawnTribe(ctx, tmax, target, move);
             ctx.Migrations++;
         }
 
-        // ── 探路迁徙（持续扩散前沿）──
+        // ── 探路迁徙（跳跃式扩散：3 跳内最高 K 无人格——智人沿资源走廊跳跃扩散，富饶优先）──
         var snapshot = ctx.Tribes.ToArray();
         foreach (var t in snapshot)
         {
             if (t.Dead) continue;
             if (t.Population < CivSimContext.ScoutMinPop) continue;
             if (ctx.Rng.NextDouble() >= CivSimContext.ScoutChance) continue;
-            int target = PickTarget(ctx, t.Cell, t, requireUnoccupied: true);
+            int target = PickScoutTarget(ctx, t.Cell);
             if (target < 0) continue;
             float move = t.Population * CivSimContext.ScoutShare;
             t.Population -= move;
@@ -201,16 +217,61 @@ public sealed class MigrationModel : CivModelBase
         }
     }
 
-    /// <summary>选迁徙目标：陆地邻格（无船不跨海），优先无人格、高 K、低密度。</summary>
+    /// <summary>探路目标：1-3 跳 BFS 内最高 K 的无人陆地格（跳跃式扩散，富饶优先）。
+    /// 时间戳标记避免每部落分配 visited 数组（确定性：遍历顺序固定）。</summary>
+    private static int PickScoutTarget(CivSimContext ctx, int from)
+    {
+        var grid = ctx.Grid;
+        int stamp = ++ctx.BfsStampValue;
+        int best = -1; float bestK = -1f;
+        // 1 跳
+        foreach (int nb in grid.Neighbors[from])
+        {
+            if (!grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
+            ctx.BfsStamp[nb] = stamp;
+            if (ctx.CellPop[nb] <= 0f && ctx.CellK[nb] > bestK) { bestK = ctx.CellK[nb]; best = nb; }
+        }
+        // 2 跳
+        foreach (int nb in grid.Neighbors[from])
+        {
+            if (ctx.BfsStamp[nb] != stamp) continue;
+            foreach (int nb2 in grid.Neighbors[nb])
+            {
+                if (ctx.BfsStamp[nb2] == stamp) continue;
+                ctx.BfsStamp[nb2] = stamp;
+                if (grid.IsLandCell(nb2) && ctx.CellK[nb2] > 0f && ctx.CellPop[nb2] <= 0f && ctx.CellK[nb2] > bestK)
+                { bestK = ctx.CellK[nb2]; best = nb2; }
+            }
+        }
+        // 3 跳
+        foreach (int nb in grid.Neighbors[from])
+        {
+            if (ctx.BfsStamp[nb] != stamp) continue;
+            foreach (int nb2 in grid.Neighbors[nb])
+            {
+                if (ctx.BfsStamp[nb2] != stamp) continue;
+                foreach (int nb3 in grid.Neighbors[nb2])
+                {
+                    if (ctx.BfsStamp[nb3] == stamp) continue;
+                    ctx.BfsStamp[nb3] = stamp;
+                    if (grid.IsLandCell(nb3) && ctx.CellK[nb3] > 0f && ctx.CellPop[nb3] <= 0f && ctx.CellK[nb3] > bestK)
+                    { bestK = ctx.CellK[nb3]; best = nb3; }
+                }
+            }
+        }
+        return best;
+    }
+
+    /// <summary>选迁徙目标：陆地邻格（无船不跨海），无人格最高优先（直接返回）；
+    /// 否则高 K、低密度格（农业人口爆发后向低密度区扩散）。</summary>
     private static int PickTarget(CivSimContext ctx, int from, Tribe mover, bool requireUnoccupied)
     {
         int best = -1; float bestScore = -1f;
         foreach (int nb in ctx.Grid.Neighbors[from])
         {
             if (!ctx.Grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
-            if (ctx.CellPop[nb] <= 0f) { if (requireUnoccupied) return nb; }
-            else if (requireUnoccupied) continue;
-            // 打分：K 高、人口低（宜居 + 空间）
+            if (ctx.CellPop[nb] <= 0f) return nb;          // ⚠️ 无人格最高优先（曾 bug：被有人格格覆盖导致扩散冻结）
+            if (requireUnoccupied) continue;
             float score = ctx.CellK[nb] / Mathf.Max(1f, ctx.CellPop[nb]);
             if (score > bestScore) { bestScore = score; best = nb; }
         }
@@ -226,12 +287,15 @@ public sealed class MigrationModel : CivModelBase
             Cell = cell,
             Population = pop,
             Culture = from.Culture,
+            CultureGroup = from.CultureGroup,
+            Religion = from.Religion,
             TechFlags = from.TechFlags,     // 迁徙带走技术
             OriginCell = cell,
             BornTick = ctx.Tick,
         };
         ctx.Tribes.Add(nt);
         ctx.CellTribes[cell].Add(nt);
+        ctx.CellPop[cell] += pop;   // 立即更新格人口（防同 tick 多部落重复迁入同一格）
     }
 }
 
@@ -281,9 +345,13 @@ public sealed class ContactModel : CivModelBase
                 }
                 else
                 {
-                    // 维持接触：文化同化 + 技术互学 + 贸易
+                    // 维持接触：文化标签同化（快）+ 宗教传播 + 技术互学 + 贸易。
+                    // 文化群不同化——语言大群只在吞并/合并（人口替代）时并入强方（班图扩张模式）
                     if (ctx.Rng.NextDouble() < CivSimContext.AssimilateChance)
                         t.Culture = dom.Culture;
+                    if (t.Religion != dom.Religion && dom.Religion > t.Religion
+                        && ctx.Rng.NextDouble() < CivSimContext.ReligionSpreadChance)
+                        t.Religion = dom.Religion;   // 宗教只向更高阶段传播（复杂化单向，先进宗教扩散）
                     SpreadTech(ctx, dom, t);
                     SpreadTech(ctx, t, dom);
                     ctx.TradeContacts++;
@@ -308,6 +376,11 @@ public sealed class ContactModel : CivModelBase
                 for (int y = 1; y < b.Count; y++) if (b[y].Population > repB.Population) repB = b[y];
                 SpreadTech(ctx, repA, repB);
                 SpreadTech(ctx, repB, repA);
+                // 宗教传播：只向更高阶段传播（复杂化单向；低阶宗教不回头污染高阶）
+                var fromRel = repA.Population >= repB.Population ? repA : repB;
+                var toRel = fromRel == repA ? repB : repA;
+                if (toRel.Religion < fromRel.Religion && ctx.Rng.NextDouble() < CivSimContext.ReligionSpreadChance)
+                    toRel.Religion = fromRel.Religion;
                 ctx.TradeContacts++;
             }
         }
@@ -394,5 +467,37 @@ public sealed class TechModel : CivModelBase
         if (utils.Count < 10) { _agriPressureP80 = 0.6f; return; }
         utils.Sort();
         _agriPressureP80 = utils[Mathf.Clamp((int)(utils.Count * 0.8f), 0, utils.Count - 1)];
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ⑧ 宗教演进：绑定部落技术时代自动升级（社会复杂化单向演进，不降级）。
+//    石器→万物有灵 / 萨满图腾（细石器+），新石器→祖先崇拜（哥贝克力石阵时代），
+//    青铜→多神教，铁器+→一神教。宗教传播在 ContactModel（接触，强势方→弱势方）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class ReligionModel : CivModelBase
+{
+    public override string Name => "宗教演进";
+    public override int Order => 55;
+
+    public override void Execute(CivSimContext ctx)
+    {
+        foreach (var t in ctx.Tribes)
+        {
+            if (t.Dead) continue;
+            byte target = TargetReligion(t);
+            if (t.Religion < target) t.Religion = target;   // 只升不降（复杂化单向）
+        }
+    }
+
+    /// <summary>宗教目标阶段 = f(部落技术时代)。</summary>
+    private static byte TargetReligion(Tribe t)
+    {
+        int epoch = TechTable.MaxEpoch(t.TechFlags);
+        if (epoch >= 3) return (byte)ReligionType.Monotheism;      // 铁器+：一神教
+        if (epoch == 2) return (byte)ReligionType.Polytheism;      // 青铜：多神教
+        if (epoch == 1) return (byte)ReligionType.AncestorWorship; // 新石器：祖先崇拜
+        // 石器：细石器(4)/弓箭(5) 时代 → 萨满/图腾（洞穴壁画、维纳斯雕像），否则万物有灵
+        return TechTable.Has(t.TechFlags, 4) ? (byte)ReligionType.ShamanTotem : (byte)ReligionType.Animism;
     }
 }
