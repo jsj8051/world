@@ -44,6 +44,17 @@ public static class GameMapArchive
         int n = g.N;
         f.Store8((byte)'G'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
         f.Store16(Version);
+        WriteBody(f, g);
+        if (log)
+            GD.Print($"[GameMapArchive] wrote v{Version} {path} (gridN={g.GridN} tiles={n} land={LandCount(g)} " +
+                     $"elev[{g.MinElev:F0},{g.MaxElev:F0}] province={CountNonZero(g.Province)})");
+        return true;
+    }
+
+    /// <summary>主体序列化（magic/version 之后；.cmp 复用此段保证与 .gmp 布局完全一致）。</summary>
+    public static void WriteBody(FileAccess f, GameGrid g)
+    {
+        int n = g.N;
         f.Store32((uint)g.GridN);
         f.Store32((uint)n);
         f.Store32((uint)g.Seed);
@@ -76,10 +87,6 @@ public static class GameMapArchive
         foreach (var v in g.CurrentStrength) f.StoreFloat(v);
         foreach (var v in g.Province) f.Store32((uint)v);
         foreach (var v in g.Country) f.Store32((uint)v);
-        if (log)
-            GD.Print($"[GameMapArchive] wrote v{Version} {path} (gridN={g.GridN} tiles={n} land={LandCount(g)} " +
-                     $"elev[{g.MinElev:F0},{g.MaxElev:F0}] province={CountNonZero(g.Province)})");
-        return true;
     }
 
     /// <summary>读 .gmp → GameGrid（自然层 + 人文层完整恢复，不依赖 .mpa）。</summary>
@@ -103,17 +110,23 @@ public static class GameMapArchive
             GD.PrintErr($"[GameMapArchive] unsupported version {ver} in {path} (need {Version})");
             return false;
         }
-        var grid = new GameGrid
-        {
-            GridN = (int)f.Get32(),
-            N = (int)f.Get32(),
-            Seed = (int)f.Get32(),
-            RadiusKm = f.GetFloat(),
-            ProgradeRotation = f.Get8() != 0,
-            RotationSpeed = f.GetFloat(),
-            AxialTilt = f.GetFloat(),
-            Insolation = f.GetFloat(),
-        };
+        var grid = new GameGrid();
+        ReadBody(f, grid);
+        g = grid;
+        return true;
+    }
+
+    /// <summary>主体反序列化（magic/version 之后；与 WriteBody 严格对应）。</summary>
+    public static void ReadBody(FileAccess f, GameGrid grid)
+    {
+        grid.GridN = (int)f.Get32();
+        grid.N = (int)f.Get32();
+        grid.Seed = (int)f.Get32();
+        grid.RadiusKm = f.GetFloat();
+        grid.ProgradeRotation = f.Get8() != 0;
+        grid.RotationSpeed = f.GetFloat();
+        grid.AxialTilt = f.GetFloat();
+        grid.Insolation = f.GetFloat();
         int n = grid.N;
         grid.MinElev = f.GetFloat(); grid.MaxElev = f.GetFloat();
         grid.MinTemp = f.GetFloat(); grid.MaxTemp = f.GetFloat();
@@ -143,8 +156,6 @@ public static class GameMapArchive
         grid.CurrentStrength = ReadFloats(f, n);
         grid.Province = ReadInts(f, n);
         grid.Country = ReadInts(f, n);
-        g = grid;
-        return true;
     }
 
     private static float[] ReadFloats(FileAccess f, int n)
