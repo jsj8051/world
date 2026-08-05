@@ -57,14 +57,18 @@ public static class ClimateModel
     /// 全流水线执行（2026-08-16 抽象框架迁移）：依赖拓扑排序 → 场 Compute + 环 Apply → 校验。
     /// PlanetPipeline.Run 只注入环境（Sim/P/Grid/ENorm/Climate…），计算全部由这里驱动。
     /// </summary>
-    public static void Run(PlanetPipeline pipe)
+    public static void Run(PlanetPipeline pipe, Action<float> onProgress = null)
     {
         var models = Models(pipe);
         var order = TopoSort(models);
+        int total = Math.Max(1, order.Length);
+        int i = 0;
         foreach (var m in order)
         {
             if (m is Model.IFieldRole f) f.Compute();
             else if (m is Model.ILoopRole lr) lr.Apply();   // Closed 环执行；Cut/Ignored no-op
+            onProgress?.Invoke((i + 1f) / total);   // 每场/环完成上报（进度条不再死停在管线 0%）
+            i++;
         }
         ValidateAll(pipe);
     }

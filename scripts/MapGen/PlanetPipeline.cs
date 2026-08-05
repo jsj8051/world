@@ -83,7 +83,7 @@ public class PlanetPipeline
 
         // ⚠️ 抽象框架：拓扑排序执行全部场 Compute（海拔→温度→降水→湿润降温→月温度→…→土壤）
         //   + 闭环 Apply + 全流水线校验
-        ClimateModel.Run(this);
+        ClimateModel.Run(this, frac => onProgress?.Invoke(0.8f * frac));   // 气候段 0→0.8（每场上报，非死停）
 
         onProgress?.Invoke(0.8f);
         SanitizeNaNs();   // 浮点 NaN 消毒（防存档污染；Stage2 河流侵蚀后 Elev 可能含 NaN）
