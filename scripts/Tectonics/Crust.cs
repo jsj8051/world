@@ -213,7 +213,8 @@ namespace World.Tectonics
         /// </summary>
         public static void ModelErosion(
             SphereGrid grid, float[] surfaceHeight, float seconds,
-            MaterialDensity materialDensity, Crust topCrust, Crust crustDelta)
+            MaterialDensity materialDensity, Crust topCrust, Crust crustDelta,
+            float erosionScale = 1f)   // 侵蚀强度倍率（2026-08-16 用户可调：0.5 温和 ~ 2 剧烈）
         {
             const float Precip = 1.05f / 365.25f / 24f / 3600f;  // m/s（1.05m/年）
             const float ErosiveFactor = 1.8e-7f;
@@ -233,7 +234,7 @@ namespace World.Tectonics
                     int j = neighbors[i][k];
                     float diff = hi - surfaceHeight[j];
                     if (diff > 0)
-                        outbound[i] += diff * Precip * seconds * ErosiveFactor * Rho;
+                        outbound[i] += diff * Precip * seconds * ErosiveFactor * erosionScale * Rho;
                 }
             }
 
@@ -264,7 +265,7 @@ namespace World.Tectonics
                     int j = neighbors[i][k];
                     float diff = hi - surfaceHeight[j];
                     if (diff <= 0) continue;
-                    float transfer = diff * Precip * seconds * ErosiveFactor * Rho;
+                    float transfer = diff * Precip * seconds * ErosiveFactor * erosionScale * Rho;
                     for (int p = 0; p < 5; p++)
                     {
                         float t = transfer * frac[p][i];
@@ -284,7 +285,8 @@ namespace World.Tectonics
         /// </summary>
         public static void ModelWeathering(
             SphereGrid grid, float[] surfaceHeight, float seconds,
-            MaterialDensity materialDensity, Crust topCrust, Crust crustDelta)
+            MaterialDensity materialDensity, Crust topCrust, Crust crustDelta,
+            float erosionScale = 1f)   // 侵蚀强度倍率（与 ModelErosion 联动，2026-08-16）
         {
             const float Precip = 1.05f / 365.25f / 24f / 3600f;  // m/s
             const float WeatheringFactor = 1.8e-7f;
@@ -311,7 +313,7 @@ namespace World.Tectonics
                 exposure = Mathf.Clamp(exposure, 0f, 1f);
                 if (exposure <= 0) continue;
 
-                float weathering = avgDiff * WeatheringFactor * Precip * seconds
+                float weathering = avgDiff * WeatheringFactor * erosionScale * Precip * seconds
                     * materialDensity.FelsicPlutonic
                     * (materialDensity.Mantle > 0 ? 1f : 1f)   // 重力修正占位（原版 surface_gravity/earth_g）
                     * exposure;

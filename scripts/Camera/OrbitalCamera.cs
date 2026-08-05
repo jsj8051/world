@@ -39,7 +39,10 @@ namespace World.Camera
 			UpdatePosition();
 		}
 
-		public override void _Input(InputEvent @event)
+		// ⚠️ 2026-08-16：_Input → _UnhandledInput——原 _Input 在 GUI 之前处理，拖动月份滑块
+		//   （HSlider 也是左键按下+移动）会同时旋转星球 → "拖滑条球跟着转"。GUI 消费过的事件
+		//   不再到 _UnhandledInput；地图空处旋转不受影响。
+		public override void _UnhandledInput(InputEvent @event)
 		{
 			// 鼠标左键拖动旋转（向右拖 = 星球表面向右转）
 			if (@event is InputEventMouseMotion motion &&

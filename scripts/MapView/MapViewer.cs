@@ -79,12 +79,14 @@ public partial class MapViewer : Node3D
                 if (IsInsideTree()) RebuildColors();
             }
             SyncLayerButtons();
-            if (_windArrows != null)
-                _windArrows.Visible = (value == 4);
+            if (_monsoonArrows != null)
+                _monsoonArrows.Visible = (value == 4);
             if (_currentArrows != null)
                 _currentArrows.Visible = (value == 5);
             if (_riverMesh != null)
                 _riverMesh.Visible = (value == 6);
+            if (_monthSlider != null)
+                _monthSlider.Visible = (value == 4 || value == 10 || value == 11);
         }
     }
     private int _layer;
@@ -108,13 +110,28 @@ public partial class MapViewer : Node3D
     private int[] _vertexWatershed; // 每模拟顶点流域 id（现场算）
     private byte[] _tileMineral;  // 每格矿藏（(富度<<4)|矿种；0=无）
     private byte[] _tileSoil;     // 每格土壤肥力 1-5（0=海洋）
+    private byte[] _tileMonsoon;  // 每格季风强度 0-255（v3.7；0=无/海洋）
+    private byte[] _tileMonthPrecip; // 每格当月降水比例 0-255（v3.8 月降水图层；月份切换时刷新）
+    private byte[] _tileMonthTemp;   // 每格当月温度 −60~60°C→0-255（v3.8 月温度图层；月份切换时刷新）
+    private int[] _tileVerts;      // 每格最近模拟顶点 id（月降水/月温度刷新用）
+    // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
+    private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
+    private float _monthPrecipMin, _monthPrecipMax; // 陆地当月月降水 min/max（RefreshMonthPrecip 统计）
 
-    // 盛行风箭头（图层 4 显示；稀疏采样网格，非每格）
-    private MeshInstance3D _windArrows;
+    // 季风月风场（现场重算，不存档；箭头图数据源）
+    private Vector3[][] _monthWind;  // [12][n] 顶点级月风（切向量，长度=强度；0=无风）
+    private float[] _monsoonVerts;   // 顶点级季风强度 0-1
+    private int _month = 6;          // 当前月份 0-11（默认 7 月）
+
+    // 统一风场箭头（图层 4 显示；热成风月风场，月份滑块切换）
+    private MeshInstance3D _monsoonArrows;
     // 洋流箭头（图层 5 显示；红=暖流 蓝=寒流）
     private MeshInstance3D _currentArrows;
     // 河流（图层 6 显示；每条河独立颜色，支流汇合截断）
     private MeshInstance3D _riverMesh;
+    // 月份滑块（图层 4/11/12 显示；1-12 月）
+    private HSlider _monthSlider;
+    private Label _monthLabel;
 
     // ── 异步生成状态 ──
     private Task<MeshData> _buildTask;
@@ -130,7 +147,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "盛行风", "洋流", "河流", "流域", "矿藏", "土壤" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度" };
 
     public override void _Ready()
     {
@@ -174,14 +191,16 @@ public partial class MapViewer : Node3D
         1 => "温度",
         2 => "降水",
         3 => "生物群系",
-        4 => "盛行风",
+        4 => "风场",
         5 => "洋流",
         6 => "河流",
         7 => "流域",
         8 => "矿藏",
-        _ => "土壤",
+        9 => "土壤",
+        10 => "月降水",
+        11 => "月温度",
+        _ => "风场",
     };
-
     public override void _Process(double delta)
     {
         // 生成中：每帧把后台进度同步到进度条
@@ -336,6 +355,10 @@ public partial class MapViewer : Node3D
         System.Array.Fill(_tileWatershed, -1);
         _tileMineral = new byte[n];
         _tileSoil = new byte[n];
+        _tileMonsoon = new byte[n];
+        _tileMonthPrecip = new byte[n];
+        _tileMonthTemp = new byte[n];
+        _tileVerts = new int[n];
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -348,6 +371,7 @@ public partial class MapViewer : Node3D
         var wsArr = _tileWatershed;
         var minArr = _tileMineral;
         var soilArr = _tileSoil;
+        var monsoonArr = _tileMonsoon;
         bool hasLake = map.LakeLevel != null;
         bool hasMineral = map.MineralLevel != null;
         var centers = new Vector3[n];
@@ -364,6 +388,7 @@ public partial class MapViewer : Node3D
             //   插值（多顶点加权平均）→ 相邻格颜色渐变 → 观感"一团团/有插值/不是等格子"。
             //   每格 = 最近模拟顶点的真实值（crisp flat per-tile，符合用户偏好）。
             int vid = map.NearestVertex(c);
+            _tileVerts[i] = vid;   // 缓存（月降水刷新用）
             elevArr[i] = map.NormalizedElev(map.Elev[vid]);
             tempArr[i] = hasTemp ? map.Temp[vid] : 0f;
             precipArr[i] = hasPrecip ? map.Precip[vid] : 0f;
@@ -373,7 +398,18 @@ public partial class MapViewer : Node3D
             wsArr[i] = _vertexWatershed != null ? _vertexWatershed[vid] : -1;
             minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
             soilArr[i] = map.SoilLevel != null ? map.SoilLevel[vid] : (byte)0;
+            monsoonArr[i] = map.MonsoonLevel != null ? map.MonsoonLevel[vid] : (byte)0;
         });
+        // ⚠️ 2026-08-16：年降水自适应色带 min/max（用户拍板：最低到最高归一化，不用固定 2000mm）
+        _precipMin = float.MaxValue;
+        _precipMax = float.MinValue;
+        for (int i = 0; i < n; i++)
+        {
+            if (elevArr[i] < hSea) continue;   // 只统计陆地格
+            _precipMin = Mathf.Min(_precipMin, precipArr[i]);
+            _precipMax = Mathf.Max(_precipMax, precipArr[i]);
+        }
+        if (_precipMax <= _precipMin) _precipMax = _precipMin + 1f;
         _hSea = hSea;
     }
     private float _hSea = 0.5f;
@@ -390,12 +426,15 @@ public partial class MapViewer : Node3D
     		{
     			case 1: // 温度
     				return BiomeColors.TemperatureToColor(_tileTemp[id]);
-    			case 2: // 降水
-    				return BiomeColors.PrecipitationToColor(_tilePrecip[id]);
+    						case 2: // 降水：自适应色带（陆地 min-max 归一化，用户拍板；固定 2000mm 已被批）
+    							{
+    								float x = Mathf.Clamp((_tilePrecip[id] - _precipMin) / (_precipMax - _precipMin), 0f, 1f);
+    								return new Color(0.90f, 0.80f, 0.40f).Lerp(new Color(0.10f, 0.30f, 0.70f), x);
+    							}
     			case 3: // biome
     				return BiomeColors.BiomeToColor((BiomeType)_tileBiome[id]);
-    			case 4: // 盛行风：浅色底（箭头由 _windArrows 3D 网格显示）
-    			case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
+    						case 4: // 风场：浅色底（统一风场箭头由 _monsoonArrows 3D 网格显示，月份滑块切换）
+    						case 5: // 洋流：浅色底（箭头由 _currentArrows 3D 网格显示）
     			case 6: // 河流：浅色底（河道由 _riverMesh 3D 网格显示，湖格填湖蓝）
     				{
     					// ⚠️ 2026-08-02：湖泊 = 陆地盆地 + 水量≥阈值（RiverSystem 已过滤干湖）。
@@ -430,12 +469,33 @@ public partial class MapViewer : Node3D
     					return baseC * bright;
     				}
     			case 9: // 土壤肥力：5 档色带（深绿=肥沃 → 灰=贫瘠）；海洋浅蓝
-    				{
-    					byte s = _tileSoil[id];
-    					if (s == 0)
-    						return new Color(0.45f, 0.55f, 0.70f);   // 海洋
-    					return SoilColors[Mathf.Clamp(s, 1, 5)];
-    				}
+    			{
+    			byte s = _tileSoil[id];
+    			if (s == 0)
+    			return new Color(0.45f, 0.55f, 0.70f);   // 海洋
+    			return SoilColors[Mathf.Clamp(s, 1, 5)];
+    			}
+    																			case 10: // 月降水：和总降水同一自适应色带（当月陆地 min-max 归一化；月份滑块切换）
+    																				{   // ⚠️ 2026-08-16 v3（用户拍板）：与总降水同色带同统计方式；×12 换算回年尺度
+    																					//   → 非季风区≈年降水色，季风区 7 月深蓝 / 1 月枯黄；min-max 自适应当月分布
+    																					if (_tileMonthPrecip == null || _map == null || _map.MonthPrecip == null)
+    																						return _tileElev[id] < _hSea
+    																							? new Color(0.45f, 0.55f, 0.70f)
+    																							: new Color(0.72f, 0.70f, 0.58f);
+    																					if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    																					float mm = _tileMonthPrecip[id] / 255f * _tilePrecip[id] * 12f;   // 等效年尺度
+    																					float x = Mathf.Clamp((mm - _monthPrecipMin) / (_monthPrecipMax - _monthPrecipMin), 0f, 1f);
+    																					return new Color(0.90f, 0.80f, 0.40f).Lerp(new Color(0.10f, 0.30f, 0.70f), x);
+    																				}
+    						case 11: // 月温度：当月均温色块（MonthTemp −60~60°C→0-255；月份滑块切换）
+    							{
+    								if (_tileMonthTemp == null || _map == null || _map.MonthTemp == null)
+    									return _tileElev[id] < _hSea
+    										? new Color(0.45f, 0.55f, 0.70f)
+    										: new Color(0.72f, 0.70f, 0.58f);
+    								float tC = _tileMonthTemp[id] / 255f * 120f - 60f;   // byte → °C
+    								return BiomeColors.TemperatureToColor(tC);
+    							}
     			default: // 海拔
     				{
     					float h = _tileElev[id];
@@ -538,8 +598,12 @@ public partial class MapViewer : Node3D
             _planetMesh = mi;
             GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0})");
 
-            // 盛行风箭头网格（图层 4 显示；稀疏采样，非每格）
-            BuildWindArrows();
+            // 统一风场箭头网格（图层 4 显示；热成风：信风/西风/季风一体，月份滑块切换）
+            BuildMonsoonArrows();
+            // 月降水缓存（图层 11 显示；当前月）
+            RefreshMonthPrecip();
+            // 月温度缓存（图层 12 显示；当前月）
+            RefreshMonthTemp();
             // 洋流箭头网格（图层 5 显示；暖流红/寒流蓝）
             BuildCurrentArrows();
             // 河流网格（图层 6 显示；每条河独立颜色，支流汇合截断）
@@ -569,49 +633,63 @@ public partial class MapViewer : Node3D
         }
     }
 
-    // ── 盛行风箭头网格（图层 4 显示）──
-    // 稀疏采样：纬度每 ~12° 一环，每环按经度均匀分布（极区环点数少）。
-    // 每个箭头 = 实体三角形（ArrayMesh + unshaded 亮橙），贴球面。
-    // ⚠️ 2026-08-02 v2：线条(1px)正对相机退化成点→屏幕中间看不到；
-    //   白色线条与浅色底接近→看不清。改实体三角形+亮橙 unshaded 材质。
-    private void BuildWindArrows()
+    /// <summary>懒算季风月风场（读档后第一次进风场/月降水/月温度图层时算一次；不存档）。
+    /// 用存档的海陆/年温/年降水 + 倾角（v3.8 头部）现场跑 MonsoonSystem。</summary>
+    private void EnsureMonthWind()
     {
-        if (_windArrows != null)
-        {
-            _windArrows.QueueFree();
-            _windArrows = null;
-        }
-        if (_tileWind == null || _tiles == null) return;
+        if (_monthWind != null || _map == null || _map.Verts == null) return;
+        var nb = _map.BuildNeighbors();
+        if (nb == null) return;
+        int n = _map.Verts.Length;
+        float span = Mathf.Max(-_map.MinElev, _map.MaxElev);
+        var eNorm = new float[n];
+        for (int i = 0; i < n; i++)
+            eNorm[i] = span > 1e-6f ? _map.Elev[i] / span : 0f;
+        MonsoonSystem.Compute(_map.Verts, nb, eNorm, _map.Elev, _map.Temp, _map.Precip, _map.AxialTilt, _map.RotationSpeed,
+            out var mons, out _, out _, out _, out _, out _, out var mw, out var mt);
+        _monthWind = mw;
+        _monsoonVerts = mons;
+        GD.Print($"[MapViewer] 季风月风场重算完成（{n} 顶点，倾角 {_map.AxialTilt}°）");
+    }
 
-        World.Biome.WindField.Prograde = _map.ProgradeRotation;   // 自转方向 → 风向
-        World.Biome.WindField.RotationSpeed = _map.RotationSpeed; // 自转速度 → 科里奥利强度
-        const float arrowLen = 0.09f;    // 箭头长度（球面弧比例，半径 1）
-        const float tailW = 0.035f;      // 尾半宽
-        // ⚠️ 浮在球面上方 1%（半径×1.01）：顶点与球面同一半径会 z-fighting
-        //   （深度冲突，球面把箭头盖掉 → 完全看不到，2026-08-02 修复）
-        float radius = RadiusKm * 1.01f;
+    /// <summary>季风月风箭头（图层 10 显示；方向 = 当月季风环流风，稀疏采样）。
+    /// 复刻 BuildWindArrows 的箭头几何；无风（海洋/非季风区）不画。</summary>
+    private void BuildMonsoonArrows()
+    {
+        if (_monsoonArrows != null)
+        {
+            _monsoonArrows.QueueFree();
+            _monsoonArrows = null;
+        }
+        if (_tiles == null) return;
+        EnsureMonthWind();
+        if (_monthWind == null) return;
+
+        const float arrowLen = 0.045f;    // 小箭头（0.07 原值；只标方向，不随强度缩放）
+        const float tailW = 0.016f;
+        float radius = RadiusKm * 1.01f;   // 浮在球面上方防 z-fighting
 
         var verts = new System.Collections.Generic.List<Vector3>();
         var indices = new System.Collections.Generic.List<int>();
 
-        // 纬度环采样（±84°，步 12°→15 环）；每环经度点数随 cos(lat) 递减（极区少点）
-        for (float lat = -84f; lat <= 84f; lat += 12f)
+        // ⚠️ 2026-08-16：密集 3 倍（lat 步 12°→4°）；每环经度点数随 cos(lat) 递减（极区少点）
+        for (float lat = -88f; lat <= 88f; lat += 4f)
         {
             float la = Mathf.DegToRad(lat);
             float cosLa = Mathf.Cos(la);
-            int lonCount = Mathf.Max(8, Mathf.RoundToInt(36 * cosLa));   // 赤道 36，极区 8
+            int lonCount = Mathf.Max(8, Mathf.RoundToInt(36 * cosLa));
             for (int j = 0; j < lonCount; j++)
             {
                 float lo = Mathf.Tau * j / lonCount;
                 var dir = new Vector3(cosLa * Mathf.Cos(lo), Mathf.Sin(la), cosLa * Mathf.Sin(lo));
-                var wind = World.Biome.WindField.WindAt(dir);   // 单位切向量（指向下风向）
-                var side = dir.Cross(wind).Normalized();        // 垂直风向的切向
+                int vid = _map.NearestVertex(dir);
+                var wind = _monthWind[_month][vid];
+                if (wind.LengthSquared() < 1e-9f) continue;   // 无风区不画
+                var wDir = wind.Normalized();                 // 只标记方向
+                var side = dir.Cross(wDir).Normalized();
 
-                // 箭头三角形：尾(宽) → 尖(窄)，在球面切平面内
-                // ⚠️ 先构建平面三角形（含侧向偏移）再投影回球面——直接 Normalized
-                //   会把侧移(0.035 vs 半径 6330)吃掉 → 三点重合退化成线
-                Vector3 tailC = dir - wind * arrowLen * 0.35f;
-                Vector3 tip = dir + wind * arrowLen * 0.65f;
+                Vector3 tailC = dir - wDir * arrowLen * 0.35f;
+                Vector3 tip = dir + wDir * arrowLen * 0.65f;
                 Vector3 t1 = (tailC + side * tailW).Normalized() * radius;
                 Vector3 t2 = (tailC - side * tailW).Normalized() * radius;
                 Vector3 tipS = tip.Normalized() * radius;
@@ -622,7 +700,6 @@ public partial class MapViewer : Node3D
             }
         }
 
-        // ArrayMesh：位置 + 索引
         var arrays = new Godot.Collections.Array();
         arrays.Resize((int)Mesh.ArrayType.Max);
         arrays[(int)Mesh.ArrayType.Vertex] = verts.ToArray();
@@ -630,23 +707,54 @@ public partial class MapViewer : Node3D
         var mesh = new ArrayMesh();
         mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
 
-        // unshaded 亮橙材质（不随光照变暗；双面渲染）
+        // 青蓝色（海风色；与盛行风橙色区分）
         var mat = new StandardMaterial3D
         {
             ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            AlbedoColor = new Color(1f, 0.55f, 0.15f),
+            AlbedoColor = new Color(0.25f, 0.78f, 0.92f),
             CullMode = BaseMaterial3D.CullModeEnum.Disabled,
         };
 
-        _windArrows = new MeshInstance3D
+        _monsoonArrows = new MeshInstance3D
         {
             Mesh = mesh,
             MaterialOverride = mat,
             Visible = (Layer == 4),
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
-        AddChild(_windArrows);
-        GD.Print($"[MapViewer] wind arrows built: {verts.Count / 3} arrows");
+        AddChild(_monsoonArrows);
+        GD.Print($"[MapViewer] monsoon arrows built: {verts.Count / 3} arrows (月={_month + 1})");
+    }
+
+    /// <summary>刷新当月温度缓存（月温度图层用；月份滑块变化时调用）。</summary>
+    private void RefreshMonthTemp()
+    {
+        if (_tileMonthTemp == null || _map == null || _map.MonthTemp == null) return;
+        int n = _tileMonthTemp.Length;
+        var arr = _map.MonthTemp[_month];
+        for (int i = 0; i < n; i++)
+            _tileMonthTemp[i] = arr != null ? arr[_tileVerts[i]] : (byte)0;
+    }
+
+    /// <summary>刷新当月降水缓存（月降水图层用；月份滑块变化时调用）。</summary>
+    private void RefreshMonthPrecip()
+    {
+        if (_tileMonthPrecip == null || _map == null || _map.MonthPrecip == null) return;
+        int n = _tileMonthPrecip.Length;
+        var arr = _map.MonthPrecip[_month];
+        for (int i = 0; i < n; i++)
+            _tileMonthPrecip[i] = arr != null ? arr[_tileVerts[i]] : (byte)0;
+        // ⚠️ 2026-08-16：自适应色带——当月陆地月降水 min/max（用户拍板：最低到最高归一化）
+        _monthPrecipMin = float.MaxValue;
+        _monthPrecipMax = float.MinValue;
+        for (int i = 0; i < n; i++)
+        {
+            if (_tileElev[i] < _hSea) continue;   // 只统计陆地格
+            float mm = _tileMonthPrecip[i] / 255f * _tilePrecip[i] * 12f;   // 等效年尺度
+            _monthPrecipMin = Mathf.Min(_monthPrecipMin, mm);
+            _monthPrecipMax = Mathf.Max(_monthPrecipMax, mm);
+        }
+        if (_monthPrecipMax <= _monthPrecipMin) _monthPrecipMax = _monthPrecipMin + 1f;
     }
 
     // ── 洋流箭头网格（图层 5 显示）──
@@ -1014,6 +1122,45 @@ public partial class MapViewer : Node3D
             _layerButtons[i] = btn;
         }
         SyncLayerButtons();
+
+        // ── 月份滑块（图层 10/11 显示；1-12 月切换季风箭头/月降水）──
+        var monthRow = new HBoxContainer();
+        monthRow.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
+        monthRow.Position = new Vector2(-130, -100);   // 图层按钮（-50）上方
+        monthRow.AddThemeConstantOverride("separation", 8);
+        _uiLayer.AddChild(monthRow);
+
+        var mlabel = new Label { Text = "月份", VerticalAlignment = VerticalAlignment.Center };
+        mlabel.AddThemeFontSizeOverride("font_size", 18);
+        monthRow.AddChild(mlabel);
+
+        _monthSlider = new HSlider
+        {
+            MinValue = 1,
+            MaxValue = 12,
+            Step = 1,
+            Value = _month + 1,
+            CustomMinimumSize = new Vector2(200, 34),
+        };
+        _monthSlider.ValueChanged += v =>
+        {
+            int m = (int)v - 1;
+            if (m == _month) return;
+            _month = m;
+            _monthLabel.Text = $"{m + 1} 月";
+            // 风场图层：重建箭头；月降水/月温度图层：刷新缓存 + 重算颜色
+            if (Layer == 4) BuildMonsoonArrows();
+            else if (Layer == 10) { RefreshMonthPrecip(); RebuildColors(); }
+            else if (Layer == 11) { RefreshMonthTemp(); RebuildColors(); }
+        };
+        monthRow.AddChild(_monthSlider);
+
+        _monthLabel = new Label { Text = $"{_month + 1} 月", VerticalAlignment = VerticalAlignment.Center };
+        _monthLabel.AddThemeFontSizeOverride("font_size", 18);
+        _monthLabel.AddThemeColorOverride("font_color", new Color(1f, 0.9f, 0.6f));
+        monthRow.AddChild(_monthLabel);
+
+        _monthSlider.Visible = false;   // 默认隐藏，进季风/月降水图层才显示
     }
 
     /// <summary>矿种固定色（索引 = MineralSystem 矿种：1铁 2铜 3锡 4金 5煤 6盐 7石料 8宝石）。
@@ -1065,6 +1212,10 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 2 L24 9 L22 20 L14 26 L6 20 L4 9 Z M14 2 L14 26 M4 9 L14 14 L24 9 M6 20 L14 14 L22 20' stroke='#fd8' stroke-width='1.5' fill='none'/></svg>",
         // 9 土壤：层状土层（横线，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M3 6 H25 M3 12 H25 M3 18 H25 M3 24 H25' stroke='#8a6' stroke-width='3' fill='none'/></svg>",
+        // 10 月降水：日历（框+挂环+月份点，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><rect x='4' y='6' width='20' height='18' fill='none' stroke='#7cf' stroke-width='2'/><path d='M4 12 H24 M9 3 V9 M19 3 V9' stroke='#7cf' stroke-width='2'/><path d='M8 18 H14 M8 22 H20' stroke='#7cf' stroke-width='2'/></svg>",
+        // 11 月温度：温度计+月相环（直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L14 14 L18 14 L18 20 L10 20 L10 14 L14 14 M10 20 L18 20 M10 17 L18 17' stroke='#fa6' stroke-width='2.5' fill='none'/><circle cx='14' cy='23' r='4' fill='none' stroke='#fa6' stroke-width='2'/><path d='M14 20 A4 4 0 0 1 14 26 Z' fill='#fa6'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)

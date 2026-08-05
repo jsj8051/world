@@ -5,7 +5,7 @@ namespace World.Biome;
 
 /// <summary>
 /// 气候场生成（简化物理，策略游戏精度）：
-///   温度 = 纬度基准（赤道热→极地冷）× 大陆性噪声 + 海拔递减（6.5°C/km）
+///   温度 = 纬度基准（赤道热→极地冷）× 大陆性噪声 + 海拔递减（6.0°C/km（每100m 0.6°C，用户标定））
 ///   降水 = 纬度带曲线（赤道 ITCZ 多雨 + 60° 极锋多雨，30° 副热带干旱）× 噪声调制
 /// 纯查询接口，FastNoiseLite 只读调用，可在后台线程/Parallel.For 使用
 /// （与 SurfaceGenerator 相同模式）。
@@ -44,7 +44,7 @@ public class ClimateGenerator
     /// <summary>
     /// 年均温（°C）。
     /// elevNorm 为归一化海拔（-1..1，0=海平面；与 PlanetColors/Classifier 约定一致）；
-    /// 海拔按 e=1.0 → 10km 折算（项目 elevationScaleKm=10），每 km 递减 6.5°C。
+    /// 海拔按 e=1.0 → 10km 折算（项目 elevationScaleKm=10），每 km 递减 6.0°C（每100m 0.6°C，用户标定）。
     ///
     /// 轴向倾角修正（2026-08-02）：倾角决定太阳直射点摆幅（±tilt）。
     ///   物理：高纬夏季直射（升温）但冬季极夜更长（降温），年均净降温；
@@ -100,9 +100,9 @@ public class ClimateGenerator
             oceanT = warm * str * 5f;
         }
 
-        // 海拔递减：6.5°C/km，最高 10km（归一化 1.0）
+        // 海拔递减：6.0°C/km（每100m 0.6°C，用户标定），最高 10km（归一化 1.0）
         float elevKm = Mathf.Max(0f, elevNorm) * 10f;
-        return baseT + noise + oceanT - 6.5f * elevKm;
+        return baseT + noise + oceanT - 6.0f * elevKm;
     }
 
     /// <summary>设置洋流冷暖+强度查询（沿岸陆地：暖流升温增湿、寒流降温减湿；强流影响大）。</summary>

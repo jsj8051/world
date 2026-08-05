@@ -49,7 +49,9 @@ namespace World.Tectonics
         public bool EnableErosion = true;        // M3：地表过程（侵蚀/风化/成岩/变质）开关
         public bool EnableRifting = true;        // M3-2：裂谷（离散边界生成新洋壳）开关
         public bool EnableSupercontinent = true; // M3-4：超级大陆循环（150My 重新分割）开关
-        public float SupercontinentCycleMy = 150f;  // 聚合-裂解周期（百万年）
+        public float SupercontinentCycleMy = 150f;  // 裂解冷却时间（百万年；方案 B：超大陆裂解后 N My 内不再裂）
+        public float OceanScale = 1f;       // 海洋水量系数（× 基准平均深度 2000m；<1 少水多陆，>1 多水少陆）
+        public float ErosionScale = 1f;     // 侵蚀/风化强度倍率（0.5=温和山地保留，2=剧烈夷平）
         public float TotalOceanDepth = 0f;       // M3-5：总水量（平均海洋深度 m，守恒常量）
         public int Seed = 0;                     // 初始地壳种子（ResetPlates 洋壳年龄重置用，方案 A）
         public int InitialPlateCount = 8;        // 初始板块数（ResetPlates 固定请求数，防棘轮收缩）
@@ -295,7 +297,7 @@ namespace World.Tectonics
         public void RunWithProgress(float megayears, float stepMy, Action<float> onProgress)
         {
             ComputeDisplacement();         // 先算初始位移场
-            InitializeOceanVolume(2000f);  // M3-5：水量守恒常量（原版 average_ocean_depth）
+            InitializeOceanVolume(2000f * OceanScale);  // M3-5：水量守恒常量（原版 average_ocean_depth；用户可调水量）
             int steps = (int)(megayears / stepMy);
             // 矿化强度初始化（矿藏模拟化：事件累积）
             if (MineralHydro == null || MineralHydro.Length != GlobalGrid.VertexCount)
@@ -340,6 +342,14 @@ namespace World.Tectonics
                 swMerge.Start();
                 MergePlatesToMaster();
                 swMerge.Stop();
+                // ⚠️ 2026-08-16 方案 B：碰撞缝合（聚合）——旧模拟板块从不合并（plates 恒 7），
+                //   大陆永远拼不大。接触边界 ≥2% 全球 → 合并（印度-欧亚式缝合）。
+                if (EnableSupercontinent)
+                {
+                    swOther.Start();
+                    TryMergeCollidingPlates();
+                    swOther.Stop();
+                }
                 if (EnableRifting)
                 {
                     swRift.Start();
@@ -352,15 +362,19 @@ namespace World.Tectonics
                     MergePlatesToMaster();// 重新合并（增生楔加入板块后）
                     swMerge.Stop();
                 }
-                if (EnableSupercontinent && (s + 1) % (int)(SupercontinentCycleMy / stepMy) == 0)
+                if (EnableSupercontinent && (s * stepMy) - _lastSplitMy >= SupercontinentCycleMy * 0.25f)
                 {
                     swOther.Start();
-                    // ⚠️ 2026-08-03：请求数固定 = 初始板块数（原版 JS 固定 7）。
-                    //   旧实现 Mathf.Max(Plates.Count, 4) 是"请求棘轮"：请求数每周期只降不升，
-                    //   分割结果 ≤ 请求数 → 板块数单调下降（8→7→6→5→4→3）。
-                    //   控制变量实验（ResetDiag 实验3）：请求恒 8 时 592My 侵蚀开仍分割出 7 块。
-                    ResetPlates(Mathf.Max(InitialPlateCount, 4));   // M3-4：超级大陆循环（聚合-裂解）
-                    MergePlatesToMaster();
+                    // ⚠️ 2026-08-16 方案 B（用户拍板）：继承式裂解，替代固定周期全局洗牌。
+                    //   旧实现每 SupercontinentCycleMy（150My）无条件 ResetPlates 全盘重分割 →
+                    //   板块位置随机化、聚合历史清零 → 大陆永远小碎块（用户观察"不会有像地球
+                    //   的大陆"）。B：只在【超大陆存在】（最大板块占全球 >25%）时裂解，且只切
+                    //   大板块（保留位置继承演化）；平时不裂解 → 板块漂移碰撞自然聚合拼大。
+                    if (TrySplitSupercontinent())
+                    {
+                        _lastSplitMy = s * stepMy;
+                        MergePlatesToMaster();
+                    }
                     swOther.Stop();
                 }
                 swOther.Start();
@@ -681,6 +695,171 @@ namespace World.Tectonics
         /// 简化：流体压力用 buoyancy 场直接当速度（扩散细节省略），
         /// 分割参数 7 块板 / 最小 200 格（n=16 时 ≈5% 全球）。
         /// </summary>
+        private float _lastSplitMy = -1000f;   // 上次超大陆裂解时间（方案 B：冷却期内不再裂）
+
+        /// <summary>
+        /// 碰撞合并（2026-08-16 方案 B 前提）：板块接触边界够长 → 缝合（碰撞合并）。
+        /// 真实地球：印度-欧亚碰撞缝合 → 大陆拼大。旧模拟缺此机制（plates 恒 7，
+        /// 大陆永远拼不大 → 超大陆永不形成 → 裂解永不触发）。
+        /// 用 MergePlatesToMaster 后的 TopPlateMap 检测相邻板块接触长度。
+        /// </summary>
+        public void TryMergeCollidingPlates()
+        {
+            // ⚠️ 2026-08-16 v2：缝合下限——真实地球 8 大板块 + 洋中脊持续分裂维持数量。
+            //   实测无下限时全部吞并成 1 块（100% 超大陆，失真）；下限 5 保留多板块格局，
+            //   与超大陆裂解（→7）形成 5-8 动态平衡。
+            if (Plates.Count <= 5) return;
+            int n = GlobalGrid.VertexCount;
+            int minContact = Math.Max(8, n / 50);   // ≥2% 全球接触才缝合
+            var contact = new System.Collections.Generic.Dictionary<(int, int), int>();
+            for (int i = 0; i < n; i++)
+            {
+                int a = (int)TopPlateMap[i];
+                if (a < 0) continue;
+                foreach (var nb in GlobalGrid.Neighbors[i])
+                {
+                    int b = (int)TopPlateMap[nb];
+                    if (b < 0 || b == a) continue;
+                    var key = a < b ? (a, b) : (b, a);
+                    contact[key] = contact.GetValueOrDefault(key) + 1;
+                }
+            }
+            int bestA = -1, bestB = -1, bestC = minContact;
+            foreach (var kv in contact)
+                if (kv.Value > bestC) { bestC = kv.Value; bestA = kv.Key.Item1; bestB = kv.Key.Item2; }
+            if (bestA < 0) return;
+            MergeTwoPlates(bestA, bestB);
+        }
+
+        /// <summary>合并板块 b 进 a（a 坐标系为准；物质从 WorldCrust 全局视图取——先 MergePlatesToMaster）。</summary>
+        private void MergeTwoPlates(int idA, int idB)
+        {
+            int n = GlobalGrid.VertexCount;
+            Plate pa = null, pb = null;
+            for (int p = 0; p < Plates.Count; p++)
+            {
+                if (Plates[p].Id == idA) pa = Plates[p];
+                if (Plates[p].Id == idB) pb = Plates[p];
+            }
+            if (pa == null || pb == null) return;
+
+            var merged = new Plate(idA, GlobalGrid, new Crust(GlobalGrid), new byte[n]);
+            Array.Copy(pa.LocalToGlobal, merged.LocalToGlobal, 9);
+            Array.Copy(pa.GlobalToLocal, merged.GlobalToLocal, 9);
+            Array.Copy(pa.LocalIdsOfGlobalCells, merged.LocalIdsOfGlobalCells, n);
+            Array.Copy(pa.GlobalIdsOfLocalCells, merged.GlobalIdsOfLocalCells, n);
+            Array.Copy(pa.Velocity, merged.Velocity, n);
+            var mPools = merged.Crust.AllPools();
+            var gPools = WorldCrust.AllPools();
+            for (int l = 0; l < n; l++)
+            {
+                int g = pa.GlobalIdsOfLocalCells[l];
+                if (TopPlateMap[g] == idA || TopPlateMap[g] == idB)
+                {
+                    merged.Mask[l] = 1;
+                    for (int q = 0; q < 8; q++) mPools[q][l] = gPools[q][g];
+                }
+            }
+            Plates.Remove(pb);
+            for (int p = 0; p < Plates.Count; p++)
+                if (Plates[p].Id == idA) { Plates[p] = merged; break; }
+            GD.Print($"[Tectonics] 碰撞缝合: 板块{idA}+{idB} → {idA}（板块数→{Plates.Count}）");
+        }
+
+        /// <summary>
+        /// 方案 B（2026-08-16 用户拍板）：超大陆【继承式裂解】——替代旧固定周期全局洗牌。
+        /// 最大板块占全球 &gt;25% 时视为超大陆，沿内部最远点种子裂成 2-3 块；其他板块不动
+        /// （位置/演化历史继承），板块漂移碰撞自然聚合拼大 → 大陆大小有自然差异。
+        /// 无超大陆返回 false（继续聚合，不洗牌）。
+        /// </summary>
+        public bool TrySplitSupercontinent()
+        {
+            int n = GlobalGrid.VertexCount;
+            int bestIdx = -1, bestCount = 0;
+            for (int p = 0; p < Plates.Count; p++)
+            {
+                int c = Plates[p].TileCount;
+                if (c > bestCount) { bestCount = c; bestIdx = p; }
+            }
+            float frac = (float)bestCount / n;
+            if (bestIdx < 0 || frac < 0.25f) return false;   // 无超大陆 → 继续聚合
+            int splitK = frac > 0.4f ? 3 : 2;
+
+            var big = Plates[bestIdx];
+            var cells = new System.Collections.Generic.List<int>();
+            for (int i = 0; i < n; i++) if (big.Mask[i] == 1) cells.Add(i);
+            if (cells.Count < splitK * 2) return false;
+
+            // 最远点种子（球面分散）：种子0 = 离质心最远；其后 = 离已选种子最远
+            Vector3 centroid = Vector3.Zero;
+            foreach (var c in cells) centroid += GlobalGrid.Vertices[c];
+            centroid = centroid.Normalized();
+            var seeds = new System.Collections.Generic.List<int>();
+            int bestC = cells[0]; float bestD = -1f;
+            foreach (var c in cells)
+            {
+                float d = 1f - GlobalGrid.Vertices[c].Dot(centroid);
+                if (d > bestD) { bestD = d; bestC = c; }
+            }
+            seeds.Add(bestC);
+            while (seeds.Count < splitK)
+            {
+                int bestS = cells[0]; float bestSD = -1f;
+                foreach (var c in cells)
+                {
+                    float minD = float.MaxValue;
+                    foreach (var s in seeds)
+                    {
+                        float d = 1f - GlobalGrid.Vertices[c].Dot(GlobalGrid.Vertices[s]);
+                        if (d < minD) minD = d;
+                    }
+                    if (minD > bestSD) { bestSD = minD; bestS = c; }
+                }
+                seeds.Add(bestS);
+            }
+
+            // 每格归最近种子 → 裂片 mask
+            var newMasks = new byte[splitK][];
+            for (int k = 0; k < splitK; k++) newMasks[k] = new byte[n];
+            foreach (var c in cells)
+            {
+                int bestS = 0; float bestSD = float.MaxValue;
+                for (int k = 0; k < splitK; k++)
+                {
+                    float d = 1f - GlobalGrid.Vertices[c].Dot(GlobalGrid.Vertices[seeds[k]]);
+                    if (d < bestSD) { bestSD = d; bestS = k; }
+                }
+                newMasks[bestS][c] = 1;
+            }
+
+            // 重建 Plates：其他板块保留（演化历史继承），超大陆裂片继承 big 的 crust/坐标系
+            var newPlates = new System.Collections.Generic.List<Plate>();
+            for (int p = 0; p < Plates.Count; p++)
+                if (p != bestIdx) newPlates.Add(Plates[p]);
+            int nextId = 0;
+            foreach (var pl in Plates) nextId = Math.Max(nextId, pl.Id + 1);
+            var bigPools = big.Crust.AllPools();
+            for (int k = 0; k < splitK; k++)
+            {
+                var crust = new Crust(GlobalGrid);
+                var cpools = crust.AllPools();
+                for (int i = 0; i < n; i++)
+                    if (newMasks[k][i] == 1)
+                        for (int q = 0; q < 8; q++) cpools[q][i] = bigPools[q][i];
+                var plate = new Plate(nextId + k, GlobalGrid, crust, newMasks[k]);
+                // 继承 big 的坐标系/速度场（裂片原地分裂，不跳变）
+                Array.Copy(big.LocalToGlobal, plate.LocalToGlobal, 9);
+                Array.Copy(big.GlobalToLocal, plate.GlobalToLocal, 9);
+                Array.Copy(big.LocalIdsOfGlobalCells, plate.LocalIdsOfGlobalCells, n);
+                Array.Copy(big.GlobalIdsOfLocalCells, plate.GlobalIdsOfLocalCells, n);
+                Array.Copy(big.Velocity, plate.Velocity, n);
+                newPlates.Add(plate);
+            }
+            Plates = newPlates;
+            GD.Print($"[Tectonics] 超大陆裂解: 占比{frac:P0} → {splitK}块（板块数→{Plates.Count}）");
+            return true;
+        }
+
         public void ResetPlates(int numPlates, int minSegmentSize = 200)
         {
             int n = GlobalGrid.VertexCount;
@@ -814,8 +993,8 @@ namespace World.Tectonics
             if (_erodeDeltaReusable == null) _erodeDeltaReusable = new Crust(GlobalGrid);
             var delta = _erodeDeltaReusable;
             delta.Reset();
-            Crust.ModelErosion(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta);
-            Crust.ModelWeathering(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta);
+            Crust.ModelErosion(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta, ErosionScale);
+            Crust.ModelWeathering(GlobalGrid, surfaceHeight, seconds, Material, WorldCrust, delta, ErosionScale);
             Crust.ModelLithification(surfaceHeight, seconds, Material, WorldCrust, delta);
             Crust.ModelMetamorphosis(surfaceHeight, seconds, Material, WorldCrust, delta);
 

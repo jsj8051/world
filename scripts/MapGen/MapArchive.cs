@@ -37,10 +37,11 @@ public static class MapArchive
         float minElev, float maxElev, float[] elev,
         float[] temp, float[] precip, byte[] biome,
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
-        bool prograde = true, float rotationSpeed = 1f,
+        bool prograde = true, float rotationSpeed = 1f, float axialTilt = 23.4f,
         Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
         byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null, byte[] lakeLevel = null,
         byte[] mineralLevel = null, byte[] soilLevel = null,
+        byte[] monsoonLevel = null, byte[][] monthPrecip = null, byte[][] monthTemp = null,
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -73,6 +74,7 @@ public static class MapArchive
         foreach (var b in biome) f.Store8(b);
         f.Store8((byte)(prograde ? 1 : 0));   // 尾部扩展1：自转方向（盛行风图层用；旧存档无此字节=默认顺转）
         f.StoreFloat(rotationSpeed);          // 尾部扩展2：自转速度（科里奥利强度；旧存档无=1.0 地球）
+        f.StoreFloat(axialTilt);              // 尾部扩展2b（v3.8）：轴向倾角（季风月风场现场重算用；旧存档无=23.4）
         // 尾部扩展3（2026-08-02）：洋流方向+冷暖+强度（流函数法；MapViewer 洋流图层用）
         //   每顶点：方向 3 float（零=内陆无洋流）+ 冷暖 1 float + 强度 1 float。
         //   旧存档无此段=默认无洋流。
@@ -100,6 +102,18 @@ public static class MapArchive
             if (soilLevel != null)
                 foreach (var sl in soilLevel) f.Store8(sl);
         }
+        // 尾部扩展8（2026-08-16）：季风强度（n bytes 0-255 → 0-1；MonsoonSystem；旧存档无=null）
+        if (monsoonLevel != null)
+            foreach (var ml in monsoonLevel) f.Store8(ml);
+        // 尾部扩展9（2026-08-16）：月降水比例（12×n bytes；MonsoonSystem；旧存档无=null）
+        //   每顶点 12 个月比例 0-255（×年降水 = 月降水 mm）；海洋格 0
+        if (monthPrecip != null)
+            for (int m = 0; m < 12; m++)
+                foreach (var v in monthPrecip[m]) f.Store8(v);
+        // 尾部扩展10（2026-08-16）：月温度（12×n bytes，−60~60°C → 0-255；温度系统月度化）
+        if (monthTemp != null)
+            for (int m = 0; m < 12; m++)
+                foreach (var v in monthTemp[m]) f.Store8(v);
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
                      $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}] prograde={prograde})");
@@ -156,6 +170,8 @@ public static class MapArchive
             // 尾部扩展：自转方向（旧存档没有此字节 → 默认顺转）+ 自转速度（旧存档没有 → 1.0）
             map.ProgradeRotation = f.GetPosition() < f.GetLength() ? f.Get8() != 0 : true;
             map.RotationSpeed = f.GetPosition() + 4 <= f.GetLength() ? f.GetFloat() : 1f;
+            // 尾部扩展2b（v3.8）：轴向倾角（旧存档没有 → 23.4 地球式；季风月风场现场重算用）
+            map.AxialTilt = f.GetPosition() + 4 <= f.GetLength() ? f.GetFloat() : 23.4f;
             // 尾部扩展3（v3.1）：洋流段（方向 3n floats + 冷暖 n floats [+ 强度 n floats]；旧存档无 = null）
             ulong currentBytes16 = (ulong)n * 16u;   // 3 方向 + 1 冷暖 = 16 字节/顶点
             ulong currentBytes20 = (ulong)n * 20u;   // + 1 强度 = 20 字节/顶点
@@ -208,9 +224,35 @@ public static class MapArchive
                     for (int i = 0; i < n; i++) map.SoilLevel[i] = f.Get8();
                 }
             }
+            // 季风段（v3.7 加；n bytes；判断用"剩余 ≥ n"）
+            if (f.GetPosition() + (ulong)n <= f.GetLength())
+            {
+                map.MonsoonLevel = new byte[n];
+                for (int i = 0; i < n; i++) map.MonsoonLevel[i] = f.Get8();
+            }
+            // 月降水段（v3.8 加；12×n bytes）
+            if (f.GetPosition() + (ulong)(12 * n) <= f.GetLength())
+            {
+                map.MonthPrecip = new byte[12][];
+                for (int m = 0; m < 12; m++)
+                {
+                    map.MonthPrecip[m] = new byte[n];
+                    for (int i = 0; i < n; i++) map.MonthPrecip[m][i] = f.Get8();
+                }
+            }
+            // 月温度段（v3.8 加；12×n bytes，−60~60°C → 0-255）
+            if (f.GetPosition() + (ulong)(12 * n) <= f.GetLength())
+            {
+                map.MonthTemp = new byte[12][];
+                for (int m = 0; m < 12; m++)
+                {
+                    map.MonthTemp[m] = new byte[n];
+                    for (int i = 0; i < n; i++) map.MonthTemp[m][i] = f.Get8();
+                }
+            }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")})");
+            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")} monsoon={(map.MonsoonLevel != null ? "yes" : "no")})");
         }
         else
         {
@@ -251,6 +293,7 @@ public class MapData
     public ushort Version;
     public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
     public float RotationSpeed = 1f;       // 自转速度（v3 尾部 float；旧存档默认 1.0 地球）
+    public float AxialTilt = 23.4f;        // 轴向倾角（v3.8 尾部 float；旧存档默认 23.4；季风月风场现场重算用）
     public Vector3[] CurrentDirs;          // 洋流方向（v3.1 尾部；null=旧存档无）
     public float[] CurrentWarmth;          // 洋流冷暖（v3.1 尾部；null=旧存档无）
     public float[] CurrentStrength;        // 洋流强度 0.3~1.0（v3.1 尾部；null=旧存档无，默认 1）
@@ -260,6 +303,9 @@ public class MapData
     public byte[] LakeLevel;               // 湖泊级别（v3.4 尾部；null=旧存档无）
     public byte[] MineralLevel;            // 矿藏（v3.5 尾部；(富度<<4)|矿种；null=旧存档无）
     public byte[] SoilLevel;               // 土壤肥力 1-5（v3.6 尾部；null=旧存档无）
+    public byte[] MonsoonLevel;            // 季风强度 0-255→0-1（v3.7 尾部；MonsoonSystem；null=旧存档无）
+    public byte[][] MonthPrecip;           // [12][n] 月降水比例 0-255（v3.8 尾部；×年降水=月降水 mm；null=旧存档无）
+    public byte[][] MonthTemp;             // [12][n] 月温度 −60~60°C→0-255（v3.8 尾部；null=旧存档无）
 
     // v3 球面
     public Vector3[] Verts;   // 单位方向（球面顶点，N 个）

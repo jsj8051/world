@@ -35,6 +35,23 @@ public static class SoilSystem
             (byte)BiomeType.Desert => 1,               // 荒漠
             (byte)BiomeType.IceCap => 1,               // 冰原（不可耕）
             (byte)BiomeType.Alpine => 1,               // 高山薄土
+            // ── 柯本细类（2026-08-16）──
+            (byte)BiomeType.TropicalRainforest => 3,   // 雨林淋溶中偏贫
+            (byte)BiomeType.TropicalMonsoon => 3,      // 季雨林
+            (byte)BiomeType.TropicalSavanna => 3,      // 稀树草原
+            (byte)BiomeType.HotDesert => 1,            // 荒漠
+            (byte)BiomeType.ColdDesertKoppen => 1,     // 寒漠
+            (byte)BiomeType.HotSteppe => 3,            // 半干旱草原
+            (byte)BiomeType.ColdSteppe => 3,           // 冷草原（黑土草原）
+            (byte)BiomeType.HumidSubtropical => 4,     // 亚热带森林腐殖质
+            (byte)BiomeType.Oceanic => 4,              // 海洋性温带森林
+            (byte)BiomeType.MonsoonSubtropical => 4,   // 冬干亚热带（季风冲积）
+            (byte)BiomeType.MediterraneanHot => 3,     // 地中海硬叶灌丛土
+            (byte)BiomeType.MediterraneanCool => 3,
+            (byte)BiomeType.ContinentalHot => 4,       // 大陆黑钙土
+            (byte)BiomeType.ContinentalWarm => 3,
+            (byte)BiomeType.Subarctic => 2,            // 针叶林酸性土（同 Taiga）
+            (byte)BiomeType.ContinentalDry => 2,       // 冬干大陆
             _ => 0,                                    // 海洋
         };
     }

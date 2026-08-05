@@ -23,6 +23,25 @@ public static class BiomeColors
         BiomeType.TropicalDryForest => new Color(0.42f, 0.52f, 0.18f),
         BiomeType.Alpine => new Color(0.58f, 0.55f, 0.52f),
         BiomeType.Riparian => new Color(0.20f, 0.72f, 0.38f),   // 河岸带：翠绿（沙漠绿洲线）
+        // ── 柯本细类（2026-08-16）──
+        BiomeType.TropicalRainforest => new Color(0.05f, 0.45f, 0.12f),  // Af 深绿雨林
+        BiomeType.TropicalMonsoon => new Color(0.12f, 0.52f, 0.18f),     // Am 绿
+        BiomeType.TropicalSavanna => new Color(0.68f, 0.60f, 0.20f),     // Aw 黄绿
+        BiomeType.HotDesert => new Color(0.86f, 0.75f, 0.45f),           // BWh 沙黄
+        BiomeType.ColdDesertKoppen => new Color(0.66f, 0.61f, 0.48f),    // BWk 灰黄
+        BiomeType.HotSteppe => new Color(0.74f, 0.66f, 0.30f),           // BSh 橙黄（稀树灌丛）
+        BiomeType.ColdSteppe => new Color(0.55f, 0.63f, 0.40f),          // BSk 灰绿草原
+        BiomeType.HumidSubtropical => new Color(0.30f, 0.60f, 0.22f),    // Cfa 亮绿
+        BiomeType.Oceanic => new Color(0.18f, 0.48f, 0.20f),             // Cfb 深绿
+        BiomeType.MonsoonSubtropical => new Color(0.50f, 0.60f, 0.22f),  // Cwa 绿黄
+        BiomeType.MediterraneanHot => new Color(0.58f, 0.55f, 0.25f),    // Csa 橄榄
+        BiomeType.MediterraneanCool => new Color(0.66f, 0.63f, 0.35f),   // Csb 浅橄榄
+        BiomeType.ContinentalHot => new Color(0.28f, 0.55f, 0.25f),      // Dfa 绿
+        BiomeType.ContinentalWarm => new Color(0.22f, 0.50f, 0.30f),     // Dfb 绿蓝
+        BiomeType.Subarctic => new Color(0.15f, 0.40f, 0.28f),           // Dfc 蓝绿针叶
+        BiomeType.ContinentalDry => new Color(0.55f, 0.58f, 0.32f),      // Dwa 黄绿灰
+        BiomeType.FrigidOcean => new Color(0.55f, 0.72f, 0.88f),         // 极地海冰淡蓝
+        BiomeType.TropicalOcean => new Color(0.05f, 0.55f, 0.65f),       // 热带海洋青蓝
         _ => Colors.Magenta,
     };
 

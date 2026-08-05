@@ -27,6 +27,9 @@ public partial class MapGenerator : Node
 	[Export] public int TectonicsGridN = 32;   // 板块模拟 Icosahedron 细分（32→10242 顶点）
 	[Export] public float SimMegayears = 600f; // 板块模拟时长（百万年）
 	[Export] public float SimStepMy = 4f;      // 模拟时间步（百万年）——2026-08-03：2→4 已验证质量一致（板块 7 块后性能）
+	[Export] public float OceanScale = 1f;     // 海洋水量系数（×2000m 基准平均深度；0.6=少水多陆，1.4=水世界）
+	[Export] public float SupercontinentCycleMy = 150f; // 超级大陆聚合-裂解周期（百万年）
+	[Export] public float ErosionScale = 1f;   // 侵蚀/风化强度倍率（0.5=温和，2=剧烈夷平）
 	[Export] public int NumPlates = 8;         // 初始板块数
 	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
 	[Export] public float AxialTilt = 23.4f;   // 轴向倾角（度）：0=无季节，23.4=地球，90=极端季节
@@ -74,6 +77,9 @@ public partial class MapGenerator : Node
 			if (TryInt("seed", s => Seed = s)) { }
 			else if (TryInt("TectonicsGridN", g => TectonicsGridN = g)) { }
 			else if (TryFloat("SimMegayears", m => SimMegayears = m)) { }
+			else if (TryFloat("OceanScale", o => OceanScale = o)) { }
+			else if (TryFloat("SupercontinentCycleMy", c => SupercontinentCycleMy = c)) { }
+			else if (TryFloat("ErosionScale", e => ErosionScale = e)) { }
 			else if (TryInt("NumPlates", p => NumPlates = p)) { }
 			else if (TryFloat("AxialTilt", t => AxialTilt = t)) { }
 			else if (TryFloat("Insolation", i => Insolation = i)) { }
@@ -112,6 +118,9 @@ public partial class MapGenerator : Node
 		var sim = new TectonicsSimulation(TectonicsGridN);
 		sim.GenerateInitialCrust(Seed);
 		sim.SplitIntoPlates(NumPlates, Seed);
+		sim.OceanScale = OceanScale;              // 海洋水量（海陆比）
+		sim.SupercontinentCycleMy = SupercontinentCycleMy;  // 超级大陆周期
+		sim.ErosionScale = ErosionScale;          // 侵蚀强度
 		sim.Run(SimMegayears, SimStepMy);
 		var disp = sim.Displacement;
 		float sea = sim.SeaLevel;
@@ -150,7 +159,7 @@ public partial class MapGenerator : Node
 			 $"temp[{pipe.MinTemp:F1},{pipe.MaxTemp:F1}]°C precip[{pipe.MinPrecip:F0},{pipe.MaxPrecip:F0}]mm took {sw.ElapsedMilliseconds}ms");
 		long total = vn;
 		var sb = new System.Text.StringBuilder("[MapGenerator] biome dist: ");
-		var dist = new int[14];   // biome 0..13（含 Riparian）
+		var dist = new int[32];   // biome 0..31（旧 0-13 + 柯本 14-31）
 		foreach (var b in pipe.Biome) dist[b]++;
 		for (int i = 0; i < dist.Length; i++)
 		{
@@ -159,12 +168,42 @@ public partial class MapGenerator : Node
 		}
 		GD.Print(sb.ToString());
 
+		// 季风/月降水/月温度 byte 化（v3.7/v3.8 存档）
+		var monsoonLevel = new byte[vn];
+		for (int i = 0; i < vn; i++)
+			monsoonLevel[i] = (byte)(Mathf.Clamp(pipe.MonsoonStrength[i], 0f, 1f) * 255f);
+		var monthPrecip = new byte[12][];
+		for (int m = 0; m < 12; m++)
+		{
+			monthPrecip[m] = new byte[vn];
+			for (int i = 0; i < vn; i++)
+			{
+				float ratio = pipe.Precip[i] > 1e-3f ? pipe.MonthPrecip[m][i] / pipe.Precip[i] : 0f;
+				monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
+			}
+		}
+		// 月温度（−60~60°C → 0-255；温度系统月度化 v3.8）
+		var monthTemp = new byte[12][];
+		if (pipe.MonthTemp != null)
+			for (int m = 0; m < 12; m++)
+			{
+				monthTemp[m] = new byte[vn];
+				for (int i = 0; i < vn; i++)
+					monthTemp[m][i] = (byte)(Mathf.Clamp((pipe.MonthTemp[m][i] + 60f) / 120f, 0f, 1f) * 255f);
+			}
+
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
 			pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
-			prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
+			prograde: ProgradeRotation, rotationSpeed: RotationSpeed, axialTilt: AxialTilt,
 			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
 			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
-			mineralLevel: _mineralLevel, soilLevel: _soilLevel);
+			mineralLevel: _mineralLevel, soilLevel: _soilLevel,
+			monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp);
+
+		// 季风区统计（headless 验证用）
+		int monsoonCells = 0;
+		for (int i = 0; i < vn; i++) if (monsoonLevel[i] >= 64) monsoonCells++;
+		GD.Print($"[MapGenerator] 季风区（强度≥0.25）：{monsoonCells} 格 ({monsoonCells * 100f / vn:F1}%)");
 
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
@@ -217,12 +256,37 @@ public partial class MapGenerator : Node
 			_soilLevel = pipe.SoilLevel;
 			_curDirs = pipe.CurrentDirs; _curWarmth = pipe.CurrentWarmth; _curStrength = pipe.CurrentStrength;
 
+			// 季风/月降水/月温度 byte 化（v3.7/v3.8 存档；后台线程禁止 GD.Print 但可算）
+			var monsoonLevel = new byte[vn];
+			for (int i = 0; i < vn; i++)
+				monsoonLevel[i] = (byte)(Mathf.Clamp(pipe.MonsoonStrength[i], 0f, 1f) * 255f);
+			var monthPrecip = new byte[12][];
+			for (int m = 0; m < 12; m++)
+			{
+				monthPrecip[m] = new byte[vn];
+				for (int i = 0; i < vn; i++)
+				{
+					float ratio = pipe.Precip[i] > 1e-3f ? pipe.MonthPrecip[m][i] / pipe.Precip[i] : 0f;
+					monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
+				}
+			}
+			// 月温度（−60~60°C → 0-255）
+			var monthTemp = new byte[12][];
+			if (pipe.MonthTemp != null)
+				for (int m = 0; m < 12; m++)
+				{
+					monthTemp[m] = new byte[vn];
+					for (int i = 0; i < vn; i++)
+						monthTemp[m][i] = (byte)(Mathf.Clamp((pipe.MonthTemp[m][i] + 60f) / 120f, 0f, 1f) * 255f);
+				}
+
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
 				pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
-				prograde: ProgradeRotation, rotationSpeed: RotationSpeed,
+				prograde: ProgradeRotation, rotationSpeed: RotationSpeed, axialTilt: AxialTilt,
 				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
 				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
-				mineralLevel: _mineralLevel, soilLevel: _soilLevel, log: false);   // 后台线程禁止 GD.Print
+				mineralLevel: _mineralLevel, soilLevel: _soilLevel,
+				monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
 			return (ok, outPath);

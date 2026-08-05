@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/Diagnostics/MonsoonDiag.cs" id="1_md"]
+
+[node name="MonsoonDiag" type="Node"]
+script = ExtResource("1_md")
