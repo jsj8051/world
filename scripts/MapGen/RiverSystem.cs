@@ -466,6 +466,7 @@ public static class RiverSystem
                 if (riverLevel[cur] > 0) { ws = riverToWs[cur]; break; }   // 遇河格 → 继承
                 int f = flow[cur];
                 if (f == cur) { ws = -2; break; }            // 盆地终点 → 内流
+                if (f < 0 || f >= n) { ws = -1; break; }     // ⚠️ 非法流向（旧档无河标记 -1）→ 视作边缘/入海
                 if (elevNorm[f] < 0f) { ws = -1; break; }    // 直接入海 → 边缘
                 cur = f;
             }

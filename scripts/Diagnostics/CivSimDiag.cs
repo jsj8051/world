@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
@@ -7,10 +8,10 @@ using World.MapGen;
 namespace World.Diagnostics;
 
 /// <summary>
-/// 文明演化诊断：读 .mpa → GameGrid（自然层只读）→ 石器时代演化（seed 确定性）→ 写 .cmp
-/// 游玩地图 → 读回校验（自然层零改动 + 文明层往返一致 + 同 seed 复现性）+ 演化统计。
+/// 文明演化诊断（v2 部落模型）：读 .mpa → GameGrid（自然层只读）→ 演化（seed 确定性）→ 写 .cmp
+/// → 读回校验（自然层零改动 + 部落表往返 + 同 seed 复现性）+ 演化统计（部落动态/技术分布/农业起源）。
 ///
-/// 命令行：-- --arch=user://maps/xxx.mpa [--seed=N] [--origins=1..3] [--out=user://maps/xxx.cmp]
+/// 命令行：-- --arch=user://maps/xxx.mpa [--seed=N] [--origins=1..6] [--out=user://maps/xxx.cmp]
 /// </summary>
 public partial class CivSimDiag : Node
 {
@@ -43,12 +44,12 @@ public partial class CivSimDiag : Node
 
         var grid = GameGrid.FromMapData(ctx.Map);
         int n = grid.N;
-        GD.Print($"[CivSimDiag] 读档 {arch} n={n} → 石器时代演化（seed={seed} 起源{origins}，自然层只读）");
+        GD.Print($"[CivSimDiag] 读档 {arch} n={n} → 文明演化（seed={seed} 起源{origins}，部落=格内单元模型，自然层只读）");
 
         // ── 1. 演化 + 复现性 ──
         var r1 = CivEngine.Run(grid, seed, origins);
-        var r2 = CivEngine.Run(grid, seed, origins);   // 同 seed 复跑（确定性校验）
-        bool reproducible = PopulationsEqual(r1.Context, r2.Context);
+        var r2 = CivEngine.Run(grid, seed, origins);
+        bool reproducible = TribesEqual(r1.Context, r2.Context);
 
         // ── 2. 写 .cmp + 读回 ──
         bool ok = CivMapArchive.Write(outPath, grid, r1);
@@ -56,84 +57,85 @@ public partial class CivSimDiag : Node
         if (!CivMapArchive.Read(outPath, out var gridBack, out var rBack))
         { GetTree().Quit(1); return; }
 
-        // ── 3. 校验：自然层零改动（.cmp 自然段 vs 源 grid）+ 文明层往返 ──
+        // ── 3. 校验 ──
         bool natOk = NaturalUnchanged(grid, gridBack);
-        bool civOk = CivRoundTrip(r1.Context, rBack.Context);
+        bool rtOk = TribesEqual(r1.Context, rBack.Context);
+        bool agriRepro = AgricultureCount(r1.Context) == AgricultureCount(r2.Context);
 
         // ── 4. 统计 ──
+        var c = r1.Context;
         int occupied = 0, land = 0;
-        for (int i = 0; i < n; i++) { if (grid.IsLandCell(i)) land++; if (r1.Context.Cells[i].TribeId >= 0) occupied++; }
-
-        // 可达性分析：从起源格 BFS 陆地连通分量（覆盖上限=起源大陆；孤立大陆无船不可达，物理正确）
-        var visited = new bool[n];
-        var queue = new System.Collections.Generic.Queue<int>();
-        foreach (var t in r1.Context.Tribes) { if (!visited[t.OriginCell]) { visited[t.OriginCell] = true; queue.Enqueue(t.OriginCell); } }
-        int reachable = 0;
-        while (queue.Count > 0)
-        {
-            int cur = queue.Dequeue();
-            reachable++;
-            foreach (int nb in grid.Neighbors[cur])
-            {
-                if (!visited[nb] && grid.IsLandCell(nb)) { visited[nb] = true; queue.Enqueue(nb); }
-            }
-        }
-        int unreachableLand = land - reachable;   // 孤立大陆（无船不可达）
-        int cultureCount = 0;
-        var culturePop = new System.Collections.Generic.Dictionary<byte, int>();
-        int[] techDist = new int[4];
+        var cultureCells = new Dictionary<byte, int>();
+        var techEpochTribes = new int[5];
+        int agriTribes = 0, maxTechTribes = 0;
         float popMax = 0f; int popMaxCell = -1;
         for (int i = 0; i < n; i++)
         {
-            var c = r1.Context.Cells[i];
-            if (c.TribeId < 0) continue;
-            if (!culturePop.ContainsKey(c.Culture)) { culturePop[c.Culture] = 0; cultureCount++; }
-            culturePop[c.Culture]++;
-            techDist[Mathf.Clamp(c.Tech, 0, 3)]++;
-            if (c.Population > popMax) { popMax = c.Population; popMaxCell = i; }
+            if (grid.IsLandCell(i)) land++;
+            if (c.CellPop[i] > 0f)
+            {
+                occupied++;
+                if (c.CellPop[i] > popMax) { popMax = c.CellPop[i]; popMaxCell = i; }
+            }
         }
-        // 起源格 → 覆盖（部落主格）
-        var sb = new System.Text.StringBuilder("[CivSimDiag] 部落: ");
-        for (int k = 0; k < Mathf.Min(r1.Context.Tribes.Count, 5); k++)
+        foreach (var t in c.Tribes)
         {
-            var t = r1.Context.Tribes[k];
-            sb.Append($"#{t.Id}(起源{t.OriginCell}→主格{t.MainCell} 人口{t.Population:F0} 文化{t.Culture} 技术{t.Tech}) ");
+            techEpochTribes[Mathf.Clamp(TechTable.MaxEpoch(t.TechFlags), 0, 4)]++;
+            if (TechTable.Has(t.TechFlags, 7)) agriTribes++;
         }
-        if (r1.Context.Tribes.Count > 5) sb.Append($"…共{r1.Context.Tribes.Count}");
 
-        GD.Print($"[CivSimDiag] 演化: {r1.FinalTick} tick × {r1.Context.Epoch.TickYears} 年 = {r1.FinalTick * r1.Context.Epoch.TickYears} 年" +
-                 $" | 总人口 {r1.Context.TotalPopulation:F0} | 覆盖 {occupied}/{reachable} 可达陆地格 ({occupied * 100f / Math.Max(1, reachable):F0}%)" +
-                 $" | 孤立大陆 {unreachableLand} 格（无船不可达）");
-        GD.Print($"[CivSimDiag] 分布: 人口最高格 #{popMaxCell}={popMax:F0} | 文化区 {cultureCount} 个（最大 {MaxCulture(culturePop)} 格）" +
-                 $" | 技术分布 石核{techDist[0]} 手斧{techDist[1]} 细石器{techDist[2]} 弓箭{techDist[3]}");
-        GD.Print(sb.ToString());
-        GD.Print($"[CivSimDiag] 校验: 自然层零改动={(natOk ? "PASS" : "FAIL")} 文明层往返={(civOk ? "PASS" : "FAIL")} " +
-                 $"复现性(同seed两次一致)={(reproducible ? "PASS" : "FAIL")} → {(natOk && civOk && reproducible ? "全部PASS" : "有失败!")}");
+        // 部落规模分布
+        float popSum = 0f; int popMin = int.MaxValue, popMaxT = 0;
+        foreach (var t in c.Tribes)
+        {
+            popSum += t.Population;
+            popMin = Mathf.Min(popMin, (int)t.Population);
+            popMaxT = Mathf.Max(popMaxT, (int)t.Population);
+        }
+        float meanPop = c.Tribes.Count > 0 ? popSum / c.Tribes.Count : 0f;
+
+        // 技术分布明细（各技术持有部落数）
+        var techDist = new int[TechTable.Count];
+        foreach (var t in c.Tribes)
+            for (int i = 0; i < TechTable.Count; i++)
+                if (TechTable.Has(t.TechFlags, i)) techDist[i]++;
+        var techSb = new System.Text.StringBuilder("[CivSimDiag] 技术分布: ");
+        for (int i = 0; i < TechTable.Count; i++)
+            if (techDist[i] > 0) techSb.Append($"{TechTable.All[i].Name}{techDist[i]} ");
+
+        GD.Print($"[CivSimDiag] 演化: {r1.FinalTick} tick × {c.Epoch.TickYears} 年 = {r1.FinalTick * c.Epoch.TickYears} 年" +
+                 $" | 总人口 {c.TotalPopulation():F0} | 部落 {c.Tribes.Count}（规模 {popMin}~{popMaxT} 均值 {meanPop:F0}）" +
+                 $" | 覆盖 {occupied}/{land} 陆地格");
+        GD.Print($"[CivSimDiag] 事件: 分裂 {c.Fissions} | 吞并 {c.Absorptions} | 和平合并 {c.Merges} | 迁徙 {c.Migrations} | 贸易接触 {c.TradeContacts}");
+        GD.Print($"[CivSimDiag] 时代分布(部落): 石器{techEpochTribes[0]} 新石器{techEpochTribes[1]} 青铜{techEpochTribes[2]} 铁器{techEpochTribes[3]} 古典+{techEpochTribes[4]} | 农业部落 {agriTribes}");
+        GD.Print(techSb.ToString());
+        GD.Print($"[CivSimDiag] 校验: 自然层零改动={(natOk ? "PASS" : "FAIL")} 部落表往返={(rtOk ? "PASS" : "FAIL")} " +
+                 $"复现性={(reproducible ? "PASS" : "FAIL")} 农业复现={(agriRepro ? "PASS" : "FAIL")} → {(natOk && rtOk && reproducible && agriRepro ? "全部PASS" : "有失败!")}");
         GD.Print($"[CivSimDiag] 导出 {(ok ? "成功" : "失败")} → {outPath}");
-        GetTree().Quit(natOk && civOk && reproducible ? 0 : 1);
+        GetTree().Quit(natOk && rtOk && reproducible && agriRepro ? 0 : 1);
     }
 
-    private static int MaxCulture(System.Collections.Generic.Dictionary<byte, int> d)
+    private static int AgricultureCount(CivSimContext c)
     {
-        int m = 0;
-        foreach (var kv in d) m = Math.Max(m, kv.Value);
-        return m;
+        int a = 0;
+        foreach (var t in c.Tribes) if (TechTable.Has(t.TechFlags, 7)) a++;
+        return a;
     }
 
-    private static bool PopulationsEqual(CivSimContext a, CivSimContext b)
+    /// <summary>部落表逐项一致（人口/格/文化/技术/起源）。</summary>
+    private static bool TribesEqual(CivSimContext a, CivSimContext b)
     {
-        if (a.Cells.Length != b.Cells.Length) return false;
-        for (int i = 0; i < a.Cells.Length; i++)
+        if (a.Tribes.Count != b.Tribes.Count) return false;
+        for (int k = 0; k < a.Tribes.Count; k++)
         {
-            if (a.Cells[i].Population != b.Cells[i].Population) return false;
-            if (a.Cells[i].Culture != b.Cells[i].Culture) return false;
-            if (a.Cells[i].Tech != b.Cells[i].Tech) return false;
-            if (a.Cells[i].TribeId != b.Cells[i].TribeId) return false;
+            var x = a.Tribes[k]; var y = b.Tribes[k];
+            if (x.Cell != y.Cell || x.Population != y.Population || x.Culture != y.Culture
+                || x.TechFlags != y.TechFlags || x.OriginCell != y.OriginCell) return false;
         }
         return true;
     }
 
-    /// <summary>自然层零改动：.cmp 读回的自然段与源 grid 逐字段一致（NaN 视为相等——往返位级一致）。</summary>
+    /// <summary>自然层零改动：.cmp 读回的自然段与源 grid 逐字段一致（NaN 视为相等）。</summary>
     private static bool NaturalUnchanged(GameGrid a, GameGrid b)
     {
         if (a.N != b.N) return false;
@@ -147,28 +149,4 @@ public partial class CivSimDiag : Node
     }
 
     private static bool FloatEq(float a, float b) => a == b || (float.IsNaN(a) && float.IsNaN(b));
-
-    /// <summary>文明层往返：写前 ctx 与读回 ctx 逐格一致。</summary>
-    private static bool CivRoundTrip(CivSimContext a, CivSimContext b)
-    {
-        if (a.Cells.Length != b.Cells.Length) return false;
-        for (int i = 0; i < a.Cells.Length; i++)
-        {
-            if (a.Cells[i].Population != b.Cells[i].Population) return false;
-            if (a.Cells[i].Culture != b.Cells[i].Culture) return false;
-            if (a.Cells[i].Tech != b.Cells[i].Tech) return false;
-            if (a.Cells[i].TribeId != b.Cells[i].TribeId) return false;
-        }
-        if (a.Tribes.Count != b.Tribes.Count) return false;
-        for (int k = 0; k < a.Tribes.Count; k++)
-        {
-            if (a.Tribes[k].Id != b.Tribes[k].Id) return false;
-            if (a.Tribes[k].OriginCell != b.Tribes[k].OriginCell) return false;
-            if (a.Tribes[k].MainCell != b.Tribes[k].MainCell) return false;
-            if (a.Tribes[k].Culture != b.Tribes[k].Culture) return false;
-            if (a.Tribes[k].Tech != b.Tribes[k].Tech) return false;
-            if (a.Tribes[k].Population != b.Tribes[k].Population) return false;
-        }
-        return true;
-    }
 }

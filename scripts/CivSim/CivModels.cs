@@ -5,25 +5,23 @@ using Godot;
 namespace World.CivSim;
 
 /// <summary>
-/// 文明演化模型统一抽象基类（延续项目抽象建模定案：唯一基类 + 注册表，不各自建基类）。
-/// 每个机制 = 一个模型，按 Order 顺序在每 tick 执行；Verify 可查依赖完整性。
+/// 文明演化模型统一抽象基类（唯一基类 + 注册表）。每个机制 = 一个模型，按 Order 每 tick 执行。
+/// v2 部落模型：部落=格内社会单元，分裂/迁徙/接触（传播/贸易/吞并/和平合并），部落级技术。
 /// </summary>
 public abstract class CivModelBase
 {
-    public abstract string Name { get; }    // 机制名（诊断/日志）
-    public abstract int Order { get; }      // 执行顺序（依赖序：增长→技术→迁徙→文化→竞争）
+    public abstract string Name { get; }
+    public abstract int Order { get; }
     public abstract void Execute(CivSimContext ctx);
-    public virtual bool Verify(CivSimContext ctx) => true;
 }
 
-/// <summary>机制注册表（纪元 → 模型集合；v1 石器时代 6 个 tick 模型 + 起源）。</summary>
+/// <summary>机制注册表（v2 石器时代：起源/增长/分裂/迁徙/接触/技术）。</summary>
 public sealed class CivModelRegistry
 {
     private readonly List<CivModelBase> _models = new();
 
     public CivModelRegistry Register(CivModelBase m) { _models.Add(m); return this; }
 
-    /// <summary>按 Order 顺序执行全部模型（每 tick）。</summary>
     public void ExecuteAll(CivSimContext ctx)
     {
         _models.Sort((a, b) => a.Order.CompareTo(b.Order));
@@ -31,22 +29,21 @@ public sealed class CivModelRegistry
             m.Execute(ctx);
     }
 
-    /// <summary>石器时代注册表（v1 全启用）。</summary>
     public static CivModelRegistry StoneAge()
     {
         return new CivModelRegistry()
             .Register(new OriginModel())
             .Register(new GrowthModel())
-            .Register(new TechModel())
+            .Register(new FissionModel())
             .Register(new MigrationModel())
-            .Register(new CultureModel())
-            .Register(new CompetitionModel());
+            .Register(new ContactModel())
+            .Register(new TechModel());
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ① 部落起源（播种）：seed 确定性选陆地格生成初始部落（模拟智人"摇篮"）。
-//    旧石器人类适应力强——不挑条件，任何陆地都能起步（极地/冰原 K≈0 除外）。
+// ① 部落起源（播种）：seed 确定性选陆地格，每格 1 个部落（100 人，自带石核 T01）。
+//    旧石器人类适应力强——不挑环境（极地/冰原 K≈0 除外）。
 // ══════════════════════════════════════════════════════════════════
 public sealed class OriginModel : CivModelBase
 {
@@ -55,36 +52,40 @@ public sealed class OriginModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        if (ctx.Tick > 0) return;   // 只在 tick 0 播种
+        if (ctx.Tick > 0) return;
         var land = new List<int>();
         for (int i = 0; i < ctx.Grid.N; i++)
             if (ctx.Grid.IsLandCell(i) && ctx.BaseK[i] > 0f)
                 land.Add(i);
         if (land.Count == 0) return;
         int count = Mathf.Min(ctx.OriginCount, land.Count);
+        var used = new HashSet<int>();
         for (int k = 0; k < count; k++)
         {
-            int pick = land[ctx.Rng.Next(land.Count)];
+            int pick;
+            int guard = 0;
+            do { pick = land[ctx.Rng.Next(land.Count)]; guard++; }
+            while (used.Contains(pick) && guard < 64);
+            used.Add(pick);
             var tribe = new Tribe
             {
                 Id = ctx.Tribes.Count,
+                Cell = pick,
+                Population = 100f,
+                Culture = (byte)k,          // 每摇篮独立文化标签
+                TechFlags = TechTable.Set(0UL, 0),   // 自带石核 T01
                 OriginCell = pick,
-                Culture = (byte)ctx.Tribes.Count,   // 每摇篮独立文化标签
-                Tech = 0,
+                BornTick = 0,
             };
             ctx.Tribes.Add(tribe);
-            ctx.Cells[pick].Population = 100f;      // 起始人口 100
-            ctx.Cells[pick].Culture = tribe.Culture;
-            ctx.Cells[pick].Tech = 0;
-            ctx.Cells[pick].TribeId = tribe.Id;
+            ctx.CellTribes[pick].Add(tribe);
         }
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ② 人口增长（logistic，承载力 K=环境×技术×水源）：
-//    dP = r·Δt·P·(1−P/K)；超载（>1.3K）触发资源枯竭负增长。
-//    自然增长率 r=0.5%/年（前工业 ~0.05%/年，游戏压缩 10×，否则旧石器 10 万年太久）。
+// ② 人口增长（格级 logistic，按部落人口比例分配）：
+//    格总人口 P 按 K 增长，dP 按各部落人口占比分配。超载（>1.3K）枯竭负增长。
 // ══════════════════════════════════════════════════════════════════
 public sealed class GrowthModel : CivModelBase
 {
@@ -94,63 +95,68 @@ public sealed class GrowthModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         float f = ctx.TickFactor;
-        float total = 0f;
-        var cells = ctx.Cells;
-        for (int i = 0; i < cells.Length; i++)
+        for (int i = 0; i < ctx.Grid.N; i++)
         {
-            if (cells[i].TribeId < 0) continue;
+            var list = ctx.CellTribes[i];
+            if (list.Count == 0) continue;
+            float P = ctx.CellPop[i];
             float K = ctx.CellK[i];
-            float p = cells[i].Population;
-            if (K <= 0f) { cells[i].Population = 0f; continue; }
-            float g = f * p * (1f - p / K);
-            if (p > CivSimContext.OvercrowdLimit * K)
-                g -= f * p * 0.5f;                       // 超载：资源枯竭衰减
-            cells[i].Population = Mathf.Max(0f, p + g);
-            total += cells[i].Population;
+            if (P <= 0f || K <= 0f) continue;
+            float g = f * P * (1f - P / K);
+            if (P > 1.3f * K) g -= f * P * 0.5f;   // 超载枯竭
+            if (Mathf.Abs(g) < 1e-6f) continue;
+            // 按人口比例分配增长
+            for (int k = 0; k < list.Count; k++)
+            {
+                var t = list[k];
+                if (t.Population > 0f)
+                    t.Population = Mathf.Max(0f, t.Population + g * (t.Population / P));
+            }
         }
-        ctx.TotalPopulation = total;
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ⑤ 技术演进（史前序列：石核→手斧(火)→细石器→弓箭）。
-//    按史实是泛大陆传播（阿舍利手斧横跨非欧亚）→ 全局解锁：
-//    tick≥60 且全球人口>5万 → 手斧+火；tick≥100 → 细石器；tick≥150 → 弓箭。
-//    人口不足则技术停滞（真实：塔斯马尼亚孤岛技术退化）。
-//    技术提升承载力 ×1.4/级；火（技术≥1）解锁极寒区（苔原/冰原 K×3）。
+// ③ 部落分裂（segmentary lineage）：部落人口 > 150 → 同格裂变，
+//    新部落带走 45%（继承技术/文化），此后各自独立发展（各有"酋长"）。
 // ══════════════════════════════════════════════════════════════════
-public sealed class TechModel : CivModelBase
+public sealed class FissionModel : CivModelBase
 {
-    public override string Name => "技术演进";
+    public override string Name => "部落分裂";
     public override int Order => 20;
 
     public override void Execute(CivSimContext ctx)
     {
-        byte newTech = 0;
-        if (ctx.Tick >= 60 && ctx.TotalPopulation > 50_000f) newTech = 1;   // 手斧/火（旧石器中期）
-        if (ctx.Tick >= 100 && ctx.TotalPopulation > 200_000f) newTech = 2; // 细石器（旧石器晚期）
-        if (ctx.Tick >= 150 && ctx.TotalPopulation > 500_000f) newTech = 3; // 弓箭（旧石器末期）
-        if (newTech == 0) return;
-
-        var cells = ctx.Cells;
-        for (int i = 0; i < cells.Length; i++)
+        // 快照遍历（新部落下 tick 再判分裂，避免同 tick 连锁）
+        var snapshot = ctx.Tribes.ToArray();
+        foreach (var t in snapshot)
         {
-            if (cells[i].TribeId < 0) continue;
-            if (cells[i].Tech < newTech) cells[i].Tech = newTech;
-            // 承载力更新：基础 × 1.4^tech；火解锁极寒（苔原/冰原 ×3）
-            float k = ctx.BaseK[i] * Mathf.Pow(CivSimContext.TechKFactor, cells[i].Tech);
-            if (cells[i].Tech >= 1 && ctx.BaseK[i] <= 0.05f * ctx.Grid.CellAreaKm2)
-                k = Mathf.Max(k, 0.05f * ctx.Grid.CellAreaKm2 * 3f);
-            ctx.CellK[i] = k;
+            if (t.Dead) continue;
+            if (t.Population <= CivSimContext.SplitPop) continue;
+            if (ctx.CellTribes[t.Cell].Count >= CivSimContext.MaxTribesPerCell) continue;   // 格内社会密度上限
+            float newPop = t.Population * CivSimContext.SplitShare;
+            t.Population -= newPop;
+            var nt = new Tribe
+            {
+                Id = ctx.Tribes.Count,
+                Cell = t.Cell,
+                Population = newPop,
+                Culture = t.Culture,
+                TechFlags = t.TechFlags,     // 分裂瞬间技术相同，此后分道扬镳
+                OriginCell = t.Cell,
+                BornTick = ctx.Tick,
+            };
+            ctx.Tribes.Add(nt);
+            ctx.CellTribes[t.Cell].Add(nt);
+            ctx.Fissions++;
         }
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ③ 迁徙扩散（人口压力驱动）：格人口 ≥90%K → 溢出 15% 人口到相邻宜居格。
-//    选格：最宜居（K 最高）候选 + 小随机；无人格=开辟新地（谱系继承来源部落），
-//    有人格=并入（人口相加）。无候选（全饱和）→ 强制压入最弱相邻格（冲突损耗 30%）。
-//    速度自洽：n=64 每格 ~110km，1 格/100 年 ≈ 1.1km/年 = 真实智人扩散速率。
+// ④ 迁徙：饱和迁徙（格人口 >90%K → 最大部落分出 50% 迁往相邻宜居格）
+//    + 探路迁徙（人口 >100 的部落 2%/tick 向无人邻格迁出 30%，持续扩散——旧石器特性）。
+//    目标格：陆地邻格（无船不跨海），优先无人/低密度、高 K。
 // ══════════════════════════════════════════════════════════════════
 public sealed class MigrationModel : CivModelBase
 {
@@ -159,135 +165,234 @@ public sealed class MigrationModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        var cells = ctx.Cells;
-        for (int i = 0; i < cells.Length; i++)
+        // ── 饱和迁徙 ──
+        for (int i = 0; i < ctx.Grid.N; i++)
         {
-            if (cells[i].TribeId < 0) continue;
+            var list = ctx.CellTribes[i];
+            if (list.Count == 0) continue;
+            float P = ctx.CellPop[i];
             float K = ctx.CellK[i];
-            float p = cells[i].Population;
-            if (K <= 0f) continue;
+            if (K <= 0f || P < CivSimContext.MigrateThreshold * K) continue;
+            // 最大部落
+            Tribe tmax = list[0];
+            for (int k = 1; k < list.Count; k++)
+                if (list[k].Population > tmax.Population) tmax = list[k];
+            int target = PickTarget(ctx, i, tmax, requireUnoccupied: false);
+            if (target < 0) continue;
+            float move = tmax.Population * CivSimContext.MigrateShare;
+            tmax.Population -= move;
+            SpawnTribe(ctx, tmax, target, move);
+            ctx.Migrations++;
+        }
 
-            // ── 探路扩散（持续探索，不依赖饱和）：有无人宜居邻格 → 恒播 5% 开拓新地。
-            //    真实旧石器扩散前沿 ~1km/年 持续推进，不依赖人口密度（即使密度低也迁徙）。──
-            if (p > 300f)
-            {
-                foreach (int nb in ctx.Grid.Neighbors[i])
-                {
-                    if (cells[nb].TribeId >= 0 || !ctx.Grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
-                    MoveTo(ctx, i, nb, p * 0.05f);   // 新格种子 ~15+ 人，2-3 tick 内再探
-                    break;                           // 每 tick 每格最多探 1 个新格（前沿稳定推进）
-                }
-            }
-
-            // ── 饱和扩散（人口压力）：≥75%K → 主候选 25% + 其余候选各 8% ──
-            if (p < CivSimContext.MigrateThreshold * K) continue;
-
-            // 候选 = 无人或低密度（<0.8K）宜居邻格；weakest = 最弱饱和邻格（冲突压入目标）
-            int best = -1; float bestK = -1f;
-            var candidates = new System.Collections.Generic.List<int>();
-            int weakest = -1; float weakestP = float.MaxValue;
-            foreach (int nb in ctx.Grid.Neighbors[i])
-            {
-                if (!ctx.Grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
-                float np = cells[nb].Population;
-                float nk = ctx.CellK[nb];
-                if (cells[nb].TribeId < 0 || np < 0.8f * nk)
-                {
-                    candidates.Add(nb);
-                    if (nk > bestK) { bestK = nk; best = nb; }
-                }
-                else if (np < weakestP) { weakestP = np; weakest = nb; }
-            }
-            if (candidates.Count == 0 && weakest < 0) continue;
-
-            // 主候选：最优宜居格 25%（10% 随机偏差选次优，避免全涌同一格）
-            if (candidates.Count > 0)
-            {
-                int target = best;
-                if (ctx.Rng.NextDouble() < 0.1 && candidates.Count > 1)
-                {
-                    for (int k = 0; k < candidates.Count; k++)
-                        if (candidates[k] != best) { target = candidates[k]; break; }
-                }
-                MoveTo(ctx, i, target, p * CivSimContext.MigrateShare);
-                // 其余候选：各播种 8%（多路扩散 → 前沿成面铺开，而非单线推进）
-                foreach (int c in candidates)
-                    if (c != target)
-                        MoveTo(ctx, i, c, p * CivSimContext.MigrateShareSecondary);
-            }
-            else if (weakest >= 0)
-            {
-                // 全饱和 → 冲突压入最弱邻格：尝试转移 15%，30% 冲突损耗（资源争夺死亡）
-                float push = p * 0.15f;
-                cells[i].Population -= push;
-                cells[weakest].Population += push * 0.7f;
-            }
+        // ── 探路迁徙（持续扩散前沿）──
+        var snapshot = ctx.Tribes.ToArray();
+        foreach (var t in snapshot)
+        {
+            if (t.Dead) continue;
+            if (t.Population < CivSimContext.ScoutMinPop) continue;
+            if (ctx.Rng.NextDouble() >= CivSimContext.ScoutChance) continue;
+            int target = PickTarget(ctx, t.Cell, t, requireUnoccupied: true);
+            if (target < 0) continue;
+            float move = t.Population * CivSimContext.ScoutShare;
+            t.Population -= move;
+            SpawnTribe(ctx, t, target, move);
+            ctx.Migrations++;
         }
     }
 
-    private static void MoveTo(CivSimContext ctx, int from, int to, float amount)
+    /// <summary>选迁徙目标：陆地邻格（无船不跨海），优先无人格、高 K、低密度。</summary>
+    private static int PickTarget(CivSimContext ctx, int from, Tribe mover, bool requireUnoccupied)
     {
-        var cells = ctx.Cells;
-        if (amount <= 0f) return;
-        cells[from].Population -= amount;   // 源格泄压（总人口守恒：迁移不产生/消灭人口）
-        if (cells[to].TribeId < 0)
+        int best = -1; float bestScore = -1f;
+        foreach (int nb in ctx.Grid.Neighbors[from])
         {
-            // 开辟新地：谱系继承来源部落（同起源扩散）
-            cells[to].TribeId = cells[from].TribeId;
-            cells[to].Culture = cells[from].Culture;
-            cells[to].Tech = cells[from].Tech;
+            if (!ctx.Grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
+            if (ctx.CellPop[nb] <= 0f) { if (requireUnoccupied) return nb; }
+            else if (requireUnoccupied) continue;
+            // 打分：K 高、人口低（宜居 + 空间）
+            float score = ctx.CellK[nb] / Mathf.Max(1f, ctx.CellPop[nb]);
+            if (score > bestScore) { bestScore = score; best = nb; }
         }
-        cells[to].Population += amount;
+        return best;
+    }
+
+    private static void SpawnTribe(CivSimContext ctx, Tribe from, int cell, float pop)
+    {
+        if (pop <= 0f) return;
+        var nt = new Tribe
+        {
+            Id = ctx.Tribes.Count,
+            Cell = cell,
+            Population = pop,
+            Culture = from.Culture,
+            TechFlags = from.TechFlags,     // 迁徙带走技术
+            OriginCell = cell,
+            BornTick = ctx.Tick,
+        };
+        ctx.Tribes.Add(nt);
+        ctx.CellTribes[cell].Add(nt);
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ⑥ 文化传播（相邻同化）：相邻格人口比 >3:1 → 强文化以 50%/tick 概率同化弱格
-//    （语言/习俗随人口优势扩散；真实：农业人口扩张携带文化替代狩猎采集者）。
+// ⑤ 部落接触（边界格对 + 同格）：四种后果
+//    · 技术传播（接触即传播，贸易 ×2 加速）
+//    · 贸易（物物交换，接触即贸易：统计 + 传播加速）
+//    · 冲突吞并（同格人口 >3:1 → 强吞弱，技术并集）
+//    · 和平合并（同格人口 0.5~2 且文化同 → 融合，技术并集）
+//    · 文化同化（格内人口优势方同化弱方文化）
 // ══════════════════════════════════════════════════════════════════
-public sealed class CultureModel : CivModelBase
+public sealed class ContactModel : CivModelBase
 {
-    public override string Name => "文化传播";
+    public override string Name => "部落接触";
     public override int Order => 40;
 
     public override void Execute(CivSimContext ctx)
     {
-        var cells = ctx.Cells;
-        var nb = ctx.Grid.Neighbors;
-        for (int i = 0; i < cells.Length; i++)
+        // ── 同格：主导部落 vs 其余（吞并/和平合并/文化/传播）──
+        for (int i = 0; i < ctx.Grid.N; i++)
         {
-            if (cells[i].TribeId < 0) continue;
-            foreach (int j in nb[i])
+            var list = ctx.CellTribes[i];
+            if (list.Count < 2) continue;
+            list.Sort((a, b) => b.Population.CompareTo(a.Population));   // 主导在前
+            var dom = list[0];
+            for (int k = 1; k < list.Count; k++)
             {
-                if (j <= i || cells[j].TribeId < 0) continue;   // 只处理 i<j 避免双向重复
-                float pi = cells[i].Population, pj = cells[j].Population;
-                if (pi > CivSimContext.AssimilateRatio * pj && ctx.Rng.NextDouble() < CivSimContext.AssimilateChance)
-                    cells[j].Culture = cells[i].Culture;
-                else if (pj > CivSimContext.AssimilateRatio * pi && ctx.Rng.NextDouble() < CivSimContext.AssimilateChance)
-                    cells[i].Culture = cells[j].Culture;
+                var t = list[k];
+                if (t.Population <= 0f) { t.Dead = true; list.RemoveAt(k); k--; continue; }
+                float ratio = dom.Population / t.Population;
+                if (ratio > CivSimContext.AbsorbRatio)
+                {
+                    // 冲突吞并：强吞弱（消灭+吸收；死亡标记，Tribes 定期 compact 避免 O(n) Remove）
+                    dom.Population += t.Population;
+                    dom.TechFlags |= t.TechFlags;
+                    t.Dead = true;
+                    list.RemoveAt(k); ctx.Absorptions++; k--;
+                }
+                else if (ratio < CivSimContext.MergeRatioMax && dom.Culture == t.Culture
+                         && ctx.Rng.NextDouble() < CivSimContext.MergeChance)
+                {
+                    // 和平合并：对等 + 同文化 → 融合
+                    dom.Population += t.Population;
+                    dom.TechFlags |= t.TechFlags;
+                    t.Dead = true;
+                    list.RemoveAt(k); ctx.Merges++; k--;
+                }
+                else
+                {
+                    // 维持接触：文化同化 + 技术互学 + 贸易
+                    if (ctx.Rng.NextDouble() < CivSimContext.AssimilateChance)
+                        t.Culture = dom.Culture;
+                    SpreadTech(ctx, dom, t);
+                    SpreadTech(ctx, t, dom);
+                    ctx.TradeContacts++;
+                }
             }
+        }
+
+        // ── 相邻格：接触传播 + 贸易（跨格不吞并——石器时代无领土概念）。
+        //   每对格用代表部落（人口最大）互传——性能 O(边界格对)，格内技术差异由同格接触拉平 ──
+        for (int i = 0; i < ctx.Grid.N; i++)
+        {
+            var a = ctx.CellTribes[i];
+            if (a.Count == 0) continue;
+            foreach (int nb in ctx.Grid.Neighbors[i])
+            {
+                if (nb <= i) continue;   // 去重
+                var b = ctx.CellTribes[nb];
+                if (b.Count == 0) continue;
+                var repA = a[0];
+                for (int x = 1; x < a.Count; x++) if (a[x].Population > repA.Population) repA = a[x];
+                var repB = b[0];
+                for (int y = 1; y < b.Count; y++) if (b[y].Population > repB.Population) repB = b[y];
+                SpreadTech(ctx, repA, repB);
+                SpreadTech(ctx, repB, repA);
+                ctx.TradeContacts++;
+            }
+        }
+    }
+
+    /// <summary>技术传播（from → to）：to 缺 from 的技术且前置满足 → 按传播概率获得。
+    /// 接触即贸易 → 传播概率 × 贸易加速 ×2。旧石器技术易传，高级技术难传。</summary>
+    private static void SpreadTech(CivSimContext ctx, Tribe from, Tribe to)
+    {
+        ulong missing = from.TechFlags & ~to.TechFlags;
+        if (missing == 0) return;   // 对方全会 → 快速跳过
+        var techs = TechTable.All;
+        for (int i = 1; i < techs.Length; i++)   // 跳过石核(0)
+        {
+            if ((missing & (1UL << i)) == 0) continue;
+            var def = techs[i];
+            if (!TechTable.HasAll(to.TechFlags, def.Requires)) continue;
+            float p = def.SpreadBase * CivSimContext.TradeSpreadBonus;
+            if (ctx.Rng.NextDouble() < Mathf.Min(0.5f, p))
+                to.TechFlags = TechTable.Set(to.TechFlags, i);
         }
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ⑦ 部落竞争（轻度）：超载格资源枯竭衰减（>1.3K 每 tick −5%）+ 迁徙冲突损耗。
-//    石器时代无"战争"，只有密度压力下的消耗/替换（生态学竞争模型）。
+// ⑥ 技术发明（部落级）：前置满足 + 人口门槛（旧石器 30-120 低门槛；农业 -1=格 K 利用率
+//    > 全局 P80 人口压力）+ 环境 + 随机概率 → 部落获得。
+//    农业发明少数起源中心（高门槛+低概率），其余靠接触传播——部落节奏差异的来源。
 // ══════════════════════════════════════════════════════════════════
-public sealed class CompetitionModel : CivModelBase
+public sealed class TechModel : CivModelBase
 {
-    public override string Name => "部落竞争";
+    public override string Name => "技术发明";
     public override int Order => 50;
+
+    private float _agriPressureP80 = 0.6f;   // 农业人口压力阈值（缓存，每 tick 重算）
 
     public override void Execute(CivSimContext ctx)
     {
-        var cells = ctx.Cells;
-        for (int i = 0; i < cells.Length; i++)
+        // 农业特殊条件：格 K 利用率（人口压力）全局 P80——人口密度接近承载 = 觅食压力 → 种植
+        ComputeAgriculturePressure(ctx);
+
+        var snapshot = ctx.Tribes.ToArray();
+        foreach (var t in snapshot)
         {
-            if (cells[i].TribeId < 0) continue;
-            float K = ctx.CellK[i];
-            if (K > 0f && cells[i].Population > CivSimContext.OvercrowdLimit * K)
-                cells[i].Population *= 0.95f;   // 超载枯竭（缓慢消耗，给迁徙留时间）
+            if (t.Dead) continue;
+            var techs = TechTable.All;
+            // 随机起点轮转：每部落每 tick 只检查 TechInventRolls 个未获技术（性能上限；
+            // 300 tick × 4 次 = 1200 次尝试，25 项技术覆盖充分）
+            int start = ctx.Rng.Next(techs.Length - 1) + 1;
+            for (int r = 0; r < CivSimContext.TechInventRolls; r++)
+            {
+                int i = start + r;
+                if (i >= techs.Length) i = i % (techs.Length - 1) + 1;   // 环绕（跳过 0）
+                if (TechTable.Has(t.TechFlags, i)) continue;
+                var def = techs[i];
+                if (!TechTable.HasAll(t.TechFlags, def.Requires)) continue;
+                // 人口门槛（-1 = 农业压力判定）
+                if (def.InvPop >= 0f)
+                {
+                    if (t.Population < def.InvPop) continue;
+                }
+                else
+                {
+                    float util = ctx.CellK[t.Cell] > 0f ? ctx.CellPop[t.Cell] / ctx.CellK[t.Cell] : 0f;
+                    if (util < _agriPressureP80) continue;
+                }
+                // 环境
+                if (!ctx.EnvMatches(t.Cell, def.InvEnv)) continue;
+                // 随机
+                if (ctx.Rng.NextDouble() < def.InvProb)
+                    t.TechFlags = TechTable.Set(t.TechFlags, i);
+            }
         }
+    }
+
+    private void ComputeAgriculturePressure(CivSimContext ctx)
+    {
+        var utils = new List<float>(ctx.Grid.N);
+        for (int i = 0; i < ctx.Grid.N; i++)
+        {
+            if (ctx.CellPop[i] <= 0f || ctx.CellK[i] <= 0f) continue;
+            utils.Add(ctx.CellPop[i] / ctx.CellK[i]);
+        }
+        if (utils.Count < 10) { _agriPressureP80 = 0.6f; return; }
+        utils.Sort();
+        _agriPressureP80 = utils[Mathf.Clamp((int)(utils.Count * 0.8f), 0, utils.Count - 1)];
     }
 }

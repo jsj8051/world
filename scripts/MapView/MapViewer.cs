@@ -114,11 +114,12 @@ public partial class MapViewer : Node3D
     private byte[] _tileMonthPrecip; // 每格当月降水比例 0-255（v3.8 月降水图层；月份切换时刷新）
     private byte[] _tileMonthTemp;   // 每格当月温度 −60~60°C→0-255（v3.8 月温度图层；月份切换时刷新）
     private int[] _tileVerts;      // 每格最近模拟顶点 id（月降水/月温度刷新用）
-    // 文明图层（.cmp 游玩地图；v1 石器时代：人口/文化/部落）
+    // 文明图层（.cmp 游玩地图；v2 部落模型：人口/文化/部落/科技）
     private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
-    private float[] _tilePop;       // 每格人口（0=无人/海洋）
-    private byte[] _tileCulture;    // 每格文化标签（0=无）
-    private int[] _tileTribe;       // 每格部落谱系 id（-1=无）
+    private float[] _tilePop;       // 每格总人口（Σ 部落，0=无人/海洋）
+    private byte[] _tileCulture;    // 每格主导文化标签（0=无）
+    private int[] _tileTribe;       // 每格主导部落 id（-1=无）
+    private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
     private float _civPopMax;       // 人口图层色带上限（对数归一化用）
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
     private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
@@ -153,7 +154,7 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技" };
 
     /// <summary>文明图层调色板（文化/部落标签取色；高区分度 8 色循环）。</summary>
     private static readonly Color[] CulturePalette =
@@ -166,6 +167,15 @@ public partial class MapViewer : Node3D
         new(0.20f, 0.80f, 0.80f),  // 青
         new(0.90f, 0.50f, 0.70f),  // 粉
         new(0.60f, 0.60f, 0.20f),  // 橄榄
+    };
+
+    /// <summary>科技图层时代色带（索引 0=新石器 1=青铜 2=铁器 3=古典+）。</summary>
+    private static readonly Color[] TechEpochColors =
+    {
+        new(0.35f, 0.75f, 0.35f),  // 新石器：绿（农业）
+        new(0.90f, 0.60f, 0.20f),  // 青铜：橙（冶金）
+        new(0.30f, 0.50f, 0.85f),  // 铁器：蓝（铁兵）
+        new(0.65f, 0.40f, 0.85f),  // 古典/中世纪：紫（帝国）
     };
 
     public override void _Ready()
@@ -230,6 +240,7 @@ public partial class MapViewer : Node3D
         12 => "人口",
         13 => "文化",
         14 => "部落",
+        15 => "科技",
         _ => "风场",
     };
     public override void _Process(double delta)
@@ -267,7 +278,7 @@ public partial class MapViewer : Node3D
                 _civCtx = civResult.Context;
                 _mapLoaded = true;
                 GD.Print($"[MapViewer] loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
-                         $"epoch={civResult.Context.Epoch.Name} ticks={civResult.FinalTick} pop={TotalCivPop(civResult.Context):F0} tribes={civResult.Context.Tribes.Count})");
+                         $"epoch={civResult.Context.Epoch.Name} ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} tribes={civResult.Context.Tribes.Count})");
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -411,6 +422,7 @@ public partial class MapViewer : Node3D
         _tilePop = new float[n];
         _tileCulture = new byte[n];
         _tileTribe = new int[n];
+        _tileTechEpoch = new byte[n];
         System.Array.Fill(_tileTribe, -1);
         bool hasCiv = _civCtx != null;
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
@@ -453,13 +465,20 @@ public partial class MapViewer : Node3D
             minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
             soilArr[i] = map.SoilLevel != null ? map.SoilLevel[vid] : (byte)0;
             monsoonArr[i] = map.MonsoonLevel != null ? map.MonsoonLevel[vid] : (byte)0;
-            // 文明图层（.cmp：格 id = 模拟顶点 id，零重采样直读）
+            // 文明图层（.cmp：格 id = 模拟顶点 id，零重采样直读；v2 部落模型：格=容器，主导部落=人口最大）
             if (hasCiv)
             {
-                var civ = _civCtx.Cells[vid];
-                _tilePop[i] = civ.Population;
-                _tileCulture[i] = civ.Culture;
-                _tileTribe[i] = civ.TribeId;
+                _tilePop[i] = _civCtx.CellPop[vid];
+                var tlist = _civCtx.CellTribes[vid];
+                if (tlist.Count > 0)
+                {
+                    var dom = tlist[0];
+                    for (int k = 1; k < tlist.Count; k++)
+                        if (tlist[k].Population > dom.Population) dom = tlist[k];
+                    _tileCulture[i] = dom.Culture;
+                    _tileTribe[i] = dom.Id;
+                    _tileTechEpoch[i] = (byte)World.CivSim.TechTable.MaxEpoch(dom.TechFlags);
+                }
             }
         });
         // 人口图层色带上限（对数归一化；无文明数据 → 1 避免除零）
@@ -479,14 +498,6 @@ public partial class MapViewer : Node3D
         _hSea = hSea;
     }
     private float _hSea = 0.5f;
-
-    /// <summary>文明演化总人口（.cmp 加载日志/摘要用）。</summary>
-    private static float TotalCivPop(World.CivSim.CivSimContext ctx)
-    {
-        float s = 0f;
-        for (int i = 0; i < ctx.Cells.Length; i++) s += ctx.Cells[i].Population;
-        return s;
-    }
 
     /// <summary>图层 → 颜色函数（查预计算缓存，零采样）。</summary>
     /// ⚠️ 2026-08-02 大改进：参数化 layer（不读共享字段）——原内部 switch(Layer) 在后台
@@ -591,6 +602,13 @@ public partial class MapViewer : Node3D
     								        int tribeId = _tileTribe[id];
     								        if (tribeId < 0) return new Color(0.25f, 0.25f, 0.28f);
     								        return CulturePalette[tribeId % CulturePalette.Length];
+    								    }
+    								case 15: // 科技：主导部落最高技术时代色带（石器灰→新石器绿→青铜橙→铁器蓝→古典紫）
+    								    {
+    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        byte ep = _tileTechEpoch[id];
+    								        if (ep == 0) return new Color(0.55f, 0.55f, 0.55f);
+    								        return TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];
     								    }
     			default: // 海拔
     				{
@@ -1319,6 +1337,8 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M12 3 L12 25 M12 6 L24 6 L21 11 L24 16 L12 16' fill='#fa6' stroke='#fa6' stroke-width='1.5' stroke-linejoin='miter'/></svg>",
         // 14 部落：帐篷（三角形+地面线，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 24 L4 24 Z M8 24 L20 24 M11 13 L17 13' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
+        // 15 科技：灯泡（灯丝+底座，直线）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='14' cy='11' r='7' fill='none' stroke='#8f8' stroke-width='2'/><path d='M11 19 H17 M12.5 23 H15.5 M14 16 V19' stroke='#8f8' stroke-width='2' stroke-linecap='round'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)

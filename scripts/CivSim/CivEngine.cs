@@ -5,24 +5,24 @@ using World.LogicGrid;
 
 namespace World.CivSim;
 
-/// <summary>文明演化纪元（时间轴）。v1 只实现 StoneAge，后续纪元机制逐代注册。</summary>
+/// <summary>文明演化纪元（时间轴标签；推进完全逐格/逐部落异步，纪元仅用于存档标签与统计）。</summary>
 public enum EpochKind
 {
-    StoneAge = 0,     // 旧石器：狩猎采集、部落扩散（v1）
-    Neolithic,        // 新石器：农业革命、聚落定居（v2）
-    BronzeAge,        // 青铜：城市、文字、国家雏形（v3）
-    IronAge,          // 铁器：军事扩张、边界战争（v4）
-    Classical,        // 古典：帝国整合、文化繁荣（v5）
-    Medieval,         // 中世纪：封建、贸易（终点）
+    StoneAge = 0,     // 旧石器：狩猎采集、部落扩散
+    Neolithic,        // 新石器：农业革命、定居（部落异步进入）
+    BronzeAge,        // 青铜
+    IronAge,          // 铁器
+    Classical,        // 古典
+    Medieval,         // 中世纪（终点）
 }
 
-/// <summary>纪元定义（名称/机制注册）。</summary>
+/// <summary>纪元定义（标签/时长）。</summary>
 public sealed class EpochDefinition
 {
     public EpochKind Kind;
     public string Name;
-    public int MaxTicks;          // 该纪元 tick 上限（演化时长）
-    public int TickYears;         // 每 tick 对应年数
+    public int MaxTicks;
+    public int TickYears;
 
     public EpochDefinition(EpochKind kind, string name, int maxTicks, int tickYears)
     {
@@ -30,56 +30,64 @@ public sealed class EpochDefinition
     }
 }
 
-/// <summary>每格文明状态（连续场；v1 石器时代无聚落/国家）。</summary>
-public struct CellCiv
-{
-    public float Population;   // 人口（狩猎采集者）
-    public byte Culture;       // 文化标签 id（0=无）
-    public byte Tech;          // 技术层级 0=石核 1=手斧 2=细石器 3=弓箭
-    public int TribeId;        // 所属部落谱系 id（-1=无人）
-}
-
-/// <summary>部落实体（谱系跟踪：起源格/文化/技术/当前主格/总人口；v1 用于输出实体表）。</summary>
+/// <summary>
+/// 部落 = 格内社会单元（动态）。一格可容纳多个部落；部落不跨格。
+/// 会分裂（segmentary lineage：人口超阈值同格裂变）、被吞并、和平合并、迁徙（迁往相邻格）。
+/// 技术 = 部落属性（位掩码），发明看部落人口+环境，传播靠部落接触（不分同源）。
+/// </summary>
 public class Tribe
 {
     public int Id;
-    public int OriginCell;     // 起源格
-    public byte Culture;       // 当前文化
-    public byte Tech;          // 当前技术层级
-    public int MainCell;       // 当前人口最多格
-    public float Population;   // 总人口（演化末统计）
+    public int Cell;           // 所在格（游动中心；部落不占多格）
+    public float Population;
+    public byte Culture;
+    public ulong TechFlags;    // 技术位掩码（TechTable）
+    public int OriginCell;     // 起源格（历史记录）
+    public int BornTick;       // 成立 tick
+    public bool Dead;          // 死亡标记（被吞并/合并；Tribes 定期 compact，避免 O(n) Remove）
 }
 
 /// <summary>文明演化上下文（一次演化的全部状态；机制在此读写）。</summary>
 public sealed class CivSimContext
 {
     public GameGrid Grid;             // 自然层（只读输入）
-    public CellCiv[] Cells;           // 每格文明状态
-    public List<Tribe> Tribes = new();// 部落谱系表
-    public int Tick;                  // 当前 tick
-    public EpochDefinition Epoch;     // 当前纪元
-    public int Seed;                  // 演化种子（确定性）
-    public int OriginCount = 3;       // 起源摇篮数（1-3）
+    public List<Tribe>[] CellTribes;  // 每格部落列表（格=地理容器，一格多部落）
+    public List<Tribe> Tribes;        // 全部存活部落
+    public int Tick;
+    public EpochDefinition Epoch;
+    public int Seed;
+    public int OriginCount = 3;
     public Random Rng;                // 确定性随机（同 seed 可复现）
-    public int LandCells;             // 陆地格数（预统计）
-    public float[] CellK;             // 每格当前承载人口（环境×技术，tick 内更新）
-    public float[] BaseK;             // 每格基础承载人口（环境 only，技术 0）
-    public float TotalPopulation;     // 总人口（每 tick 统计）
 
-    // ── 参数标定（狩猎采集人类学依据，见 docs/文明演化v1.md）──
+    public float[] BaseK;             // 每格基础承载（环境 only）
+    public float[] CellK;             // 每格当前承载（环境 × 格内部落技术并集乘数）
+    public float[] CellPop;           // 每格总人口（Σ 部落，每 tick 缓存）
+
+    // ── 演化统计（诊断/输出）──
+    public int Fissions;              // 分裂次数
+    public int Absorptions;           // 吞并次数
+    public int Merges;                // 和平合并次数
+    public int Migrations;            // 迁徙次数
+    public long TradeContacts;        // 贸易接触次数
+
+    // ── 参数标定（人类学依据，见 docs/文明演化v1.md）──
     public const float GrowthRatePerYear = 0.005f;   // 自然增长率 r（前工业 ~0.05%/年，游戏压缩 10×）
-    public const float MigrateThreshold = 0.75f;     // 人口 ≥75% K 触发迁徙（饱和前开始泄压）
-    public const float MigrateShare = 0.25f;         // 主候选格溢出比例（最优宜居格）
-    public const float MigrateShareSecondary = 0.08f;// 其余候选格播种比例（多路扩散，前沿铺开）
-    public const float OvercrowdLimit = 1.3f;        // 超载上限（>1.3K 资源枯竭惩罚）
-    public const float AssimilateRatio = 3f;         // 相邻人口比 >3:1 才同化文化
-    public const float AssimilateChance = 0.5f;      // 同化概率/tick
-    public const int TechUnlockPop = 100_000;        // 细石器全局人口门槛（旧石器晚期 ~几十万）
-    public const int TechUnlockTick = 60;            // 且至少演化 60 tick（6000 年）
-    public const float TechKFactor = 1.4f;           // 每级技术承载提升 ×1.4
-    public const float FireKFactor = 1.0f;           // 技术≥1（火）后极寒区可居（K 下限提升）
+    public const float SplitPop = 400f;              // 部落分裂阈值（游戏部落=数百人社会单元，超阈值 segmentary lineage 裂变）
+    public const int MaxTribesPerCell = 8;           // 格内部落上限（超限不分裂，迁徙优先——性能 + 社会密度双重约束）
+    public const float SplitShare = 0.45f;           // 分裂时新部落带走比例
+    public const float MigrateThreshold = 0.9f;      // 格饱和触发迁徙
+    public const float MigrateShare = 0.5f;          // 饱和迁徙时迁出部落分出比例
+    public const float ScoutChance = 0.02f;          // 探路迁徙概率/tick（持续扩散，旧石器特性）
+    public const float ScoutMinPop = 100f;           // 探路最小部落人口
+    public const float ScoutShare = 0.3f;            // 探路迁出比例
+    public const float AbsorbRatio = 3f;             // 冲突吞并人口比（>3:1）
+    public const float MergeRatioMax = 2f;           // 和平合并人口比上限（0.5~2 视为对等）
+    public const float MergeChance = 0.005f;         // 和平合并概率/tick/接触
+    public const float AssimilateChance = 0.3f;      // 文化同化概率/tick（格内）
+    public const float TradeSpreadBonus = 2f;        // 贸易对技术传播的加速倍率
+    public const int TechInventRolls = 4;            // 每部落每 tick 发明尝试的技术数（随机轮转，性能上限）
 
-    public float TickFactor => GrowthRatePerYear * Epoch.TickYears;  // 每 tick logistic 系数 r×Δt
+    public float TickFactor => GrowthRatePerYear * Epoch.TickYears;
 
     /// <summary>承载密度（人/km²）按 biome 标定（Binford 狩猎采集密度研究量级）。</summary>
     public static float CarrierDensityPerKm2(byte biome)
@@ -90,7 +98,7 @@ public sealed class CivSimContext
             case Biome.BiomeType.Ocean:
             case Biome.BiomeType.TropicalOcean:
             case Biome.BiomeType.FrigidOcean:
-                return 0f;                                   // 海洋
+                return 0f;
             case Biome.BiomeType.IceCap:
             case Biome.BiomeType.Tundra:
                 return 0.02f;                                // 极地冻原（北极 ~0.02）
@@ -103,13 +111,13 @@ public sealed class CivSimContext
             case Biome.BiomeType.Desert:
                 return 0.05f;                                // 沙漠（卡拉哈里 ~0.05）
             case Biome.BiomeType.Alpine:
-                return 0.05f;                                // 高山
+                return 0.05f;
             case Biome.BiomeType.TropicalForest:
             case Biome.BiomeType.TropicalRainforest:
             case Biome.BiomeType.TropicalMonsoon:
-                return 0.15f;                                // 雨林（亚马逊/刚果 ~0.15-0.2）
+                return 0.15f;                                // 雨林
             case Biome.BiomeType.TropicalDryForest:
-                return 0.20f;                                // 干热疏林
+                return 0.20f;
             case Biome.BiomeType.TemperateForest:
             case Biome.BiomeType.HumidSubtropical:
             case Biome.BiomeType.Oceanic:
@@ -117,7 +125,7 @@ public sealed class CivSimContext
             case Biome.BiomeType.ContinentalHot:
             case Biome.BiomeType.ContinentalWarm:
             case Biome.BiomeType.ContinentalDry:
-                return 0.30f;                                // 温带林/亚热带/大陆性
+                return 0.30f;                                // 温带/亚热带/大陆性
             case Biome.BiomeType.MediterraneanHot:
             case Biome.BiomeType.MediterraneanCool:
                 return 0.30f;                                // 地中海
@@ -127,100 +135,146 @@ public sealed class CivSimContext
             case Biome.BiomeType.HotSteppe:
             case Biome.BiomeType.ColdSteppe:
             case Biome.BiomeType.Riparian:
-                return 0.45f;                                // 草原/稀树草原/河岸带（狩猎采集高密区）
+                return 0.45f;                                // 草原/稀树草原/河岸带
             default:
-                return 0.20f;                                // 其余
+                return 0.20f;
         }
+    }
+
+    /// <summary>部落所在格环境是否满足技术环境要求（any=不限）。</summary>
+    public bool EnvMatches(int cell, string[] env)
+    {
+        if (env == null || env.Length == 0) return true;
+        var biome = (Biome.BiomeType)Grid.Biome[cell];
+        foreach (var e in env)
+        {
+            switch (e)
+            {
+                case "river":   if (biome == Biome.BiomeType.Riparian) return true; break;
+                case "coast":   if (Grid.IsCoast(cell)) return true; break;
+                case "grass":   if (biome is Biome.BiomeType.TemperateGrassland or Biome.BiomeType.Savanna
+                        or Biome.BiomeType.TropicalSavanna or Biome.BiomeType.HotSteppe
+                        or Biome.BiomeType.ColdSteppe) return true; break;
+                case "plain":   if (biome is Biome.BiomeType.TemperateGrassland or Biome.BiomeType.TemperateForest
+                        or Biome.BiomeType.ContinentalHot or Biome.BiomeType.ContinentalWarm
+                        or Biome.BiomeType.ContinentalDry) return true; break;
+                case "mediterranean": if (biome is Biome.BiomeType.MediterraneanHot or Biome.BiomeType.MediterraneanCool) return true; break;
+                case "copper":  if ((Grid.MineralLevel[cell] & 0x0F) == 2) return true; break;   // 矿种 2=铜
+                case "iron":    if ((Grid.MineralLevel[cell] & 0x0F) == 1) return true; break;   // 矿种 1=铁
+            }
+        }
+        return false;
+    }
+
+    /// <summary>全球总人口（Σ 存活部落）。</summary>
+    public float TotalPopulation()
+    {
+        float s = 0f;
+        for (int i = 0; i < Tribes.Count; i++)
+            if (!Tribes[i].Dead) s += Tribes[i].Population;
+        return s;
     }
 }
 
 /// <summary>
-/// 文明演化引擎（v1 石器时代）。输入 GameGrid（自然层只读），输出演化结果（文明状态 +
-/// 部落表），不修改自然层。确定性：同 seed 同网格 → 同结果。
+/// 文明演化引擎。输入 GameGrid（自然层只读），输出演化结果（部落表 + 每格状态），
+/// 不修改自然层。确定性：同 seed 同网格 → 同结果。
 ///
-/// 流程：起源播种（1-3 摇篮）→ tick 循环（增长→技术→迁徙→文化→竞争）→
-/// 终止（固定上限或全球人口饱和）→ 纪元终态。
+/// 模型：部落=格内社会单元（一格多部落）；分裂/迁徙/接触（传播/贸易/吞并/和平合并）；
+/// 技术=部落属性，发明（人口+环境+随机）/传播（接触），效果=承载乘数/能力解锁。
+/// 时代推进完全异步——部落按各自节奏发展（农业发明少数起源中心 + 接触传播）。
 /// </summary>
 public static class CivEngine
 {
-    /// <summary>石器时代纪元定义（300 tick × 100 年 = 3 万年；智人出非洲到全球 ~5 万年的游戏压缩；
-    /// 饱和+覆盖停滞可提前终止）。</summary>
+    /// <summary>石器时代纪元定义（300 tick × 100 年 = 3 万年；饱和+停滞可提前终止）。</summary>
     public static readonly EpochDefinition StoneAgeEpoch = new(EpochKind.StoneAge, "石器时代", 300, 100);
 
-    /// <summary>运行一次完整石器时代演化。</summary>
-    /// <param name="grid">逻辑网格（自然层，只读）。</param>
-    /// <param name="seed">演化种子（确定性复现）。</param>
-    /// <param name="originCount">起源摇篮数（1-3）。</param>
+    /// <summary>运行一次完整演化（v2 部落模型：动态分裂 + 部落级技术）。</summary>
     public static CivSimResult Run(GameGrid grid, int seed, int originCount = 3)
     {
+        TechTable.Load();
         int n = grid.N;
         var ctx = new CivSimContext
         {
             Grid = grid,
-            Cells = new CellCiv[n],
+            CellTribes = new List<Tribe>[n],
+            Tribes = new List<Tribe>(),
             Seed = seed,
             OriginCount = originCount,
             Rng = new Random(seed),
             Epoch = StoneAgeEpoch,
-            CellK = new float[n],
             BaseK = new float[n],
+            CellK = new float[n],
+            CellPop = new float[n],
         };
         for (int i = 0; i < n; i++)
-            ctx.Cells[i].TribeId = -1;
+            ctx.CellTribes[i] = new List<Tribe>();
 
-        // ── 0. 承载人口场（环境×胞面积；技术 0）──
+        // ── 0. 基础承载场（环境 × 胞面积；技术乘数后续叠乘）──
         float cellArea = grid.CellAreaKm2;
         for (int i = 0; i < n; i++)
         {
-            float dens = ctx.Grid.IsLandCell(i) ? CivSimContext.CarrierDensityPerKm2(ctx.Grid.Biome[i]) : 0f;
-            // 河流/湖泊水源加成 ×1.5（定居水源充足 → 食物集中）
-            if (dens > 0f && (ctx.Grid.RiverLevel[i] > 0 || ctx.Grid.LakeLevel[i] > 0))
-                dens *= 1.5f;
+            float dens = grid.IsLandCell(i) ? CivSimContext.CarrierDensityPerKm2(grid.Biome[i]) : 0f;
+            if (dens > 0f && (grid.RiverLevel[i] > 0 || grid.LakeLevel[i] > 0))
+                dens *= 1.5f;   // 河流/湖泊水源加成
             ctx.BaseK[i] = dens * cellArea;
             ctx.CellK[i] = ctx.BaseK[i];
         }
 
-        // ── 1. 起源播种 + tick 循环（机制注册表，每 tick 按 Order 执行）──
+        // ── 1. 起源播种（registry 的 OriginModel 在 tick 0 执行）+ tick 循环 ──
         var registry = CivModelRegistry.StoneAge();
+
+        // ── 2. tick 循环 ──
         int stagnant = 0;
-        float prevPop = ctx.TotalPopulation;
-        int prevOcc = -1;
+        float prevPop = 0f;
+        int prevTribes = -1;
         for (ctx.Tick = 0; ctx.Tick < ctx.Epoch.MaxTicks; ctx.Tick++)
         {
             registry.ExecuteAll(ctx);
+            RefreshCellState(ctx);
 
-            // 饱和终止：全球人口连续 20 tick 增长 <1% **且 覆盖不再扩张**（旧石器已达环境上限；
-            // ⚠️ 只查人口会误杀探路扩散——总人口饱和时前沿仍在开拓新格，须覆盖也停滞才终止）
-            float pop = ctx.TotalPopulation;
-            int occ = 0;
-            for (int i = 0; i < n; i++) if (ctx.Cells[i].TribeId >= 0) occ++;
-            if (pop <= prevPop * 1.01f && occ <= prevOcc) stagnant++;
+            // 定期清理死亡部落（吞并/合并标记；避免 List 无限膨胀）
+            if ((ctx.Tick & 15) == 15)
+                ctx.Tribes.RemoveAll(t => t.Dead);
+
+            // 终止：全球人口连续 20 tick 增长 <1% 且部落数不再增长（环境容量 + 社会结构饱和）
+            float pop = ctx.TotalPopulation();
+            if (pop <= prevPop * 1.01f && ctx.Tribes.Count <= prevTribes) stagnant++;
             else stagnant = 0;
             prevPop = pop;
-            prevOcc = occ;
+            prevTribes = ctx.Tribes.Count;
             if (stagnant >= 20 && ctx.Tick >= 40)
                 break;
         }
 
-        // ── 3. 终态统计（部落总人口/主格/文化/技术同步）──
-        foreach (var t in ctx.Tribes) { t.Population = 0; t.MainCell = -1; }
+        // ── 3. 终态统计（先清理死亡部落——写档/输出只含存活）──
+        ctx.Tribes.RemoveAll(t => t.Dead);
+        RefreshCellState(ctx);
+        return new CivSimResult { Context = ctx, FinalTick = ctx.Tick + 1 };
+    }
+
+    /// <summary>重算每格总人口与当前承载（K = BaseK × 格内部落技术并集乘数；极寒解锁处理）。</summary>
+    public static void RefreshCellState(CivSimContext ctx)
+    {
+        int n = ctx.Grid.N;
+        Array.Clear(ctx.CellPop, 0, n);
+        var techUnion = new ulong[n];
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var t = ctx.Tribes[i];
+            if (t.Dead) continue;
+            ctx.CellPop[t.Cell] += t.Population;
+            techUnion[t.Cell] |= t.TechFlags;
+        }
         for (int i = 0; i < n; i++)
         {
-            var c = ctx.Cells[i];
-            if (c.TribeId >= 0 && ctx.Tribes[c.TribeId] != null)
-            {
-                var t = ctx.Tribes[c.TribeId];
-                t.Population += c.Population;
-                if (t.MainCell < 0 || c.Population > ctx.Cells[t.MainCell].Population)
-                {
-                    t.MainCell = i;
-                    t.Culture = c.Culture;   // 主格文化/技术同步（部落表反映实际状态）
-                    t.Tech = c.Tech;
-                }
-            }
+            if (ctx.CellPop[i] <= 0f) { ctx.CellK[i] = ctx.BaseK[i]; continue; }
+            float k = ctx.BaseK[i] * TechTable.CarryFactor(techUnion[i]);
+            // 火（T01 位 = id 1）解锁极寒：苔原/冰原 K 下限 ×3
+            if (TechTable.Has(techUnion[i], 1) && ctx.BaseK[i] <= 0.05f * ctx.Grid.CellAreaKm2)
+                k = Mathf.Max(k, 0.05f * ctx.Grid.CellAreaKm2 * 3f);
+            ctx.CellK[i] = k;
         }
-
-        return new CivSimResult { Context = ctx, FinalTick = ctx.Tick + 1 };
     }
 }
 
@@ -228,5 +282,5 @@ public static class CivEngine
 public sealed class CivSimResult
 {
     public CivSimContext Context;
-    public int FinalTick;   // 实际演化 tick 数
+    public int FinalTick;
 }

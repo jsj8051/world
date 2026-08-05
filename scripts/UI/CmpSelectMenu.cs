@@ -113,8 +113,7 @@ public partial class CmpSelectMenu : Control
     {
         if (!CivMapArchive.Read(path, out var grid, out var result))
             return "(读取失败)";
-        float pop = 0f;
-        for (int i = 0; i < grid.N; i++) pop += result.Context.Cells[i].Population;
+        float pop = result.Context.TotalPopulation();
         return $"seed={result.Context.Seed} · {result.Context.Epoch.Name} · " +
                $"{result.FinalTick * result.Context.Epoch.TickYears} 年 · 人口 {pop:F0} · 部落 {result.Context.Tribes.Count}";
     }

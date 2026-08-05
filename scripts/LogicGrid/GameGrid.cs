@@ -165,6 +165,14 @@ public class GameGrid
 
     public bool IsLandCell(int i) => Elev[i] > 0f;
 
+    /// <summary>格是否沿海（任一球面邻居是海洋）。</summary>
+    public bool IsCoast(int cell)
+    {
+        foreach (int nb in Neighbors[cell])
+            if (!IsLandCell(nb)) return true;
+        return false;
+    }
+
     /// <summary>每格胞面积（km²；均匀近似 4πR²/N——Icosahedron 胞面积几乎相等）。</summary>
     public float CellAreaKm2 => 4f * Mathf.Pi * RadiusKm * RadiusKm / N;
 
