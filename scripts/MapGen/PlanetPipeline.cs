@@ -60,6 +60,7 @@ public class PlanetPipeline
     public float[] HotM, ColdM, DryP;
     public int[] DryIdx;
     public float[] ErosionNet;             // 侵蚀堆积场：每格净沉积趋势（m/演化期，正=堆积/负=侵蚀）
+    public Vector3[] WindYear;             // 年合成风场（12月平均；洋流/侵蚀堆积共享，P1 优化）
 
     public void Run(TectonicsSimulation sim, PlanetParams p, Action<float> onProgress = null)
     {

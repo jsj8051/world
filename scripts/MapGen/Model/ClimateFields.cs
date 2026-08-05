@@ -56,7 +56,7 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
     public string Domain => "陆地";
     public override float Magnitude => 300f;   // m/演化期（净速率量级）
     public string Stage => "板块";
-    public override string[] DependsOn() => new[] { "海拔", "年降水", "月温度" };   // 风蚀项消费年合成风场（MonthWind，月温度场产出）
+    public override string[] DependsOn() => new[] { "海拔", "年降水", "月温度", "柯本biome" };   // 风蚀消费年合成风场+biome 裸露
 
     public void Compute()
     {
@@ -65,7 +65,11 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
         var e = pipe.ENorm;
         var net = new float[n];
 
-        // ── 1. 水蚀项（坡面径流：坡度×降水，相邻下坡搬运；高山侵蚀→低处堆积）──
+        // ── 1. 水蚀项（坡面径流：坡度×降水×局地降水权重，相邻下坡搬运；高山侵蚀→低处堆积）──
+        //    P0 优化：搬运 ∝ 源格降水（湿润区坡面侵蚀强、干旱区弱——与风蚀互补）
+        var precipW = new float[n];
+        for (int i = 0; i < n; i++)
+            precipW[i] = Mathf.Clamp(pipe.Precip[i] / 1000f, 0.2f, 1.5f);
         var outbound = new float[n];
         for (int i = 0; i < n; i++)
         {
@@ -74,7 +78,7 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
             foreach (var nb in pipe.Neighbors[i])
             {
                 float diff = hi - e[nb];
-                if (diff > 0f) sum += diff;
+                if (diff > 0f) sum += diff * precipW[i];   // 源格降水权重
             }
             outbound[i] = sum;
         }
@@ -85,22 +89,36 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
             foreach (var nb in pipe.Neighbors[i])
             {
                 float diff = e[nb] - hi;
-                if (diff > 0f) recv += diff;
+                if (diff > 0f) recv += diff * precipW[nb];   // 邻居(源格)降水权重
             }
             net[i] = recv - outbound[i];
         }
 
-        // ── 2. 风蚀项（2026-08-16 用户拍板：风蚀沿风场逐步沉积，高山被侵蚀填到低处）──
-        //    干旱区（降水少裸露）风卷沙 → 沿统一风场年合成方向搬运 → 沉积率由【局部风强】决定：
-        //    depositRate ∝ (1 − wMag)——强风处颗粒悬浮不易沉（搬运远）、风弱处快速落沙
-        //    （"风减弱处沉积"= 黄土/沙丘式沉积带的物理机制）。搬运距离由沉积率自然涌现，
-        //    步数仅是防死循环兜底（非定死距离）。
-        var windYear = new Vector3[n];
-        for (int m = 0; m < 12; m++)
-            for (int i = 0; i < n; i++) windYear[i] += pipe.MonthWind[m][i] / 12f;
+        // ── 2. 风蚀项（干旱区风卷沙 → 沿风场搬运 → 沉积率∝(1−局部风强)风弱处落沙）──
+        //    P0 优化：风蚀源 × biome 裸露系数（沙漠全裸露/草原 0.6/森林≈0/冰盖≈0——真实
+        //    植被覆盖决定风蚀；黄土机制=植被稀疏区风蚀）
+        //    P2 优化：next 表缓存（风场固定，每格沿风向的贪心下一步预计算一次，追踪 O(步数)）
+        var windYear = pipe.WindYear;
+        var next = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            var w = windYear[i];
+            float wMag = w.Length();
+            if (wMag < 1e-6f) { next[i] = -1; continue; }
+            var windDir = w / wMag;
+            int bestN = -1; float bestProj = -0.5f;
+            foreach (var nb in pipe.Neighbors[i])
+            {
+                var dirN = (pipe.Verts[nb] - pipe.Verts[i]).Normalized();
+                float proj = windDir.Dot(dirN);
+                if (proj > bestProj) { bestProj = proj; bestN = nb; }
+            }
+            next[i] = bestN;
+        }
         const float KWind = 0.3f;      // 风蚀强度系数（相对水蚀，全球占比 ~10-20%）
         const float KSettle = 0.5f;    // 沉降系数：depositRate = KSettle×(1−wMag)（风弱沉积快）
         const int MaxSteps = 100;      // 兜底上限（防风场闭环死循环；正常由沉积率终止）
+        var visited = new bool[n];     // 防环（next 表可能成环——风场环流）
         for (int i = 0; i < n; i++)
         {
             if (e[i] < 0.02f) continue;          // 只陆地风蚀（海洋无地表物质）
@@ -108,12 +126,13 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
             float wMag = w.Length();
             if (wMag < 1e-6f) continue;
             float arid = 1f - Mathf.Clamp(pipe.Precip[i] / 800f, 0f, 1f);   // 干旱度（降水<800mm 裸露）
-            float src = wMag * arid * KWind;     // 风蚀源（相对量）
+            float src = wMag * arid * KWind * WindExposure(pipe.Biome[i]);   // ×biome 裸露
             if (src < 1e-5f) continue;
             net[i] -= src;                       // 风蚀（源格被卷走）
             float remain = src;
             int cur = i;
-            var windDir = w / wMag;
+            System.Array.Clear(visited, 0, n);
+            visited[i] = true;
             for (int s = 0; s < MaxSteps && remain > 1e-5f; s++)
             {
                 // 沉积率 ∝ 风减弱程度（局部风强弱 → 落沙快）
@@ -122,22 +141,49 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
                 float deposit = remain * depositRate;
                 net[cur] += deposit;             // 路径沉积（风弱处落沙）
                 remain -= deposit;
-                // 沿风向走：邻居中方向投影最大者（贪心爬，风场发散点停）
-                int next = cur; float bestProj = -0.5f;
-                foreach (var nb in pipe.Neighbors[cur])
-                {
-                    var dirN = (pipe.Verts[nb] - pipe.Verts[cur]).Normalized();
-                    float proj = windDir.Dot(dirN);
-                    if (proj > bestProj) { bestProj = proj; next = nb; }
-                }
-                if (next == cur) break;
-                cur = next;
+                // P2：next 表跳转（O(1)），visited 防环
+                int nxt = next[cur];
+                if (nxt < 0 || visited[nxt]) break;
+                visited[nxt] = true;
+                cur = nxt;
             }
         }
 
         // 标定 → m/演化期量级（正=堆积、负=侵蚀）
         pipe.ErosionNet = new float[n];
         for (int i = 0; i < n; i++) pipe.ErosionNet[i] = net[i] * 300f;
+    }
+
+    /// <summary>biome 裸露系数（风蚀源权重）：沙漠全裸露 ~ 森林≈0（植被覆盖决定风蚀）。</summary>
+    private static float WindExposure(byte b)
+    {
+        switch (b)
+        {
+            case (byte)World.Biome.BiomeType.HotDesert:
+            case (byte)World.Biome.BiomeType.ColdDesertKoppen:
+            case (byte)World.Biome.BiomeType.Desert:
+                return 1f;                                  // 沙漠全裸露
+            case (byte)World.Biome.BiomeType.HotSteppe:
+            case (byte)World.Biome.BiomeType.ColdSteppe:
+            case (byte)World.Biome.BiomeType.TropicalSavanna:
+            case (byte)World.Biome.BiomeType.TemperateGrassland:
+            case (byte)World.Biome.BiomeType.Savanna:
+                return 0.6f;                                // 草原
+            case (byte)World.Biome.BiomeType.TropicalRainforest:
+            case (byte)World.Biome.BiomeType.TropicalMonsoon:
+            case (byte)World.Biome.BiomeType.HumidSubtropical:
+            case (byte)World.Biome.BiomeType.Oceanic:
+            case (byte)World.Biome.BiomeType.MonsoonSubtropical:
+            case (byte)World.Biome.BiomeType.TemperateForest:
+            case (byte)World.Biome.BiomeType.TropicalForest:
+            case (byte)World.Biome.BiomeType.TropicalDryForest:
+                return 0.1f;                                // 森林（风蚀≈0）
+            case (byte)World.Biome.BiomeType.IceCap:
+            case (byte)World.Biome.BiomeType.Tundra:
+                return 0.05f;                               // 冰/苔原（无沙源）
+            default:
+                return 0.4f;                                // 灌丛/高山/地中海等中等裸露
+        }
     }
 
     public override bool Verify() => _pipe.ErosionNet != null && AnyNonZero(_pipe.ErosionNet);
@@ -252,6 +298,11 @@ public sealed class MonthTempField : ModelBase, IFieldRole
         pipe.MonthWind = monthWind;
         // 柯本分类消费的月数据中间量
         pipe.HotM = tHotM; pipe.ColdM = tColdM; pipe.DryP = dryP; pipe.DryIdx = dryIdx;
+        // 年合成风场（P1 优化：洋流第二遍 + 侵蚀堆积风蚀项共享，避免两场各算一遍）
+        pipe.WindYear = new Vector3[pipe.Verts.Length];
+        for (int m = 0; m < 12; m++)
+            for (int i = 0; i < pipe.Verts.Length; i++)
+                pipe.WindYear[i] += pipe.MonthWind[m][i] / 12f;
     }
 
     public override bool Verify() => _pipe.MonthTemp != null && AnyNonZero(_pipe.MonthTemp);
@@ -317,9 +368,8 @@ public sealed class CurrentField : ModelBase, IFieldRole
     {
         var pipe = _pipe;
         int vn = pipe.Verts.Length;
-        var windYear = new Vector3[vn];
-        for (int m = 0; m < 12; m++)
-            for (int i = 0; i < vn; i++) windYear[i] += pipe.MonthWind[m][i] / 12f;
+        // 年合成风场（P1：MonthTempField 已产出 pipe.WindYear，共享不再重算）
+        var windYear = pipe.WindYear;
         World.Biome.OceanCurrent.Compute(pipe.Verts, pipe.Neighbors, pipe.ENorm,
             out pipe.CurrentDirs, out pipe.CurrentWarmth, out pipe.CurrentStrength,
             windYear, pipe.Temp, betaScale: 1f);
