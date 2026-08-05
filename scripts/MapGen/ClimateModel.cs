@@ -28,8 +28,9 @@ public static class ClimateModel
         // ── 气候场（Stage1，IFieldRole）──
         new Model.ElevationField(pipe),
         new Model.ErosionDepositionField(pipe),   // 侵蚀堆积（板块，诊断场）
-        new Model.TemperatureField(pipe),
-        new Model.PrecipField(pipe),
+        new Model.TemperatureField(pipe),         // 气候基准（静态，月公式 base）
+        new Model.PrecipField(pipe),              // 年降水估算（湿润降温用；月降水后覆盖为 Σ月）
+        new Model.AnnualTempField(pipe),          // 年均温 = mean(月温度)（月→年涌现）
         new Model.MonthTempField(pipe),
         new Model.UnifiedWindField(pipe),
         new Model.MonthPrecipField(pipe),

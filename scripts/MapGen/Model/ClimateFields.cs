@@ -194,13 +194,13 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
     }
 }
 
-/// <summary>年均温场（纬度+海拔+洋流+反照率+大陆性，Plan C 源场）。
-/// Compute = 第一遍洋流（WindField，供温度修正）+ 沿岸冷暖采样 + 年温计算。</summary>
+/// <summary>气候基准温度场（2026-08-16 月→年改造：纬度+海拔+洋流+反照率+大陆性 的静态基准，
+/// 无季节项——月温度公式的 base 项；年均温由月温度聚合涌现）。</summary>
 public sealed class TemperatureField : ModelBase, IFieldRole
 {
     private readonly PlanetPipeline _pipe;
     public TemperatureField(PlanetPipeline pipe) => _pipe = pipe;
-    public override string Name => "年均温";
+    public override string Name => "气候基准";
     public string Domain => "全球";
     public override float Magnitude => 40f;
     public string Stage => "Stage1";
@@ -233,11 +233,43 @@ public sealed class TemperatureField : ModelBase, IFieldRole
             return (best * decay, bestStr);
         });
         pipe.Climate.SetOceanCurrent(warmthSampler);
-        // 年温（Parallel 保留——纯函数逐格独立）
+        // 气候基准（静态，无季节项）
         System.Threading.Tasks.Parallel.For(0, vn, i =>
         {
-            pipe.Temp[i] = pipe.Climate.ComputeTemperature(pipe.Verts[i] * pipe.P.RadiusKm, pipe.ENorm[i]);
+            pipe.TempBase[i] = pipe.Climate.ComputeTemperature(pipe.Verts[i] * pipe.P.RadiusKm, pipe.ENorm[i]);
         });
+    }
+
+    public override bool Verify() => _pipe.TempBase != null && AnyNonZero(_pipe.TempBase);
+    internal static bool AnyNonZero(float[] a)
+    {
+        foreach (var v in a) if (v != 0f) return true;
+        return false;
+    }
+}
+
+/// <summary>年均温场（2026-08-16 月→年：月温度聚合 = mean(12 月)，涌现而非独立推导）。</summary>
+public sealed class AnnualTempField : ModelBase, IFieldRole
+{
+    private readonly PlanetPipeline _pipe;
+    public AnnualTempField(PlanetPipeline pipe) => _pipe = pipe;
+    public override string Name => "年均温";
+    public string Domain => "全球";
+    public override float Magnitude => 40f;
+    public string Stage => "Stage1";
+    public override string[] DependsOn() => new[] { "月温度" };
+
+    public void Compute()
+    {
+        var pipe = _pipe;
+        int vn = pipe.Verts.Length;
+        if (pipe.Temp == null) pipe.Temp = new float[vn];
+        for (int i = 0; i < vn; i++)
+        {
+            float sum = 0f;
+            for (int m = 0; m < 12; m++) sum += pipe.MonthTemp[m][i];
+            pipe.Temp[i] = sum / 12f;   // 年均温 = mean(月温度)
+        }
     }
 
     public override bool Verify() => _pipe.Temp != null && AnyNonZero(_pipe.Temp);
@@ -257,7 +289,7 @@ public sealed class PrecipField : ModelBase, IFieldRole
     public string Domain => "陆地";
     public override float Magnitude => 2000f;
     public string Stage => "Stage1";
-    public override string[] DependsOn() => new[] { "年均温" };   // 洋流修正（第一遍在温度场内部完成）
+    public override string[] DependsOn() => new[] { "气候基准" };   // 洋流修正（第一遍在基准场内部完成）
 
     public void Compute()
     {
@@ -283,19 +315,20 @@ public sealed class MonthTempField : ModelBase, IFieldRole
     public string Domain => "全球";
     public override float Magnitude => 40f;
     public string Stage => "Stage1";
-    public override string[] DependsOn() => new[] { "年均温", "年降水", "温度→风→降水→温度" };   // 湿润降温后在 MonsoonSystem 前
+    public override string[] DependsOn() => new[] { "气候基准", "年降水", "温度→风→降水→温度" };   // 湿润降温修正基准后在 MonsoonSystem 前
 
     public void Compute()
     {
         var pipe = _pipe;
         World.Biome.MonsoonSystem.Compute(pipe.Verts, pipe.Neighbors, pipe.ENorm, pipe.Elev,
-            pipe.Temp, pipe.Precip, pipe.P.AxialTilt, pipe.P.RotationSpeed,
+            pipe.TempBase, pipe.Precip, pipe.P.AxialTilt, pipe.P.RotationSpeed, pipe.Climate,
             out var monsoon, out var tHotM, out var tColdM, out var dryP, out var dryIdx, out var monthP,
-            out var monthWind, out var monthTemp);
+            out var monthWind, out var monthTemp, out var precipAnnAbs);
         pipe.MonsoonStrength = monsoon;
         pipe.MonthPrecip = monthP;
         pipe.MonthTemp = monthTemp;
         pipe.MonthWind = monthWind;
+        pipe.Precip = precipAnnAbs;   // 年降水 = Σ 12 月（月→年涌现，覆盖估算）
         // 柯本分类消费的月数据中间量
         pipe.HotM = tHotM; pipe.ColdM = tColdM; pipe.DryP = dryP; pipe.DryIdx = dryIdx;
         // 年合成风场（P1 优化：洋流第二遍 + 侵蚀堆积风蚀项共享，避免两场各算一遍）

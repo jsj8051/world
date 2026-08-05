@@ -646,7 +646,8 @@ public partial class MapViewer : Node3D
         for (int i = 0; i < n; i++)
             eNorm[i] = span > 1e-6f ? _map.Elev[i] / span : 0f;
         MonsoonSystem.Compute(_map.Verts, nb, eNorm, _map.Elev, _map.Temp, _map.Precip, _map.AxialTilt, _map.RotationSpeed,
-            out var mons, out _, out _, out _, out _, out _, out var mw, out var mt);
+            new ClimateGenerator(_map.Seed, _map.AxialTilt, 1f),
+            out var mons, out _, out _, out _, out _, out _, out var mw, out var mt, out _);
         _monthWind = mw;
         _monsoonVerts = mons;
         GD.Print($"[MapViewer] 季风月风场重算完成（{n} 顶点，倾角 {_map.AxialTilt}°）");

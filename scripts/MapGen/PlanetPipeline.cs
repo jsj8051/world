@@ -61,6 +61,7 @@ public class PlanetPipeline
     public int[] DryIdx;
     public float[] ErosionNet;             // 侵蚀堆积场：每格净沉积趋势（m/演化期，正=堆积/负=侵蚀）
     public Vector3[] WindYear;             // 年合成风场（12月平均；洋流/侵蚀堆积共享，P1 优化）
+    public float[] TempBase;               // 气候基准温度（纬度+海拔+洋流+噪声，无季节项；月温度公式的 base）
 
     public void Run(TectonicsSimulation sim, PlanetParams p, Action<float> onProgress = null)
     {
@@ -75,6 +76,7 @@ public class PlanetPipeline
         World.Biome.WindField.Prograde = p.ProgradeRotation;   // 自转方向 → 盛行风科里奥利偏转
         World.Biome.WindField.RotationSpeed = p.RotationSpeed; // 自转速度 → 科里奥利强度
         Climate = new ClimateGenerator(p.Seed, p.AxialTilt, p.Insolation);
+        TempBase = new float[vn];
         Temp = new float[vn];
         Precip = new float[vn];
         Biome = new byte[vn];

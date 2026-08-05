@@ -53,16 +53,19 @@ public partial class MonsoonDiag : Node
         GD.Print($"[MonsoonDiag] 读档 {arch} n={n} tilt={tilt}° → 重算季风/月降水/biome");
 
         // ── 季风环流诊断场（用存档的年温/年降水）──
-        MonsoonSystem.Compute(ctx.Verts, ctx.Neighbors, ctx.ElevNorm, ctx.ElevM, ctx.Temp, ctx.Precip, tilt, map.RotationSpeed,
+        var climate = new ClimateGenerator(map.Seed, tilt, 1f);
+        MonsoonSystem.Compute(ctx.Verts, ctx.Neighbors, ctx.ElevNorm, ctx.ElevM, ctx.Temp, ctx.Precip, tilt, map.RotationSpeed, climate,
             out var monsoon, out var tHotM, out var tColdM, out var dryP, out var dryIdx, out var monthP,
-            out var monthWind, out var monthTemp);
+            out var monthWind, out var monthTemp, out var precipAnnAbs);
+        // 年降水 = Σ 月（月→年；诊断用聚合值重算 biome）
+        var precipAnn = precipAnnAbs;
 
         // ── biome 重算（柯本月数据：真实最热/最冷月、最干月+月份）──
         var biome = new byte[n];
         Parallel.For(0, n, i =>
         {
             float latDeg = Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(ctx.Verts[i].Y, -1f, 1f)));
-            biome[i] = (byte)BiomeClassifier.Classify(ctx.ElevNorm[i], ctx.Temp[i], ctx.Precip[i],
+            biome[i] = (byte)BiomeClassifier.Classify(ctx.ElevNorm[i], ctx.Temp[i], precipAnn[i],
                 tHotM[i], tColdM[i], dryP[i], dryIdx[i], latDeg);
         });
 

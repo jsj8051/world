@@ -11,7 +11,7 @@ public sealed class WetCoolingLoop : ModelBase, ILoopRole
     public override string Name => "温度→风→降水→温度";
     public string Status => "Closed";
     public override float Magnitude => 4f;
-    public override string[] DependsOn() => new[] { "年均温", "年降水" };   // 年温年降水后 Apply，月温度场依赖本环
+    public override string[] DependsOn() => new[] { "气候基准", "年降水" };   // 修正基准（降水用估算——避免与月降水成环）
     public string Decision =>
         "湿润降温 T=T₀−k·P/(1+g)，k=0.004°C/mm、g=0.3（负反馈增益）。修正加在源头温度（Stage1 入口，年温年降水之后、MonsoonSystem 之前）";
 

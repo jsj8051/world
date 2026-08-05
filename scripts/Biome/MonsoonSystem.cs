@@ -48,10 +48,11 @@ public static class MonsoonSystem
     /// <param name="monthTemp">输出：[12][n] 各月均温（°C；温度系统月度化的正式产物）</param>
     public static void Compute(
         Vector3[] verts, int[][] neighbors, float[] elevNorm, float[] elevM,
-        float[] tempC, float[] precipAnn, float axialTilt, float rotationSpeed,
+        float[] tempBase, float[] precipEst, float axialTilt, float rotationSpeed,
+        ClimateGenerator climate,
         out float[] monsoon, out float[] tHotMonth, out float[] tColdMonth,
         out float[] dryMonthPrecip, out int[] dryMonthIndex, out float[][] monthPrecip,
-        out Vector3[][] monthWind, out float[][] monthTemp)
+        out Vector3[][] monthWind, out float[][] monthTemp, out float[] precipAnnAbs)
     {
         int n = verts.Length;
         monsoon = new float[n];
@@ -62,6 +63,7 @@ public static class MonsoonSystem
         monthPrecip = new float[MonthCount][];
         monthWind = new Vector3[MonthCount][];
         monthTemp = new float[MonthCount][];
+        precipAnnAbs = new float[n];
         for (int m = 0; m < MonthCount; m++)
         {
             monthPrecip[m] = new float[n];
@@ -147,7 +149,7 @@ public static class MonsoonSystem
                 float phase = Mathf.Sin(2f * Mathf.Pi * (m - 3f) / 12f);
                 const float Kc = 3.5f;   // 大陆热力响应系数（辐射×大陆性 → 海陆温差）
                 float continentResp = Kc * continent[i] * rad;
-                float t = tempC[i] + seasonalBase * phase * (1f + continentResp);
+                float t = tempBase[i] + seasonalBase * phase * (1f + continentResp);
                 // 反照率（Plan C 补充因素）：冰/雪反射强 → 额外降温；海洋低反射（吸收多）
                 //   反射损失 = 反照率 × 月辐射 × 标定 10°C（全反射 −10°C；真实沙漠 0.3 vs
                 //   海洋 0.06 → 表面温差 ~2.4°C）
@@ -166,11 +168,11 @@ public static class MonsoonSystem
         //   风 = +∇Tₘ（指向热处=低压）旋转科里奥利角（北半球右偏，∝ sin(lat)×自转速度）。
         //   温度梯度同时含纬度梯度（→信风/西风带）与海陆差异（→季风），自然涌现全部风系。
         var monthMoist = new float[MonthCount][];
-        var monthW = new float[MonthCount][];
+        var monthP = new float[MonthCount][];   // 月降水绝对量（mm；年降水 = Σ 12 月）
         for (int m = 0; m < MonthCount; m++)
         {
             monthMoist[m] = new float[n];
-            monthW[m] = new float[n];
+            monthP[m] = new float[n];
             monthWind[m] = new Vector3[n];
 
             // ⚠️ 2026-08-16 v5：热压场（用户拍板架构——温度是局部量，气压是全局量）。
@@ -274,42 +276,40 @@ public static class MonsoonSystem
                 }
             }
 
-            // 月降水权重 = ITCZ 摆动基线 + 季风增强（水汽 × 辐射）
+            // 月降水绝对量（2026-08-16 月→年改造：月纬度带基准 × 季风增强 × 地形雨影——
+            //   不依赖年降水；年降水 = Σ 12 月涌现）
+            //   月基准（ComputePrecipitationMonthBase）：月 ITCZ 位置（deltaDeg 摆动）+ 极锋 +
+            //   副高压制 + 地形抬升 + 洋流修正 + 噪声——不含盛行风/雨影（月化在此组装）
             float deltaDeg = axialTilt * Mathf.Sin(2f * Mathf.Pi * (m - 3f) / 12f);
             for (int i = 0; i < n; i++)
             {
-                if (elevNorm[i] < 0.02f) continue;   // 海洋格不分配降水（只陆地格）
-                float latDeg = Mathf.Asin(Mathf.Clamp(verts[i].Y, -1f, 1f)) * 180f / Mathf.Pi;
-                float itczLat = deltaDeg * 1.2f;
-                float wItcz = Mathf.Exp(-(latDeg - itczLat) * (latDeg - itczLat) / (2f * 8f * 8f));
-                // 副高带压制（ITCZ 远离时副高控制）
-                float sub = Mathf.Abs(latDeg - 30f) < 8f ? 0.35f : 1f;
-                float wBase = 0.25f + wItcz * 0.75f * sub;
+                if (elevNorm[i] < 0.02f) { monthP[m][i] = 0f; continue; }   // 海洋格降水 0
+                float p = climate.ComputePrecipitationMonthBase(verts[i], elevNorm[i], deltaDeg);
                 float wMonsoon = monthMoist[m][i] * monthRad[m][i];
-                float w = wBase + 1.2f * wMonsoon;
+                p *= 1f + 1.2f * wMonsoon;   // 季风增强（水汽×辐射）
                 // ⚠️ 2026-08-16：风的影响——地形垂直速度公式 w = V·∇h（用户拍板全局场方案）：
                 //   海拔梯度场 ∇h（每格坡度）预计算一次；爬坡分量 = 当月风向 · ∇h。
                 //   正=风爬坡（迎风坡增雨）、负=风下坡（背风坡减雨）、垂直坡面=0。
-                //   无步长参数（替代原"沿风向 ±0.12rad 取海拔差"的有限差分 hack）。
                 Vector3 wind = monthWind[m][i];
                 if (wind.LengthSquared() > 1e-9f)
                 {
                     float windComp = wind.Normalized().Dot(gradElev[i]);
-                    w *= 1f + Mathf.Clamp(windComp * 0.5f, -0.65f, 0.65f);
+                    p *= 1f + Mathf.Clamp(windComp * 0.5f, -0.65f, 0.65f);
                 }
-                monthW[m][i] = w;
+                monthP[m][i] = p;
             }
         }
 
-        // ── 4. 归一化月降水 + 输出极值/季风强度 ──
+        // ── 4. 年降水聚合（Σ月）+ 月比例 + 输出极值/季风强度 ──
         for (int i = 0; i < n; i++)
         {
             if (elevNorm[i] < 0.02f) continue;   // 海洋格降水 0（保持）
-            float sumW = 0f;
-            for (int m = 0; m < MonthCount; m++) sumW += monthW[m][i];
-            if (sumW <= 1e-9f) { for (int m = 0; m < MonthCount; m++) monthPrecip[m][i] = 0f; continue; }
+            float yearAbs = 0f;
+            for (int m = 0; m < MonthCount; m++) yearAbs += monthP[m][i];
+            precipAnnAbs[i] = yearAbs;           // 年降水 = Σ 12 月（月→年涌现）
+            if (yearAbs <= 1e-9f) { for (int m = 0; m < MonthCount; m++) monthPrecip[m][i] = 0f; continue; }
             for (int m = 0; m < MonthCount; m++)
-                monthPrecip[m][i] = precipAnn[i] * monthW[m][i] / sumW;
+                monthPrecip[m][i] = monthP[m][i] / yearAbs;   // 比例（存档格式保持，Σ=1 守恒）
 
             // 极值
             float tHot = float.MinValue, tCold = float.MaxValue;
