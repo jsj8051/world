@@ -1,0 +1,19 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://de1lqytlcud28"
+
+[deps]
+
+files=["res://data/techs.name.translation", "res://data/techs.epoch.translation", "res://data/techs.req.translation", "res://data/techs.invPop.translation", "res://data/techs.invEnv.translation", "res://data/techs.invProb.translation", "res://data/techs.spread.translation", "res://data/techs.effect.translation", "res://data/techs.value.translation"]
+
+source_file="res://data/techs.csv"
+dest_files=["res://data/techs.name.translation", "res://data/techs.epoch.translation", "res://data/techs.req.translation", "res://data/techs.invPop.translation", "res://data/techs.invEnv.translation", "res://data/techs.invProb.translation", "res://data/techs.spread.translation", "res://data/techs.effect.translation", "res://data/techs.value.translation"]
+
+[params]
+
+compress=1
+delimiter=0
+unescape_keys=false
+unescape_translations=true

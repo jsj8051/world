@@ -21,10 +21,10 @@ MCPRuntimeProbe="*uid://bsg12huaf1u5i"
 
 [display]
 
-window/stretch/mode="canvas_items"
-window/stretch/aspect="expand"
 window/size/viewport_width=2560
 window/size/viewport_height=1440
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [dotnet]
 
