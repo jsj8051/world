@@ -47,9 +47,11 @@ public static class OceanCurrent
         // ⚠️ 2026-08-06：分辨率自适应——n=128 洋流空白修复。
         //   · Gauss-Seidel 收敛所需迭代 ∝ 网格直径(√n)：默认 300 次在大网格不收敛 → ψ 未成形
         //   · 每格 ψ 梯度 |grad| ∝ 格距(与 n 反比)：固定阈值 0.03 在细网格把全部洋流过滤掉
+        //   ⚠️ 2026-08-06 收敛检测实证：n=128 线性缩放 600 次 SOR 后 maxErr=1.5E-4 仍差一点，
+        //     迭代需求 ∝ n^1.5（SOR 下介于线性与平方之间）→ 缩放改指数 1.5（n=128→849 次）。
         int simN = (int)Mathf.Round(Mathf.Sqrt((verts.Length - 2) / 10f));
         if (simN > 64)
-            iterations = (int)(iterations * simN / 64f);   // n=128 → 600 次
+            iterations = (int)(iterations * Mathf.Pow(simN / 64f, 1.5f));   // n=128→849, n=256→2400
         float gridRatio = Mathf.Max(0.5f, simN / 64f);     // 梯度补偿系数（相对 n=64 基线）
 
         // 温度梯度（热成风用；海洋格）
@@ -109,6 +111,8 @@ public static class OceanCurrent
         //    SOR(ω=1.7) 收敛 3-5 倍加速，等效迭代 ~2000+。
         var psi = new float[n];
         const float sorOmega = 1.7f;
+        float finalErr = 0f;
+        int itersDone = 0;
         for (int iter = 0; iter < iterations; iter++)
         {
             float maxErr = 0f;
@@ -125,8 +129,14 @@ public static class OceanCurrent
                 if (err > maxErr) maxErr = err;
                 psi[i] = next;
             }
+            finalErr = maxErr;
+            itersDone = iter + 1;
             if (maxErr < 1e-5f) break;
         }
+        // ⚠️ 2026-08-06：收敛检测——不收敛不再静默（弱洋流会被误认为"无洋流"）。
+        //   收敛失败时强度普遍偏弱，显示层筛不出主要洋流。
+        if (finalErr > 1e-4f)
+            GD.PushWarning($"[OceanCurrent] ψ 未充分收敛：{itersDone}/{iterations} 次，maxErr={finalErr:E1}（>1e-4，洋流强度会偏弱）");
 
         // ── 3. 洋流方向 = ψ 等值线切向（纯环流）──
         //    ⚠️ 2026-08-02 v3：去掉风驱混合（d = gyre + windDrift）——
