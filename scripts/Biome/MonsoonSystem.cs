@@ -90,15 +90,18 @@ public static class MonsoonSystem
         }
         // 大陆性因子（0 海洋 ~ 1 深内陆；季节温差放大）
         // ⚠️ 2026-08-16 v6：回退"到海岸距离"（用户拍板要真实物理——碎大陆就是弱季风，
-        //   不能为视觉效果改成"区域陆地比例"）。顶点间距 ≈ 20000km/320（n=32）≈ 125km；
-        //   Dc=8 步 ≈ 1000km 达内陆饱和。
+        //   不能为视觉效果改成"区域陆地比例"）。顶点间距 ≈ 20000km/320（n=32）≈ 125km。
+        // ⚠️ 2026-08-16 v7（用户拍板 B）：非线性渐近——大陆性随距离【持续增强】、不硬饱和：
+        //   continent = sqrt(d/(d+Dc))：d=0→0，d=4→0.58，d=8→0.71，d=16→0.82，d→∞→1（渐近永不超 1）。
+        //   真实：北京(~400km 内陆)年较差 30°C vs 西伯利亚(~2000km) 60°C——深内陆更强；
+        //   硬饱和(Dc=8→1.0)丢失"深内陆更强"的区分。sqrt 渐近早期快升后期缓增。
         const int Dc = 8;
         var continent = new float[n];
         for (int i = 0; i < n; i++)
         {
             if (!anyOcean) { continent[i] = 1f; continue; }
             int d = distCoast[i];
-            continent[i] = d >= int.MaxValue - 1 ? 1f : Mathf.Min(d, Dc) / (float)Dc;
+            continent[i] = d >= int.MaxValue - 1 ? 1f : Mathf.Sqrt(d / (float)(d + Dc));
         }
 
         // ── 2. 12 个月循环 ──
