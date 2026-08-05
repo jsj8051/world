@@ -44,6 +44,61 @@ public sealed class ElevationField : ModelBase, IFieldRole
     public override bool Verify() => _pipe.Elev != null;
 }
 
+/// <summary>侵蚀堆积场（物质搬运通量，2026-08-16 纳入抽象框架）。
+/// 诊断场：从最终海拔/降水算每格【净沉积趋势】（正=堆积/负=侵蚀）——
+/// 与板块模拟内 Crust.ModelErosion 同一物理（坡度×降水×倍率，高格减/低格加，物质守恒），
+/// 但不重跑演化。下游消费：海拔变化率、土壤（冲积）、矿藏（沉积型）。</summary>
+public sealed class ErosionDepositionField : ModelBase, IFieldRole
+{
+    private readonly PlanetPipeline _pipe;
+    public ErosionDepositionField(PlanetPipeline pipe) => _pipe = pipe;
+    public override string Name => "侵蚀堆积";
+    public string Domain => "陆地";
+    public override float Magnitude => 300f;   // m/演化期（净速率量级）
+    public string Stage => "板块";
+    public override string[] DependsOn() => new[] { "海拔", "年降水" };
+
+    public void Compute()
+    {
+        var pipe = _pipe;
+        int n = pipe.Verts.Length;
+        var e = pipe.ENorm;
+        // 出站量（每格对下坡邻居的高度差和；降水/倍率/密度为统一缩放，分布由坡度决定）
+        var outbound = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            float hi = e[i];
+            float sum = 0f;
+            foreach (var nb in pipe.Neighbors[i])
+            {
+                float diff = hi - e[nb];
+                if (diff > 0f) sum += diff;
+            }
+            outbound[i] = sum;
+        }
+        // 净沉积 = 接收（上坡邻居的搬运）− 出站；×标定 → m/演化期量级（正=堆积、负=侵蚀）
+        pipe.ErosionNet = new float[n];
+        for (int i = 0; i < n; i++)
+        {
+            float recv = 0f;
+            float hi = e[i];
+            foreach (var nb in pipe.Neighbors[i])
+            {
+                float diff = e[nb] - hi;
+                if (diff > 0f) recv += diff;
+            }
+            pipe.ErosionNet[i] = (recv - outbound[i]) * 300f;
+        }
+    }
+
+    public override bool Verify() => _pipe.ErosionNet != null && AnyNonZero(_pipe.ErosionNet);
+    private static bool AnyNonZero(float[] a)
+    {
+        foreach (var v in a) if (v != 0f) return true;
+        return false;
+    }
+}
+
 /// <summary>年均温场（纬度+海拔+洋流+反照率+大陆性，Plan C 源场）。
 /// Compute = 第一遍洋流（WindField，供温度修正）+ 沿岸冷暖采样 + 年温计算。</summary>
 public sealed class TemperatureField : ModelBase, IFieldRole

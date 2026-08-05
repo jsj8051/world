@@ -27,6 +27,7 @@ public static class ClimateModel
     {
         // ── 气候场（Stage1，IFieldRole）──
         new Model.ElevationField(pipe),
+        new Model.ErosionDepositionField(pipe),   // 侵蚀堆积（板块，诊断场）
         new Model.TemperatureField(pipe),
         new Model.PrecipField(pipe),
         new Model.MonthTempField(pipe),

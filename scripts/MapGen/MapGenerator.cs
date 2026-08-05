@@ -154,6 +154,20 @@ public partial class MapGenerator : Node
 		GD.Print($"[MapGenerator] 矿藏 {mineralCount} 格 ({mineralCount * 100f / vn:F1}%)" +
 			$" 铁={mdist[1]} 铜={mdist[2]} 锡={mdist[3]} 金={mdist[4]} 煤={mdist[5]} 盐={mdist[6]} 石料={mdist[7]} 宝石={mdist[8]}");
 
+		// 侵蚀堆积场统计（诊断：山脊侵蚀/谷底堆积）
+		if (pipe.ErosionNet != null)
+		{
+			float eMin = float.MaxValue, eMax = float.MinValue; int ero = 0, dep = 0;
+			for (int i = 0; i < vn; i++)
+			{
+				float v = pipe.ErosionNet[i];
+				if (v < eMin) eMin = v;
+				if (v > eMax) eMax = v;
+				if (v < 0f) ero++; else if (v > 0f) dep++;
+			}
+			GD.Print($"[MapGenerator] 侵蚀堆积场: 侵蚀区{ero}格({ero * 100f / vn:F1}%) 堆积区{dep}格({dep * 100f / vn:F1}%) 净速率[{eMin:F0},{eMax:F0}]m");
+		}
+
 		sw.Stop();
 		GD.Print($"[MapGenerator] seed={Seed} 球面顶点 {vn} elev[{pipe.MinElev:F4},{pipe.MaxElev:F4}] " +
 			 $"temp[{pipe.MinTemp:F1},{pipe.MaxTemp:F1}]°C precip[{pipe.MinPrecip:F0},{pipe.MaxPrecip:F0}]mm took {sw.ElapsedMilliseconds}ms");

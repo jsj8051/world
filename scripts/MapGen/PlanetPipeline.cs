@@ -59,6 +59,7 @@ public class PlanetPipeline
     // MonsoonSystem 月数据中间量（柯本分类消费）
     public float[] HotM, ColdM, DryP;
     public int[] DryIdx;
+    public float[] ErosionNet;             // 侵蚀堆积场：每格净沉积趋势（m/演化期，正=堆积/负=侵蚀）
 
     public void Run(TectonicsSimulation sim, PlanetParams p, Action<float> onProgress = null)
     {
