@@ -206,8 +206,9 @@ public static class CivEngine
     /// <summary>石器时代纪元定义（300 tick × 100 年 = 3 万年；饱和+停滞可提前终止）。</summary>
     public static readonly EpochDefinition StoneAgeEpoch = new(EpochKind.StoneAge, "石器时代", 300, 100);
 
-    /// <summary>运行一次完整演化（v2 部落模型：动态分裂 + 部落级技术）。</summary>
-    public static CivSimResult Run(GameGrid grid, int seed, int originCount = 3)
+    /// <summary>运行一次完整演化（v2 部落模型：动态分裂 + 部落级技术）。
+    /// onProgress：后台线程调用（0..1，tick 级），调用方须保证线程安全（如写 volatile 字段）。</summary>
+    public static CivSimResult Run(GameGrid grid, int seed, int originCount = 3, Action<float> onProgress = null)
     {
         TechTable.Load();
         int n = grid.N;
@@ -255,6 +256,8 @@ public static class CivEngine
             // 定期清理死亡部落（吞并/合并标记；避免 List 无限膨胀）
             if ((ctx.Tick & 15) == 15)
                 ctx.Tribes.RemoveAll(t => t.Dead);
+
+            onProgress?.Invoke((ctx.Tick + 1f) / ctx.Epoch.MaxTicks);   // tick 级进度（后台线程，调用方负责线程安全）
 
             // 终止：全球人口连续 20 tick 增长 <1% 且部落数不再增长（环境容量 + 社会结构饱和）
             float pop = ctx.TotalPopulation();

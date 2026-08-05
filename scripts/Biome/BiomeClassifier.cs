@@ -25,7 +25,7 @@ public static class BiomeClassifier
     public const float AlpineLevel = 0.5f;
 
     public static BiomeType Classify(float elevNorm, float tempC, float precipMm,
-        float tHot, float tCold, float dryMonth, int dryMonthIndex = 3, float latDeg = 0f)
+        float tHot, float tCold, float dryMonth, int dryMonthIndex = 3, float latDeg = 0f, float wetMonth = 120f)
     {
         // ── 海洋（温度分带）──
         if (elevNorm < DeepOceanLevel)
@@ -69,7 +69,8 @@ public static class BiomeClassifier
 
         if (tCold <= -3f)                 // D 带：大陆性（f 判据 30mm，非 A 带 60mm）
         {
-            if (dryMonth < 30f) return BiomeType.ContinentalDry;         // Dwa（冬干）
+            // ⚠️ 2026-08-06：Dwa 需"冬干"（干季在冬季）——夏季干旱的中纬区不判冬干（Kottek w 判据）
+            if (dryMonth < 30f && dryInWinter) return BiomeType.ContinentalDry;         // Dwa（冬干）
             if (tHot >= 22f) return BiomeType.ContinentalHot;            // Dfa
             if (tCold <= -15f) return BiomeType.Subarctic;               // Dfc（更冷 → 针叶林）
             return BiomeType.ContinentalWarm;                            // Dfb

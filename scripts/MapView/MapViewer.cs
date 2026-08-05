@@ -1102,7 +1102,11 @@ public partial class MapViewer : Node3D
         // 主河先画（长→短），支流遇已画顶点截断（汇合点）
         var painted = new System.Collections.Generic.HashSet<int>();
         paths.Sort((a, b) => b.Length.CompareTo(a.Length));
-        const float halfW = 0.004f;   // 河宽（球面弧比例 ≈ 25km 观感）
+        // ⚠️ 2026-08-06：河宽按分辨率缩放——固定 halfW 在 n=128 格距减半时相对粗 2 倍。
+        //   统一按格距比例：halfW = 格距 × 0.13（n=64 时即原 0.004）
+        int simN = (int)Mathf.Round(Mathf.Sqrt((n - 2) / 10f));
+        float gridArc = Mathf.Tau / (Mathf.Sqrt(10f) * Mathf.Max(8, simN));
+        float halfW = gridArc * 0.13f;   // 河宽 ≈ 0.26 格距（观感统一，随分辨率缩放）
         int riverCount = 0;
         foreach (var path in paths)
         {

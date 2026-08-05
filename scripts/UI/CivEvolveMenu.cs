@@ -36,6 +36,8 @@ public partial class CivEvolveMenu : Control
     private int _evolveOrigins;
     private CivSimResult _pendingResult;   // 后台线程写、主线程 _Process 读
     private string _pendingError;
+    private ProgressBar _bar;
+    private volatile float _progress;      // 后台线程写（tick 级）、主线程 _Process 读
 
     public override void _Ready()
     {
@@ -51,8 +53,10 @@ public partial class CivEvolveMenu : Control
         root.MouseFilter = MouseFilterEnum.Ignore;
         AddChild(root);
 
-        // 居中列（960px，项目 UI 规范）
+        // 居中列（960px，项目 UI 规范）——⚠️ 2026-08-06：SizeFlagsHorizontal=ShrinkCenter，
+        // 否则 VBox 子控件被拉伸到全宽、内容左对齐（用户反馈整体偏左）
         var col = new VBoxContainer { CustomMinimumSize = new Vector2(960, 0) };
+        col.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
         col.AddThemeConstantOverride("separation", 14);
         col.MouseFilter = MouseFilterEnum.Ignore;
         root.AddChild(col);
@@ -118,6 +122,11 @@ public partial class CivEvolveMenu : Control
 
         _status = new Label { Text = "选择一张自然地图后开始演化。", HorizontalAlignment = HorizontalAlignment.Center };
         col.AddChild(_status);
+
+        // 演化进度条（后台线程写 volatile，主线程 _Process 刷新）
+        _bar = new ProgressBar { MinValue = 0, MaxValue = 100, Value = 0, ShowPercentage = true };
+        _bar.CustomMinimumSize = new Vector2(0, 24);
+        col.AddChild(_bar);
 
         // headless 自动流程（--auto：选第一张图并演化，验证完整链路）
         var ua = OS.GetCmdlineUserArgs();
@@ -190,18 +199,20 @@ public partial class CivEvolveMenu : Control
         _evolving = true;
         _pendingResult = null;
         _pendingError = null;
+        _progress = 0f;
+        _bar.Value = 0;
         _evolveBtn.Disabled = _playBtn.Disabled = _backBtn.Disabled = true;
         _status.Text = $"演化中…（n={_grid.N}，{(_grid.N >= 10000 ? "约 30 秒" : "约 2 秒")}，{_evolveSeed} tick × 100 年）";
         GD.Print($"[CivEvolveMenu] 演化开始 {_selectedName} seed={_evolveSeed} origins={_evolveOrigins}");
 
-        // 后台线程：纯 C# 演化（无 Godot API 调用；TechTable 已加载）
+        // 后台线程：纯 C# 演化（无 Godot API 调用；TechTable 已加载；onProgress 写 volatile）
         var grid = _grid;
         int seed = _evolveSeed, origins = _evolveOrigins;
         Task.Run(() =>
         {
             try
             {
-                var r = CivEngine.Run(grid, seed, origins);
+                var r = CivEngine.Run(grid, seed, origins, p => _progress = p);
                 _pendingResult = r;
             }
             catch (Exception e)
@@ -213,6 +224,9 @@ public partial class CivEvolveMenu : Control
 
     public override void _Process(double delta)
     {
+        if (_evolving && _bar != null)
+            _bar.Value = _progress * 100f;   // 后台线程写 volatile，主线程刷 UI
+
         if (!_evolving) return;
         if (_pendingResult == null && _pendingError == null) return;
         _evolving = false;

@@ -44,6 +44,14 @@ public static class OceanCurrent
         warmth = new float[n];
         strength = new float[n];
 
+        // ⚠️ 2026-08-06：分辨率自适应——n=128 洋流空白修复。
+        //   · Gauss-Seidel 收敛所需迭代 ∝ 网格直径(√n)：默认 300 次在大网格不收敛 → ψ 未成形
+        //   · 每格 ψ 梯度 |grad| ∝ 格距(与 n 反比)：固定阈值 0.03 在细网格把全部洋流过滤掉
+        int simN = (int)Mathf.Round(Mathf.Sqrt((verts.Length - 2) / 10f));
+        if (simN > 64)
+            iterations = (int)(iterations * simN / 64f);   // n=128 → 600 次
+        float gridRatio = Mathf.Max(0.5f, simN / 64f);     // 梯度补偿系数（相对 n=64 基线）
+
         // 温度梯度（热成风用；海洋格）
         var gradT = new Vector3[n];
         if (oceanTemp != null)
@@ -137,8 +145,8 @@ public static class OceanCurrent
             }
             // 环流方向 = ψ 梯度旋转 90°（∇ψ × r），归一化（等值线切向）
             Vector3 gyre = grad.Cross(verts[i]);
-            // 环流权重：边界/转向带强（|grad| 大），开阔大洋弱
-            float gyreW = Mathf.Min(1f, grad.Length() * 8f);
+            // 环流权重：边界/转向带强（|grad| 大），开阔大洋弱；|grad| ∝ 格距 → 按分辨率补偿
+            float gyreW = Mathf.Min(1f, grad.Length() * 8f * gridRatio);
             if (gyre.LengthSquared() > 1e-12f && gyreW > 0.03f)
             {
                 dirs[i] = gyre.Normalized();

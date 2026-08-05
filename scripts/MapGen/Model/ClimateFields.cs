@@ -434,7 +434,7 @@ public sealed class BiomeField : ModelBase, IFieldRole
     public string Domain => "陆地";
     public override float Magnitude => 32f;
     public string Stage => "Stage1";
-    public override string[] DependsOn() => new[] { "年均温", "年降水", "月温度" };
+    public override string[] DependsOn() => new[] { "年均温", "年降水", "月温度", "月降水" };   // ⚠️ 月降水:最湿月比例换算 mm
 
     public void Compute()
     {
@@ -443,8 +443,19 @@ public sealed class BiomeField : ModelBase, IFieldRole
         System.Threading.Tasks.Parallel.For(0, vn, i =>
         {
             float latDeg = Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(pipe.Verts[i].Y, -1f, 1f)));
+            // ⚠️ 2026-08-06 修复：DryP 是月降水比例(Σ=1)，柯本判据需 mm——
+            //   比例 0-1 恒 <30 → D 带全判 Dwa、Af 永不出现（单位错配 bug）
+            float dryMm = pipe.DryP[i] * pipe.Precip[i];
+            float wetMm = 120f;   // 最湿月（Kottek w/s 判据用；月降水比例 → mm）
+            if (pipe.MonthPrecip != null && pipe.MonthPrecip.Length == 12)
+            {
+                float wetP = 0f;
+                for (int m = 0; m < 12; m++)
+                    if (pipe.MonthPrecip[m][i] > wetP) wetP = pipe.MonthPrecip[m][i];
+                wetMm = wetP * pipe.Precip[i];
+            }
             pipe.Biome[i] = (byte)World.Biome.BiomeClassifier.Classify(pipe.ENorm[i], pipe.Temp[i], pipe.Precip[i],
-                pipe.HotM[i], pipe.ColdM[i], pipe.DryP[i], pipe.DryIdx[i], latDeg);
+                pipe.HotM[i], pipe.ColdM[i], dryMm, pipe.DryIdx[i], latDeg, wetMm);
         });
     }
 
