@@ -27,7 +27,7 @@ namespace World.LogicGrid;
 public static class GameMapArchive
 {
     public const string Magic = "GMP1";
-    public const ushort Version = 1;
+    public const ushort Version = 2;   // v2：自然层加洋流流函数 psi（环流圈显示）
 
     /// <summary>写 .gmp。log=false：后台线程调用（禁止 GD.Print）。</summary>
     public static bool Write(string path, GameGrid g, bool log = true)
@@ -85,6 +85,8 @@ public static class GameMapArchive
         foreach (var v in g.CurrentDirs) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
         foreach (var v in g.CurrentWarmth) f.StoreFloat(v);
         foreach (var v in g.CurrentStrength) f.StoreFloat(v);
+        if (g.Psi != null)
+            foreach (var v in g.Psi) f.StoreFloat(v);   // v2：流函数（环流圈显示）
         foreach (var v in g.Province) f.Store32((uint)v);
         foreach (var v in g.Country) f.Store32((uint)v);
     }
@@ -105,19 +107,20 @@ public static class GameMapArchive
             return false;
         }
         ushort ver = f.Get16();
-        if (ver != Version)
+        if (ver < 1 || ver > Version)
         {
-            GD.PrintErr($"[GameMapArchive] unsupported version {ver} in {path} (need {Version})");
+            GD.PrintErr($"[GameMapArchive] unsupported version {ver} in {path} (need 1..{Version})");
             return false;
         }
         var grid = new GameGrid();
-        ReadBody(f, grid);
+        ReadBody(f, grid, ver);
         g = grid;
         return true;
     }
 
-    /// <summary>主体反序列化（magic/version 之后；与 WriteBody 严格对应）。</summary>
-    public static void ReadBody(FileAccess f, GameGrid grid)
+    /// <summary>主体反序列化（magic/version 之后；与 WriteBody 严格对应）。
+    /// ver ≥ 2 读流函数 psi（v1 旧档无 psi）。</summary>
+    public static void ReadBody(FileAccess f, GameGrid grid, int ver = 2)
     {
         grid.GridN = (int)f.Get32();
         grid.N = (int)f.Get32();
@@ -154,6 +157,7 @@ public static class GameMapArchive
             grid.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());
         grid.CurrentWarmth = ReadFloats(f, n);
         grid.CurrentStrength = ReadFloats(f, n);
+        if (ver >= 2) grid.Psi = ReadFloats(f, n);   // v2：流函数（环流圈显示）
         grid.Province = ReadInts(f, n);
         grid.Country = ReadInts(f, n);
     }

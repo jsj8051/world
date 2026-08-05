@@ -19,7 +19,7 @@ public partial class OceanCurrentDiag : Node
         float range = Mathf.Max(-map.MinElev, map.MaxElev);
         for (int i = 0; i < map.Verts.Length; i++) eNorm[i] = range > 1e-6f ? map.Elev[i] / range : 0f;
 
-        OceanCurrent.Compute(map.Verts, nbs, eNorm, out var dirs, out var warmth, out var strength,
+        OceanCurrent.Compute(map.Verts, nbs, eNorm, out var dirs, out var warmth, out var strength, out var psi,
             windField: null, oceanTemp: map.Temp);
         int ocean = 0, withDir = 0, warm = 0, cold = 0;
         for (int i = 0; i < map.Verts.Length; i++)

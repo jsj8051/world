@@ -62,7 +62,7 @@ public partial class CurrentDiag : Node
     {
         WindField.Prograde = prograde;
         WindField.RotationSpeed = 1f;
-        OceanCurrent.Compute(grid.Vertices, grid.Neighbors, eNorm, out _, out var warmth, out _);
+        OceanCurrent.Compute(grid.Vertices, grid.Neighbors, eNorm, out _, out var warmth, out _, out _);
 
         int vn = eNorm.Length;
         int warm = 0, cold = 0;

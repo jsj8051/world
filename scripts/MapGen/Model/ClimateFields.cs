@@ -209,9 +209,9 @@ public sealed class TemperatureField : ModelBase, IFieldRole
     {
         var pipe = _pipe;
         int vn = pipe.Verts.Length;
-        // 第一遍洋流（解析 WindField 风驱；第二遍由 CurrentField 覆盖存档场）
+        // 第一遍洋流（解析 WindField 风驱；第二遍由 CurrentField 覆盖存档场；psi 不需要）
         World.Biome.OceanCurrent.Compute(pipe.Verts, pipe.Neighbors, pipe.ENorm,
-            out pipe.CurrentDirs, out pipe.CurrentWarmth, out pipe.CurrentStrength);
+            out pipe.CurrentDirs, out pipe.CurrentWarmth, out pipe.CurrentStrength, out _);
         // 沿岸采样：球面点 → 最近海洋顶点的冷暖+强度（陆地点查邻居，距离衰减）
         var grid = pipe.Grid;
         var warmthSampler = new System.Func<Vector3, (float warm, float str)>(point =>
@@ -405,6 +405,7 @@ public sealed class CurrentField : ModelBase, IFieldRole
         var windYear = pipe.WindYear;
         World.Biome.OceanCurrent.Compute(pipe.Verts, pipe.Neighbors, pipe.ENorm,
             out pipe.CurrentDirs, out pipe.CurrentWarmth, out pipe.CurrentStrength,
+            out pipe.Psi,
             windYear, pipe.Temp, betaScale: 1f);
     }
 

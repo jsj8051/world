@@ -915,6 +915,14 @@ public partial class MapViewer : Node3D
             return;
         }
 
+        // v4 档：流函数 psi 在 → 水位法提取"每环最外圈"（用户拍板形态：环状洋流每环一条外圈，
+        // 弱流也显示，不按强度筛选）；旧档（无 psi）回退下方稀疏箭头。
+        if (_map.Psi != null)
+        {
+            BuildCurrentRingsFromPsi();
+            return;
+        }
+
         float radius = RadiusKm * 1.01f;
 
         var verts = new System.Collections.Generic.List<Vector3>();
@@ -993,6 +1001,152 @@ public partial class MapViewer : Node3D
         };
         AddChild(_currentArrows);
         GD.Print($"[MapViewer] current arrows built: {drawn} 箭头（稀疏采样，固定大小） (from archive)");
+    }
+
+    // ── 洋流"每环最外圈"（水位法；v4 存档 psi；用户拍板形态——环状洋流每环一条外圈，
+    //    弱流也显示，不按强度筛选）──
+    //    原理：ψ 局部极值 = 环流中心；从极值逐层扩张（水位下降/上升），区域边界 = ψ 等值线；
+    //    区域扩张到贴大陆前最后一层边界 = 该环流圈最外圈。画边界格箭头（方向=CurrentDirs）。
+    private void BuildCurrentRingsFromPsi()
+    {
+        float radius = RadiusKm * 1.01f;
+        var verts = new System.Collections.Generic.List<Vector3>();
+        var colors = new System.Collections.Generic.List<Color>();
+        var indices = new System.Collections.Generic.List<int>();
+
+        var psi = _map.Psi;
+        int n = psi.Length;
+        var eNorm = new float[n];
+        float range = Mathf.Max(-_map.MinElev, _map.MaxElev);
+        for (int i = 0; i < n; i++) eNorm[i] = range > 1e-6f ? _map.Elev[i] / range : 0f;
+        var dirs = _map.CurrentDirs;
+        var nbsAll = _map.BuildNeighbors();   // 现场重建邻接（存档不存拓扑）
+
+        // 1. ψ 局部极值点（海洋格 = 环流中心）
+        var seeds = new System.Collections.Generic.List<int>();
+        for (int i = 0; i < n; i++)
+        {
+            if (eNorm[i] >= 0f) continue;
+            var nbs = nbsAll[i];
+            if (nbs == null || nbs.Length < 3) continue;
+            bool isMax = true, isMin = true;
+            foreach (var nb in nbs)
+            {
+                if (psi[nb] > psi[i]) isMax = false;
+                if (psi[nb] < psi[i]) isMin = false;
+            }
+            if (isMax || isMin) seeds.Add(i);
+        }
+
+        // 2. 水位法：极值 → 逐层扩张 → 贴大陆前最后一层边界 = 最外圈
+        var consumed = new bool[n];
+        int ringCount = 0, arrowTotal = 0;
+        var queue = new System.Collections.Generic.Queue<int>();
+        var seen = new bool[n];
+        const int layers = 30;
+        foreach (var seed in seeds)
+        {
+            if (consumed[seed]) continue;
+            bool isMax = true;
+            foreach (var nb in nbsAll[seed]) if (psi[nb] > psi[seed]) { isMax = false; break; }
+            float level0 = psi[seed];
+            float step = (level0 - 0f) / layers;   // 极大值降向 0 / 极小值升向 0
+
+            var boundary = new System.Collections.Generic.List<int>();
+            var lastBoundary = new System.Collections.Generic.List<int>();
+            for (int l = 1; l <= layers; l++)
+            {
+                float level = isMax ? level0 - step * l : level0 + step * l;
+                // BFS 连通区：ψ 满足（极大 ≥ level / 极小 ≤ level）的海洋格
+                queue.Clear();
+                System.Array.Clear(seen, 0, n);
+                queue.Enqueue(seed); seen[seed] = true;
+                int regionCount = 0;
+                bool touchesLand = false;
+                boundary.Clear();
+                while (queue.Count > 0)
+                {
+                    int c = queue.Dequeue();
+                    regionCount++;
+                    bool onBoundary = false;
+                    foreach (var nb in nbsAll[c])
+                    {
+                        if (eNorm[nb] >= 0f) { touchesLand = true; continue; }   // 邻接陆地
+                        bool inR = isMax ? psi[nb] >= level : psi[nb] <= level;
+                        if (inR)
+                        {
+                            if (!seen[nb]) { seen[nb] = true; queue.Enqueue(nb); }
+                        }
+                        else onBoundary = true;   // 邻接区域外海洋 = 等值线边界
+                    }
+                    if (onBoundary) boundary.Add(c);
+                }
+                if (regionCount == 0) break;
+                if (touchesLand) { boundary = lastBoundary; break; }   // 贴岸 → 最外圈 = 上一层
+                lastBoundary.Clear();
+                lastBoundary.AddRange(boundary);
+                for (int i = 0; i < n; i++) if (seen[i]) consumed[i] = true;   // 标记本环区域
+                if (boundary.Count == 0) break;   // 区域填满整个海洋盆（无闭合等值线）
+            }
+            if (boundary.Count >= 8)
+            {
+                int drawn = 0;
+                const float arrowLen = 0.028f, arrowTailW = 0.012f;
+                foreach (var c in boundary)
+                {
+                    var d = dirs[c];
+                    if (d.LengthSquared() < 1e-9f) continue;
+                    var pos = _map.Verts[c];
+                    var wDir = d.Normalized();
+                    var side = pos.Cross(wDir).Normalized();
+                    Vector3 tailC = pos - wDir * arrowLen * 0.35f;
+                    Vector3 tip = pos + wDir * arrowLen * 0.65f;
+                    Vector3 t1 = (tailC + side * arrowTailW).Normalized() * radius;
+                    Vector3 t2 = (tailC - side * arrowTailW).Normalized() * radius;
+                    Vector3 tipS = tip.Normalized() * radius;
+                    float w = _map.CurrentWarmth[c];
+                    Color col = w > 0.05f ? new Color(1f, 0.45f, 0.2f)
+                        : w < -0.05f ? new Color(0.25f, 0.55f, 1f)
+                        : new Color(0.85f, 0.85f, 0.85f);
+                    int ai = verts.Count;
+                    verts.Add(t1); verts.Add(tipS); verts.Add(t2);
+                    colors.Add(col); colors.Add(col); colors.Add(col);
+                    indices.Add(ai); indices.Add(ai + 1); indices.Add(ai + 2);
+                    drawn++;
+                }
+                if (drawn > 0) { ringCount++; arrowTotal += drawn; }
+            }
+        }
+
+        if (verts.Count == 0)
+        {
+            GD.Print("[MapViewer] current rings: 无闭合环流圈（psi 水位法）");
+            return;
+        }
+
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = verts.ToArray();
+        arrays[(int)Mesh.ArrayType.Color] = colors.ToArray();
+        arrays[(int)Mesh.ArrayType.Index] = indices.ToArray();
+        var mesh = new ArrayMesh();
+        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
+        var mat = new StandardMaterial3D
+        {
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            VertexColorUseAsAlbedo = true,
+            AlbedoColor = Colors.White,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+        };
+        _currentArrows = new MeshInstance3D
+        {
+            Mesh = mesh,
+            MaterialOverride = mat,
+            Visible = (Layer == 5),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(_currentArrows);
+        GD.Print($"[MapViewer] 洋流环：最外圈 {ringCount} 个，箭头 {arrowTotal}（水位法，v4 psi）");
     }
 
     // ── 河流网格（图层 6 显示）──

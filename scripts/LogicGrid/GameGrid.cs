@@ -46,6 +46,7 @@ public class GameGrid
     public Vector3[] CurrentDirs;  // 洋流方向（0=内陆/无流）
     public float[] CurrentWarmth;  // 洋流冷暖
     public float[] CurrentStrength;// 洋流强度
+    public float[] Psi;            // 洋流流函数（存档 v2 起；环流圈"每环最外圈"显示用）
 
     // ── 派生量（现场算，不存档）──
     private int[][] _neighbors;    // 球面邻接（惰性）
@@ -90,6 +91,7 @@ public class GameGrid
             CurrentDirs = map.CurrentDirs != null ? (Vector3[])map.CurrentDirs.Clone() : new Vector3[n],
             CurrentWarmth = map.CurrentWarmth != null ? (float[])map.CurrentWarmth.Clone() : new float[n],
             CurrentStrength = map.CurrentStrength != null ? (float[])map.CurrentStrength.Clone() : new float[n],
+            Psi = map.Psi != null ? (float[])map.Psi.Clone() : null,   // v4 流函数（环流圈显示）
             Province = new int[n],
             Country = new int[n],
         };

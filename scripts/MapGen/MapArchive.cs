@@ -29,7 +29,7 @@ namespace World.MapGen;
 public static class MapArchive
 {
     public const string Magic = "MPA1";
-    public const ushort Version = 3;
+    public const ushort Version = 4;   // v4：洋流加流函数 psi（环流圈"每环最外圈"显示）
 
     /// <summary>v3 球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。</summary>
     public static bool WriteSpherical(
@@ -39,6 +39,7 @@ public static class MapArchive
         float minTemp, float maxTemp, float minPrecip, float maxPrecip,
         bool prograde = true, float rotationSpeed = 1f, float axialTilt = 23.4f,
         Vector3[] currentDirs = null, float[] currentWarmth = null, float[] currentStrength = null,
+        float[] psi = null,
         byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null, byte[] lakeLevel = null,
         byte[] mineralLevel = null, byte[] soilLevel = null,
         byte[] monsoonLevel = null, byte[][] monthPrecip = null, byte[][] monthTemp = null,
@@ -84,6 +85,9 @@ public static class MapArchive
             foreach (var cw in currentWarmth) f.StoreFloat(cw);
             if (currentStrength != null)
                 foreach (var cs in currentStrength) f.StoreFloat(cs);
+            // 尾部扩展7（2026-08-06，v4）：流函数 psi（每格 1 float；环流圈"每环最外圈"显示用）
+            if (psi != null)
+                foreach (var p in psi) f.StoreFloat(p);
         }
         // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无=null）
         // 尾部扩展5（2026-08-02）：湖泊（级别 n bytes；旧存档无=null）
@@ -189,6 +193,12 @@ public static class MapArchive
                 {
                     map.CurrentStrength = new float[n];
                     for (int i = 0; i < n; i++) map.CurrentStrength[i] = f.GetFloat();
+                }
+                // 尾部扩展7（v4）：流函数 psi（v3 旧档无——必须用版本判断，长度检测会误读河流段）
+                if (ver >= 4 && f.GetPosition() + (ulong)n * 4u <= f.GetLength())
+                {
+                    map.Psi = new float[n];
+                    for (int i = 0; i < n; i++) map.Psi[i] = f.GetFloat();
                 }
             }
             // 尾部扩展4：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无 = null）
@@ -297,6 +307,7 @@ public class MapData
     public Vector3[] CurrentDirs;          // 洋流方向（v3.1 尾部；null=旧存档无）
     public float[] CurrentWarmth;          // 洋流冷暖（v3.1 尾部；null=旧存档无）
     public float[] CurrentStrength;        // 洋流强度 0.3~1.0（v3.1 尾部；null=旧存档无，默认 1）
+    public float[] Psi;                    // 洋流流函数（v4；环流圈"每环最外圈"显示；null=旧存档无）
     public byte[] RiverLevel;              // 河流级别（v3.2 尾部；null=旧存档无）
     public int[] RiverFlow;                // 河流流向（v3.2 尾部；null=旧存档无）
     public float[] RiverVolume;            // 河流流量 mm（v3.3 尾部；null=旧存档无）

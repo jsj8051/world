@@ -35,7 +35,7 @@ public static class OceanCurrent
     /// <param name="iterations">Gauss-Seidel 迭代次数（默认 300，够收敛）</param>
     public static void Compute(
         Vector3[] verts, int[][] neighbors, float[] elevNorm,
-        out Vector3[] dirs, out float[] warmth, out float[] strength,
+        out Vector3[] dirs, out float[] warmth, out float[] strength, out float[] psi,
         Vector3[] windField = null, float[] oceanTemp = null,
         float betaScale = 1f, int iterations = 300)
     {
@@ -43,6 +43,7 @@ public static class OceanCurrent
         dirs = new Vector3[n];
         warmth = new float[n];
         strength = new float[n];
+        psi = new float[n];   // 流函数（环流圈提取用；存档供显示层"每环最外圈"）
 
         // ⚠️ 2026-08-06：分辨率自适应——n=128 洋流空白修复。
         //   · Gauss-Seidel 收敛所需迭代 ∝ 网格直径(√n)：默认 300 次在大网格不收敛 → ψ 未成形
@@ -109,7 +110,6 @@ public static class OceanCurrent
         //    ⚠️ 2026-08-06：Gauss-Seidel 在大网格(n=128)收敛太慢——600 次迭代 ψ 未成形，
         //    |∇ψ| 普遍偏小 → strength 几乎全弱流(0.3) → 显示层筛不出主要洋流。
         //    SOR(ω=1.7) 收敛 3-5 倍加速，等效迭代 ~2000+。
-        var psi = new float[n];
         const float sorOmega = 1.7f;
         float finalErr = 0f;
         int itersDone = 0;

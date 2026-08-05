@@ -295,9 +295,10 @@ public partial class MapGenerator : Node
 				}
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
-				pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
-				prograde: ProgradeRotation, rotationSpeed: RotationSpeed, axialTilt: AxialTilt,
-				currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
+			    pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
+			    prograde: ProgradeRotation, rotationSpeed: RotationSpeed, axialTilt: AxialTilt,
+			    currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
+			    psi: pipe.Psi,
 				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
 				mineralLevel: _mineralLevel, soilLevel: _soilLevel,
 				monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp, log: false);   // 后台线程禁止 GD.Print

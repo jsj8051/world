@@ -38,6 +38,7 @@ public class PlanetPipeline
     public byte[] SoilLevel;       // 土壤肥力 1-5（0=海洋；2026-08-03）
     public Vector3[] CurrentDirs;
     public float[] CurrentWarmth, CurrentStrength;
+    public float[] Psi;                        // 洋流流函数（环流圈提取；存档 v4 起，供显示层"每环最外圈"）
     public float MinElev, MaxElev, MinTemp, MaxTemp, MinPrecip, MaxPrecip;
     public int RiparianCount;
     // 季风环流诊断场（v3.7/v3.8 存档 + 元数据校验）
