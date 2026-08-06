@@ -4,39 +4,94 @@ using Godot;
 
 namespace World.CivSim;
 
-/// <summary>技术定义（来自 res://data/techs.csv，数据驱动）。</summary>
+/// <summary>
+/// 技术定义（来自 res://data/techs.csv，数据驱动）。
+/// v4 能力-科技框架：key 字符串标识（存档/诊断可读，非位掩码）；使用 = 实体每 tick 收益选择。
+/// 无时代字段——科技按依赖链排位；时代 = 反应性标签（IsFarming → 新石器）。
+/// </summary>
 public sealed class TechDef
 {
-    public int Id;
+    public string Key;
     public string Name;
-    public int Epoch;            // 0=石器 1=新石器 2=青铜 3=铁器 4=古典/中世纪
-    public int[] Requires;       // 前置技术 id
-    public float InvPop;         // 发明人口门槛（部落人口）；-1=特殊判定（农业：格 K 利用率 > 大陆 P80）
-    public string[] InvEnv;      // 发明环境（部落所在格 biome 集合；any=不限）
-    public float InvProb;        // 每 tick 发明概率（条件满足时）
-    public float SpreadBase;     // 传播概率/tick/接触（贸易 ×2）
-    public string Effect;        // carry=承载乘数 / unlock_cold / unlock_sea / unlock_settle / mod_*
-    public float Value;          // 效果数值
+    public string[] InvEnv;      // 发明环境硬门槛（any/coast/seed/...；§6.1 判定函数）
+    public float InvRate;        // Kremer k_i（发明速度软因子）
+    public float PRef;           // 参考人口 P_ref_i
+    public float SpreadBase;     // 传播基础概率/tick/接触（极易 0.08/易 0.05/中 0.02/难 0.008）
+    public string[] Requires;    // 依赖 key（硬门槛）
+    public string[] Effects;     // "effect:value" 分号分隔
+
+    public bool IsSeed;          // 种子（压力触发发明，仅起源区）
+    public int SeedIndex;        // WildCrops 位 0-4（种子行序）
+    public float AgriBase;       // agri:value → 种子基线倍数 ×Y_猎0（母科技=1）
+    public float CarryMult;      // carry:value → 狩猎产量乘数链
+    public bool UnlockCold;      public float ColdMult;    // 火：寒冷区 K 下限 ×3
+    public bool UnlockCold2;     public float ColdMult2;   // 皮毛：再 ×3
+    public bool UnlockSea;       // 独木舟：跨海
+    public bool IsAgricultureConcept;   // agriculture 母科技·概念位（派生置位）
 }
 
-/// <summary>技术表：从 CSV 加载，提供按 id 查询 + 位掩码工具。</summary>
+/// <summary>技术表：key 字符串索引；提供查询工具（加载后只读）。</summary>
 public static class TechTable
 {
     public const string CsvPath = "res://data/techs.csv";
-    private static TechDef[] _techs;
+
+    public const string StoneCore = "stone_core";
+    public const string Fire = "fire";
+    public const string Handaxe = "handaxe";
+    public const string Clothing = "clothing";
+    public const string Microlith = "microlith";
+    public const string Bow = "bow";
+    public const string Canoe = "canoe";
+    public const string Storage = "storage";
+    public const string Pottery = "pottery";
+    public const string Grinding = "grinding";
+    public const string Agriculture = "agriculture";
+    public const string SeedWheat = "seed_wheat";
+    public const string SeedMillet = "seed_millet";
+    public const string SeedRice = "seed_rice";
+    public const string SeedCorn = "seed_corn";
+    public const string SeedPotato = "seed_potato";
+
+    public static readonly string[] SeedKeys =
+        { SeedWheat, SeedMillet, SeedRice, SeedCorn, SeedPotato };
+
+    private static TechDef[] _techs = Array.Empty<TechDef>();
+    private static Dictionary<string, TechDef> _byKey = new();
     private static bool _loaded;
 
-    /// <summary>全部技术（按 id 索引；CSV 顺序即 id）。</summary>
-    public static TechDef[] All
+    public static IReadOnlyList<TechDef> All => _techs;
+    public static int Count => _techs.Length;
+
+    public static TechDef Get(string key) => _byKey.TryGetValue(key, out var t) ? t : null;
+
+    public static bool Has(HashSet<string> keys, string key) => keys.Contains(key);
+
+    /// <summary>已获种子 key 列表（实体内，诊断/母科技判定用）。</summary>
+    public static List<string> HeldSeeds(HashSet<string> keys)
     {
-        get
-        {
-            if (!_loaded) Load();
-            return _techs;
-        }
+        var r = new List<string>(2);
+        foreach (var s in SeedKeys) if (keys.Contains(s)) r.Add(s);
+        return r;
     }
 
-    public static int Count => All.Length;
+    /// <summary>狩猎产量乘数链 Π carry（持科技，含研磨器；种子/母科技不计入）。</summary>
+    public static float HuntingCarry(HashSet<string> keys)
+    {
+        float f = 1f;
+        foreach (var t in _techs)
+            if (t.CarryMult > 0f && keys.Contains(t.Key))
+                f *= t.CarryMult;
+        return f;
+    }
+
+    /// <summary>知识累积度（已获科技数，Kremer 累积性项）。</summary>
+    public static int Knowledge(HashSet<string> keys) => keys.Count;
+
+    /// <summary>母科技派生置位：持有任一种子 → agriculture 自动入集。</summary>
+    public static void SyncAgriculture(HashSet<string> keys)
+    {
+        if (HeldSeeds(keys).Count > 0) keys.Add(Agriculture);
+    }
 
     /// <summary>加载技术表（幂等；CSV 解析失败打印错误）。</summary>
     public static void Load()
@@ -47,80 +102,52 @@ public static class TechTable
         if (f == null)
         {
             GD.PrintErr($"[TechTable] cannot open {CsvPath}: {FileAccess.GetOpenError()}");
-            _techs = Array.Empty<TechDef>();
             _loaded = true;
             return;
         }
         bool first = true;
+        int seedIdx = 0;
         while (!f.EofReached())
         {
             string line = f.GetLine().Trim();
-            if (first) { first = false; continue; }   // 跳过表头
+            if (first) { first = false; continue; }
             if (line.Length == 0) continue;
             var c = line.Split(',');
-            if (c.Length < 10) continue;
+            if (c.Length < 8) continue;
             var t = new TechDef
             {
-                Id = int.Parse(c[0]),
-                Name = c[1],
-                Epoch = int.Parse(c[2]),
-                Requires = c[3].Length > 0 ? ParseInts(c[3]) : Array.Empty<int>(),
-                InvPop = float.Parse(c[4]),
-                InvEnv = c[5].Length > 0 && c[5] != "any" ? c[5].Split(';') : Array.Empty<string>(),
-                InvProb = float.Parse(c[6]),
-                SpreadBase = float.Parse(c[7]),
-                Effect = c[8],
-                Value = float.Parse(c[9]),
+                Key = c[0].Trim(),
+                Name = c[1].Trim(),
+                InvEnv = c[2].Trim() is "" or "any" ? Array.Empty<string>() : c[2].Trim().Split(';'),
+                InvRate = float.TryParse(c[3], out var kr) ? kr : 0f,
+                PRef = float.TryParse(c[4], out var pr) ? pr : 0f,
+                SpreadBase = float.TryParse(c[5], out var sp) ? sp : 0f,
+                Requires = c[6].Trim().Length > 0 ? c[6].Trim().Split(';') : Array.Empty<string>(),
+                Effects = c[7].Trim().Length > 0 ? c[7].Trim().Split(';') : Array.Empty<string>(),
             };
+            foreach (var e in t.Effects)
+            {
+                var p = e.Split(':');
+                string kind = p[0].Trim();
+                float v = p.Length > 1 && float.TryParse(p[1], out var fv) ? fv : 0f;
+                switch (kind)
+                {
+                    case "carry": t.CarryMult = v; break;
+                    case "unlock_cold": t.UnlockCold = true; t.ColdMult = v > 0f ? v : 3f; break;
+                    case "unlock_cold2": t.UnlockCold2 = true; t.ColdMult2 = v > 0f ? v : 3f; break;
+                    case "unlock_sea": t.UnlockSea = true; break;
+                    case "agri":
+                        if (t.Key == Agriculture) t.IsAgricultureConcept = true;
+                        else { t.IsSeed = true; t.AgriBase = v; t.SeedIndex = seedIdx; seedIdx++; }
+                        break;
+                }
+            }
             list.Add(t);
         }
         _techs = list.ToArray();
+        _byKey = new Dictionary<string, TechDef>();
+        foreach (var t in _techs) _byKey[t.Key] = t;
         _loaded = true;
-        GD.Print($"[TechTable] loaded {_techs.Length} techs: {string.Join(" / ", Array.ConvertAll(_techs, t => t.Name))}");
-    }
-
-    private static int[] ParseInts(string s)
-    {
-        var p = s.Split(';');
-        var r = new int[p.Length];
-        for (int i = 0; i < p.Length; i++) r[i] = int.Parse(p[i]);
-        return r;
-    }
-
-    // ── 位掩码工具（技术集合 = ulong 位掩码，25 项 < 64）──
-
-    public static bool Has(ulong flags, int techId) => techId >= 0 && techId < 64 && (flags & (1UL << techId)) != 0;
-    public static ulong Set(ulong flags, int techId) => techId >= 0 && techId < 64 ? flags | (1UL << techId) : flags;
-    public static bool HasAll(ulong flags, int[] ids)
-    {
-        foreach (var id in ids) if (!Has(flags, id)) return false;
-        return true;
-    }
-
-    /// <summary>部落最高技术时代（0-4；无技术=0）。</summary>
-    public static int MaxEpoch(ulong flags)
-    {
-        int max = 0;
-        for (int i = 0; i < Count; i++)
-            if (Has(flags, i) && _techs[i].Epoch > max) max = _techs[i].Epoch;
-        return max;
-    }
-
-    /// <summary>已获技术数。</summary>
-    public static int CountTech(ulong flags)
-    {
-        int c = 0;
-        for (int i = 0; i < Count; i++) if (Has(flags, i)) c++;
-        return c;
-    }
-
-    /// <summary>技术位掩码的承载乘数（carry 效果连乘；极寒解锁单独处理）。</summary>
-    public static float CarryFactor(ulong flags)
-    {
-        float f = 1f;
-        for (int i = 0; i < Count; i++)
-            if (Has(flags, i) && _techs[i].Effect == "carry")
-                f *= _techs[i].Value;
-        return f;
+        GD.Print($"[TechTable] loaded {_techs.Length} techs: {string.Join(" / ", Array.ConvertAll(_techs, t => t.Key))}");
     }
 }

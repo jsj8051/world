@@ -85,8 +85,12 @@ public static class GameMapArchive
         foreach (var v in g.CurrentDirs) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
         foreach (var v in g.CurrentWarmth) f.StoreFloat(v);
         foreach (var v in g.CurrentStrength) f.StoreFloat(v);
+        // ⚠️ Psi 必须无条件写满（null → 补零）：ReadBody(ver≥2) 无条件读该段，
+        //   条件写会让无 Psi 的网格写档后自然段错位（实体段 count 读爆 → 卡死）
         if (g.Psi != null)
-            foreach (var v in g.Psi) f.StoreFloat(v);   // v2：流函数（环流圈显示）
+            foreach (var v in g.Psi) f.StoreFloat(v);
+        else
+            for (int i = 0; i < n; i++) f.StoreFloat(0f);
         foreach (var v in g.Province) f.Store32((uint)v);
         foreach (var v in g.Country) f.Store32((uint)v);
     }

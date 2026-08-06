@@ -2,8 +2,9 @@ namespace World.Biome;
 
 /// <summary>
 /// 生物群系类型（策略地图色块风，非写实）。
-/// 0-13：早期绝对阈值分类（2026-08-16 前，保留供旧存档兼容，新生成不再产生）；
-/// 14+ ：柯本气候分类细类（2026-08-16，Köppen–Geiger 判据 + 季节/干湿季推导）。
+/// 0-3：基础极地/海洋值；12-13：高山/河岸带；14+：柯本气候分类细类（Köppen–Geiger 判据 + 季节/干湿季推导）。
+/// 旧值 4-11（Taiga/ColdDesert/TemperateForest/TemperateGrassland/Desert/Savanna/TropicalForest/TropicalDryForest）
+/// 已于 2026-08-07 删除（化石，新生成不产生；旧档含 4-11 读档报错要求重新生成）。
 /// byte 直接写入存档（0-31 全部有效）。
 /// </summary>
 public enum BiomeType : byte
@@ -12,14 +13,6 @@ public enum BiomeType : byte
     Ocean = 1,              // 温带海洋（中纬度海水）
     IceCap = 2,             // 冰原/极地冰盖（EF，最热月 < 0°C；或高山冰雪）
     Tundra = 3,             // 苔原（ET，最热月 0~10°C）
-    Taiga = 4,              // 针叶林（旧值；新判据 → Subarctic）
-    ColdDesert = 5,         // 寒漠（旧值；新判据 → ColdDesertKoppen）
-    TemperateForest = 6,    // 温带森林（旧值；新判据 → HumidSubtropical/Oceanic）
-    TemperateGrassland = 7, // 温带草原（旧值；新判据 → HotSteppe/ColdSteppe）
-    Desert = 8,             // 荒漠（旧值；新判据 → HotDesert）
-    Savanna = 9,            // 稀树草原（旧值；新判据 → TropicalSavanna）
-    TropicalForest = 10,    // 热带雨林（旧值；新判据 → TropicalRainforest）
-    TropicalDryForest = 11, // 热带疏林（旧值；新判据 → TropicalMonsoon）
     Alpine = 12,            // 高山（高海拔，温度不够低）
     Riparian = 13,          // 河岸带（沿岸陆地格，河湖湿润 → 翠绿绿洲线）
 

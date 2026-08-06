@@ -161,22 +161,16 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
         {
             case (byte)World.Biome.BiomeType.HotDesert:
             case (byte)World.Biome.BiomeType.ColdDesertKoppen:
-            case (byte)World.Biome.BiomeType.Desert:
                 return 1f;                                  // 沙漠全裸露
             case (byte)World.Biome.BiomeType.HotSteppe:
             case (byte)World.Biome.BiomeType.ColdSteppe:
             case (byte)World.Biome.BiomeType.TropicalSavanna:
-            case (byte)World.Biome.BiomeType.TemperateGrassland:
-            case (byte)World.Biome.BiomeType.Savanna:
                 return 0.6f;                                // 草原
             case (byte)World.Biome.BiomeType.TropicalRainforest:
             case (byte)World.Biome.BiomeType.TropicalMonsoon:
             case (byte)World.Biome.BiomeType.HumidSubtropical:
             case (byte)World.Biome.BiomeType.Oceanic:
             case (byte)World.Biome.BiomeType.MonsoonSubtropical:
-            case (byte)World.Biome.BiomeType.TemperateForest:
-            case (byte)World.Biome.BiomeType.TropicalForest:
-            case (byte)World.Biome.BiomeType.TropicalDryForest:
                 return 0.1f;                                // 森林（风蚀≈0）
             case (byte)World.Biome.BiomeType.IceCap:
             case (byte)World.Biome.BiomeType.Tundra:

@@ -40,6 +40,7 @@ public class GameGrid
     public byte[] LakeLevel;       // 0=无湖
     public byte[] MineralLevel;    // (富度<<4)|矿种；0=无
     public byte[] SoilLevel;       // 1-5；0=海洋
+    public byte[] WildCrops;       // 野生作物位 bitmask（5 位=5 种子）；null=未生成，读档后惰性重建（确定性，不存档）
     public byte[] MonsoonLevel;    // 0-255 → 0-1
     public byte[][] MonthPrecip;   // [12][n] 月降水比例
     public byte[][] MonthTemp;     // [12][n] 月温度 −60~60°C→0-255
@@ -175,6 +176,9 @@ public class GameGrid
         return false;
     }
 
+    /// <summary>野生作物位（惰性重建：确定性 f(seed, 气候场)，不存档；读档后现场重推导）。</summary>
+    public byte[] EnsureWildCrops() => WildCrops ??= World.MapGen.WildCropsSystem.Compute(this, Seed);
+
     /// <summary>每格胞面积（km²；均匀近似 4πR²/N——Icosahedron 胞面积几乎相等）。</summary>
     public float CellAreaKm2 => 4f * Mathf.Pi * RadiusKm * RadiusKm / N;
 
@@ -224,13 +228,19 @@ public class GameGrid
     }
 
     // ── 球面桶索引（与 MapData 相同：采样/邻接加速）──
-    private const int BucketsLat = 16;
-    private const int BucketsLon = 32;
+    // ⚠️ 2026-08-16：桶数按 N 缩放（目标每桶 ~30 顶点，lat:lon=1:2）——固定 16×32 时
+    //   n=128 每桶 ~320 顶点，邻接/采样 O(V²) 卡死（与 MapData 同修复）。
+    private int BucketsLat;
+    private int BucketsLon;
     private List<int>[,] _buckets;
 
     private void EnsureBuckets()
     {
         if (_buckets != null) return;
+        int targetPerBucket = 30;
+        int totalBuckets = Mathf.Max(2, N / targetPerBucket);
+        BucketsLat = Mathf.Clamp((int)Mathf.Round(Mathf.Sqrt(totalBuckets / 2f)), 4, 512);
+        BucketsLon = BucketsLat * 2;
         _buckets = new List<int>[BucketsLat, BucketsLon];
         for (int y = 0; y < BucketsLat; y++)
             for (int x = 0; x < BucketsLon; x++)
@@ -242,7 +252,7 @@ public class GameGrid
         }
     }
 
-    private static (int, int) BucketOf(Vector3 v)
+    private (int, int) BucketOf(Vector3 v)
     {
         float lat = Mathf.Asin(Mathf.Clamp(v.Y, -1f, 1f));
         float lon = Mathf.Atan2(v.Z, v.X);

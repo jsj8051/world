@@ -108,14 +108,14 @@ public partial class CmpSelectMenu : Control
         }
     }
 
-    /// <summary>读取 .cmp 头部信息（seed/纪元/时长/人口/部落数），失败返回空。</summary>
+    /// <summary>读取 .cmp 头部信息（seed/时长/人口/实体数），失败返回空。</summary>
     private string Describe(string path)
     {
         if (!CivMapArchive.Read(path, out var grid, out var result))
             return "(读取失败)";
         float pop = result.Context.TotalPopulation();
-        return $"seed={result.Context.Seed} · {result.Context.Epoch.Name} · " +
-               $"{result.FinalTick * result.Context.Epoch.TickYears} 年 · 人口 {pop:F0} · 部落 {result.Context.Tribes.Count}";
+        return $"seed={result.Context.Seed} · 石器时代 · " +
+               $"{result.FinalTick * World.CivSim.CivSimContext.TickYears} 年 · 人口 {pop:F0} · 部落 {result.Context.Entities.Count}";
     }
 
     private void EnterGame(string path)

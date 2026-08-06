@@ -6,10 +6,10 @@ uid="uid://de1lqytlcud28"
 
 [deps]
 
-files=["res://data/techs.name.translation", "res://data/techs.epoch.translation", "res://data/techs.req.translation", "res://data/techs.invPop.translation", "res://data/techs.invEnv.translation", "res://data/techs.invProb.translation", "res://data/techs.spread.translation", "res://data/techs.effect.translation", "res://data/techs.value.translation"]
+files=["res://data/techs.name.translation", "res://data/techs.invEnv.translation", "res://data/techs.invRate.translation", "res://data/techs.pRef.translation", "res://data/techs.spread.translation", "res://data/techs.requires.translation", "res://data/techs.effects.translation"]
 
 source_file="res://data/techs.csv"
-dest_files=["res://data/techs.name.translation", "res://data/techs.epoch.translation", "res://data/techs.req.translation", "res://data/techs.invPop.translation", "res://data/techs.invEnv.translation", "res://data/techs.invProb.translation", "res://data/techs.spread.translation", "res://data/techs.effect.translation", "res://data/techs.value.translation"]
+dest_files=["res://data/techs.name.translation", "res://data/techs.invEnv.translation", "res://data/techs.invRate.translation", "res://data/techs.pRef.translation", "res://data/techs.spread.translation", "res://data/techs.requires.translation", "res://data/techs.effects.translation"]
 
 [params]
 

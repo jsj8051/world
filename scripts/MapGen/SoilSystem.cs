@@ -24,15 +24,7 @@ public static class SoilSystem
         return biome switch
         {
             (byte)BiomeType.Riparian => 5,             // 河岸冲积带（最肥沃）
-            (byte)BiomeType.TemperateGrassland => 4,   // 黑土草原（乌克兰/大平原）
-            (byte)BiomeType.TemperateForest => 4,      // 温带森林腐殖质
-            (byte)BiomeType.Taiga => 2,                // 针叶林酸性土
-            (byte)BiomeType.Savanna => 3,              // 稀树草原
-            (byte)BiomeType.TropicalForest => 3,       // 雨林淋溶中偏贫
-            (byte)BiomeType.TropicalDryForest => 3,    // 季雨林
             (byte)BiomeType.Tundra => 1,               // 冻土苔原
-            (byte)BiomeType.ColdDesert => 1,           // 寒漠
-            (byte)BiomeType.Desert => 1,               // 荒漠
             (byte)BiomeType.IceCap => 1,               // 冰原（不可耕）
             (byte)BiomeType.Alpine => 1,               // 高山薄土
             // ── 柯本细类（2026-08-16）──

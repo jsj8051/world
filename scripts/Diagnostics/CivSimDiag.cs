@@ -1,6 +1,8 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
@@ -8,30 +10,22 @@ using World.MapGen;
 namespace World.Diagnostics;
 
 /// <summary>
-/// 文明演化诊断（v2 部落模型）：读 .mpa → GameGrid（自然层只读）→ 演化（seed 确定性）→ 写 .cmp
-/// → 读回校验（自然层零改动 + 部落表往返 + 同 seed 复现性）+ 演化统计（部落动态/技术分布/农业起源）。
+/// 文明演化诊断（v4 纯实体模型全测试规格，docs/石器时代设计.md §十二）：
+///   S1-S6 构造式场景（内联构造，不依赖自然图）+ T01-T20 地图测试。
+///   每项输出 "T-xx 名称 PASS/FAIL 数据"；全 PASS 退出码 0，任一 FAIL 退出码 1。
 ///
 /// 命令行：-- --arch=user://maps/xxx.mpa [--seed=N] [--origins=1..6] [--out=user://maps/xxx.cmp]
 /// </summary>
 public partial class CivSimDiag : Node
 {
+    private int _pass, _fail;
+    private GameGrid _grid;
+
     public override void _Ready()
     {
         string arch = ArchiveDiag.ResolveArchPath();
-        if (arch == null)
-        {
-            GD.PrintErr("[CivSimDiag] 需要 --arch=user://maps/xxx.mpa（文明演化是存档直读工具）");
-            GetTree().Quit(1);
-            return;
-        }
-        if (!ArchiveDiag.TryLoad(arch, out var ctx))
-        {
-            GetTree().Quit(1);
-            return;
-        }
-
         int seed = 42, origins = 3;
-        string outPath = arch.GetBaseName() + ".cmp";
+        string outPath = arch != null ? arch.GetBaseName() + ".cmp" : null;
         var ua = OS.GetCmdlineUserArgs();
         for (int i = 0; i < ua.Length; i++)
         {
@@ -42,111 +36,605 @@ public partial class CivSimDiag : Node
             else if (v.StartsWith("out=", StringComparison.OrdinalIgnoreCase)) outPath = v.Substring(4);
         }
 
-        var grid = GameGrid.FromMapData(ctx.Map);
-        int n = grid.N;
-        GD.Print($"[CivSimDiag] 读档 {arch} n={n} → 文明演化（seed={seed} 起源{origins}，部落=格内单元模型，自然层只读）");
+        // ── S 构造场景（无地图依赖，先跑）──
+        RunScenarios();
 
-        // ── 1. 演化 + 复现性 ──
-        var r1 = CivEngine.Run(grid, seed, origins);
-        var r2 = CivEngine.Run(grid, seed, origins);
-        bool reproducible = TribesEqual(r1.Context, r2.Context);
-
-        // ── 2. 写 .cmp + 读回 ──
-        bool ok = CivMapArchive.Write(outPath, grid, r1);
-        if (!ok) { GetTree().Quit(1); return; }
-        if (!CivMapArchive.Read(outPath, out var gridBack, out var rBack))
-        { GetTree().Quit(1); return; }
-
-        // ── 3. 校验 ──
-        bool natOk = NaturalUnchanged(grid, gridBack);
-        bool rtOk = TribesEqual(r1.Context, rBack.Context);
-        bool agriRepro = AgricultureCount(r1.Context) == AgricultureCount(r2.Context);
-
-        // ── 4. 统计 ──
-        var c = r1.Context;
-        int occupied = 0, land = 0;
-        var cultureCells = new Dictionary<byte, int>();
-        var techEpochTribes = new int[5];
-        int agriTribes = 0, maxTechTribes = 0;
-        float popMax = 0f; int popMaxCell = -1;
-        for (int i = 0; i < n; i++)
+        // ── T 地图测试 ──
+        if (arch == null)
         {
-            if (grid.IsLandCell(i)) land++;
-            if (c.CellPop[i] > 0f)
+            GD.Print($"[CivSimDiag] 无 --arch：仅跑构造场景（S1-S6）→ 总 {_pass}P/{_fail}F");
+            GetTree().Quit(_fail == 0 ? 0 : 1);
+            return;
+        }
+        if (!ArchiveDiag.TryLoad(arch, out var mctx))
+        {
+            GetTree().Quit(1);
+            return;
+        }
+        _grid = GameGrid.FromMapData(mctx.Map);
+        GD.Print($"[CivSimDiag] 读档 {arch} n={_grid.N} → 全测试（seed={seed} 起源{origins}，自然层只读）");
+        bool hasFossil = false;
+        for (int i = 0; i < _grid.N; i++)
+            if (_grid.Biome[i] >= 4 && _grid.Biome[i] <= 11) { hasFossil = true; break; }
+        GD.Print($"[CivSimDiag] 地图 biome 化石值(4-11)存在={hasFossil}（旧档放弃策略：含化石 → 存档/演化拒绝）");
+        RunMapTests(seed, origins, outPath);
+
+        GD.Print($"[CivSimDiag] 汇总：{_pass} PASS / {_fail} FAIL → {( _fail == 0 ? "全部PASS" : "有失败!")}");
+        GetTree().Quit(_fail == 0 ? 0 : 1);
+    }
+
+    private void Check(string name, bool ok, string data = "")
+    {
+        if (ok) _pass++; else _fail++;
+        GD.Print($"  {(ok ? "PASS" : "FAIL")} {name}{(data.Length > 0 ? " | " + data : "")}");
+    }
+
+    // ═══════════════════ S 构造场景 ═══════════════════
+
+    private void RunScenarios()
+    {
+        GD.Print("[CivSimDiag] ── S 构造场景 ──");
+        S1_GrowthAndEnergy();
+        S2_ModeMatrix();
+        S3_ShareConservation();
+        S4_FissionInherit();
+        S5_SpreadDependency();
+        S6_ReligionLock();
+    }
+
+    /// <summary>小网格（N=2 赤道相邻两点，Neighbors 连通；RadiusKm 决定胞面积）。</summary>
+    private static GameGrid MakeGrid(float radiusKm, byte biome, float temp, float precip, byte soil = 3)
+    {
+        var g = new GameGrid { N = 2, GridN = 1, Seed = 42, RadiusKm = radiusKm };
+        g.Verts = new[] { new Vector3(1, 0, 0), new Vector3(0, 1, 0) };   // 角距 90° < 邻居半径
+        g.Elev = new[] { 100f, 100f };
+        g.Temp = new[] { temp, temp };
+        g.Precip = new[] { precip, precip };
+        g.Biome = new[] { biome, biome };
+        g.RiverLevel = new byte[] { 0, 0 };
+        g.RiverFlow = new[] { -1, -1 };
+        g.RiverVolume = new float[] { 0, 0 };
+        g.LakeLevel = new byte[] { 0, 0 };
+        g.MineralLevel = new byte[] { 0, 0 };
+        g.SoilLevel = new byte[] { soil, soil };
+        g.MonsoonLevel = new byte[] { 0, 0 };
+        g.MonthPrecip = new byte[12][];
+        g.MonthTemp = new byte[12][];
+        for (int m = 0; m < 12; m++)
+        {
+            g.MonthPrecip[m] = new byte[] { (byte)(255 / 12), (byte)(255 / 12) };
+            g.MonthTemp[m] = new byte[] { (byte)((temp + 60) / 120f * 255f), (byte)((temp + 60) / 120f * 255f) };
+        }
+        g.CurrentDirs = new[] { Vector3.Zero, Vector3.Zero };
+        g.CurrentWarmth = new float[] { 0, 0 };
+        g.CurrentStrength = new float[] { 0, 0 };
+        g.Province = new int[2];
+        g.Country = new int[2];
+        return g;
+    }
+
+    private static CivSimContext MakeCtx(GameGrid g, int seed = 42, int origins = 3)
+    {
+        TechTable.Load();   // S 场景/测试手动构造 ctx，不经过 CivEngine.Run 的 Load
+        int n = g.N;
+        var ctx = new CivSimContext
+        {
+            Grid = g,
+            CellTribes = new List<CivEntity>[n],
+            Entities = new List<CivEntity>(),
+            Seed = seed,
+            OriginCount = origins,
+            Rng = new DeterministicRandom(seed),
+            BaseK = new float[n],
+            CellK = new float[n],
+            CellPop = new float[n],
+            BfsStamp = new int[n],
+            BfsStampValue = 1,
+            WildCrops = g.EnsureWildCrops(),
+            Suit = WildCropsSystem.Suitability(g),
+            FirstFarmTick = -1,
+        };
+        for (int i = 0; i < n; i++) ctx.CellTribes[i] = new List<CivEntity>();
+        for (int i = 0; i < n; i++) { ctx.BaseK[i] = ctx.YHunter0(i); ctx.CellK[i] = ctx.BaseK[i]; }
+        return ctx;
+    }
+
+    private static void RunTicks(CivSimContext ctx, int ticks)
+    {
+        var reg = CivModelRegistry.StoneAge();
+        for (int k = 0; k < ticks; k++, ctx.Tick++)   // ⚠️ 必须递增 Tick：OriginModel 只在 tick 0 播种
+        {
+            CivEngine.RefreshCellState(ctx);
+            reg.ExecuteAll(ctx);
+        }
+    }
+
+    private static CivEntity AddEntity(CivSimContext ctx, int cell, float pop, params string[] techs)
+    {
+        var e = new CivEntity
+        {
+            Id = ctx.Entities.Count,
+            Cell = cell,
+            P = pop,
+            OriginCell = cell,
+            BornTick = ctx.Tick,
+            CultureShare = ShareField.NewCulture("test_cult"),
+            CultureGroupShare = ShareField.NewCulture("test_grp"),
+            ReligionShare = ShareField.NewReligion(ReligionStage.Animism),
+        };
+        foreach (var t in techs) e.TechKeys.Add(t);
+        ctx.Entities.Add(e);
+        ctx.CellTribes[cell].Add(e);
+        return e;
+    }
+
+    /// <summary>S1：单格生存——增长收敛 K、饿死（P>K 下降）、稳态 e=0.77。
+    /// 只跑能量+增长（防发明/分裂污染单格场景）。</summary>
+    private void S1_GrowthAndEnergy()
+    {
+        // HotSteppe 密度 0.45；R=100 → Area=4π·10000/2=62832 → BaseK≈28274
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var e = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        var energy = new EnergyModel();
+        var growth = new GrowthModel();
+        bool converged = false, starved = false, eOk = false;
+        for (int tick = 0; tick < 300; tick++)
+        {
+            ctx.Tick = tick;
+            CivEngine.RefreshCellState(ctx);
+            energy.Execute(ctx);
+            growth.Execute(ctx);
+            float K = ctx.CellK[0];   // 实际承载（含 stone_core 乘数 1.1）
+            if (tick > 50 && Mathf.Abs(ctx.CellPop[0] - K) < K * 0.02f) converged = true;
+        }
+        // 稳态人均 e（构造：P=K 时 e_猎 = Y/(Y+0.3Y) = 0.769，与乘数无关——h 缩放）
+        float Ks = ctx.CellK[0];
+        e.P = Ks;
+        float yH = ctx.YHunter(e);
+        float eSteady = CivSimContext.EHunt(yH, Ks);
+        eOk = Mathf.Abs(eSteady - 1f / 1.3f) < 0.01f;
+        // 饿死：P 超 K → 增长为负
+        e.P = Ks * 1.5f;
+        float p0 = e.P;
+        CivEngine.RefreshCellState(ctx);
+        energy.Execute(ctx);
+        growth.Execute(ctx);
+        starved = e.P < p0;
+        Check("S1 增长收敛+饿死+稳态e", converged && starved && eOk,
+            $"K={Ks:F0} 收敛={converged} 饿死={starved} e稳态={eSteady:F3}");
+    }
+
+    /// <summary>S2：生产方式矩阵——φ 高转农、φ 低最终狩猎、稳态不退农 + 滞回。</summary>
+    private void S2_ModeMatrix()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 4);
+        var ctx = MakeCtx(g);
+        float y0 = ctx.BaseK[0];
+
+        // 场景 A：φ=1.0 Soil4（f=1.0）→ 农业 K=4y0 > 狩猎 K；稳态不退农
+        var ea = AddEntity(ctx, 0, 0.5f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        ctx.Suit[0, 0] = 1.0f;   // 小麦 φ
+        // 场景 B：φ=0.3 Soil4 → 农业 K=1.2y0 < 狩猎 1.45y0 → 最终狩猎（发明瞬间公式 F·f·φ<0.97M）
+        var eb = AddEntity(ctx, 1, 0.5f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        ctx.Suit[1, 0] = 0.3f;
+
+        // 手动跑能量/增长/模式循环（不含发明，只测选择动力学）
+        var mode = new ModeModel();
+        var energy = new EnergyModel();
+        var growth = new GrowthModel();
+        for (int tick = 0; tick < 200; tick++)
+        {
+            ctx.Tick = tick;
+            CivEngine.RefreshCellState(ctx);
+            energy.Execute(ctx);
+            growth.Execute(ctx);
+            mode.Execute(ctx);
+            if (ea.P < 1f) ea.P = 0.5f * y0;   // 防饿死干扰（只测选择）
+            if (eb.P < 1f) eb.P = 0.5f * y0;
+        }
+        bool aFarms = ea.IsFarming;    // φ=1.0 → 稳态农业
+        bool bFarms = eb.IsFarming;    // φ=0.3 → 稳态狩猎（农业 K<狩猎 K 自动拒绝）
+        Check("S2 生产方式矩阵", aFarms && !bFarms,
+            $"φ=1.0 农={aFarms}（应 True） φ=0.3 农={bFarms}（应 False）");
+
+        // 滞回：交叉点 P≈13.8y0 处 |e_猎−e_农|<0.02 → 保持当前方式（独立 ctx 防干扰）
+        var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 4);
+        var ctx2 = MakeCtx(g2);
+        var eh = AddEntity(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        ctx2.Suit[0, 0] = 1.0f;
+        eh.IsFarming = true;
+        float yH2 = ctx2.YHunter(eh);
+        float yF2 = ctx2.YFarm(eh);
+        float diff2 = CivSimContext.EHunt(yH2, eh.P) - CivSimContext.EFarm(yF2, eh.P);
+        bool inHyst = Mathf.Abs(diff2) < 0.02f;
+        mode.Execute(ctx2);   // 滞回带内 → 不切换
+        bool hyst = inHyst && eh.IsFarming;
+        Check("S2 滞回防抖", hyst, $"|e_猎−e_农|={Mathf.Abs(diff2):F3} < 0.02 且保持农");
+    }
+
+    /// <summary>S3：份额守恒——3 实体同格，同化 30 tick 后 Σ=1 恒成立，主导单调增。</summary>
+    private void S3_ShareConservation()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        ctx.Entities[0].CultureShare = ShareField.NewCulture("cult_a");
+        ctx.Entities[1].CultureShare = ShareField.NewCulture("cult_b");
+        ctx.Entities[2].CultureShare = ShareField.NewCulture("cult_c");
+        var culture = new CultureModel();
+        var energy = new EnergyModel();
+        bool conserved = true;
+        string prevDom = null;
+        bool domMonotonic = true;
+        for (int tick = 0; tick < 30; tick++)
+        {
+            ctx.Tick = tick;
+            energy.Execute(ctx);
+            culture.Execute(ctx);
+            string dom = ShareField.DomKey(ctx.Entities[0].CultureShare);
+            if (prevDom != null && dom != prevDom) domMonotonic = false;   // 主导 key 稳定（不跳变）
+            prevDom = dom;
+            foreach (var e in ctx.Entities)
             {
-                occupied++;
-                if (c.CellPop[i] > popMax) { popMax = c.CellPop[i]; popMaxCell = i; }
+                int sum = e.CultureShare[0].Frac + e.CultureShare[1].Frac;
+                if (sum != 255) conserved = false;
             }
         }
-        foreach (var t in c.Tribes)
-        {
-            techEpochTribes[Mathf.Clamp(TechTable.MaxEpoch(t.TechFlags), 0, 4)]++;
-            if (TechTable.Has(t.TechFlags, 7)) agriTribes++;
-        }
-
-        // 部落规模分布
-        float popSum = 0f; int popMin = int.MaxValue, popMaxT = 0;
-        foreach (var t in c.Tribes)
-        {
-            popSum += t.Population;
-            popMin = Mathf.Min(popMin, (int)t.Population);
-            popMaxT = Mathf.Max(popMaxT, (int)t.Population);
-        }
-        float meanPop = c.Tribes.Count > 0 ? popSum / c.Tribes.Count : 0f;
-
-        // 技术分布明细（各技术持有部落数）
-        var techDist = new int[TechTable.Count];
-        foreach (var t in c.Tribes)
-            for (int i = 0; i < TechTable.Count; i++)
-                if (TechTable.Has(t.TechFlags, i)) techDist[i]++;
-        var techSb = new System.Text.StringBuilder("[CivSimDiag] 技术分布: ");
-        for (int i = 0; i < TechTable.Count; i++)
-            if (techDist[i] > 0) techSb.Append($"{TechTable.All[i].Name}{techDist[i]} ");
-
-        GD.Print($"[CivSimDiag] 演化: {r1.FinalTick} tick × {c.Epoch.TickYears} 年 = {r1.FinalTick * c.Epoch.TickYears} 年" +
-                 $" | 总人口 {c.TotalPopulation():F0} | 部落 {c.Tribes.Count}（规模 {popMin}~{popMaxT} 均值 {meanPop:F0}）" +
-                 $" | 覆盖 {occupied}/{land} 陆地格");
-        GD.Print($"[CivSimDiag] 事件: 分裂 {c.Fissions} | 吞并 {c.Absorptions} | 和平合并 {c.Merges} | 迁徙 {c.Migrations} | 贸易接触 {c.TradeContacts}");
-        GD.Print($"[CivSimDiag] 时代分布(部落): 石器{techEpochTribes[0]} 新石器{techEpochTribes[1]} 青铜{techEpochTribes[2]} 铁器{techEpochTribes[3]} 古典+{techEpochTribes[4]} | 农业部落 {agriTribes}");
-        GD.Print(techSb.ToString());
-
-        // 宗教分布 + 文化群
-        var relNames = new[] { "万物有灵", "萨满图腾", "祖先崇拜", "多神教", "一神教" };
-        var relDist = new int[5];
-        var cultureGroups = new HashSet<byte>();
-        foreach (var t in c.Tribes)
-        {
-            relDist[Mathf.Clamp(t.Religion, 0, 4)]++;
-            cultureGroups.Add(t.CultureGroup);
-        }
-        GD.Print($"[CivSimDiag] 宗教分布: 万物有灵{relDist[0]} 萨满图腾{relDist[1]} 祖先崇拜{relDist[2]} 多神教{relDist[3]} 一神教{relDist[4]} | 文化群 {cultureGroups.Count} 个");
-        GD.Print($"[CivSimDiag] 校验: 自然层零改动={(natOk ? "PASS" : "FAIL")} 部落表往返={(rtOk ? "PASS" : "FAIL")} " +
-                 $"复现性={(reproducible ? "PASS" : "FAIL")} 农业复现={(agriRepro ? "PASS" : "FAIL")} → {(natOk && rtOk && reproducible && agriRepro ? "全部PASS" : "有失败!")}");
-        GD.Print($"[CivSimDiag] 导出 {(ok ? "成功" : "失败")} → {outPath}");
-        GetTree().Quit(natOk && rtOk && reproducible && agriRepro ? 0 : 1);
+        int domFrac = ShareField.DomFrac(ctx.Entities[0].CultureShare);
+        Check("S3 份额守恒+主导同化", conserved && domMonotonic && domFrac > 150,
+            $"Σ恒等={conserved} 主导单调={domMonotonic} 30tick后主导份额={domFrac}/255");
     }
 
-    private static int AgricultureCount(CivSimContext c)
+    /// <summary>S4：分裂继承——45% 带走、份额等比例、TechKeys 完整、BornTick。</summary>
+    private void S4_FissionInherit()
     {
-        int a = 0;
-        foreach (var t in c.Tribes) if (TechTable.Has(t.TechFlags, 7)) a++;
-        return a;
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var e = AddEntity(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
+        e.CultureShare = new[] { new ShareEntry { Key = "cult_7", Frac = 200 }, new ShareEntry { Key = "cult_9", Frac = 55 } };
+        e.CultureGroupShare = new[] { new ShareEntry { Key = "cult_3", Frac = 250 }, new ShareEntry { Key = "cult_0", Frac = 5 } };
+        e.ReligionShare = ShareField.NewReligion(ReligionStage.Shaman);
+        e.IsFarming = false;
+        ctx.CellTribes[0] = new List<CivEntity> { e };   // 只 1 实体（格上限内）
+        var sm = new SplitMigrateModel();
+        sm.Execute(ctx);
+        bool ok = ctx.Entities.Count == 2;
+        var nt = ctx.Entities[1];
+        ok &= Mathf.Abs(nt.P - 225f) < 0.01f && Mathf.Abs(e.P - 275f) < 0.01f;   // 45% 带走
+        ok &= nt.CultureShare[0].Key == "cult_7" && nt.CultureShare[0].Frac == 200 && nt.CultureShare[1].Frac == 55;   // 等比例继承
+        ok &= nt.TechKeys.Count == 3 && nt.TechKeys.Contains(TechTable.Fire);    // TechKeys 完整
+        ok &= nt.BornTick == 0 && nt.OriginCell == 0;
+        ok &= nt.CultureGroupShare[0].Key == "cult_3";   // 群份额继承
+        Check("S4 分裂继承", ok, $"新实体 P={nt.P:F0}（应225） 份额={nt.CultureShare[0].Frac}（应200） 科技={nt.TechKeys.Count}（应3）");
     }
 
-    /// <summary>部落表逐项一致（人口/格/文化/技术/起源）。</summary>
-    private static bool TribesEqual(CivSimContext a, CivSimContext b)
+    /// <summary>S5：传播依赖——前置缺失不传；补全后按 SpreadBase 传（同格接触，不依赖邻格表）。</summary>
+    private void S5_SpreadDependency()
     {
-        if (a.Tribes.Count != b.Tribes.Count) return false;
-        for (int k = 0; k < a.Tribes.Count; k++)
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        // a 无 handaxe：bow/microlith 的前置链在 b 侧缺失 → 不传（防中间科技先传）
+        var a = AddEntity(ctx, 0, 300f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);
+        var b = AddEntity(ctx, 0, 100f, TechTable.StoneCore);   // 同格；缺 microlith/handaxe
+        var spread = new SpreadModel();
+        bool blocked = true;
+        for (int tick = 0; tick < 60; tick++)
         {
-            var x = a.Tribes[k]; var y = b.Tribes[k];
-            if (x.Cell != y.Cell || x.Population != y.Population || x.Culture != y.Culture
-                || x.TechFlags != y.TechFlags || x.OriginCell != y.OriginCell) return false;
+            spread.Execute(ctx);
+            if (b.TechKeys.Contains(TechTable.Bow)) { blocked = false; break; }
+        }
+        // B 补全前置 → bow 可传
+        b.TechKeys.Add(TechTable.Handaxe);
+        b.TechKeys.Add(TechTable.Microlith);
+        bool transferred = false;
+        for (int tick = 0; tick < 200 && !transferred; tick++)
+        {
+            spread.Execute(ctx);
+            if (b.TechKeys.Contains(TechTable.Bow)) transferred = true;
+        }
+        Check("S5 传播依赖", blocked && transferred,
+            $"缺前置不传={blocked} 补全后传播={transferred}");
+    }
+
+    /// <summary>S6：宗教锁——盈余+细石器 → 萨满；持种子但狩猎 → 不升祖先（不读时代）。</summary>
+    private void S6_ReligionLock()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var e1 = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
+        e1.Surplus = 0.5f;   // 盈余期
+        var e2 = AddEntity(ctx, 1, 100f, TechTable.StoneCore, TechTable.Grinding, TechTable.SeedWheat);
+        e2.Surplus = -0.1f;  // 狩猎（IsFarming=false）
+        var rel = new ReligionModel();
+        rel.Execute(ctx);
+        bool shaman = ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman) > 0;          // 泛灵→萨满
+        bool noAncestor = ShareField.RelFrac(e1.ReligionShare, ReligionStage.Ancestor) == 0
+                       && ShareField.RelFrac(e2.ReligionShare, ReligionStage.Ancestor) == 0;   // 旧石器锁死
+        Check("S6 宗教锁", shaman && noAncestor,
+            $"萨满份额={ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman)} 祖先份额全0={noAncestor}");
+    }
+
+    // ═══════════════════ T 地图测试 ═══════════════════
+
+    private void RunMapTests(int seed, int origins, string outPath)
+    {
+        GD.Print("[CivSimDiag] ── T 地图测试 ──");
+        var sw = Stopwatch.StartNew();
+        var r1 = CivEngine.Run(_grid, seed, origins);
+        sw.Stop();
+        var c = r1.Context;
+        GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {c.Entities.Count} | 人口 {c.TotalPopulation():F0} | 首转农 tick {c.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms");
+
+        // T03 复现性
+        var r2 = CivEngine.Run(_grid, seed, origins);
+        bool repro = EntitiesEqual(c, r2.Context);
+        Check("T03 复现性（同 seed 两次一致）", repro, $"实体 {c.Entities.Count}");
+
+        // T17 WildCrops：确定性重建 + 斑块 + 只落陆地
+        var wc1 = WildCropsSystem.Compute(_grid, seed);
+        var wc2 = WildCropsSystem.Compute(_grid, seed);
+        bool wcDet = ByteSeqEqual(wc1, wc2);
+        int landCells = 0;
+        for (int i = 0; i < _grid.N; i++) if (_grid.IsLandCell(i)) landCells++;
+        bool wcLand = true;
+        int[] wcCount = new int[5];
+        for (int i = 0; i < _grid.N; i++)
+        {
+            if (wc1[i] == 0) continue;
+            if (!_grid.IsLandCell(i)) wcLand = false;
+            for (int s = 0; s < 5; s++) if ((wc1[i] & (1 << s)) != 0) wcCount[s]++;
+        }
+        // 分布区非空检查（各种子适宜度 > P70 的格存在）
+        var suit = WildCropsSystem.Suitability(_grid);
+        var landSuitMax = new float[5];
+        for (int i = 0; i < _grid.N; i++)
+            if (_grid.IsLandCell(i))
+                for (int s = 0; s < 5; s++)
+                    landSuitMax[s] = Mathf.Max(landSuitMax[s], suit[i, s]);
+        var extinct = new List<string>();
+        for (int s = 0; s < 5; s++)
+            if (wcCount[s] == 0)
+                extinct.Add(TechTable.SeedKeys[s]);
+        bool wcOk = wcDet && wcLand && landCells > 0;
+        Check("T17 WildCrops", wcOk,
+            $"确定性={wcDet} 只落陆地={wcLand} 斑块格数=[{string.Join(",", wcCount)}] 灭绝={string.Join(";", extinct)}");
+        if (extinct.Count > 0) GD.Print($"  ⚠ [T17] 天然灭绝种子: {string.Join(";", extinct)}（星球气候不匹配，按设计不保底）");
+
+        // T01 自然层零改动 + T02 实体往返 + T04 读档续跑 + T19 存档版本（写 .cmp → 读回）
+        bool natOk = false, rtOk = false, contOk = false, verRejected = false, biomeRejected = false;
+        if (outPath != null)
+        {
+            bool wrote = CivMapArchive.Write(outPath, _grid, r1);
+            if (wrote && CivMapArchive.Read(outPath, out var gridBack, out var rBack))
+            {
+                natOk = NaturalUnchanged(_grid, gridBack);
+                rtOk = EntitiesEqual(c, rBack.Context);
+                // T04 读档续跑无分叉（IsFarming 入档验证）
+                int baseTicks = rBack.Context.Tick;   // 存档 tick（finalTick）
+                CivEngine.Continue(rBack.Context, 20);
+                var ctxFull = MakeCtx(_grid, seed, origins);
+                RunTicks(ctxFull, baseTicks + 20);
+                contOk = EntitiesEqual(rBack.Context, ctxFull);
+            }
+            // T19 存档版本：ver>4 拒绝；旧 biome 4-11 拒绝
+            string badPath = outPath + ".bad";
+            WriteBadVersion(badPath, 5);
+            verRejected = !CivMapArchive.Read(badPath, out _, out _);
+            WriteBadBiome(badPath, _grid);
+            biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
+        }
+        Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
+        Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
+        Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
+        Check("T19 存档版本拒绝", verRejected && biomeRejected, $"ver>4 拒绝={verRejected} biome4-11 拒绝={biomeRejected}");
+
+        // T05 起源播种（单独跑 OriginModel）
+        bool t05 = false;
+        var ctx0 = MakeCtx(_grid, seed, origins);
+        new OriginModel().Execute(ctx0);
+        if (ctx0.Entities.Count == origins)
+        {
+            bool distOk = true, richOk = true, cultOk = true;
+            var richSet = RichZone(_grid);
+            float minKm = CivSimContext.OriginDistMin * Mathf.Sqrt(_grid.CellAreaKm2);
+            for (int i = 0; i < ctx0.Entities.Count; i++)
+            {
+                var e = ctx0.Entities[i];
+                if (e.P != CivSimContext.OriginPop || !e.TechKeys.Contains(TechTable.StoneCore)) cultOk = false;
+                if (ShareField.DomReligion(e.ReligionShare) != ReligionStage.Animism) cultOk = false;
+                if (!richSet.Contains(e.Cell)) richOk = false;
+                for (int j = i + 1; j < ctx0.Entities.Count; j++)
+                    if (_grid.DistKm(e.Cell, ctx0.Entities[j].Cell) < minKm) distOk = false;
+            }
+            t05 = distOk && richOk && cultOk;
+        }
+        Check("T05 起源播种", t05, $"N={ctx0.Entities.Count} 格距≥12格 富饶区 泛灵 独立文化");
+
+        // T09 依赖链不变量 + 种子压力触发
+        bool depOk = true;
+        int[] seedHolders = new int[5];
+        foreach (var e in c.Entities)
+        {
+            if (e.TechKeys.Contains(TechTable.Bow) && !e.TechKeys.Contains(TechTable.Microlith)) depOk = false;
+            if (e.TechKeys.Contains(TechTable.Microlith) && !e.TechKeys.Contains(TechTable.Handaxe)) depOk = false;
+            if (e.TechKeys.Contains(TechTable.Handaxe) && !e.TechKeys.Contains(TechTable.StoneCore)) depOk = false;
+            if (e.TechKeys.Contains(TechTable.Canoe) && !e.TechKeys.Contains(TechTable.Fire)) depOk = false;
+            if (e.TechKeys.Contains(TechTable.Grinding) && !e.TechKeys.Contains(TechTable.Handaxe)) depOk = false;
+            for (int s = 0; s < 5; s++)
+                if (e.TechKeys.Contains(TechTable.SeedKeys[s])) seedHolders[s]++;
+        }
+        Check("T09 依赖链不变量", depOk, "bow→microlith→handaxe→stone_core 全链成立");
+
+        // T14 农业涌现 + T08 退农检查
+        int farmCount = 0;
+        foreach (var e in c.Entities) if (e.IsFarming) farmCount++;
+        bool agriEmerged = c.FirstFarmTick >= 0;
+        bool noRevert = true;   // 终态农业实体 e_农 > e_猎（稳态站稳）
+        int revertCount = 0;
+        foreach (var e in c.Entities)
+        {
+            if (!e.IsFarming) continue;
+            float eh = CivSimContext.EHunt(c.YHunter(e), e.P);
+            float ef = CivSimContext.EFarm(c.YFarm(e), e.P);
+            if (ef < eh - CivSimContext.Hysteresis)   // 滞回带内（差<0.02）保持不算退农
+            {
+                noRevert = false;
+                if (revertCount < 3)
+                    GD.Print($"  [T08诊断] 退农倾向实体 cell={e.Cell} P={e.P:F0} Soil={c.Grid.SoilLevel[e.Cell]} " +
+                             $"Y_农={c.YFarm(e):F0} Y_猎={c.YHunter(e):F0} e_农={ef:F3} e_猎={eh:F3} K_格={c.CellK[e.Cell]:F0} 持种子=[{string.Join(";", TechTable.HeldSeeds(e.TechKeys))}]");
+                revertCount++;
+            }
+        }
+        GD.Print($"  [T08数据] 农业实体 {farmCount} 个，其中 e_农<e_猎 的 {revertCount} 个");
+        Check("T14 农业涌现", agriEmerged && farmCount > 0, $"首转农 tick={c.FirstFarmTick} 农业实体={farmCount} 种子持有=[{string.Join(",", seedHolders)}]");
+        Check("T08 稳态不退农", noRevert || farmCount == 0, $"终态农业实体 e_农>e_猎 全成立={noRevert}（退农 {revertCount}/{farmCount}）");
+
+        // T10 传播（工具扩散 > 种子扩散，参考指标）
+        int toolTechHolders = 0;
+        foreach (var e in c.Entities)
+            if (e.TechKeys.Contains(TechTable.Bow)) toolTechHolders++;
+        bool spreadOk = toolTechHolders >= farmCount;   // 工具类扩散显著（软指标）
+        Check("T10 传播扩散", spreadOk, $"弓箭持有 {toolTechHolders} ≥ 农业实体 {farmCount}");
+
+        // T11 分裂/迁徙（地图统计）
+        bool splitOk = c.Fissions > 0 && c.Migrations > 0;
+        Check("T11 分裂/迁徙", splitOk, $"分裂 {c.Fissions} 迁徙 {c.Migrations}");
+
+        // T13 宗教：旧石器无祖先/多神/一神（锁死）+ 派别多样性
+        bool relOk = true;
+        int shamanEnts = 0;
+        var cultSet = new System.Collections.Generic.HashSet<string>();
+        foreach (var e in c.Entities)
+        {
+            if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Ancestor) > 0
+             || ShareField.RelFrac(e.ReligionShare, ReligionStage.Polytheism) > 0
+             || ShareField.RelFrac(e.ReligionShare, ReligionStage.Monotheism) > 0) relOk = false;
+            if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Shaman) > 0) shamanEnts++;
+            string ck = ShareField.DomKey(e.ReligionCultShare);
+            if (ck != null) cultSet.Add(ck);
+        }
+        Check("T13 宗教演进", relOk, $"萨满实体 {shamanEnts}（祖先/多神/一神全 0={relOk}）· 派别 {cultSet.Count} 种");
+
+        // T15 覆盖 + T16 时代分布
+        int occupied = 0, land = 0, maxCellEnts = 0, cellsWithEnts = 0;
+        for (int i = 0; i < _grid.N; i++)
+        {
+            if (_grid.IsLandCell(i)) land++;
+            if (c.CellPop[i] > 0f) occupied++;
+            if (c.CellTribes[i].Count > 0) cellsWithEnts++;
+            if (c.CellTribes[i].Count > maxCellEnts) maxCellEnts = c.CellTribes[i].Count;
+        }
+        GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Entities.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
+        float cover = land > 0 ? occupied * 100f / land : 0f;
+        Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（参考指标，不硬卡）");
+        bool pyramid = farmCount < c.Entities.Count / 2;
+        Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Entities.Count - farmCount}");
+
+        // T18 性能
+        sw.Restart();
+        var r3 = CivEngine.Run(_grid, seed, origins);
+        sw.Stop();
+        long ms = sw.ElapsedMilliseconds;
+        Check("T18 性能 n=64 全演化 <10s", ms < 10000, $"{ms}ms（tick {r3.FinalTick}）");
+
+        // T20 全链确定性（WildCrops 重建 + 演化 + 存档读回 逐位一致）
+        bool t20 = repro && wcDet && (outPath == null || rtOk);
+        Check("T20 全链确定性", t20, $"复现={repro} WildCrops={wcDet} 往返={rtOk}");
+    }
+
+    private HashSet<int> RichZone(GameGrid g)
+    {
+        var land = new List<(int cell, float k)>();
+        var ctx = MakeCtx(g);
+        for (int i = 0; i < g.N; i++)
+            if (g.IsLandCell(i) && ctx.BaseK[i] > 0f)
+                land.Add((i, ctx.BaseK[i]));
+        land.Sort((a, b) => b.k.CompareTo(a.k));
+        int rich = Mathf.Max(8, land.Count * 30 / 100);
+        var set = new HashSet<int>();
+        for (int i = 0; i < Mathf.Min(rich, land.Count); i++) set.Add(land[i].cell);
+        return set;
+    }
+
+    private static bool EntitiesEqual(CivSimContext a, CivSimContext b, string tag = "")
+    {
+        if (a.Entities.Count != b.Entities.Count)
+        {
+            GD.Print($"  [往返诊断{tag}] 实体数 {a.Entities.Count} vs {b.Entities.Count}");
+            return false;
+        }
+        for (int k = 0; k < a.Entities.Count; k++)
+        {
+            var x = a.Entities[k]; var y = b.Entities[k];
+            if (x.Id != y.Id || x.Cell != y.Cell || x.P != y.P || x.IsFarming != y.IsFarming
+                || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick)
+            {
+                GD.Print($"  [往返诊断{tag}] 实体{k}: id={x.Id}vs{y.Id} cell={x.Cell}vs{y.Cell} P={x.P:F1}vs{y.P:F1} farm={x.IsFarming}vs{y.IsFarming} origin={x.OriginCell}vs{y.OriginCell} born={x.BornTick}vs{y.BornTick}");
+                return false;
+            }
+            if (!SetEqual(x.TechKeys, y.TechKeys))
+            {
+                GD.Print($"  [往返诊断{tag}] 实体{k}: techKeys A=[{string.Join(";", x.TechKeys)}] B=[{string.Join(";", y.TechKeys)}]");
+                return false;
+            }
+            if (!ShareEqual(x.CultureShare, y.CultureShare))
+            {
+                GD.Print($"  [往返诊断{tag}] 实体{k}: CultureShare A=[{ShareStr(x.CultureShare)}] B=[{ShareStr(y.CultureShare)}]");
+                return false;
+            }
+            if (!ShareEqual(x.CultureGroupShare, y.CultureGroupShare))
+            {
+                GD.Print($"  [往返诊断{tag}] 实体{k}: CultureGroup A=[{ShareStr(x.CultureGroupShare)}] B=[{ShareStr(y.CultureGroupShare)}]");
+                return false;
+            }
+            if (!ShareEqual(x.ReligionCultShare, y.ReligionCultShare))
+            {
+                GD.Print($"  [往返诊断{tag}] 实体{k}: ReligionCult A=[{ShareStr(x.ReligionCultShare)}] B=[{ShareStr(y.ReligionCultShare)}]");
+                return false;
+            }
+            if (!ShareEqual(x.ReligionShare, y.ReligionShare))
+            {
+                GD.Print($"  [往返诊断{tag}] 实体{k}: Religion A=[{ShareStr(x.ReligionShare)}] B=[{ShareStr(y.ReligionShare)}]");
+                return false;
+            }
         }
         return true;
     }
 
-    /// <summary>自然层零改动：.cmp 读回的自然段与源 grid 逐字段一致（NaN 视为相等）。</summary>
+    private static bool SetEqual(HashSet<string> a, HashSet<string> b)
+    {
+        if (a.Count != b.Count) return false;
+        foreach (var k in a) if (!b.Contains(k)) return false;
+        return true;
+    }
+
+    private static bool ByteSeqEqual(byte[] a, byte[] b)
+    {
+        if (a == null || b == null || a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    private static bool ShareEqual(World.CivSim.ShareEntry[] a, World.CivSim.ShareEntry[] b)
+    {
+        if (a == null || b == null || a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++)
+            if (a[i].Key != b[i].Key || a[i].Frac != b[i].Frac) return false;
+        return true;
+    }
+
+    private static string ShareStr(World.CivSim.ShareEntry[] s)
+    {
+        var parts = new System.Collections.Generic.List<string>();
+        for (int i = 0; i < s.Length; i++)
+            parts.Add($"{s[i].Key ?? "-"}:{s[i].Frac}");
+        return string.Join(",", parts);
+    }
+
+    /// <summary>自然层零改动：.cmp 读回 vs 源 grid 逐字段一致（NaN 视为相等；WildCrops 两端重建一致）。</summary>
     private static bool NaturalUnchanged(GameGrid a, GameGrid b)
     {
         if (a.N != b.N) return false;
@@ -154,10 +642,93 @@ public partial class CivSimDiag : Node
         {
             if (!FloatEq(a.Elev[i], b.Elev[i]) || !FloatEq(a.Temp[i], b.Temp[i]) || !FloatEq(a.Precip[i], b.Precip[i])) return false;
             if (a.Biome[i] != b.Biome[i] || a.RiverLevel[i] != b.RiverLevel[i] || a.LakeLevel[i] != b.LakeLevel[i]) return false;
+            if (a.RiverFlow[i] != b.RiverFlow[i] || !FloatEq(a.RiverVolume[i], b.RiverVolume[i])) return false;
             if (a.MineralLevel[i] != b.MineralLevel[i] || a.SoilLevel[i] != b.SoilLevel[i]) return false;
+            if (a.MonsoonLevel[i] != b.MonsoonLevel[i]) return false;
+            if (!FloatEq(a.CurrentWarmth[i], b.CurrentWarmth[i]) || !FloatEq(a.CurrentStrength[i], b.CurrentStrength[i])) return false;
+            if (a.CurrentDirs[i] != b.CurrentDirs[i]) return false;
+            for (int m = 0; m < 12; m++)
+            {
+                if (a.MonthPrecip[m][i] != b.MonthPrecip[m][i]) return false;
+                if (a.MonthTemp[m][i] != b.MonthTemp[m][i]) return false;
+            }
         }
+        if (!PsiEquivalent(a.Psi, b.Psi)) return false;
+        var wa = a.EnsureWildCrops();
+        var wb = b.EnsureWildCrops();
+        return ByteSeqEqual(wa, wb);
+    }
+
+    /// <summary>Psi 对比：null 或全零视为空（WriteBody 补零写，源网格可能为 null）。</summary>
+    private static bool PsiEquivalent(float[] x, float[] y)
+    {
+        bool xEmpty = x == null || AllZero(x);
+        bool yEmpty = y == null || AllZero(y);
+        if (xEmpty || yEmpty) return xEmpty && yEmpty;
+        return FloatSeqEqual(x, y);
+    }
+
+    private static bool AllZero(float[] a)
+    {
+        for (int i = 0; i < a.Length; i++)
+            if (a[i] != 0f) return false;
         return true;
     }
 
-    private static bool FloatEq(float a, float b) => a == b || (float.IsNaN(a) && float.IsNaN(b));
+    private static bool FloatEq(float x, float y) => x == y || (float.IsNaN(x) && float.IsNaN(y));
+    private static bool FloatSeqEqual(float[] x, float[] y)
+    {
+        if (x == null || y == null || x.Length != y.Length) return false;
+        for (int i = 0; i < x.Length; i++)
+            if (!FloatEq(x[i], y[i])) return false;
+        return true;
+    }
+
+    /// <summary>写一个坏版本档（ver=5 → 应拒绝）。</summary>
+    private static void WriteBadVersion(string path, ushort ver)
+    {
+        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
+        if (f == null) return;
+        f.Store8((byte)'C'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
+        f.Store16(ver);
+        f.Store32(42); f.Store32(0); f.Store32(0);
+    }
+
+    /// <summary>写一个含化石 biome 4 的档 → 应拒绝（最小自然段，与 GameMapArchive.ReadBody 严格对应）。</summary>
+    private static void WriteBadBiome(string path, GameGrid src)
+    {
+        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
+        if (f == null) return;
+        f.Store8((byte)'C'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
+        f.Store16(4);
+        f.Store32(42); f.Store32(0); f.Store32(0);
+        f.Store64(0);   // rngState（v4 头部字段）
+        f.Store32(0);   // cultureKeyCount（v4 头部字段）
+        f.Store32(0);   // religionKeyCount（v4 头部字段）
+        // 最小自然段：GridN=1, N=2, seed, radius, 标志, 各字段 2 格
+        f.Store32(1); f.Store32(2); f.Store32(42); f.StoreFloat(6371f);
+        f.Store8(1); f.StoreFloat(1f); f.StoreFloat(23.4f); f.StoreFloat(1f);
+        for (int i = 0; i < 6; i++) f.StoreFloat(0f);   // min/max
+        for (int i = 0; i < 2; i++) { f.StoreFloat(0); f.StoreFloat(1); f.StoreFloat(0); }   // verts
+        for (int i = 0; i < 2; i++) f.StoreFloat(100f);   // elev
+        for (int i = 0; i < 2; i++) f.StoreFloat(20f);    // temp
+        for (int i = 0; i < 2; i++) f.StoreFloat(800f);   // precip
+        for (int i = 0; i < 2; i++) f.Store8(4);          // biome ← 化石值 4！
+        for (int i = 0; i < 2; i++) f.Store8(0);          // river
+        for (int i = 0; i < 2; i++) f.Store32(0xFFFFFFFF); // riverFlow -1
+        for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // riverVolume
+        for (int i = 0; i < 2; i++) f.Store8(0);          // lake
+        for (int i = 0; i < 2; i++) f.Store8(0);          // mineral
+        for (int i = 0; i < 2; i++) f.Store8(3);          // soil
+        for (int i = 0; i < 2; i++) f.Store8(0);          // monsoon
+        for (int m = 0; m < 12; m++) for (int i = 0; i < 2; i++) f.Store8(21);   // monthPrecip
+        for (int m = 0; m < 12; m++) for (int i = 0; i < 2; i++) f.Store8(170);  // monthTemp
+        for (int i = 0; i < 2; i++) { f.StoreFloat(0); f.StoreFloat(0); f.StoreFloat(0); }   // currentDirs
+        for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // warmth
+        for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // strength
+        for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // psi（v2+ 字段）
+        for (int i = 0; i < 2; i++) f.Store32(0);         // province
+        for (int i = 0; i < 2; i++) f.Store32(0);         // country
+        f.Store32(0);                                     // 实体数 0
+    }
 }

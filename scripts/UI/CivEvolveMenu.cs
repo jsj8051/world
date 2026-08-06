@@ -251,21 +251,21 @@ public partial class CivEvolveMenu : Control
         var c = result.Context;
         int occ = 0;
         for (int i = 0; i < _grid.N; i++) if (c.CellPop[i] > 0f) occ++;
-        var rel = new[] { "万物有灵", "萨满图腾", "祖先崇拜", "多神教", "一神教" };
         var relDist = new int[5];
         int agri = 0;
-        foreach (var t in c.Tribes)
+        foreach (var t in c.Entities)
         {
-            relDist[Mathf.Clamp(t.Religion, 0, 4)]++;
-            if (TechTable.Has(t.TechFlags, 7)) agri++;
+            int relIdx = World.CivSim.ShareField.ReligionIndex(World.CivSim.ShareField.DomReligion(t.ReligionShare));
+            if (relIdx >= 0) relDist[relIdx]++;
+            if (t.IsFarming) agri++;
         }
-        _status.Text = $"✓ 演化完成：{result.FinalTick} tick × {c.Epoch.TickYears} 年 = {result.FinalTick * c.Epoch.TickYears} 年\n" +
-                       $"部落 {c.Tribes.Count} · 总人口 {c.TotalPopulation():F0} · 覆盖 {occ}/{_grid.N} 格 · 农业部落 {agri}\n" +
-                       $"宗教: 萨满{relDist[1]} 祖先{relDist[2]} 多神{relDist[3]} 一神{relDist[4]} · 文化群 {c.CultureGroupCount} 个\n" +
+        _status.Text = $"✓ 演化完成：{result.FinalTick} tick × {World.CivSim.CivSimContext.TickYears} 年 = {result.FinalTick * World.CivSim.CivSimContext.TickYears} 年\n" +
+                       $"部落 {c.Entities.Count} · 总人口 {c.TotalPopulation():F0} · 覆盖 {occ}/{_grid.N} 格 · 农业部落 {agri}\n" +
+                       $"宗教: 萨满{relDist[1]} 祖先{relDist[2]} 多神{relDist[3]} 一神{relDist[4]} · 文化key {c.CultureKeyCount} 个\n" +
                        $"→ 已保存 {_cmpOutPath}";
         _playBtn.Disabled = false;
         _evolveBtn.Disabled = _backBtn.Disabled = false;
-        GD.Print($"[CivEvolveMenu] 演化完成 → {_cmpOutPath} (tribes={c.Tribes.Count} pop={c.TotalPopulation():F0})");
+        GD.Print($"[CivEvolveMenu] 演化完成 → {_cmpOutPath} (entities={c.Entities.Count} pop={c.TotalPopulation():F0} agri={agri})");
     }
 
     private void OnPlayPressed()

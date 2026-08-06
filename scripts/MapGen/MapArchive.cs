@@ -341,9 +341,13 @@ public class MapData
     // ── 球面桶索引（采样加速，加载后惰性构建）──
     // ⚠️ 2026-08-02：线性扫描最近邻在 65 万 hex 格 × 10242 顶点 = 1300 亿次距离计算
     //   （进入游戏/切图层极慢）。桶索引把最近邻降到 O(~180)。
-    private const int BucketsLat = 16;
-    private const int BucketsLon = 32;
+    // ⚠️ 2026-08-16 修复：桶数固定 16×32 不随 n 缩放 → n=128（163842 顶点）每桶 ~320
+    //   顶点，3×3 邻桶 ~2880 次/查询 × 3 处调用 ≈ 14 亿次距离计算 → 地图打不开（卡 80%/100%）。
+    //   改为按顶点数缩放（目标每桶 ~30 顶点，lat:lon ≈ 1:2）→ 任意 n 查询成本恒 O(~270)。
+    private int BucketsLat;
+    private int BucketsLon;
     private List<int>[,] _buckets;
+    private int[][] _neighbors;   // BuildNeighbors 缓存（懒构建一次；主线程调用）
 
     /// <summary>归一化海拔 0..1（球面顶点或平面场）。</summary>
     public float NormalizedElev(float raw)
@@ -357,6 +361,12 @@ public class MapData
     public void EnsureBuckets()
     {
         if (_buckets != null) return;
+        // 目标每桶 ~30 顶点 → 总桶数 ≈ V/30；保持 lat:lon = 1:2（球面面积均匀分）。
+        // 极区单桶逻辑（BucketOf）在 lat=0/末桶时 bx=0，缩放后仍成立。
+        int targetPerBucket = 30;
+        int totalBuckets = Math.Max(2, Verts.Length / targetPerBucket);
+        BucketsLat = Mathf.Clamp((int)Mathf.Round(Mathf.Sqrt(totalBuckets / 2f)), 4, 512);
+        BucketsLon = BucketsLat * 2;
         _buckets = new List<int>[BucketsLat, BucketsLon];
         for (int y = 0; y < BucketsLat; y++)
             for (int x = 0; x < BucketsLon; x++)
@@ -368,7 +378,7 @@ public class MapData
         }
     }
 
-    private static (int, int) BucketOf(Vector3 v)
+    private (int, int) BucketOf(Vector3 v)
     {
         float lat = Mathf.Asin(Mathf.Clamp(v.Y, -1f, 1f));
         float lon = Mathf.Atan2(v.Z, v.X);
@@ -410,8 +420,22 @@ public class MapData
     }
 
     /// <summary>读档后现场重建邻接表（Icosahedron 拓扑：桶内球面距离 < 1.5×平均格距）。
-    /// 存档不存拓扑，流域合并等需要邻接的操作用此方法（纯计算，毫秒级）。</summary>
+    /// 存档不存拓扑，流域合并等需要邻接的操作用此方法（纯计算，毫秒级）。
+    /// ⚠️ 2026-08-16：结果缓存（懒构建一次）——MapViewer 的 EnsureMonthWind 和
+    ///   BuildCurrentRingsFromPsi 各调一次，n=128 每次 O(V²) 是主线程卡 100% 的元凶之一。
+    ///   双检锁：EnsureMonthWind 后台线程与主线程可能并发首次构建。</summary>
+    private readonly object _neighborsLock = new object();
     public int[][] BuildNeighbors()
+    {
+        if (_neighbors != null) return _neighbors;
+        lock (_neighborsLock)
+        {
+            if (_neighbors != null) return _neighbors;
+            return BuildNeighborsUnlocked();
+        }
+    }
+
+    private int[][] BuildNeighborsUnlocked()
     {
         EnsureBuckets();
         int n = Verts.Length;
@@ -438,6 +462,7 @@ public class MapData
             }
             result[i] = list.ToArray();
         }
+        _neighbors = result;
         return result;
     }
 

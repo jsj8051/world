@@ -13,14 +13,6 @@ public static class BiomeColors
         BiomeType.Ocean => new Color(0.06f, 0.35f, 0.60f),
         BiomeType.IceCap => new Color(0.92f, 0.96f, 1.00f),
         BiomeType.Tundra => new Color(0.55f, 0.62f, 0.55f),
-        BiomeType.Taiga => new Color(0.14f, 0.34f, 0.17f),
-        BiomeType.ColdDesert => new Color(0.60f, 0.56f, 0.50f),
-        BiomeType.TemperateForest => new Color(0.24f, 0.52f, 0.18f),
-        BiomeType.TemperateGrassland => new Color(0.62f, 0.68f, 0.28f),
-        BiomeType.Desert => new Color(0.80f, 0.72f, 0.45f),
-        BiomeType.Savanna => new Color(0.72f, 0.62f, 0.22f),
-        BiomeType.TropicalForest => new Color(0.08f, 0.40f, 0.14f),
-        BiomeType.TropicalDryForest => new Color(0.42f, 0.52f, 0.18f),
         BiomeType.Alpine => new Color(0.58f, 0.55f, 0.52f),
         BiomeType.Riparian => new Color(0.20f, 0.72f, 0.38f),   // 河岸带：翠绿（沙漠绿洲线）
         // ── 柯本细类（2026-08-16）──

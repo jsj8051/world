@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using World.Biome;
 using World.MapGen;
@@ -87,6 +88,10 @@ public partial class MapViewer : Node3D
                 _riverMesh.Visible = (value == 6);
             if (_monthSlider != null)
                 _monthSlider.Visible = (value == 4 || value == 10 || value == 11);
+            // ⚠️ 2026-08-16：季风月风场异步化后，FinishGenerate 时箭头可能还没建；
+            //   切到风场/月降水/月温度图层时若已就绪则补建（ApplyMonthWind 也会补）
+            if ((value == 4 || value == 10 || value == 11) && _monsoonArrows == null && _monthWind != null)
+                BuildMonsoonArrows();
         }
     }
     private int _layer;
@@ -148,6 +153,7 @@ public partial class MapViewer : Node3D
     private volatile float _progress;   // 0..1，后台线程写、主线程读
     private volatile string _phase = ""; // 当前阶段文字
     private int _buildVersion;           // 递增；过期任务的 FinishGenerate 直接丢弃
+    private string _buildDiag = "";      // BuildAll 阶段计时（后台线程写，FinishGenerate 打印）
 
     // ── 进度条 UI ──
     private CanvasLayer _uiLayer;
@@ -291,7 +297,7 @@ public partial class MapViewer : Node3D
                 _civCtx = civResult.Context;
                 _mapLoaded = true;
                 GD.Print($"[MapViewer] loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
-                         $"epoch={civResult.Context.Epoch.Name} ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} tribes={civResult.Context.Tribes.Count})");
+                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Entities.Count})");
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -361,36 +367,44 @@ public partial class MapViewer : Node3D
     private MeshData BuildAll(MapData map, int version, System.Threading.CancellationToken token, int layer)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
+        var _diag = new System.Text.StringBuilder();   // 阶段计时（后台累计，FinishGenerate 打印）
 
+        // ⚠️ 2026-08-16 进度条重设计：阶段化区间（0-90% 后台构建；90-100% FinishGenerate 收尾）。
+        //   每阶段有真实回调（预计算也补了），消除"卡在某 %"盲区；FinishGenerate 结束时才 100%。
         _phase = "细分二十面体";
-        _progress = 0.05f;
+        _progress = 0.02f;
         Icosahedron.Subdivide(GridN, RadiusKm, out var verts, out var indices);
         if (version != _buildVersion || token.IsCancellationRequested) return default;
-        _progress = 0.2f;
+        _progress = 0.05f;
+        _diag.Append($"细分={sw.ElapsedMilliseconds}ms ");
 
         _phase = "构建格子拓扑 (Goldberg dual)";
         var mesh = new SubdividedMesh(verts, indices);
-        var tiles = new GoldbergBuilder(mesh, RadiusKm, p => _progress = 0.2f + p * 0.3f).Tiles;
+        var tiles = new GoldbergBuilder(mesh, RadiusKm, p => _progress = 0.05f + p * 0.10f).Tiles;
         if (version != _buildVersion || token.IsCancellationRequested) return default;
-        _progress = 0.5f;
+        _progress = 0.15f;
+        _diag.Append($"拓扑={sw.ElapsedMilliseconds}ms ");
         // ⚠️ 后台线程禁止 GD.Print（Godot 线程不安全 → 编辑器卡死）——日志移主线程 FinishGenerate
 
         _phase = "构建几何";
         Func<Vector3, float> elevAt = _ => 0f;
         var geometry = ChunkMeshBuilder.BuildGeometry(tiles, elevAt, RadiusKm, 0f,
-            p => _progress = 0.5f + p * 0.3f);
+            p => _progress = 0.15f + p * 0.20f);
         if (version != _buildVersion || token.IsCancellationRequested) return default;
+        _progress = 0.35f;
+        _diag.Append($"几何={sw.ElapsedMilliseconds}ms ");
 
         // 几何就绪 → 缓存（图层切换直接复用），再算颜色
         _tiles = tiles;
         _geometry = geometry;
         _geometryReady = true;
-        _progress = 0.8f;
 
         // 预计算每格图层值（v3 球面一次采样；切图层 O(1) 查表）
         _phase = "预计算图层值";
-        PrecomputeTileValues(map, tiles, token);
+        PrecomputeTileValues(map, tiles, token, p => _progress = 0.35f + p * 0.30f);
         if (version != _buildVersion || token.IsCancellationRequested) return default;
+        _progress = 0.65f;
+        _diag.Append($"预计算={sw.ElapsedMilliseconds}ms ");
 
         _phase = "采样并着色";
         var colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(layer), geometry,
@@ -398,11 +412,11 @@ public partial class MapViewer : Node3D
             {
                 if (token.IsCancellationRequested)
                     throw new OperationCanceledException(token);
-                _progress = 0.8f + p * 0.2f;
+                _progress = 0.65f + p * 0.25f;
             });
-
-        _progress = 1f;
-        _phase = "完成";
+        _progress = 0.90f;
+        _diag.Append($"着色={sw.ElapsedMilliseconds}ms 总计={sw.ElapsedMilliseconds}ms");
+        _buildDiag = _diag.ToString();
         return new MeshData
         {
             Verts = geometry.Verts,
@@ -414,8 +428,9 @@ public partial class MapViewer : Node3D
 
     /// <summary>预计算每格图层值（v3 球面：每格采样一次，之后切图层 O(1) 查表）。
     /// ⚠️ 2026-08-02：必须并行化（每格独立）+ 禁止后台线程 GD.Print（Godot 线程不安全会卡死）。
-    ///   GridN=256 = 65 万格 × 4 次采样，串行 ~25s，并行 ~5s。</summary>
-    private void PrecomputeTileValues(MapData map, List<HexTile> tiles, System.Threading.CancellationToken token)
+    ///   GridN=256 = 65 万格 × 4 次采样，串行 ~25s，并行 ~5s。
+    /// ⚠️ 2026-08-16：补进度回调——之前无回调是进度条 80% 盲区（看似卡住的元凶之一）。</summary>
+    private void PrecomputeTileValues(MapData map, List<HexTile> tiles, System.Threading.CancellationToken token, Action<float> progress = null)
     {
         int n = tiles.Count;
         _tileElev = new float[n];
@@ -461,6 +476,7 @@ public partial class MapViewer : Node3D
         // 盛行风图层：用存档自转方向/速度（旧存档默认顺转 1.0）
         World.Biome.WindField.Prograde = map.ProgradeRotation;
         World.Biome.WindField.RotationSpeed = map.RotationSpeed;
+        int done = 0;
         System.Threading.Tasks.Parallel.For(0, n, i =>
         {
             if (token.IsCancellationRequested) return;
@@ -480,7 +496,7 @@ public partial class MapViewer : Node3D
             minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
             soilArr[i] = map.SoilLevel != null ? map.SoilLevel[vid] : (byte)0;
             monsoonArr[i] = map.MonsoonLevel != null ? map.MonsoonLevel[vid] : (byte)0;
-            // 文明图层（.cmp：格 id = 模拟顶点 id，零重采样直读；v2 部落模型：格=容器，主导部落=人口最大）
+            // 文明图层（.cmp v4：格 id = 模拟顶点 id，零重采样直读；实体模型：格=容器，主导实体=人口最大）
             if (hasCiv)
             {
                 _tilePop[i] = _civCtx.CellPop[vid];
@@ -489,15 +505,20 @@ public partial class MapViewer : Node3D
                 {
                     var dom = tlist[0];
                     for (int k = 1; k < tlist.Count; k++)
-                        if (tlist[k].Population > dom.Population) dom = tlist[k];
-                    _tileCulture[i] = dom.Culture;
-                    _tileCultureGroup[i] = dom.CultureGroup;
-                    _tileReligion[i] = dom.Religion;
+                        if (tlist[k].P > dom.P) dom = tlist[k];
+                    _tileCulture[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare)) & 0xFF);
+                    _tileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
+                    string relKey = World.CivSim.ShareField.DomReligion(dom.ReligionShare);
+                    _tileReligion[i] = (byte)World.CivSim.ShareField.ReligionIndex(relKey);   // 固定 key → 段索引 0-4
                     _tileTribe[i] = dom.Id;
-                    _tileTechEpoch[i] = (byte)World.CivSim.TechTable.MaxEpoch(dom.TechFlags);
+                    _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
                 }
             }
+            // ⚠️ 2026-08-16：每 64 格报一次进度（并行 For 内；不调取消——检查在外部）
+            if (progress != null && Interlocked.Increment(ref done) % 64 == 0)
+                progress(done / (float)n);
         });
+        progress?.Invoke(1f);
         // 人口图层色带上限（对数归一化；无文明数据 → 1 避免除零）
         _civPopMax = 1f;
         for (int i = 0; i < n; i++)
@@ -703,7 +724,9 @@ public partial class MapViewer : Node3D
         };
     }
 
-    /// <summary>主线程：把后台构建好的数据包成 ArrayMesh 并挂载。</summary>
+    /// <summary>主线程：把后台构建好的数据包成 ArrayMesh 并挂载。
+    /// ⚠️ 2026-08-16 进度条重设计：BuildAll 到 90%，这里收尾到 100%（100% = 真正完成，
+    ///   消除"进度满但主线程还有活"的未响应感）。</summary>
     private void FinishGenerate(int version)
     {
         GD.Print($"[MapViewer] FinishGenerate v{version} (当前 _buildVersion={_buildVersion}, Layer={_layer})");
@@ -727,6 +750,9 @@ public partial class MapViewer : Node3D
                 _planetMesh.QueueFree();
                 _planetMesh = null;
             }
+            _phase = "创建网格";
+            _progress = 0.90f;
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var mi = new MeshInstance3D
             {
                 Mesh = ChunkMeshBuilder.CreateMesh(data),
@@ -734,18 +760,33 @@ public partial class MapViewer : Node3D
             };
             AddChild(mi);
             _planetMesh = mi;
-            GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0})");
+            GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0}) (CreateMesh {sw.ElapsedMilliseconds}ms)");
+            GD.Print($"[MapViewer] BuildAll 阶段耗时: {_buildDiag}");
 
             // 统一风场箭头网格（图层 4 显示；热成风：信风/西风/季风一体，月份滑块切换）
+            // ⚠️ 2026-08-16：EnsureMonthWind 已异步化——此调用只触发后台计算，不阻塞主线程
+            _phase = "构建季风风场（后台）";
+            _progress = 0.94f;
+            sw.Restart();
             BuildMonsoonArrows();
+            GD.Print($"[MapViewer] 收尾: 季风箭头 {sw.ElapsedMilliseconds}ms");
             // 月降水缓存（图层 11 显示；当前月）
             RefreshMonthPrecip();
             // 月温度缓存（图层 12 显示；当前月）
             RefreshMonthTemp();
+            GD.Print($"[MapViewer] 收尾: 月缓存 {sw.ElapsedMilliseconds}ms");
             // 洋流箭头网格（图层 5 显示；暖流红/寒流蓝）
+            _phase = "构建洋流箭头";
+            _progress = 0.97f;
+            sw.Restart();
             BuildCurrentArrows();
+            GD.Print($"[MapViewer] 收尾: 洋流箭头 {sw.ElapsedMilliseconds}ms");
             // 河流网格（图层 6 显示；每条河独立颜色，支流汇合截断）
+            _phase = "构建河流";
+            _progress = 0.99f;
+            sw.Restart();
             BuildRivers();
+            GD.Print($"[MapViewer] 收尾耗时: 河流 {sw.ElapsedMilliseconds}ms");
 
             // 构建中切了图层 → 自动应用最新图层（几何已就绪，走快速重算）
             if (_pendingRecolor)
@@ -753,6 +794,8 @@ public partial class MapViewer : Node3D
                 _pendingRecolor = false;
                 RebuildColors();
             }
+            _progress = 1f;
+            _phase = "完成";
         }
         catch (Exception e)
         {
@@ -772,23 +815,48 @@ public partial class MapViewer : Node3D
     }
 
     /// <summary>懒算季风月风场（读档后第一次进风场/月降水/月温度图层时算一次；不存档）。
-    /// 用存档的海陆/年温/年降水 + 倾角（v3.8 头部）现场跑 MonsoonSystem。</summary>
+    /// 用存档的海陆/年温/年降水 + 倾角（v3.8 头部）现场跑 MonsoonSystem。
+    /// ⚠️ 2026-08-16：异步化（后台 Task.Run）——n=128 时 MonsoonSystem 数亿次主线程计算
+    ///   让 FinishGenerate 卡 100% 几十秒。MonsoonSystem 是纯计算（不碰引擎 API，线程安全）；
+    ///   完成后 CallDeferred 回主线程应用。</summary>
+    private bool _monthWindStarted;                 // 防重复启动
+    private volatile Vector3[][] _monthWindPending; // 后台写、主线程 ApplyMonthWind 读
     private void EnsureMonthWind()
     {
-        if (_monthWind != null || _map == null || _map.Verts == null) return;
-        var nb = _map.BuildNeighbors();
-        if (nb == null) return;
-        int n = _map.Verts.Length;
-        float span = Mathf.Max(-_map.MinElev, _map.MaxElev);
-        var eNorm = new float[n];
-        for (int i = 0; i < n; i++)
-            eNorm[i] = span > 1e-6f ? _map.Elev[i] / span : 0f;
-        MonsoonSystem.Compute(_map.Verts, nb, eNorm, _map.Elev, _map.Temp, _map.Precip, _map.AxialTilt, _map.RotationSpeed,
-            new ClimateGenerator(_map.Seed, _map.AxialTilt, 1f),
-            out var mons, out _, out _, out _, out _, out _, out var mw, out var mt, out _);
+        if (_monthWind != null || _monthWindStarted || _map == null || _map.Verts == null) return;
+        _monthWindStarted = true;
+        var map = _map;   // 快照引用（后台线程只读字段，主线程不再改 _map）
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            var nb = map.BuildNeighbors();
+            if (nb == null) return;
+            int n = map.Verts.Length;
+            float span = Mathf.Max(-map.MinElev, map.MaxElev);
+            var eNorm = new float[n];
+            for (int i = 0; i < n; i++)
+                eNorm[i] = span > 1e-6f ? map.Elev[i] / span : 0f;
+            MonsoonSystem.Compute(map.Verts, nb, eNorm, map.Elev, map.Temp, map.Precip, map.AxialTilt, map.RotationSpeed,
+                new ClimateGenerator(map.Seed, map.AxialTilt, 1f),
+                out var mons, out _, out _, out _, out _, out _, out var mw, out var mt, out _);
+            _monthWindPending = mw;   // 后台线程写字段，主线程 CallDeferred 后读
+        }).ContinueWith(t =>
+        {
+            if (t.IsFaulted)
+                GD.PrintErr($"[MapViewer] 季风月风场计算失败: {t.Exception?.GetBaseException().Message}");
+            CallDeferred(nameof(ApplyMonthWind));   // 回主线程应用（含失败路径清 pending）
+        });
+    }
+
+    private void ApplyMonthWind()
+    {
+        var mw = _monthWindPending;
+        _monthWindPending = null;
+        if (mw == null) return;
         _monthWind = mw;
-        _monsoonVerts = mons;
-        GD.Print($"[MapViewer] 季风月风场重算完成（{n} 顶点，倾角 {_map.AxialTilt}°）");
+        GD.Print($"[MapViewer] 季风月风场重算完成（{_map?.Verts.Length} 顶点，倾角 {_map?.AxialTilt}°）");
+        // 若当前已是风场/月降水/月温度图层，补建箭头（异步完成前可能已跳过）
+        if (Layer == 4 || Layer == 10 || Layer == 11)
+            BuildMonsoonArrows();
     }
 
     /// <summary>季风月风箭头（图层 10 显示；方向 = 当月季风环流风，稀疏采样）。
@@ -1039,11 +1107,21 @@ public partial class MapViewer : Node3D
         }
 
         // 2. 水位法：极值 → 逐层扩张 → 贴大陆前最后一层边界 = 最外圈
+        // ⚠️ 2026-08-16 性能修复：n=128 时 seeds 数千、每层 Array.Clear(seen,0,n)+全扫 consumed
+        //   = O(seeds×30×n) 千亿次 → 卡 361 秒。改为：
+        //   · seen 用 int stamp（每层 stamp++ 即"清空"，O(1) 而非 O(n)）
+        //   · consumed 只标记本层 BFS 访问过的格（O(区域) 而非 O(n)）
+        //   · seeds 按 |psi| 降序（强环流先占区域，弱极值快速被跳过）
+        //   行为不变（环数/箭头数与 02:47 版本一致）。
         var consumed = new bool[n];
         int ringCount = 0, arrowTotal = 0;
         var queue = new System.Collections.Generic.Queue<int>();
-        var seen = new bool[n];
+        var seenStamp = new int[n];
+        int stamp = 0;
+        var regionCells = new System.Collections.Generic.List<int>();
         const int layers = 30;
+        // seeds 按 |psi| 从大到小：强环流中心先处理 → 弱极值通常已被 consumed 跳过
+        seeds.Sort((a, b) => Mathf.Abs(psi[b]).CompareTo(Mathf.Abs(psi[a])));
         foreach (var seed in seeds)
         {
             if (consumed[seed]) continue;
@@ -1059,8 +1137,9 @@ public partial class MapViewer : Node3D
                 float level = isMax ? level0 - step * l : level0 + step * l;
                 // BFS 连通区：ψ 满足（极大 ≥ level / 极小 ≤ level）的海洋格
                 queue.Clear();
-                System.Array.Clear(seen, 0, n);
-                queue.Enqueue(seed); seen[seed] = true;
+                stamp++;
+                regionCells.Clear();
+                queue.Enqueue(seed); seenStamp[seed] = stamp;
                 int regionCount = 0;
                 bool touchesLand = false;
                 boundary.Clear();
@@ -1068,6 +1147,7 @@ public partial class MapViewer : Node3D
                 {
                     int c = queue.Dequeue();
                     regionCount++;
+                    regionCells.Add(c);
                     bool onBoundary = false;
                     foreach (var nb in nbsAll[c])
                     {
@@ -1075,7 +1155,7 @@ public partial class MapViewer : Node3D
                         bool inR = isMax ? psi[nb] >= level : psi[nb] <= level;
                         if (inR)
                         {
-                            if (!seen[nb]) { seen[nb] = true; queue.Enqueue(nb); }
+                            if (seenStamp[nb] != stamp) { seenStamp[nb] = stamp; queue.Enqueue(nb); }
                         }
                         else onBoundary = true;   // 邻接区域外海洋 = 等值线边界
                     }
@@ -1085,7 +1165,7 @@ public partial class MapViewer : Node3D
                 if (touchesLand) { boundary = lastBoundary; break; }   // 贴岸 → 最外圈 = 上一层
                 lastBoundary.Clear();
                 lastBoundary.AddRange(boundary);
-                for (int i = 0; i < n; i++) if (seen[i]) consumed[i] = true;   // 标记本环区域
+                foreach (var ci in regionCells) consumed[ci] = true;   // 标记本环区域（只扫访问过的格）
                 if (boundary.Count == 0) break;   // 区域填满整个海洋盆（无闭合等值线）
             }
             if (boundary.Count >= 8)
@@ -1314,7 +1394,9 @@ public partial class MapViewer : Node3D
         {
             MinValue = 0,
             MaxValue = 100,
-            ShowPercentage = true,
+            // ⚠️ 2026-08-16：去掉 ShowPercentage——内嵌百分比与 _label 双显示取整不一致
+            //   （用户见 89/88 两个数字）。只保留条，数字统一由 _label 显示。
+            ShowPercentage = false,
             CustomMinimumSize = new Vector2(420, 26)
         };
         vbox.AddChild(_bar);
