@@ -139,9 +139,12 @@ public static class CivMapArchive
         return c;
     }
 
-    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v4 校验：版本、旧 biome 值。</summary>
+    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v4 校验：版本、旧 biome 值。
+    /// ⚠️ 2026-08-07：读档入口必须 TechTable.Load()——否则 _byKey 空 → 读档后 RefreshCellState/YFarm
+    /// 里 Get(key) 全 null → NRE（CmpSelectMenu 只 Read 不 Run 的场景崩溃根因）。Load 幂等。</summary>
     public static bool Read(string path, out GameGrid grid, out CivSimResult result)
     {
+        TechTable.Load();
         grid = null;
         result = null;
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
