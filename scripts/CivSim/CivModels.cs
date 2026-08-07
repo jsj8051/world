@@ -642,10 +642,15 @@ public sealed class SplitMigrateModel : CivModelBase
                 OriginCell = t.Cell,
                 BornTick = ctx.Tick,
             };
-            // 文化群分化：2% 新 key（方言→语言群漂变），作用于新实体主导份额（份额值不变）
+            // 文化标签分化：5% 新 key（习俗漂变——方言分化伴习俗变，独立于文化群判定）
             if (ctx.CultureKeyCount < 1000 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
             {
-                nt.CultureGroupShare[0] = new ShareEntry { Key = ctx.NextCultureKey(), Frac = nt.CultureGroupShare[0].Frac };
+                nt.CultureShare[0] = new ShareEntry { Key = ctx.NextCultureKey(), Frac = nt.CultureShare[0].Frac };
+            }
+            // 文化群分化：5% 新 key（方言→语言群漂变），独立计数（2026-08-07 与文化标签分开——防标签挤占语言群 key 空间）
+            if (ctx.CultureGroupKeyCount < 1000 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
+            {
+                nt.CultureGroupShare[0] = new ShareEntry { Key = ctx.NextCultureGroupKey(), Frac = nt.CultureGroupShare[0].Frac };
             }
             // 宗教派别分化：2% 新 key（图腾漂变），与文化群分化独立判定
             if (ctx.ReligionKeyCount < 1000 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)

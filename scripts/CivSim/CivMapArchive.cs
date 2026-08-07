@@ -113,11 +113,13 @@ public static class CivMapArchive
         return r;
     }
 
-    /// <summary>解析 "cult_N" → N（非该格式 → 0；用于 key 计数兜底推导）。</summary>
+    /// <summary>解析 "cult_N" / "cultg_N" → N（非该格式 → 0；用于 key 计数兜底推导，2026-08-07 双前缀兼容旧档）。</summary>
     private static int KeyNum(string key)
     {
         if (key != null && key.StartsWith("cult_") && int.TryParse(key.AsSpan(5), out int n))
             return n;
+        if (key != null && key.StartsWith("cultg_") && int.TryParse(key.AsSpan(6), out int m))
+            return m;
         return 0;
     }
 
@@ -218,17 +220,20 @@ public static class CivMapArchive
         }
 
         // 文化 key 计数兜底：份额场推导（旧档无头部计数时；被同化掉的 key 可能使推导偏小，故取 max）
-        int maxCultId = 0, maxReligId = 0;
+        // 2026-08-07：标签/群分开推导（群 "cultg_" 前缀独立空间，防标签挤占语言群 key）
+        int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
         for (int k = 0; k < entities.Count; k++)
         {
             var e = entities[k];
             maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[0].Key));
             maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[1].Key));
-            maxCultId = Math.Max(maxCultId, KeyNum(e.CultureGroupShare[0].Key));
-            maxCultId = Math.Max(maxCultId, KeyNum(e.CultureGroupShare[1].Key));
+            maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[0].Key));
+            maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[1].Key));
             maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[0].Key));
             maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[1].Key));
         }
+        // 存档头部只存一个合并 cultureKeyCount（旧格式）；读档后标签/群各自取 max 兜底——
+        //   新档群前缀 cultg_ 由 KeyNum 解析出独立计数；旧档群仍是 cult_ 与标签共享，取合并值无冲突。
 
         var ctx = new CivSimContext
         {
@@ -247,7 +252,8 @@ public static class CivMapArchive
             WildCrops = g.EnsureWildCrops(),
             Suit = WildCropsSystem.Suitability(g),
             FirstFarmTick = -1,
-            CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 存档值优先，份额场推导兜底（旧档）
+            CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，标签份额推导兜底
+            CultureGroupKeyCount = Math.Max(cultureKeyCount, maxGroupId + 1),  // 群计数：旧档取合并值（群原与标签共享），新档 cultg_ 推导
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
         };
         for (int i = 0; i < n; i++)

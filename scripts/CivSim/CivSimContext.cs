@@ -33,7 +33,8 @@ public sealed class CivSimContext
     // ── 演化统计（诊断/输出）──
     public int Fissions;
     public int Migrations;
-    public int CultureKeyCount;         // 文化/文化群 key 计数器（分裂分化分配新 key，如 "cult_12"）
+    public int CultureKeyCount;         // 文化标签 key 计数器（分裂分化分配新 key，如 "cult_12"）
+    public int CultureGroupKeyCount;    // 文化群 key 计数器（2026-08-07 与文化标签分开——语言大群独立 key 空间，防标签挤占）
     public int ReligionKeyCount;        // 宗教派别 key 计数器（起源/分裂分化分配新 key，如 "relig_3"）
     public int FirstFarmTick = -1;      // 首转农 tick（终止条件锚点）
     public int[] BfsStamp;
@@ -41,6 +42,9 @@ public sealed class CivSimContext
 
     /// <summary>分配新文化 key（确定性递增；与科技 key 同风格——字符串可读）。</summary>
     public string NextCultureKey() => $"cult_{CultureKeyCount++}";
+
+    /// <summary>分配新文化群 key（独立计数 + "cultg_" 前缀——与标签 "cult_" 空间隔离，防冲突；KeyNum 双前缀解析兼容旧档，2026-08-07）。</summary>
+    public string NextCultureGroupKey() => $"cultg_{CultureGroupKeyCount++}";
 
     /// <summary>分配新宗教派别 key（起源/分裂分化；图腾漂变）。</summary>
     public string NextReligionKey() => $"relig_{ReligionKeyCount++}";
