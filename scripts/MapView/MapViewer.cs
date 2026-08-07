@@ -543,8 +543,8 @@ public partial class MapViewer : Node3D
                 if (_tileElev[i] < hSea) continue;
                 land++;
                 if (_tilePop[i] > maxPop) maxPop = _tilePop[i];
-                if (_tileCulture[i] != 0 && cultSet.Add(_tileCulture[i]) && !cultHue.Add((int)((_tileCulture[i] * 0.6180339887f) % 1f * 1e6f))) cultHueCol++;
-                if (_tileReligion[i] != 0 && relSet.Add(_tileReligion[i]) && !relHue.Add((int)((_tileReligion[i] * 0.6180339887f) % 1f * 1e6f))) relHueCol++;
+                if (_tileCulture[i] != 0 && cultSet.Add(_tileCulture[i]) && !cultHue.Add((int)(GoldenHue(_tileCulture[i]) * 1e6f))) cultHueCol++;
+                if (_tileReligion[i] != 0 && relSet.Add(_tileReligion[i]) && !relHue.Add((int)(GoldenHue(_tileReligion[i]) * 1e6f))) relHueCol++;
             }
             GD.Print($"[图层诊断] 陆地={land} 文化key={cultSet.Count}(格{cultTiles}) 宗教key={relSet.Count}(格{relTiles}) 文化色相碰撞={cultHueCol} 宗教色相碰撞={relHueCol}");
             GD.Print($"[图层诊断] 人口 有人格={popLog.Count} P1={Mathf.Exp(_popLogMin) - 1f:F0} P99={Mathf.Exp(_popLogMax) - 1f:F0} max={maxPop:F0}");
@@ -601,7 +601,7 @@ public partial class MapViewer : Node3D
     						return _tileElev[id] < _hSea
     							? new Color(0.45f, 0.55f, 0.70f)   // 海洋
     							: new Color(0.60f, 0.58f, 0.50f);  // 边缘排水区（直接入海，非河）
-    					return HslToRgb((ws * 0.6180339887f) % 1f, 0.55f, 0.62f);
+    										return HslToRgb(GoldenHue(ws), 0.55f, 0.62f);
     				}
     			case 8: // 矿藏：矿种固定色 × 富度明度（贫暗/富中/巨型亮）；无矿淡地形底
     				{
@@ -658,7 +658,7 @@ public partial class MapViewer : Node3D
     								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
     								    int cult = _tileCulture[id];
     								    if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								    return HslToRgb((cult * 0.6180339887f) % 1f, 0.55f, 0.62f);
+    								    								    return HslToRgb(GoldenHue(cult), 0.55f, 0.62f);
     								}
     								case 14: // 部落：谱系调色板
     								    {
@@ -681,7 +681,7 @@ public partial class MapViewer : Node3D
     								    if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								    int rel = _tileReligion[id];
     								    if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								    return HslToRgb((rel * 0.6180339887f) % 1f, 0.55f, 0.62f);
+    								    								    return HslToRgb(GoldenHue(rel), 0.55f, 0.62f);
     								}
     			default: // 海拔
     				{
@@ -1305,7 +1305,7 @@ public partial class MapViewer : Node3D
         foreach (var path in paths)
         {
             // 每条河独立颜色：HSL 色相黄金角循环（相邻河差异最大）
-            float hue = (riverCount * 0.6180339887f) % 1f;
+            float hue = GoldenHue(riverCount);
             var c = HslToRgb(hue, 0.9f, 0.55f);
             riverCount++;
             bool drawn = false;
@@ -1382,6 +1382,13 @@ public partial class MapViewer : Node3D
             return p;
         }
         return new Color(H2R(h + 1f / 3f), H2R(h), H2R(h - 1f / 3f));
+    }
+
+    /// <summary>整数 key/流域 id → 黄金角色相（double 计算防 float 精度坍缩——int 32 位 × float 在 2^31 量级
+    /// 只剩 22 档色相，不同 key 同色；double 52 位尾数全展开 360 档，2026-08-07）。</summary>
+    static float GoldenHue(long id)
+    {
+        return (float)((id * 0.6180339887498949) % 1.0);
     }
 
     // ── 进度条 UI ──
