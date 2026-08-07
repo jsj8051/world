@@ -350,8 +350,11 @@ public sealed class SpreadModel : CivModelBase
                 if (b.Count == 0) continue;
                 var repA = MaxPop(a);
                 var repB = MaxPop(b);
-                SpreadTech(ctx, repA, repB);
-                SpreadTech(ctx, repB, repA);
+                // 闭塞区域：跨格传播 ×= BorderCost（地形障碍 × 气候相似度；A→B 用 A 的科技判定障碍突破）
+                float cost = ctx.BorderCost(i, nb, repA.TechKeys);
+                if (cost <= 0f) continue;
+                SpreadTech(ctx, repA, repB, cost);
+                SpreadTech(ctx, repB, repA, cost);
             }
         }
     }
@@ -364,16 +367,17 @@ public sealed class SpreadModel : CivModelBase
         return best;
     }
 
-    /// <summary>技术传播 from → to（to 缺 from 的技术且依赖满足 → 按概率获得）。</summary>
-    private void SpreadTech(CivSimContext ctx, CivEntity from, CivEntity to)
+    /// <summary>技术传播 from → to（to 缺 from 的技术且依赖满足 → 按概率获得）。
+    /// ⚠️ 性能：只遍历 from.TechKeys（科技差集，通常 3-8 项）而非全表 16 项——n64 同格/邻格对合计 6 亿次/演化。</summary>
+    private void SpreadTech(CivSimContext ctx, CivEntity from, CivEntity to, float border = 1f)
     {
-        foreach (var t in TechTable.All)
+        foreach (var key in from.TechKeys)
         {
-            if (t.IsAgricultureConcept) continue;
-            if (to.TechKeys.Contains(t.Key)) continue;
-            if (!from.TechKeys.Contains(t.Key)) continue;
+            if (to.TechKeys.Contains(key)) continue;
+            var t = TechTable.Get(key);
+            if (t == null || t.IsAgricultureConcept) continue;
             if (!HasAll(to.TechKeys, t.Requires)) continue;   // 依赖硬门槛
-            float p = t.SpreadBase;
+            float p = t.SpreadBase * border;
             if (t.IsSeed)
                 p *= Mathf.Clamp(ctx.Phi(to.Cell, t.SeedIndex), 0.3f, 1f);   // 种子传播修正
             if (ctx.Rng.NextDouble() < Mathf.Min(0.5f, p))
@@ -439,6 +443,10 @@ public sealed class CultureModel : CivModelBase
                           + (ShareField.DomKey(repA.CultureGroupShare) == ShareField.DomKey(repB.CultureGroupShare) ? 0.5f : 0f);
                 if (sim <= 0.5f) continue;   // Axelrod：不相似不互动（保持差异）
                 float rate = sim - 0.5f;
+                // 闭塞区域：跨格文化转移 ×= BorderCost（障碍区文化交流弱 → 边界处文化差异保持）
+                float cost = ctx.BorderCost(i, nb, repA.TechKeys);
+                if (cost <= 0f) continue;
+                rate *= cost;
                 var strong = repA.P >= repB.P ? repA : repB;
                 var weak = strong == repA ? repB : repA;
                 int amt = (int)MathF.Round(rate * 255f);
@@ -536,8 +544,11 @@ public sealed class ReligionModel : CivModelBase
                 if (b.Count == 0) continue;
                 var repA = MaxPop(a);
                 var repB = MaxPop(b);
-                SpreadReligion(ctx, repA, repB);
-                SpreadReligion(ctx, repB, repA);
+                // 闭塞区域：跨格宗教传播 ×= BorderCost（障碍区传教弱）
+                float cost = ctx.BorderCost(i, nb, repA.TechKeys);
+                if (cost <= 0f) continue;
+                SpreadReligion(ctx, repA, repB, cost);
+                SpreadReligion(ctx, repB, repA, cost);
             }
         }
 
@@ -567,14 +578,14 @@ public sealed class ReligionModel : CivModelBase
     }
 
     /// <summary>宗教传播：高阶实体主导宗教份额流向低阶实体（只向更高阶段）。</summary>
-    private static void SpreadReligion(CivSimContext ctx, CivEntity from, CivEntity to)
+    private static void SpreadReligion(CivSimContext ctx, CivEntity from, CivEntity to, float border = 1f)
     {
         string domFrom = ShareField.DomReligion(from.ReligionShare);
         string domTo = ShareField.DomReligion(to.ReligionShare);
         int fi = ShareField.ReligionIndex(domFrom);
         int ti = ShareField.ReligionIndex(domTo);
         if (fi <= ti) return;   // 只向更高阶段（不回头污染）
-        int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionSpreadRate);
+        int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionSpreadRate * border);
         ShareField.RelTransfer(to.ReligionShare, domTo, domFrom, amt);
     }
 
@@ -601,18 +612,26 @@ public sealed class SplitMigrateModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         // ── 分裂（快照遍历，新实体下 tick 再判，防同 tick 连锁）──
+        //    分家迁出：新实体移入邻格（部落分家 = 物理分离）→ 分化文化在独立格发育存活
+        //    （同格会被格级统一写回抹掉——曾致 97% 新文化 0 tick 死亡；用户拍板 2026-08-07）
         var snapshot = ctx.Entities.ToArray();
         foreach (var t in snapshot)
         {
             if (t.Dead) continue;
             if (t.P <= CivSimContext.SplitPop) continue;
-            if (ctx.CellTribes[t.Cell].Count >= CivSimContext.MaxTribesPerCell) continue;   // 社会密度上限
+            // 分家目标：无人陆地邻格优先 → 低密度陆地邻格 → canoe 跨 1 格海；无目标且母格未满 → 留母格
+            int target = FindSplitTarget(ctx, t);
+            if (target < 0)
+            {
+                if (ctx.CellTribes[t.Cell].Count >= CivSimContext.MaxTribesPerCell) continue;   // 母格满 → 不分裂
+                target = t.Cell;
+            }
             float newPop = t.P * CivSimContext.SplitShare;
             t.P -= newPop;
             var nt = new CivEntity
             {
                 Id = ctx.Entities.Count,
-                Cell = t.Cell,
+                Cell = target,
                 P = newPop,
                 IsFarming = t.IsFarming,
                 TechKeys = new HashSet<string>(t.TechKeys),     // 分裂瞬间技术相同，此后各自发明/学习
@@ -623,18 +642,18 @@ public sealed class SplitMigrateModel : CivModelBase
                 OriginCell = t.Cell,
                 BornTick = ctx.Tick,
             };
-            // 文化群分化：0.5% 新 key（方言→语言群漂变），作用于新实体主导份额（份额值不变）
-            if (ctx.CultureKeyCount < 250 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
+            // 文化群分化：2% 新 key（方言→语言群漂变），作用于新实体主导份额（份额值不变）
+            if (ctx.CultureKeyCount < 1000 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
             {
                 nt.CultureGroupShare[0] = new ShareEntry { Key = ctx.NextCultureKey(), Frac = nt.CultureGroupShare[0].Frac };
             }
-            // 宗教派别分化：0.5% 新 key（图腾漂变），与文化群分化独立判定
-            if (ctx.ReligionKeyCount < 250 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
+            // 宗教派别分化：2% 新 key（图腾漂变），与文化群分化独立判定
+            if (ctx.ReligionKeyCount < 1000 && ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
             {
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
             }
             ctx.Entities.Add(nt);
-            ctx.CellTribes[t.Cell].Add(nt);
+            ctx.CellTribes[target].Add(nt);
             ctx.Fissions++;
         }
 
@@ -664,7 +683,7 @@ public sealed class SplitMigrateModel : CivModelBase
             if (t.Dead) continue;
             if (t.P < CivSimContext.ScoutMinPop) continue;
             if (ctx.Rng.NextDouble() >= CivSimContext.ScoutChance) continue;
-            int target = PickScoutTarget(ctx, t.Cell);
+            int target = PickScoutTarget(ctx, t.Cell, t);
             if (target < 0) continue;
             float move = t.P * CivSimContext.ScoutShare;
             t.P -= move;
@@ -681,27 +700,70 @@ public sealed class SplitMigrateModel : CivModelBase
         return best;
     }
 
-    /// <summary>饱和迁徙目标：陆地邻格无人最高优先；否则高 K/低密度；canoe 允许跨 1 格海。</summary>
+    /// <summary>分裂分家目标：无人陆地邻格优先 → 同文化低密度 → 其他低密度；canoe 跨 1 格海；
+    /// 目标格社会密度上限 8；无候选 → -1（留母格）。确定性（无随机）。
+    /// 2026-08-07 闭塞区域：目标分数 ×= BorderCost（难迁入障碍格——山脉/沙漠/冰原/海权重低）。</summary>
+    private static int FindSplitTarget(CivSimContext ctx, CivEntity t)
+    {
+        var g = ctx.Grid;
+        bool canoe = t.TechKeys.Contains(TechTable.Canoe);
+        string cult = ShareField.DomKey(t.CultureShare);
+        int best = -1;
+        float bestScore = float.MaxValue;
+        foreach (int nb in g.Neighbors[t.Cell])
+        {
+            if (ctx.BaseK[nb] <= 0f) continue;                 // 不可居（海洋/冰盖/密度 0）
+            if (!g.IsLandCell(nb) && !canoe) continue;         // 跨海需 canoe
+            if (ctx.CellTribes[nb].Count >= CivSimContext.MaxTribesPerCell) continue;   // 目标格社会密度上限
+            float pass = ctx.BorderCost(t.Cell, nb, t.TechKeys);
+            if (pass <= 0f) continue;                          // 障碍不可穿（无火冰原等）
+            float pop = ctx.CellPop[nb];
+            if (pop <= 0f) return nb;                          // 无人格 → 立即扩展（最高优先，可达性已由 pass 保证）
+            float density = pop / Math.Max(1e-6f, ctx.CellK[nb]) / pass;   // 分数 = 密度低 × 可达性高
+            var dom = MaxPop(ctx.CellTribes[nb]);
+            if (dom != null && cult != null && cult == ShareField.DomKey(dom.CultureShare))
+                density *= 0.25f;   // 同文化领地优先（低密度权重 4 倍）
+            if (density < bestScore) { bestScore = density; best = nb; }
+        }
+        return best;
+    }
+
+    /// <summary>饱和迁徙目标：陆地邻格无人最高优先；主导同文化格（低密度）次之；否则高 K/低密度；canoe 跨 1 格海。
+    /// 同文化亲和（2026-08-07）：部落迁徙倾向迁往同文化领地 → 弱文化领地巩固、强文化形成连续块（防分化文化被渗透灭）。
+    /// 2026-08-07 闭塞区域：分数 ×= BorderCost。</summary>
     private static int PickTarget(CivSimContext ctx, int from, CivEntity mover)
     {
+        string moverCult = ShareField.DomKey(mover.CultureShare);
         int best = -1; float bestScore = -1f;
         bool canoe = mover.TechKeys.Contains(TechTable.Canoe);
         foreach (int nb in ctx.Grid.Neighbors[from])
         {
             if (ctx.Grid.IsLandCell(nb) && ctx.CellK[nb] > 0f)
             {
-                if (ctx.CellPop[nb] <= 0f) return nb;   // 无人格最高优先
-                float score = ctx.CellK[nb] / Mathf.Max(1f, ctx.CellPop[nb]);
+                float pass = ctx.BorderCost(from, nb, mover.TechKeys);
+                if (pass <= 0f) continue;
+                if (ctx.CellPop[nb] <= 0f) return nb;   // 无人格最高优先（可达性已由 pass 保证）
+                if (ctx.CellTribes[nb].Count >= CivSimContext.MaxTribesPerCell) continue;   // 社会密度上限（防堆叠）
+                float score = ctx.CellK[nb] / Mathf.Max(1f, ctx.CellPop[nb]) * pass;
+                var dom = MaxPop(ctx.CellTribes[nb]);
+                if (dom != null && moverCult != null && moverCult == ShareField.DomKey(dom.CultureShare))
+                    score *= 4f;   // 同文化亲和
                 if (score > bestScore) { bestScore = score; best = nb; }
             }
             // 跨海：海邻格 → 其陆地邻格（1 格海连通）
             else if (canoe && !ctx.Grid.IsLandCell(nb))
             {
+                float seaPass = ctx.BorderCost(from, nb, mover.TechKeys);
+                if (seaPass <= 0f) continue;
                 foreach (int nb2 in ctx.Grid.Neighbors[nb])
                 {
                     if (nb2 == from || !ctx.Grid.IsLandCell(nb2) || ctx.CellK[nb2] <= 0f) continue;
                     if (ctx.CellPop[nb2] <= 0f) return nb2;
-                    float score = ctx.CellK[nb2] / Mathf.Max(1f, ctx.CellPop[nb2]);
+                    if (ctx.CellTribes[nb2].Count >= CivSimContext.MaxTribesPerCell) continue;
+                    float score = ctx.CellK[nb2] / Mathf.Max(1f, ctx.CellPop[nb2]) * seaPass;
+                    var dom2 = MaxPop(ctx.CellTribes[nb2]);
+                    if (dom2 != null && moverCult != null && moverCult == ShareField.DomKey(dom2.CultureShare))
+                        score *= 4f;   // 同文化亲和
                     if (score > bestScore) { bestScore = score; best = nb2; }
                 }
             }
@@ -709,41 +771,55 @@ public sealed class SplitMigrateModel : CivModelBase
         return best;
     }
 
-    /// <summary>探路目标：1-3 跳 BFS 内最高 K 无人陆地格（时间戳标记，确定性）。</summary>
-    private static int PickScoutTarget(CivSimContext ctx, int from)
+    /// <summary>探路目标：1-3 跳 BFS 内最高 K 无人陆地格（时间戳标记，确定性）。
+    /// 2026-08-07 闭塞区域：路径分数 ×= 每跳 BorderCost 乘积（穿越障碍的跳跃扩散被抑制）。</summary>
+    private static int PickScoutTarget(CivSimContext ctx, int from, CivEntity mover)
     {
         var grid = ctx.Grid;
+        var keys = mover.TechKeys;
         int stamp = ++ctx.BfsStampValue;
         int best = -1; float bestK = -1f;
         foreach (int nb in grid.Neighbors[from])
         {
             if (!grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
+            float c1 = ctx.BorderCost(from, nb, keys);
+            if (c1 <= 0f) continue;
             ctx.BfsStamp[nb] = stamp;
-            if (ctx.CellPop[nb] <= 0f && ctx.CellK[nb] > bestK) { bestK = ctx.CellK[nb]; best = nb; }
+            if (ctx.CellPop[nb] <= 0f && ctx.CellK[nb] * c1 > bestK) { bestK = ctx.CellK[nb] * c1; best = nb; }
         }
         foreach (int nb in grid.Neighbors[from])
         {
             if (ctx.BfsStamp[nb] != stamp) continue;
+            float c1 = ctx.BorderCost(from, nb, keys);
+            if (c1 <= 0f) continue;
             foreach (int nb2 in grid.Neighbors[nb])
             {
                 if (ctx.BfsStamp[nb2] == stamp) continue;
+                float c2 = ctx.BorderCost(nb, nb2, keys);
+                if (c2 <= 0f) continue;
                 ctx.BfsStamp[nb2] = stamp;
-                if (grid.IsLandCell(nb2) && ctx.CellK[nb2] > 0f && ctx.CellPop[nb2] <= 0f && ctx.CellK[nb2] > bestK)
-                { bestK = ctx.CellK[nb2]; best = nb2; }
+                if (grid.IsLandCell(nb2) && ctx.CellK[nb2] > 0f && ctx.CellPop[nb2] <= 0f && ctx.CellK[nb2] * c1 * c2 > bestK)
+                { bestK = ctx.CellK[nb2] * c1 * c2; best = nb2; }
             }
         }
         foreach (int nb in grid.Neighbors[from])
         {
             if (ctx.BfsStamp[nb] != stamp) continue;
+            float c1 = ctx.BorderCost(from, nb, keys);
+            if (c1 <= 0f) continue;
             foreach (int nb2 in grid.Neighbors[nb])
             {
                 if (ctx.BfsStamp[nb2] != stamp) continue;
+                float c2 = ctx.BorderCost(nb, nb2, keys);
+                if (c2 <= 0f) continue;
                 foreach (int nb3 in grid.Neighbors[nb2])
                 {
                     if (ctx.BfsStamp[nb3] == stamp) continue;
+                    float c3 = ctx.BorderCost(nb2, nb3, keys);
+                    if (c3 <= 0f) continue;
                     ctx.BfsStamp[nb3] = stamp;
-                    if (grid.IsLandCell(nb3) && ctx.CellK[nb3] > 0f && ctx.CellPop[nb3] <= 0f && ctx.CellK[nb3] > bestK)
-                    { bestK = ctx.CellK[nb3]; best = nb3; }
+                    if (grid.IsLandCell(nb3) && ctx.CellK[nb3] > 0f && ctx.CellPop[nb3] <= 0f && ctx.CellK[nb3] * c1 * c2 * c3 > bestK)
+                    { bestK = ctx.CellK[nb3] * c1 * c2 * c3; best = nb3; }
                 }
             }
         }
@@ -753,7 +829,9 @@ public sealed class SplitMigrateModel : CivModelBase
     private static void SpawnEntity(CivSimContext ctx, CivEntity from, int cell, float pop)
     {
         if (pop <= 0f) return;
-        if (ctx.CellTribes[cell].Count >= CivSimContext.MaxTribesPerCell) return;   // 格内社会密度上限（防实体堆积）
+        // ⚠️ 社会密度上限：迁徙目标格满 8 → 不迁（2026-08-07——曾无上限 → 格超载
+        //   → 全格满 → 分裂冻结 → 分化停止 → 文化多样性被锁死）
+        if (ctx.CellTribes[cell].Count >= CivSimContext.MaxTribesPerCell) return;
         var nt = new CivEntity
         {
             Id = ctx.Entities.Count,

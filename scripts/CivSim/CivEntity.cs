@@ -107,19 +107,35 @@ public static class ShareField
         if (s[0].Frac == Unit) s[1] = new ShareEntry();   // 全同化 → 清第二位
     }
 
-    /// <summary>把 srcKey 的份额向 domKey 转移 amt（相邻格 Axelrod 互动）。</summary>
+    /// <summary>把 srcKey 的份额向 domKey 转移 amt（相邻格 Axelrod 互动）。
+    /// ⚠️ 2026-08-07 重写：旧版无条件 SwapDom 把单文化实体 [cult:255] 交换成 [null:0,cult:255]
+    ///   （主导变 null，文化灭失——起源格"n:0,cult:255"畸形根因）。现按主导/次席分路，位置不交换。</summary>
     public static void Shift(ShareEntry[] s, string srcKey, string domKey, int amt)
     {
         if (amt <= 0) return;
-        if (srcKey == DomKey(s)) SwapDom(s);
-        // srcKey 现在是第二位（或不在 top-2 → 忽略）
-        if (srcKey != SecKey(s)) return;
-        if (domKey != DomKey(s)) return;
-        int take = Math.Min(amt, s[1].Frac);
-        if (take <= 0) return;
-        s[1].Frac = (byte)(s[1].Frac - take);
-        s[0].Frac = (byte)Math.Min(Unit, s[0].Frac + take);
-        if (s[0].Frac == Unit) s[1] = new ShareEntry();
+        if (srcKey == DomKey(s))
+        {
+            // 主导是 srcKey（weak 自己的文化）：份额减 → 归给 domKey（次席/新次席）
+            int take = Math.Min(amt, s[0].Frac);
+            if (take <= 0) return;
+            s[0].Frac = (byte)(s[0].Frac - take);
+            if (domKey == SecKey(s))
+                s[1].Frac = (byte)Math.Min(Unit, s[1].Frac + take);
+            else if (s[1].Frac == 0)
+                s[1] = new ShareEntry { Key = domKey, Frac = (byte)take };
+            else if (domKey != DomKey(s))
+                s[1].Frac = (byte)Math.Min(Unit, s[1].Frac + take);   // domKey 不在场 → 并入次席
+            if (s[0].Frac == 0 && s[1].Frac > 0) SwapDom(s);   // 主导清零 → 次席上位
+        }
+        else if (srcKey == SecKey(s))
+        {
+            // 次席是 srcKey：份额转移给主导（domKey 应为主导）
+            int take = Math.Min(amt, s[1].Frac);
+            if (take <= 0) return;
+            s[1].Frac = (byte)(s[1].Frac - take);
+            s[0].Frac = (byte)Math.Min(Unit, s[0].Frac + take);
+        }
+        if (s[0].Frac == Unit) s[1] = new ShareEntry();   // 全占 → 清次席
     }
 
     /// <summary>份额等比例克隆（分裂继承：人口分走，身份随人口走）。</summary>
@@ -149,7 +165,13 @@ public static class ShareField
         {
             r[1].Key = list[1].Key;
             r[1].Frac = (byte)Math.Max(0, Unit - r[0].Frac);   // 其余全部并入第 2 位（保 Σ=255）
+            // ⚠️ 主导份额必须最大：并入后次席可能反超（三等分 85/85/85 → 次席 170）→
+            //   下 tick 聚合反超 → 主导 key 振荡（S3 曾抓）。交换保 DomFrac ≥ SecFrac。
+            if (r[1].Frac > r[0].Frac) (r[0], r[1]) = (r[1], r[0]);
         }
+        // [临时调试] 畸形输出检测（主导 null + 次席满额——交换把 null 提到主导？）
+        if (r[0].Key == null && r[1].Key != null)
+            Godot.GD.Print($"[PopMerge调试] 畸形输出 total={total:F0} 实体数={entities.Count} list0=({list[0].Key},{list[0].Value:F0}) list1=({(list.Count > 1 ? list[1].Key : "-")},{(list.Count > 1 ? list[1].Value : 0):F0}) r0=({r[0].Key},{r[0].Frac}) r1=({r[1].Key},{r[1].Frac})");
         return r;
     }
 

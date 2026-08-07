@@ -366,7 +366,79 @@ public partial class CivSimDiag : Node
         var r1 = CivEngine.Run(_grid, seed, origins);
         sw.Stop();
         var c = r1.Context;
-        GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {c.Entities.Count} | 人口 {c.TotalPopulation():F0} | 首转农 tick {c.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms");
+        // [临时调试] 文化空间分布（起源 key + 各文化实体数）
+        var cultCount = new Dictionary<string, int>();
+        var originCults = new System.Text.StringBuilder();
+        foreach (var e in r1.Context.Entities)
+        {
+            string ck = World.CivSim.ShareField.DomKey(e.CultureShare);
+            if (ck != null) cultCount[ck] = cultCount.TryGetValue(ck, out var v) ? v + 1 : 1;
+            if (e.BornTick == 0) originCults.Append($"格{e.Cell}:{ck} ");
+        }
+        var cultTop = new List<KeyValuePair<string, int>>(cultCount);
+        cultTop.Sort((a, b) => b.Value.CompareTo(a.Value));
+        var cultStr = new System.Text.StringBuilder();
+        for (int q = 0; q < Math.Min(6, cultTop.Count); q++)
+            cultStr.Append($"{cultTop[q].Key}={cultTop[q].Value} ");
+        GD.Print($"[文化调试] 起源={originCults} | 文化实体数: {cultStr}");
+        // [临时调试] 起源格当前主导文化（是否被外文化吞并）
+        var ocStr = new System.Text.StringBuilder();
+        foreach (int oc in new[] { 7597, 7106, 58 })
+        {
+            if (oc < 0 || oc >= c.CellTribes.Length) continue;
+            var tl = c.CellTribes[oc];
+            string domKey = "无";
+            if (tl.Count > 0)
+            {
+                var d0 = tl[0];
+                for (int q = 1; q < tl.Count; q++) if (tl[q].P > d0.P) d0 = tl[q];
+                domKey = World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "null";
+                if (domKey == "null" || domKey == "无")
+                {
+                    var sb2 = new System.Text.StringBuilder();
+                    for (int q = 0; q < tl.Count; q++)
+                    {
+                        var e2 = tl[q];
+                        sb2.Append($"#{e2.Id}(P{e2.P:F0})[{World.CivSim.ShareField.DomKey(e2.CultureShare) ?? "n"}:{e2.CultureShare[0].Frac},{World.CivSim.ShareField.SecKey(e2.CultureShare) ?? "n"}:{e2.CultureShare[1].Frac}] ");
+                    }
+                    GD.Print($"  [文化调试] null格{oc} 全实体: {sb2}");
+                }
+            }
+            ocStr.Append($"格{oc}:{domKey}({tl.Count}实体) ");
+        }
+        GD.Print($"[文化调试] 起源格现状: {ocStr}");
+        // [临时调试] 各文化格级覆盖（主导文化格数 + 平均实体人口）
+        var cultGrid = new Dictionary<string, int>();
+        var cultPop = new Dictionary<string, float>();
+        for (int gi = 0; gi < c.CellTribes.Length; gi++)
+        {
+            var tl = c.CellTribes[gi];
+            if (tl.Count == 0) continue;
+            var d0 = tl[0];
+            for (int q = 1; q < tl.Count; q++) if (tl[q].P > d0.P) d0 = tl[q];
+            string gk = World.CivSim.ShareField.DomKey(d0.CultureShare);
+            if (gk == null) continue;
+            cultGrid[gk] = cultGrid.TryGetValue(gk, out var gv) ? gv + 1 : 1;
+            cultPop[gk] = cultPop.TryGetValue(gk, out var pv) ? pv + d0.P : d0.P;
+        }
+        var cgTop = new List<KeyValuePair<string, int>>(cultGrid);
+        cgTop.Sort((a, b) => b.Value.CompareTo(a.Value));
+        var cgStr = new System.Text.StringBuilder();
+        for (int q = 0; q < cgTop.Count; q++)
+            cgStr.Append($"{cgTop[q].Key}={cgTop[q].Value}格(均pop{cultPop[cgTop[q].Key] / cgTop[q].Value:F0}) ");
+        GD.Print($"[文化调试] 格级覆盖: {cgStr}");
+        // [临时调试] 文化群/宗教派别多样性（产生 vs 存活）
+        var grpCount = new Dictionary<string, int>();
+        var relCount = new Dictionary<string, int>();
+        foreach (var e in r1.Context.Entities)
+        {
+            string gk = World.CivSim.ShareField.DomKey(e.CultureGroupShare);
+            if (gk != null) grpCount[gk] = grpCount.TryGetValue(gk, out var v) ? v + 1 : 1;
+            string rk = World.CivSim.ShareField.DomKey(e.ReligionCultShare);
+            if (rk != null) relCount[rk] = relCount.TryGetValue(rk, out var v2) ? v2 + 1 : 1;
+        }
+        GD.Print($"[文化调试] 文化群存活={grpCount.Count} 宗教派别存活={relCount.Count} (CultureKeyCount={r1.Context.CultureKeyCount} ReligionKeyCount={r1.Context.ReligionKeyCount})");
+        GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Entities.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms");
 
         // T03 复现性
         var r2 = CivEngine.Run(_grid, seed, origins);

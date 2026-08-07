@@ -122,12 +122,12 @@ public partial class MapViewer : Node3D
     // 文明图层（.cmp 游玩地图；v2 部落模型：人口/文化/部落/科技）
     private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
     private float[] _tilePop;       // 每格总人口（Σ 部落，0=无人/海洋）
-    private byte[] _tileCulture;    // 每格主导文化标签（0=无）
+    private int[] _tileCulture;     // 每格主导文化 key 的 FNV 哈希（0=无；完整 32 位 → 每文化独立色）
     private byte[] _tileCultureGroup; // 每格主导文化群（0=无）
-    private byte[] _tileReligion;   // 每格主导宗教 0-4（万物有灵→一神教）
+    private int[] _tileReligion;    // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
     private int[] _tileTribe;       // 每格主导部落 id（-1=无）
     private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
-    private float _civPopMax;       // 人口图层色带上限（对数归一化用）
+    private float _popLogMin, _popLogMax;   // 人口图层自适应色带端点（log 压缩 + 分位数裁剪）
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
     private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
     private float _monthPrecipMin, _monthPrecipMax; // 陆地当月月降水 min/max（RefreshMonthPrecip 统计）
@@ -164,7 +164,7 @@ public partial class MapViewer : Node3D
 
     private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技", "宗教" };
 
-    /// <summary>文明图层调色板（文化/部落标签取色；高区分度 8 色循环）。</summary>
+    /// <summary>部落图层调色板（部落标签取色；高区分度 8 色循环——文化层已改每文化独立色，勿复用）。</summary>
     private static readonly Color[] CulturePalette =
     {
         new(0.95f, 0.30f, 0.25f),  // 红
@@ -186,15 +186,6 @@ public partial class MapViewer : Node3D
         new(0.65f, 0.40f, 0.85f),  // 古典/中世纪：紫（帝国）
     };
 
-    /// <summary>宗教图层色带（ReligionType 0-4）。</summary>
-    private static readonly Color[] ReligionColors =
-    {
-        new(0.45f, 0.72f, 0.45f),  // 万物有灵：绿（旧石器泛灵论）
-        new(0.75f, 0.78f, 0.30f),  // 萨满/图腾：黄绿（洞穴壁画时代）
-        new(0.90f, 0.55f, 0.30f),  // 祖先崇拜：橙（新石器，哥贝克力）
-        new(0.35f, 0.55f, 0.85f),  // 多神教：蓝（青铜神庙神系）
-        new(0.60f, 0.35f, 0.80f),  // 一神教：紫（铁器/古典圣典宗教）
-    };
 
     public override void _Ready()
     {
@@ -448,9 +439,9 @@ public partial class MapViewer : Node3D
         _tileMonthTemp = new byte[n];
         _tileVerts = new int[n];
         _tilePop = new float[n];
-        _tileCulture = new byte[n];
+        _tileCulture = new int[n];
         _tileCultureGroup = new byte[n];
-        _tileReligion = new byte[n];
+        _tileReligion = new int[n];
         _tileTribe = new int[n];
         _tileTechEpoch = new byte[n];
         System.Array.Fill(_tileTribe, -1);
@@ -506,10 +497,11 @@ public partial class MapViewer : Node3D
                     var dom = tlist[0];
                     for (int k = 1; k < tlist.Count; k++)
                         if (tlist[k].P > dom.P) dom = tlist[k];
-                    _tileCulture[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare)) & 0xFF);
+                    _tileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
                     _tileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
-                    string relKey = World.CivSim.ShareField.DomReligion(dom.ReligionShare);
-                    _tileReligion[i] = (byte)World.CivSim.ShareField.ReligionIndex(relKey);   // 固定 key → 段索引 0-4
+                    // ⚠️ 2026-08-07 宗教图层改显示"具体派别"（relig_N，每摇篮/每次漂变独立）——
+                    //    旧版显示 5 段发展带（万物有灵→一神教），石器时代全在段 0 → 全图一色（用户反馈）
+                    _tileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
                     _tileTribe[i] = dom.Id;
                     _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
                 }
@@ -519,10 +511,44 @@ public partial class MapViewer : Node3D
                 progress(done / (float)n);
         });
         progress?.Invoke(1f);
-        // 人口图层色带上限（对数归一化；无文明数据 → 1 避免除零）
-        _civPopMax = 1f;
+        // 人口图层自适应归一化（相对本图分布——分位数模型，用户拍板风格）：
+        // log(p+1) 压缩重尾 + 有人陆地格 P1/P99 分位为色带端点 → 单格超大城市不拉爆、
+        // 最小聚落也有可见色（旧版 log(全局max) 归一：全球最大值单点把其余全压成近黑色）
+        var popLog = new System.Collections.Generic.List<float>();
         for (int i = 0; i < n; i++)
-            if (_tilePop[i] > _civPopMax) _civPopMax = _tilePop[i];
+        {
+            if (_tileElev[i] < hSea) continue;   // 只统计陆地
+            if (_tilePop[i] <= 0f) continue;     // 无人格不入带
+            popLog.Add(Mathf.Log(_tilePop[i] + 1f));
+        }
+        if (popLog.Count >= 2)
+        {
+            popLog.Sort();
+            int p1 = popLog.Count / 100;
+            int p99 = popLog.Count - 1 - popLog.Count / 100;
+            _popLogMin = popLog[p1];
+            _popLogMax = Mathf.Max(_popLogMin + 1f, popLog[p99]);   // 防退化（全同值）
+        }
+        else { _popLogMin = 0f; _popLogMax = 1f; }   // 无人口数据 → 全图灰
+        // [临时诊断] 文化/宗教/人口图层验证（headless 跑完即删）
+        {
+            var cultSet = new System.Collections.Generic.HashSet<int>();
+            var relSet = new System.Collections.Generic.HashSet<int>();
+            var cultHue = new System.Collections.Generic.HashSet<int>();
+            var relHue = new System.Collections.Generic.HashSet<int>();
+            int land = 0, cultTiles = 0, relTiles = 0, cultHueCol = 0, relHueCol = 0;
+            float maxPop = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                if (_tileElev[i] < hSea) continue;
+                land++;
+                if (_tilePop[i] > maxPop) maxPop = _tilePop[i];
+                if (_tileCulture[i] != 0 && cultSet.Add(_tileCulture[i]) && !cultHue.Add((int)((_tileCulture[i] * 0.6180339887f) % 1f * 1e6f))) cultHueCol++;
+                if (_tileReligion[i] != 0 && relSet.Add(_tileReligion[i]) && !relHue.Add((int)((_tileReligion[i] * 0.6180339887f) % 1f * 1e6f))) relHueCol++;
+            }
+            GD.Print($"[图层诊断] 陆地={land} 文化key={cultSet.Count}(格{cultTiles}) 宗教key={relSet.Count}(格{relTiles}) 文化色相碰撞={cultHueCol} 宗教色相碰撞={relHueCol}");
+            GD.Print($"[图层诊断] 人口 有人格={popLog.Count} P1={Mathf.Exp(_popLogMin) - 1f:F0} P99={Mathf.Exp(_popLogMax) - 1f:F0} max={maxPop:F0}");
+        }
         // ⚠️ 2026-08-16：年降水自适应色带 min/max（用户拍板：最低到最高归一化，不用固定 2000mm）
         _precipMin = float.MaxValue;
         _precipMax = float.MinValue;
@@ -619,21 +645,21 @@ public partial class MapViewer : Node3D
     								float tC = _tileMonthTemp[id] / 255f * 120f - 60f;   // byte → °C
     								return BiomeColors.TemperatureToColor(tC);
     								}
-    								case 12: // 人口：对数色带（无人=暗灰；黄→橙红，对数归一化防极端值拉爆）
+    								case 12: // 人口：log 压缩 + P1/P99 分位自适应色带（无人=暗灰；黄→橙红）
     								{
-    								if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
-    								float p = _tilePop[id];
-    								if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
-    								float x = Mathf.Log(p + 1f) / Mathf.Log(_civPopMax + 1f);
-    								return new Color(0.95f, 0.75f, 0.25f).Lerp(new Color(0.80f, 0.15f, 0.05f), x);
+    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    float p = _tilePop[id];
+    								    if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
+    								    float x = Mathf.Clamp((Mathf.Log(p + 1f) - _popLogMin) / (_popLogMax - _popLogMin), 0f, 1f);
+    								    return new Color(0.95f, 0.75f, 0.25f).Lerp(new Color(0.80f, 0.15f, 0.05f), x);
     								}
-    								case 13: // 文化：标签调色板
-    								    {
-    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
-    								        byte cult = _tileCulture[id];
-    								        if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								        return CulturePalette[cult % CulturePalette.Length];
-    								    }
+    								case 13: // 文化：每文化独立颜色（key FNV 哈希 → 黄金角 HSL；无 8 色取模上限）
+    								{
+    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    int cult = _tileCulture[id];
+    								    if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
+    								    return HslToRgb((cult * 0.6180339887f) % 1f, 0.55f, 0.62f);
+    								}
     								case 14: // 部落：谱系调色板
     								    {
     								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
@@ -649,12 +675,14 @@ public partial class MapViewer : Node3D
     								        if (ep == 0) return new Color(0.55f, 0.42f, 0.28f);   // 石器：棕（有基础技术，非"无"）
     								        return TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];
     								    }
-    								case 16: // 宗教：阶段色带（万物有灵绿→萨满黄绿→祖先橙→多神蓝→一神紫）
-    								    {
-    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
-    								        if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
-    								        return ReligionColors[Mathf.Clamp(_tileReligion[id], 0, ReligionColors.Length - 1)];
-    								    }
+    								case 16: // 宗教：每宗教派别独立颜色（relig_N key 哈希 → 黄金角 HSL；不再按 5 阶段色带）
+    								{
+    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
+    								    int rel = _tileReligion[id];
+    								    if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
+    								    return HslToRgb((rel * 0.6180339887f) % 1f, 0.55f, 0.62f);
+    								}
     			default: // 海拔
     				{
     					float h = _tileElev[id];

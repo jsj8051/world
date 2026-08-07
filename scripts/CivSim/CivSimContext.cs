@@ -52,7 +52,7 @@ public sealed class CivSimContext
     public const float W = 0.2f;                      // 耕作劳动成本差（Sahlins；稳态论证 0.8 > 0.77）
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
     public const float Hysteresis = 0.02f;            // 滞回带（必须 < 农业稳态差 0.03，否则锁死切换）
-    public const float SplitPop = 400f;               // 分裂阈值
+    public const float SplitPop = 300f;               // 分裂阈值（2026-08-07 400→300：分裂更勤 → 分化更多）
     public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
     public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P/K）
@@ -60,10 +60,10 @@ public sealed class CivSimContext
     public const float ScoutChance = 0.02f;           // 探路迁徙概率/tick
     public const float ScoutMinPop = 100f;            // 探路最小实体人口
     public const float ScoutShare = 0.3f;             // 探路迁出比例
-    public const float AssimilateRate = 0.3f;         // 格级同化速率（文化/宗教）
+    public const float AssimilateRate = 0.03f;        // 格级同化速率（文化/宗教；2026-08-07 0.3→0.1→0.03：同化放缓 → 弱文化/新派别有存活窗口）
     public const float ReligionSpreadRate = 0.02f;    // 宗教传播速率/tick/接触（只向高阶）
     public const float ReligionUpgradeRate = 0.05f;   // 泛灵→萨满升级速率/tick
-    public const float CultureDriftChance = 0.005f;   // 分裂时新文化群概率（0.5%）
+    public const float CultureDriftChance = 0.05f;    // 分裂时新文化群/派别概率（5%；2026-08-07 0.5%→1%→2%→5%：分化加强 → 区域多样性）
     public const float SeedPressure = 0.7f;           // 种子压力触发阈值（格人口 P_格/K_格）
     public const float SeedInvProb = 0.005f;          // 种子基础发明概率/tick（起源区少数）
     public const float EnvMismatchFactor = 0.3f;      // 发明 env_i：环境不匹配但非硬门槛
@@ -129,6 +129,46 @@ public sealed class CivSimContext
     /// <summary>寒冷区判定（§4.5：火/皮毛解锁对象）。</summary>
     public static bool IsColdZone(BiomeType b) =>
         b is BiomeType.IceCap or BiomeType.Tundra or BiomeType.Subarctic or BiomeType.Alpine;
+
+    // ── 闭塞区域（2026-08-07 用户拍板：方案 A 调参 + 动态障碍系数 + 气候相似度）──
+    //    现实文化演化参考（Diamond）：障碍不是二值而是成本梯度、技术可突破（火/皮毛/独木舟）、
+    //    同气候带传播快（轴向效应）、文化边界停在障碍处（涌现，不硬编码"塔里木盆地是闭塞区"）。
+
+    /// <summary>地形通行成本（单格侧，0 = 不可穿）。技术突破障碍：火/皮毛解锁冰原、canoe 解锁海洋。</summary>
+    public float TerrainCost(int cell, HashSet<string> keys)
+    {
+        var b = (BiomeType)Grid.Biome[cell];
+        if (!Grid.IsLandCell(cell))               // 海洋
+            return keys.Contains(TechTable.Canoe) ? 0.3f : 0f;
+        switch (b)
+        {
+            case BiomeType.IceCap:
+                if (!keys.Contains(TechTable.Fire)) return 0f;              // 无火不可穿
+                return keys.Contains(TechTable.Clothing) ? 0.3f : 0.1f;     // 火 0.1 / 火+皮毛 0.3
+            case BiomeType.Alpine:   return 0.2f;    // 山脉难翻越
+            case BiomeType.HotDesert:
+            case BiomeType.ColdDesertKoppen: return 0.3f;   // 沙漠难穿越
+            default: return 1f;                      // 平原/草原/森林/湿地畅通
+        }
+    }
+
+    /// <summary>气候相似度（0.15~1）：同气候带≈1、跨带低——Diamond 轴向效应（东西向传播快、南北向慢）。</summary>
+    public float ClimateSim(int a, int b)
+    {
+        float dT = Mathf.Abs(Grid.Temp[a] - Grid.Temp[b]);
+        float dP = Mathf.Abs(Grid.Precip[a] - Grid.Precip[b]);
+        float sT = Mathf.Clamp(1f - dT / 25f, 0f, 1f);      // 温差 25°C 满衰减
+        float sP = Mathf.Clamp(1f - dP / 800f, 0f, 1f);     // 降水差 800mm 满衰减
+        return Mathf.Clamp(0.6f * sT + 0.4f * sP, 0.15f, 1f);
+    }
+
+    /// <summary>跨格传播/迁徙系数 = min(两端地形成本) × 气候相似度（闭塞区域涌现：山脉/沙漠/冰原/海 → 传播弱 → 独立演化）。</summary>
+    public float BorderCost(int a, int b, HashSet<string> keys)
+    {
+        float terr = Mathf.Min(TerrainCost(a, keys), TerrainCost(b, keys));
+        if (terr <= 0f) return 0f;
+        return terr * ClimateSim(a, b);
+    }
 
     // ── 产量与能量（§4.2-4.4 定稿公式）──
 
