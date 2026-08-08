@@ -21,10 +21,12 @@ public sealed class CivSimContext
     public int OriginCount = 3;
     public Random Rng;
 
-    // ── 承载/压力场（每 tick 刷新）──
-    public float[] BaseK;      // 每格基础承载（环境 only：密度×邻水加成×胞面积）
-    public float[] CellK;      // 每格当前承载（格内实体最优生产方式产量/寒冷下限的 max）
-    public float[] CellPop;    // 每格总人口
+    // ── 层1 空间生产力（静态：Miami NPP × 水因子 × k；人/km² 密度量级；两层模型 2026-08-17）──
+    public float[] R;        // 每格空间生产力密度（人/km²；0=海洋/不可居）
+    // ── 层2 食物流（每 tick 刷新：产出 vs 消耗 D=P×c，c=1）──
+    public float[] CellF;        // 每格当 tick 总产出（Σ 实体 F_i，人当量）
+    public float[] CellPop;      // 每格总人口
+    public float[] CellFarmPop;  // 每格农业部落总人口（劳动因子用；RefreshCellState 缓存）
 
     // ── 自然层派生缓存（确定性重建，不存档）──
     public byte[] WildCrops;   // WildCrops 位（grid.EnsureWildCrops 惰性）
@@ -59,11 +61,15 @@ public sealed class CivSimContext
     public const float SplitPop = 300f;               // 分裂阈值（2026-08-07 400→300：分裂更勤 → 分化更多）
     public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
-    public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P/K）
+    public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P_格/F_格）
     public const float MigrateShare = 0.5f;           // 饱和迁徙分出比例
     public const float ScoutChance = 0.02f;           // 探路迁徙概率/tick
     public const float ScoutMinPop = 100f;            // 探路最小实体人口
     public const float ScoutShare = 0.3f;             // 探路迁出比例
+    // ── 两层模型（2026-08-17 定稿）──
+    public const float IrrigMult = 5f;                // 灌溉因子：近水格农业 ×5（河谷尖峰来源；★ 待校准）
+    public const float LaborFrac = 0.1f;              // P_劳动 = 0.1×潜在产出（开垦满需人数；★ 待校准）
+    public const float TargetMedianDensity = 0.3f;    // k 标定锚：陆地 R 中位数 ≈ 0.3 人/km²（Binford 量级）
     public const float AssimilateRate = 0.03f;        // 格级同化速率（文化/宗教；2026-08-07 0.3→0.1→0.03：同化放缓 → 弱文化/新派别有存活窗口）
     public const float ReligionSpreadRate = 0.02f;    // 宗教传播速率/tick/接触（只向高阶）
     public const float ReligionUpgradeRate = 0.05f;   // 泛灵→萨满升级速率/tick
@@ -78,57 +84,31 @@ public sealed class CivSimContext
 
     public float TickFactor => GrowthRatePerYear * TickYears;   // 0.5/tick ★
 
-    // ── 承载密度（人/km²，Binford 狩猎采集密度量级 ★ 待校准；逐柯本细类，§4.1）──
+    // ── 层1 空间生产力 R（两层模型 2026-08-17；Miami 模型 Lieth 1975，NPP 净初级生产力）──
 
-    public static float CarrierDensityPerKm2(BiomeType b)
+    /// <summary>Miami NPP（g 干物质/m²/年）；干旱/寒冷最小因子律（Liebig）。</summary>
+    public static float MiamiNpp(float tempC, float precipMm)
     {
-        switch (b)
-        {
-            case BiomeType.DeepOcean:
-            case BiomeType.Ocean:
-            case BiomeType.FrigidOcean:
-            case BiomeType.TropicalOcean:
-                return 0f;
-            case BiomeType.IceCap:
-                return 0f;                       // 冰盖（火/皮毛后按 §4.5 下限）
-            case BiomeType.Tundra:
-            case BiomeType.Subarctic:
-            case BiomeType.Alpine:
-                return 0.05f;
-            case BiomeType.HotDesert:
-            case BiomeType.ColdDesertKoppen:
-                return 0.05f;
-            case BiomeType.TropicalRainforest:
-                return 0.15f;
-            case BiomeType.TropicalMonsoon:
-                return 0.20f;
-            case BiomeType.TropicalSavanna:
-                return 0.45f;
-            case BiomeType.HotSteppe:
-                return 0.45f;
-            case BiomeType.ColdSteppe:
-                return 0.35f;
-            case BiomeType.HumidSubtropical:
-            case BiomeType.Oceanic:
-                return 0.30f;
-            case BiomeType.MonsoonSubtropical:
-                return 0.25f;
-            case BiomeType.MediterraneanHot:
-                return 0.30f;
-            case BiomeType.MediterraneanCool:
-                return 0.25f;
-            case BiomeType.ContinentalHot:
-                return 0.30f;
-            case BiomeType.ContinentalWarm:
-                return 0.25f;
-            case BiomeType.ContinentalDry:
-                return 0.20f;
-            case BiomeType.Riparian:
-                return 0.60f;                    // 沼泽湿地（Binford 湿地最丰）
-            default:
-                return 0f;                       // 旧值 4-11 化石（新档不产生；读旧档报错）
-        }
+        float nppT = 3000f / (1f + Mathf.Exp(1.315f - 0.119f * tempC));
+        float nppP = 3000f * (1f - Mathf.Exp(-0.000664f * precipMm));
+        return Mathf.Min(nppT, nppP);
     }
+
+    /// <summary>水因子（×1.5）：Riparian 或 LakeLevel>0 或邻湿地（原邻水加成保留）。</summary>
+    public bool WaterRich(int cell)
+    {
+        if (Grid.Biome[cell] == (byte)BiomeType.Riparian || Grid.LakeLevel[cell] > 0) return true;
+        foreach (int nb in Grid.Neighbors[cell])
+            if (Grid.Biome[nb] == (byte)BiomeType.Riparian || Grid.LakeLevel[nb] > 0)
+                return true;
+        return false;
+    }
+
+    /// <summary>灌溉因子（农业空间选择性）：近水格 ×IrrigMult=5（河谷尖峰来源）。</summary>
+    public float IrrigFactor(int cell) => WaterRich(cell) ? IrrigMult : 1f;
+
+    /// <summary>冲积土因子：Soil5 ×3、Soil4 ×2、≤3 ×1（冲积平原富集；★ 待校准）。</summary>
+    public static float AlluvFactor(byte soil) => soil switch { 4 => 2f, 5 => 3f, _ => 1f };
 
     /// <summary>寒冷区判定（§4.5：火/皮毛解锁对象）。</summary>
     public static bool IsColdZone(BiomeType b) =>
@@ -174,52 +154,43 @@ public sealed class CivSimContext
         return terr * ClimateSim(a, b);
     }
 
-    // ── 产量与能量（§4.2-4.4 定稿公式）──
+    // ── 产量与能量（§4.2-4.4 定稿公式；两层模型 2026-08-17）──
 
-    /// <summary>格基础狩猎产量 Y_猎0 = 密度 × 邻水加成 × 胞面积（加成只乘一次）。</summary>
-    public float YHunter0(int cell)
+    /// <summary>实体狩猎产出 F_猎 = R × 胞面积 × 工具乘数链（猎物再生率恒定近似，种群动态二期）。
+    /// CarryMult 走实体缓存（RefreshCellState 每 tick 算；测试构造未算时 fallback 实时）。</summary>
+    public float FHunt(CivEntity e)
     {
-        var b = (BiomeType)Grid.Biome[cell];
-        float dens = CarrierDensityPerKm2(b);
-        if (dens <= 0f) return 0f;
-        if (b != BiomeType.Riparian && (Grid.LakeLevel[cell] > 0 || IsNearWater(cell)))
-            dens *= 1.5f;                        // 邻水加成（Riparian 湿地密度已含）
-        return dens * Grid.CellAreaKm2;
+        float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
+        return R[e.Cell] * Grid.CellAreaKm2 * m;
     }
 
-    private bool IsNearWater(int cell)
+    /// <summary>农业潜在产出（劳动因子=1；生产方式选择用——防小部落开垦不足永不转农死锁）。</summary>
+    public float FFarmPotential(CivEntity e)
     {
-        foreach (int nb in Grid.Neighbors[cell])
-            if (Grid.Biome[nb] == (byte)BiomeType.Riparian || Grid.LakeLevel[nb] > 0)
-                return true;
-        return false;
-    }
-
-    /// <summary>实体狩猎产量 Y_猎 = Y_猎0 × 工具乘数链。</summary>
-    public float YHunter(CivEntity e) => YHunter0(e.Cell) * TechTable.HuntingCarry(e.TechKeys);
-
-    /// <summary>实体农业产量 Y_农 = max over 持种子(基线 × f(Soil) × φ)。</summary>
-    public float YFarm(CivEntity e)
-    {
-        float y0 = YHunter0(e.Cell);
-        if (y0 <= 0f) return 0f;
+        float rAgri = R[e.Cell] * IrrigFactor(e.Cell) * AlluvFactor(Grid.SoilLevel[e.Cell]);
+        if (rAgri <= 0f) return 0f;
+        float area = Grid.CellAreaKm2;
         float best = 0f;
         foreach (var s in TechTable.SeedKeys)
         {
             if (!e.TechKeys.Contains(s)) continue;
             var def = TechTable.Get(s);
-            float f = SoilFactor(Grid.SoilLevel[e.Cell]);
             float phi = Phi(e.Cell, def.SeedIndex);
-            best = Mathf.Max(best, def.AgriBase * f * phi * y0);
+            best = Mathf.Max(best, def.AgriBase * phi * rAgri * area);
         }
         return best;
     }
 
-    /// <summary>f(SoilLevel)：Soil1=0.4, 2=0.6, 3=0.8, 4=1.0, 5=1.2（★ 待校准）。</summary>
-    public static float SoilFactor(byte soil) => soil switch
+    /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限）。
+    /// farmPop 走格缓存（RefreshCellState 两遍循环算，劳动因子用当 tick 完整值）。</summary>
+    public float FFarmActual(CivEntity e)
     {
-        1 => 0.4f, 2 => 0.6f, 3 => 0.8f, 4 => 1.0f, _ => 1.2f,
-    };
+        float potential = FFarmPotential(e);
+        if (potential <= 0f) return 0f;
+        float farmPop = CellFarmPop != null ? CellFarmPop[e.Cell] : e.P;
+        float plabor = LaborFrac * potential;
+        return potential * Mathf.Min(1f, farmPop / Mathf.Max(1f, plabor));
+    }
 
     /// <summary>格/种子适宜度 φ（缓存矩阵）。</summary>
     public float Phi(int cell, int seedIdx) => Suit != null ? Suit[cell, seedIdx] : 0f;
@@ -228,11 +199,11 @@ public sealed class CivSimContext
     public static float EHunt(float yHunt, float pop) =>
         yHunt > 0f ? yHunt / (pop + HRel * yHunt) : 0f;
 
-    /// <summary>农业人均收益（w 已含，单扣）。</summary>
+    /// <summary>农业人均收益（w 已含，单扣；yFarm 用潜在产出）。</summary>
     public static float EFarm(float yFarm, float pop) =>
         yFarm > 0f ? yFarm / Mathf.Max(0.001f, pop) - W : 0f;
 
-    /// <summary>寒冷区 K 下限（§4.5：火 → 0.05·面积×3；皮毛 → 再 ×3）。</summary>
+    /// <summary>寒冷区 F 下限（§4.5：火 → 0.05·面积×3；皮毛 → 再 ×3——空间层被技术解锁）。</summary>
     public float ColdFloor(int cell, HashSet<string> keys)
     {
         if (!IsColdZone((BiomeType)Grid.Biome[cell])) return 0f;
@@ -243,11 +214,9 @@ public sealed class CivSimContext
         return floor;
     }
 
-    /// <summary>实体当前产量（生产方式决定）。</summary>
-    public float Yield(CivEntity e) => e.IsFarming ? YFarm(e) : YHunter(e);
-
-    /// <summary>实体承载 K = max(当前产量, 寒冷下限)。</summary>
-    public float KOf(CivEntity e) => Mathf.Max(Yield(e), ColdFloor(e.Cell, e.TechKeys));
+    /// <summary>实体当 tick 实际产出 F_i = max(生产方式实际产出, 寒冷下限)（增长/核算/格压力用）。</summary>
+    public float FOf(CivEntity e) =>
+        Mathf.Max(e.IsFarming ? FFarmActual(e) : FHunt(e), ColdFloor(e.Cell, e.TechKeys));
 
     // ── 环境判定（§6.1 硬门槛判定函数）──
 

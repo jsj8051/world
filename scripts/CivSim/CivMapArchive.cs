@@ -9,12 +9,13 @@ using World.MapGen;
 namespace World.CivSim;
 
 /// <summary>
-/// 游玩地图存档 .cmp v4（石器时代段；自包含——自然层快照 + 实体表，独立于 .mpa/.gmp）。
+/// 游玩地图存档 .cmp v5（石器时代段；自包含——自然层快照 + 实体表，独立于 .mpa/.gmp）。
 /// 源自然地图只读，演化不修改任何自然字段。
 ///
+/// v5（2026-08-17，两层食物流）：公式变更（R 场/按部落增长/农业尖峰）→ v4 旧档续跑行为不同，拒绝。
 /// v4（2026-08-06，纯实体模型）：
 ///   [4B]  magic "CMP1"
-///   [2B]  version = 4
+///   [2B]  version = 5
 ///   [4B]  seed | [4B] tick | [4B] years（= tick×100）
 ///   GameMapArchive.WriteBody（自然段，与 .gmp 布局一致，复用不变）
 ///   实体段（部落表）：
@@ -24,13 +25,13 @@ namespace World.CivSim;
 ///           [4B] CultureShare | [4B] CultureGroupShare | [5B] ReligionShare
 ///           [4B] Cell | [4B] OriginCell | [4B] BornTick
 ///
-/// 旧档放弃（用户拍板）：v3 部落表 / biome 值 4-11 一律报错要求重新生成，不做兼容转换。ver>4 拒绝。
+/// 旧档放弃（用户拍板）：v3/v4 部落表 / biome 值 4-11 一律报错要求重新生成，不做兼容转换。ver>5 拒绝。
 /// WildCrops 不存档（确定性重建：同 seed 同网格同结果）。
 /// </summary>
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 4;
+    public const ushort Version = 5;
     private const int KeyMaxLen = 16;
 
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
@@ -176,7 +177,8 @@ public static class CivMapArchive
         int cultureKeyCount = (int)f.Get32();   // 文化 key 计数（读档续跑接续 key 空间）
         int religionKeyCount = (int)f.Get32();  // 宗教派别 key 计数
         var g = new GameGrid();
-        GameMapArchive.ReadBody(f, g);
+        if (!GameMapArchive.ReadBody(f, g))
+            return false;   // 结构校验失败（正文错位/损坏）已在内部打印
         int n = g.N;
 
         // ── 旧档放弃：biome 4-11 化石值 → 报错 ──
@@ -191,6 +193,16 @@ public static class CivMapArchive
         }
 
         int count = (int)f.Get32();
+        // ⚠️ 2026-08-07：实体表长度分配前校验——count 是正文错位后最易读爆的字段
+        //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<CivEntity>(count) ≈ 9.4GB）。
+        //   单实体最小 ~79B（Id+P+IsFarm+keyCnt+2×(16+1)×3+relig5+Cell×3），用 64B 保守下界；
+        //   剩余文件字节数都不够 → 必为错位垃圾。
+        ulong remaining = f.GetLength() - f.GetPosition();
+        if (count < 0 || (ulong)count > remaining / 64)
+        {
+            GD.PrintErr($"[CivMapArchive] {path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
+            return false;
+        }
         var entities = new List<CivEntity>(count);
         var cellTribes = new List<CivEntity>[n];
         for (int i = 0; i < n; i++) cellTribes[i] = new List<CivEntity>();
@@ -247,9 +259,10 @@ public static class CivMapArchive
             OriginCount = 3,
             Tick = finalTick,          // 读档续跑从存档 tick 继续（T04 验证）
             Rng = rngState != 0 ? new DeterministicRandom(rngState) : new DeterministicRandom(seed),   // 状态恢复：随机序列与从头跑对齐
-            BaseK = new float[n],
-            CellK = new float[n],
+            R = new float[n],
+            CellF = new float[n],
             CellPop = new float[n],
+            CellFarmPop = new float[n],
             BfsStamp = new int[n],
             BfsStampValue = 1,
             WildCrops = g.EnsureWildCrops(),
@@ -259,8 +272,7 @@ public static class CivMapArchive
             CultureGroupKeyCount = Math.Max(cultureKeyCount, maxGroupId + 1),  // 群计数：旧档取合并值（群原与标签共享），新档 cultg_ 推导
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
         };
-        for (int i = 0; i < n; i++)
-            ctx.BaseK[i] = ctx.YHunter0(i);
+        CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
         CivEngine.RefreshCellState(ctx);
 
         result = new CivSimResult { Context = ctx, FinalTick = finalTick };

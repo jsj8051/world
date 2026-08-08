@@ -125,9 +125,10 @@ public partial class CivSimDiag : Node
             Seed = seed,
             OriginCount = origins,
             Rng = new DeterministicRandom(seed),
-            BaseK = new float[n],
-            CellK = new float[n],
+            R = new float[n],
+            CellF = new float[n],
             CellPop = new float[n],
+            CellFarmPop = new float[n],
             BfsStamp = new int[n],
             BfsStampValue = 1,
             WildCrops = g.EnsureWildCrops(),
@@ -135,7 +136,7 @@ public partial class CivSimDiag : Node
             FirstFarmTick = -1,
         };
         for (int i = 0; i < n; i++) ctx.CellTribes[i] = new List<CivEntity>();
-        for (int i = 0; i < n; i++) { ctx.BaseK[i] = ctx.YHunter0(i); ctx.CellK[i] = ctx.BaseK[i]; }
+        CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（两层模型 2026-08-17）
         return ctx;
     }
 
@@ -168,11 +169,11 @@ public partial class CivSimDiag : Node
         return e;
     }
 
-    /// <summary>S1：单格生存——增长收敛 K、饿死（P>K 下降）、稳态 e=0.77。
+    /// <summary>S1：单格生存——增长收敛 F、饿死（P>F 下降）、稳态 e=0.77。
     /// 只跑能量+增长（防发明/分裂污染单格场景）。</summary>
     private void S1_GrowthAndEnergy()
     {
-        // HotSteppe 密度 0.45；R=100 → Area=4π·10000/2=62832 → BaseK≈28274
+        // HotSteppe 20°C/800mm → Miami NPP≈1236 → R=0.3 人/km²（k 中位标定）；Area=4π·10000/2=62832 → F_猎≈20735（含 stone_core×1.1）
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         var e = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
@@ -185,16 +186,16 @@ public partial class CivSimDiag : Node
             CivEngine.RefreshCellState(ctx);
             energy.Execute(ctx);
             growth.Execute(ctx);
-            float K = ctx.CellK[0];   // 实际承载（含 stone_core 乘数 1.1）
-            if (tick > 50 && Mathf.Abs(ctx.CellPop[0] - K) < K * 0.02f) converged = true;
+            float F = ctx.FOf(e);   // 当 tick 产出（含 stone_core 乘数 1.1）= 稳态人口点
+            if (tick > 50 && Mathf.Abs(ctx.CellPop[0] - F) < F * 0.02f) converged = true;
         }
-        // 稳态人均 e（构造：P=K 时 e_猎 = Y/(Y+0.3Y) = 0.769，与乘数无关——h 缩放）
-        float Ks = ctx.CellK[0];
+        // 稳态人均 e（构造：P=F 时 e_猎 = Y/(Y+0.3Y) = 0.769，与乘数无关——h 缩放）
+        float Ks = ctx.FOf(e);
         e.P = Ks;
-        float yH = ctx.YHunter(e);
+        float yH = ctx.FHunt(e);
         float eSteady = CivSimContext.EHunt(yH, Ks);
         eOk = Mathf.Abs(eSteady - 1f / 1.3f) < 0.01f;
-        // 饿死：P 超 K → 增长为负
+        // 饿死：P 超 F → 增长为负
         e.P = Ks * 1.5f;
         float p0 = e.P;
         CivEngine.RefreshCellState(ctx);
@@ -202,20 +203,21 @@ public partial class CivSimDiag : Node
         growth.Execute(ctx);
         starved = e.P < p0;
         Check("S1 增长收敛+饿死+稳态e", converged && starved && eOk,
-            $"K={Ks:F0} 收敛={converged} 饿死={starved} e稳态={eSteady:F3}");
+            $"F={Ks:F0} 收敛={converged} 饿死={starved} e稳态={eSteady:F3}");
     }
 
-    /// <summary>S2：生产方式矩阵——φ 高转农、φ 低最终狩猎、稳态不退农 + 滞回。</summary>
+    /// <summary>S2：生产方式矩阵——φ 高转农、φ 低最终狩猎、稳态不退农 + 滞回。
+    /// 新公式（两层模型 2026-08-17）：转农条件 R_农/R × F·φ > 0.97M；Soil3（冲积土=1）下 场景A 4×1.0 > 1.41、场景B 4×0.3 < 1.41。</summary>
     private void S2_ModeMatrix()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 4);
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);   // Soil3：冲积土因子=1（薄地，农业潜在=种子×φ×R×面积）
         var ctx = MakeCtx(g);
-        float y0 = ctx.BaseK[0];
+        float y0 = ctx.R[0] * g.CellAreaKm2;   // 基础狩猎产出（无工具）
 
-        // 场景 A：φ=1.0 Soil4（f=1.0）→ 农业 K=4y0 > 狩猎 K；稳态不退农
+        // 场景 A：φ=1.0 Soil3 → 农业潜在=4y0 > 狩猎 1.455y0 → 稳态农业
         var ea = AddEntity(ctx, 0, 0.5f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[0, 0] = 1.0f;   // 小麦 φ
-        // 场景 B：φ=0.3 Soil4 → 农业 K=1.2y0 < 狩猎 1.45y0 → 最终狩猎（发明瞬间公式 F·f·φ<0.97M）
+        // 场景 B：φ=0.3 Soil3 → 农业潜在=1.2y0 < 狩猎 1.455y0 → 最终狩猎（发明瞬间公式 R_农/R·F·φ<0.97M）
         var eb = AddEntity(ctx, 1, 0.5f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[1, 0] = 0.3f;
 
@@ -238,14 +240,14 @@ public partial class CivSimDiag : Node
         Check("S2 生产方式矩阵", aFarms && !bFarms,
             $"φ=1.0 农={aFarms}（应 True） φ=0.3 农={bFarms}（应 False）");
 
-        // 滞回：交叉点 P≈13.8y0 处 |e_猎−e_农|<0.02 → 保持当前方式（独立 ctx 防干扰）
-        var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 4);
+        // 滞回：交叉点 P≈13.8y0 处 |e_猎−e_农|<0.02 → 保持当前方式（独立 ctx 防干扰；Soil3 下 yF=4y0 交叉点不变）
+        var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx2 = MakeCtx(g2);
         var eh = AddEntity(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx2.Suit[0, 0] = 1.0f;
         eh.IsFarming = true;
-        float yH2 = ctx2.YHunter(eh);
-        float yF2 = ctx2.YFarm(eh);
+        float yH2 = ctx2.FHunt(eh);
+        float yF2 = ctx2.FFarmPotential(eh);
         float diff2 = CivSimContext.EHunt(yH2, eh.P) - CivSimContext.EFarm(yF2, eh.P);
         bool inHyst = Mathf.Abs(diff2) < 0.02f;
         mode.Execute(ctx2);   // 滞回带内 → 不切换
@@ -476,7 +478,7 @@ public partial class CivSimDiag : Node
         if (extinct.Count > 0) GD.Print($"  ⚠ [T17] 天然灭绝种子: {string.Join(";", extinct)}（星球气候不匹配，按设计不保底）");
 
         // T01 自然层零改动 + T02 实体往返 + T04 读档续跑 + T19 存档版本（写 .cmp → 读回）
-        bool natOk = false, rtOk = false, contOk = false, verRejected = false, biomeRejected = false;
+        bool natOk = false, rtOk = false, contOk = false, verRejected = false, v4Rejected = false, biomeRejected = false;
         if (outPath != null)
         {
             bool wrote = CivMapArchive.Write(outPath, _grid, r1);
@@ -491,17 +493,20 @@ public partial class CivSimDiag : Node
                 RunTicks(ctxFull, baseTicks + 20);
                 contOk = EntitiesEqual(rBack.Context, ctxFull);
             }
-            // T19 存档版本：ver>4 拒绝；旧 biome 4-11 拒绝
+            // T19 存档版本：ver>5 拒绝；v4 旧档拒绝（两层公式变更 2026-08-17）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";
-            WriteBadVersion(badPath, 5);
+            WriteBadVersion(badPath, 6);                      // ver>5 → 拒绝
             verRejected = !CivMapArchive.Read(badPath, out _, out _);
+            WriteBadVersion(badPath, 4);                      // v4 旧档 → 拒绝（公式变更，续跑行为不同）
+            v4Rejected = !CivMapArchive.Read(badPath, out _, out _);
             WriteBadBiome(badPath, _grid);
             biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
         }
         Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
         Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
         Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
-        Check("T19 存档版本拒绝", verRejected && biomeRejected, $"ver>4 拒绝={verRejected} biome4-11 拒绝={biomeRejected}");
+        Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
+            $"ver>5 拒绝={verRejected} v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
 
         // T05 起源播种（单独跑 OriginModel）
         bool t05 = false;
@@ -549,14 +554,14 @@ public partial class CivSimDiag : Node
         foreach (var e in c.Entities)
         {
             if (!e.IsFarming) continue;
-            float eh = CivSimContext.EHunt(c.YHunter(e), e.P);
-            float ef = CivSimContext.EFarm(c.YFarm(e), e.P);
+            float eh = CivSimContext.EHunt(c.FHunt(e), e.P);
+            float ef = CivSimContext.EFarm(c.FFarmPotential(e), e.P);
             if (ef < eh - CivSimContext.Hysteresis)   // 滞回带内（差<0.02）保持不算退农
             {
                 noRevert = false;
                 if (revertCount < 3)
                     GD.Print($"  [T08诊断] 退农倾向实体 cell={e.Cell} P={e.P:F0} Soil={c.Grid.SoilLevel[e.Cell]} " +
-                             $"Y_农={c.YFarm(e):F0} Y_猎={c.YHunter(e):F0} e_农={ef:F3} e_猎={eh:F3} K_格={c.CellK[e.Cell]:F0} 持种子=[{string.Join(";", TechTable.HeldSeeds(e.TechKeys))}]");
+                             $"F_农={c.FFarmPotential(e):F0} F_猎={c.FHunt(e):F0} e_农={ef:F3} e_猎={eh:F3} F_格={c.CellF[e.Cell]:F0} 持种子=[{string.Join(";", TechTable.HeldSeeds(e.TechKeys))}]");
                 revertCount++;
             }
         }
@@ -605,6 +610,29 @@ public partial class CivSimDiag : Node
         bool pyramid = farmCount < c.Entities.Count / 2;
         Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Entities.Count - farmCount}");
 
+        // T21 人口分布梯度（两层模型核心验收 2026-08-17：人口=空间R×食物流，不再每格趋同）
+        var pops = new List<float>();
+        float popMax = 0f;
+        for (int i = 0; i < _grid.N; i++)
+        {
+            if (!_grid.IsLandCell(i)) continue;
+            float p = c.CellPop[i];
+            if (p <= 0f) continue;
+            pops.Add(p);
+            if (p > popMax) popMax = p;
+        }
+        float popRatio = 0f;
+        if (pops.Count >= 20)
+        {
+            pops.Sort();
+            float p1 = pops[pops.Count / 100];
+            float p99 = pops[pops.Count - 1 - pops.Count / 100];
+            popRatio = p99 / Mathf.Max(1f, p1);
+        }
+        float densMax = _grid.CellAreaKm2 > 0f ? popMax / _grid.CellAreaKm2 : 0f;   // 峰值密度 人/km²
+        Check("T21 人口分布梯度", popRatio > 50f && densMax >= 10f,
+            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>50) 峰值密度={densMax:F1} 人/km²(目标≥10) max={popMax:F0}");
+
         // T18 性能
         sw.Restart();
         var r3 = CivEngine.Run(_grid, seed, origins);
@@ -622,8 +650,8 @@ public partial class CivSimDiag : Node
         var land = new List<(int cell, float k)>();
         var ctx = MakeCtx(g);
         for (int i = 0; i < g.N; i++)
-            if (g.IsLandCell(i) && ctx.BaseK[i] > 0f)
-                land.Add((i, ctx.BaseK[i]));
+            if (g.IsLandCell(i) && ctx.R[i] > 0f)
+                land.Add((i, ctx.R[i]));
         land.Sort((a, b) => b.k.CompareTo(a.k));
         int rich = Mathf.Max(8, land.Count * 30 / 100);
         var set = new HashSet<int>();

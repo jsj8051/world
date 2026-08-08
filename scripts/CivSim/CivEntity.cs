@@ -49,9 +49,11 @@ public class CivEntity
     public ShareEntry[] ReligionShare = ShareField.NewReligion(ReligionStage.Animism);   // 宗教类型：固定 5 段 key（机制层）
     public ShareEntry[] ReligionCultShare = NewEmpty();   // 具体宗教派别：top-2 动态 key "relig_N"（身份层，同文化群规则）
 
-    // ── 运行时缓存（不存档，每 tick 能量核算重算）──
+    // ── 运行时缓存（不存档，RefreshCellState 每 tick 重算）──
     public float EPerCap;    // 人均能量 e = Y/P
     public float Surplus;    // 盈余 s = e − 1
+    public float CarryMult = 0f;   // 工具乘数链缓存（0=未算，FHunt fallback 实时算；两层模型 2026-08-17）
+    public float FLast;      // 当 tick 实际产出 F_i 缓存（增长/核算直读，避免重复算）
 
     public EpochKind Epoch => IsFarming ? EpochKind.Neolithic : EpochKind.StoneAge;
 

@@ -28,9 +28,10 @@ public static class CivEngine
             Seed = seed,
             OriginCount = originCount,
             Rng = new DeterministicRandom(seed),   // 可序列化状态：读档续跑无分叉
-            BaseK = new float[n],
-            CellK = new float[n],
+            R = new float[n],
+            CellF = new float[n],
             CellPop = new float[n],
+            CellFarmPop = new float[n],
             BfsStamp = new int[n],
             BfsStampValue = 1,
             WildCrops = grid.EnsureWildCrops(),
@@ -38,11 +39,7 @@ public static class CivEngine
         };
         for (int i = 0; i < n; i++)
             ctx.CellTribes[i] = new List<CivEntity>();
-        for (int i = 0; i < n; i++)
-        {
-            ctx.BaseK[i] = ctx.YHunter0(i);     // 无科技 K=Y（c=1 归一化）
-            ctx.CellK[i] = ctx.BaseK[i];
-        }
+        BuildLayer1(ctx);   // 层1 空间生产力 R（Miami NPP × 水因子，k 相对标定 → 陆地中位数 0.3 人/km²）
 
         var registry = CivModelRegistry.StoneAge();
         int maxTicks = CivSimContext.MaxTicksNoAgri + CivSimContext.TerminateAfterAgri;
@@ -79,23 +76,54 @@ public static class CivEngine
         return new CivSimResult { Context = ctx, FinalTick = ctx.Tick };
     }
 
-    /// <summary>重算每格总人口与当前承载（K = 格内实体最优产量/寒冷下限的 max；无人格 = BaseK）。</summary>
+    /// <summary>层1 空间生产力 R：R = k × min(NPP_T, NPP_P) × 水因子（Miami 模型 Lieth 1975）。
+    /// k 相对标定：陆地 R 中位数 → TargetMedianDensity=0.3 人/km²（Binford 量级锚）。
+    /// 读档复用（同 grid 同结果，确定性；不存档）。</summary>
+    public static void BuildLayer1(CivSimContext ctx)
+    {
+        var grid = ctx.Grid;
+        int n = grid.N;
+        var vals = new List<float>(n);
+        for (int i = 0; i < n; i++)
+        {
+            if (!grid.IsLandCell(i)) { ctx.R[i] = 0f; continue; }
+            float raw = CivSimContext.MiamiNpp(grid.Temp[i], grid.Precip[i]) * (ctx.WaterRich(i) ? 1.5f : 1f);
+            ctx.R[i] = raw;
+            vals.Add(raw);
+        }
+        float k = 0f;
+        if (vals.Count > 0)
+        {
+            vals.Sort();
+            float median = vals[vals.Count / 2];
+            k = median > 1f ? CivSimContext.TargetMedianDensity / median : 0f;
+        }
+        for (int i = 0; i < n; i++) ctx.R[i] *= k;
+    }
+
+    /// <summary>重算每格总人口与当 tick 总产出（F_格 = Σ 实体实际产出 F_i）。
+    /// 两遍循环：① CarryMult/CellPop/CellFarmPop ② FLast/CellF（劳动因子用当 tick 完整 farmPop）。</summary>
     public static void RefreshCellState(CivSimContext ctx)
     {
         int n = ctx.Grid.N;
         Array.Clear(ctx.CellPop, 0, n);
-        Array.Clear(ctx.CellK, 0, n);
+        Array.Clear(ctx.CellF, 0, n);
+        Array.Clear(ctx.CellFarmPop, 0, n);
         for (int i = 0; i < ctx.Entities.Count; i++)
         {
             var e = ctx.Entities[i];
             if (e.Dead) continue;
+            e.CarryMult = TechTable.HuntingCarry(e.TechKeys);
             ctx.CellPop[e.Cell] += e.P;
-            float k = ctx.KOf(e);
-            if (k > ctx.CellK[e.Cell]) ctx.CellK[e.Cell] = k;
+            if (e.IsFarming) ctx.CellFarmPop[e.Cell] += e.P;
         }
-        for (int i = 0; i < n; i++)
-            if (ctx.CellK[i] <= 0f)
-                ctx.CellK[i] = ctx.BaseK[i];
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead) continue;
+            e.FLast = ctx.FOf(e);
+            ctx.CellF[e.Cell] += e.FLast;
+        }
     }
 }
 

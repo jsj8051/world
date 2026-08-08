@@ -61,13 +61,13 @@ public sealed class OriginModel : CivModelBase
         var grid = ctx.Grid;
         int n = grid.N;
 
-        // ── 富饶区：陆地 ∩ BaseK>0，按 BaseK 降序前 30% ──
+        // ── 富饶区：陆地 ∩ R>0，按 R 降序前 30% ──
         var land = new List<int>();
         for (int i = 0; i < n; i++)
-            if (grid.IsLandCell(i) && ctx.BaseK[i] > 0f)
+            if (grid.IsLandCell(i) && ctx.R[i] > 0f)
                 land.Add(i);
         if (land.Count == 0) return;
-        land.Sort((a, b) => ctx.BaseK[b].CompareTo(ctx.BaseK[a]));
+        land.Sort((a, b) => ctx.R[b].CompareTo(ctx.R[a]));
         int rich = Mathf.Max(8, land.Count * 30 / 100);
         var pool = land.GetRange(0, Mathf.Min(rich, land.Count));
 
@@ -184,17 +184,17 @@ public sealed class EnergyModel : CivModelBase
         {
             var e = ctx.Entities[i];
             if (e.Dead) continue;
-            float y = ctx.Yield(e);
-            e.EPerCap = y / Mathf.Max(0.001f, e.P);
+            float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，含劳动因子/冷下限）
+            e.EPerCap = f / Mathf.Max(0.001f, e.P);
             e.Surplus = e.EPerCap - 1f;
         }
     }
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ③ 人口增长（Order 20）：P *= exp(r_eff·(1 − P_格/K_格))，r_eff=0.5/tick ★
-//    P 为部落人口；K 与压力因子用格级（格内实体共享 → 比例不变）。
-//    P_格 > K → 负增长 = 饿死人（用户拍板 2026-08-06）。
+// ③ 人口增长（Order 20）：P_i ×= exp(r_eff·(1 − D_i/F_i))，r_eff=0.5/tick ★
+//    D_i = P_i×c（c=1）；F_i = 部落当 tick 实际产出（两层模型 2026-08-17：按部落，不共享格因子）。
+//    F_i < D_i → 负增长 = 饿死人（用户拍板 2026-08-06）；P<1 灭绝。
 // ══════════════════════════════════════════════════════════════════
 public sealed class GrowthModel : CivModelBase
 {
@@ -204,21 +204,15 @@ public sealed class GrowthModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         float r = ctx.TickFactor;   // 0.5/tick
-        for (int i = 0; i < ctx.Grid.N; i++)
+        for (int i = 0; i < ctx.Entities.Count; i++)
         {
-            var list = ctx.CellTribes[i];
-            if (list.Count == 0) continue;
-            float P = ctx.CellPop[i];
-            float K = ctx.CellK[i];
-            if (P <= 0f || K <= 0f) continue;
-            float factor = Mathf.Exp(r * (1f - P / K));
-            for (int k = 0; k < list.Count; k++)
-            {
-                var e = list[k];
-                if (e.Dead) continue;
-                e.P *= factor;
-                if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
-            }
+            var e = ctx.Entities[i];
+            if (e.Dead) continue;
+            float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
+            if (f <= 0f) continue;
+            float factor = Mathf.Exp(r * (1f - e.P / f));
+            e.P *= factor;
+            if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
         }
     }
 }
@@ -241,8 +235,8 @@ public sealed class ModeModel : CivModelBase
             if (e.Dead) continue;
             bool hasSeed = TechTable.HeldSeeds(e.TechKeys).Count > 0;
             if (!hasSeed) { e.IsFarming = false; continue; }
-            float yH = ctx.YHunter(e);
-            float yF = ctx.YFarm(e);
+            float yH = ctx.FHunt(e);                 // 狩猎实际产出
+            float yF = ctx.FFarmPotential(e);        // 农业潜在产出（劳动因子=1，防小部落死锁）
             if (yF <= 0f) { e.IsFarming = false; continue; }
             float eH = CivSimContext.EHunt(yH, e.P);
             float eF = CivSimContext.EFarm(yF, e.P);
@@ -267,7 +261,7 @@ public sealed class InventionModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        CivEngine.RefreshCellState(ctx);   // 生产方式已更新（Order 30）→ 刷新 CellK 供压力判定
+        CivEngine.RefreshCellState(ctx);   // 生产方式已更新（Order 30）→ 刷新 F_格 供压力判定
 
         for (int i = 0; i < ctx.Entities.Count; i++)
         {
@@ -286,7 +280,7 @@ public sealed class InventionModel : CivModelBase
                     e.TechKeys.Add(t.Key);
             }
             // ── 种子（压力触发，Boserup 被逼出来的）──
-            float pressure = ctx.CellK[e.Cell] > 0f ? ctx.CellPop[e.Cell] / ctx.CellK[e.Cell] : 0f;
+            float pressure = ctx.CellF[e.Cell] > 0f ? ctx.CellPop[e.Cell] / ctx.CellF[e.Cell] : 0f;
             bool pressureOk = pressure > CivSimContext.SeedPressure;
             bool soilOk = ctx.Grid.SoilLevel[e.Cell] >= 3;
             bool grindOk = e.TechKeys.Contains(TechTable.Grinding);
@@ -662,14 +656,14 @@ public sealed class SplitMigrateModel : CivModelBase
             ctx.Fissions++;
         }
 
-        // ── 饱和迁徙：格 P > 0.75K → 最大实体分出 50% 迁相邻宜居格 ──
+        // ── 饱和迁徙：格 P_格/F_格 > 0.75 → 最大实体分出 50% 迁相邻宜居格 ──
         for (int i = 0; i < ctx.Grid.N; i++)
         {
             var list = ctx.CellTribes[i];
             if (list.Count == 0) continue;
             float P = ctx.CellPop[i];
-            float K = ctx.CellK[i];
-            if (K <= 0f || P < CivSimContext.MigrateThreshold * K) continue;
+            float F = ctx.CellF[i];
+            if (F <= 0f || P < CivSimContext.MigrateThreshold * F) continue;
             var tmax = MaxPop(list);
             if (tmax == null) continue;
             int target = PickTarget(ctx, i, tmax);
@@ -681,7 +675,7 @@ public sealed class SplitMigrateModel : CivModelBase
             ctx.Migrations++;
         }
 
-        // ── 探路迁徙：P>100 实体 2%/tick → 30% 迁 1-3 跳最高 K 无人格（跳跃扩散）──
+        // ── 探路迁徙：P>100 实体 2%/tick → 30% 迁 1-3 跳最高 R 无人格（跳跃扩散）──
         var snap2 = ctx.Entities.ToArray();
         foreach (var t in snap2)
         {
@@ -717,14 +711,14 @@ public sealed class SplitMigrateModel : CivModelBase
         float bestScore = float.MaxValue;
         foreach (int nb in g.Neighbors[t.Cell])
         {
-            if (ctx.BaseK[nb] <= 0f) continue;                 // 不可居（海洋/冰盖/密度 0）
+            if (ctx.R[nb] <= 0f) continue;                 // 不可居（海洋/冰盖/生产力 0）
             if (!g.IsLandCell(nb) && !canoe) continue;         // 跨海需 canoe
             if (ctx.CellTribes[nb].Count >= CivSimContext.MaxTribesPerCell) continue;   // 目标格社会密度上限
             float pass = ctx.BorderCost(t.Cell, nb, t.TechKeys);
             if (pass <= 0f) continue;                          // 障碍不可穿（无火冰原等）
             float pop = ctx.CellPop[nb];
             if (pop <= 0f) return nb;                          // 无人格 → 立即扩展（最高优先，可达性已由 pass 保证）
-            float density = pop / Math.Max(1e-6f, ctx.CellK[nb]) / pass;   // 分数 = 密度低 × 可达性高
+            float density = pop / Math.Max(1e-6f, ctx.R[nb]) / pass;   // 分数 = 密度低 × 可达性高
             var dom = MaxPop(ctx.CellTribes[nb]);
             if (dom != null && cult != null && cult == ShareField.DomKey(dom.CultureShare))
                 density *= 0.25f;   // 同文化领地优先（低密度权重 4 倍）
@@ -733,7 +727,7 @@ public sealed class SplitMigrateModel : CivModelBase
         return best;
     }
 
-    /// <summary>饱和迁徙目标：陆地邻格无人最高优先；主导同文化格（低密度）次之；否则高 K/低密度；canoe 跨 1 格海。
+    /// <summary>饱和迁徙目标：陆地邻格无人最高优先；主导同文化格（低密度）次之；否则高 R/低密度；canoe 跨 1 格海。
     /// 同文化亲和（2026-08-07）：部落迁徙倾向迁往同文化领地 → 弱文化领地巩固、强文化形成连续块（防分化文化被渗透灭）。
     /// 2026-08-07 闭塞区域：分数 ×= BorderCost。</summary>
     private static int PickTarget(CivSimContext ctx, int from, CivEntity mover)
@@ -743,13 +737,13 @@ public sealed class SplitMigrateModel : CivModelBase
         bool canoe = mover.TechKeys.Contains(TechTable.Canoe);
         foreach (int nb in ctx.Grid.Neighbors[from])
         {
-            if (ctx.Grid.IsLandCell(nb) && ctx.CellK[nb] > 0f)
+            if (ctx.Grid.IsLandCell(nb) && ctx.R[nb] > 0f)
             {
                 float pass = ctx.BorderCost(from, nb, mover.TechKeys);
                 if (pass <= 0f) continue;
                 if (ctx.CellPop[nb] <= 0f) return nb;   // 无人格最高优先（可达性已由 pass 保证）
                 if (ctx.CellTribes[nb].Count >= CivSimContext.MaxTribesPerCell) continue;   // 社会密度上限（防堆叠）
-                float score = ctx.CellK[nb] / Mathf.Max(1f, ctx.CellPop[nb]) * pass;
+                float score = ctx.R[nb] / Mathf.Max(1f, ctx.CellPop[nb]) * pass;
                 var dom = MaxPop(ctx.CellTribes[nb]);
                 if (dom != null && moverCult != null && moverCult == ShareField.DomKey(dom.CultureShare))
                     score *= 4f;   // 同文化亲和
@@ -762,10 +756,10 @@ public sealed class SplitMigrateModel : CivModelBase
                 if (seaPass <= 0f) continue;
                 foreach (int nb2 in ctx.Grid.Neighbors[nb])
                 {
-                    if (nb2 == from || !ctx.Grid.IsLandCell(nb2) || ctx.CellK[nb2] <= 0f) continue;
+                    if (nb2 == from || !ctx.Grid.IsLandCell(nb2) || ctx.R[nb2] <= 0f) continue;
                     if (ctx.CellPop[nb2] <= 0f) return nb2;
                     if (ctx.CellTribes[nb2].Count >= CivSimContext.MaxTribesPerCell) continue;
-                    float score = ctx.CellK[nb2] / Mathf.Max(1f, ctx.CellPop[nb2]) * seaPass;
+                    float score = ctx.R[nb2] / Mathf.Max(1f, ctx.CellPop[nb2]) * seaPass;
                     var dom2 = MaxPop(ctx.CellTribes[nb2]);
                     if (dom2 != null && moverCult != null && moverCult == ShareField.DomKey(dom2.CultureShare))
                         score *= 4f;   // 同文化亲和
@@ -776,7 +770,7 @@ public sealed class SplitMigrateModel : CivModelBase
         return best;
     }
 
-    /// <summary>探路目标：1-3 跳 BFS 内最高 K 无人陆地格（时间戳标记，确定性）。
+    /// <summary>探路目标：1-3 跳 BFS 内最高 R 无人陆地格（时间戳标记，确定性）。
     /// 2026-08-07 闭塞区域：路径分数 ×= 每跳 BorderCost 乘积（穿越障碍的跳跃扩散被抑制）。</summary>
     private static int PickScoutTarget(CivSimContext ctx, int from, CivEntity mover)
     {
@@ -786,11 +780,11 @@ public sealed class SplitMigrateModel : CivModelBase
         int best = -1; float bestK = -1f;
         foreach (int nb in grid.Neighbors[from])
         {
-            if (!grid.IsLandCell(nb) || ctx.CellK[nb] <= 0f) continue;
+            if (!grid.IsLandCell(nb) || ctx.R[nb] <= 0f) continue;
             float c1 = ctx.BorderCost(from, nb, keys);
             if (c1 <= 0f) continue;
             ctx.BfsStamp[nb] = stamp;
-            if (ctx.CellPop[nb] <= 0f && ctx.CellK[nb] * c1 > bestK) { bestK = ctx.CellK[nb] * c1; best = nb; }
+            if (ctx.CellPop[nb] <= 0f && ctx.R[nb] * c1 > bestK) { bestK = ctx.R[nb] * c1; best = nb; }
         }
         foreach (int nb in grid.Neighbors[from])
         {
@@ -803,8 +797,8 @@ public sealed class SplitMigrateModel : CivModelBase
                 float c2 = ctx.BorderCost(nb, nb2, keys);
                 if (c2 <= 0f) continue;
                 ctx.BfsStamp[nb2] = stamp;
-                if (grid.IsLandCell(nb2) && ctx.CellK[nb2] > 0f && ctx.CellPop[nb2] <= 0f && ctx.CellK[nb2] * c1 * c2 > bestK)
-                { bestK = ctx.CellK[nb2] * c1 * c2; best = nb2; }
+                if (grid.IsLandCell(nb2) && ctx.R[nb2] > 0f && ctx.CellPop[nb2] <= 0f && ctx.R[nb2] * c1 * c2 > bestK)
+                { bestK = ctx.R[nb2] * c1 * c2; best = nb2; }
             }
         }
         foreach (int nb in grid.Neighbors[from])
@@ -823,8 +817,8 @@ public sealed class SplitMigrateModel : CivModelBase
                     float c3 = ctx.BorderCost(nb2, nb3, keys);
                     if (c3 <= 0f) continue;
                     ctx.BfsStamp[nb3] = stamp;
-                    if (grid.IsLandCell(nb3) && ctx.CellK[nb3] > 0f && ctx.CellPop[nb3] <= 0f && ctx.CellK[nb3] * c1 * c2 * c3 > bestK)
-                    { bestK = ctx.CellK[nb3] * c1 * c2 * c3; best = nb3; }
+                    if (grid.IsLandCell(nb3) && ctx.R[nb3] > 0f && ctx.CellPop[nb3] <= 0f && ctx.R[nb3] * c1 * c2 * c3 > bestK)
+                    { bestK = ctx.R[nb3] * c1 * c2 * c3; best = nb3; }
                 }
             }
         }
