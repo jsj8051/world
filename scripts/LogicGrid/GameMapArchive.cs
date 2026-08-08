@@ -117,17 +117,31 @@ public static class GameMapArchive
             return false;
         }
         var grid = new GameGrid();
-        ReadBody(f, grid, ver);
+        if (!ReadBody(f, grid, ver))
+            return false;
         g = grid;
         return true;
     }
 
     /// <summary>主体反序列化（magic/version 之后；与 WriteBody 严格对应）。
-    /// ver ≥ 2 读流函数 psi（v1 旧档无 psi）。</summary>
-    public static void ReadBody(FileAccess f, GameGrid grid, int ver = 2)
+    /// ver ≥ 2 读流函数 psi（v1 旧档无 psi）。
+    /// ⚠️ 返回 false = 结构损坏（GridN/N 不满足 10n²+2 不变量——魔数/版本被伪造或旧中间态写入器
+    ///   产物，正文错位会让 N 读到垃圾值 → 直接 new Vector3[N] 可分配 14GB 卡死，必须在任何分配前拦截）。</summary>
+    public static bool ReadBody(FileAccess f, GameGrid grid, int ver = 2)
     {
         grid.GridN = (int)f.Get32();
         grid.N = (int)f.Get32();
+        // ⚠️ 2026-08-07：任何分配前先验结构不变量（球面 Goldberg：顶点数 ≡ 10n²+2，n∈[8,512]）。
+        //   旧中间态 v4 文件（t7/t8/t20260806/n16 等，写于 v4 定稿前）魔数已是 CMP1+v4 但正文错位，
+        //   N 读到 11.7 亿 → new Vector3[N] = 14GB / new byte[N] = 1.2GB → 8GB 飙升 + 卡死（用户实证）。
+        //   用 long 防 10×n² 溢出回绕（n=2^31 时 int 乘会恰好"合法"）。
+        long expectN = (long)grid.GridN * grid.GridN * 10 + 2;
+        if (grid.GridN < 8 || grid.GridN > 512 || (long)grid.N != expectN)
+        {
+            GD.PrintErr($"[GameMapArchive] 结构校验失败：GridN={grid.GridN} N={grid.N}（期望 10n²+2={expectN}）。" +
+                        $"存档正文错位或损坏，请重新生成（旧中间态 v4 档同样拒绝）。");
+            return false;
+        }
         grid.Seed = (int)f.Get32();
         grid.RadiusKm = f.GetFloat();
         grid.ProgradeRotation = f.Get8() != 0;
@@ -164,6 +178,7 @@ public static class GameMapArchive
         if (ver >= 2) grid.Psi = ReadFloats(f, n);   // v2：流函数（环流圈显示）
         grid.Province = ReadInts(f, n);
         grid.Country = ReadInts(f, n);
+        return true;
     }
 
     private static float[] ReadFloats(FileAccess f, int n)

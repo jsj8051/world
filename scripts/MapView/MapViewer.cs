@@ -80,6 +80,7 @@ public partial class MapViewer : Node3D
                 if (IsInsideTree()) RebuildColors();
             }
             SyncLayerButtons();
+            RebuildLegend();   // 图例跟随图层（null 保护在方法内）
             if (_monsoonArrows != null)
                 _monsoonArrows.Visible = (value == 4);
             if (_currentArrows != null)
@@ -162,7 +163,39 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
+    /// <summary>图层分类（用户拍板 2026-08：17 图层分 地理/气候/人文 三类；切换分类不改当前图层）。</summary>
+    private enum LayerCat { Geo, Climate, Human }
+    private static readonly LayerCat[] LayerCats =
+    {
+        LayerCat.Geo,       // 0 海拔
+        LayerCat.Climate,   // 1 温度
+        LayerCat.Climate,   // 2 降水
+        LayerCat.Climate,   // 3 生物群系
+        LayerCat.Climate,   // 4 风场
+        LayerCat.Climate,   // 5 洋流
+        LayerCat.Geo,       // 6 河流
+        LayerCat.Geo,       // 7 流域
+        LayerCat.Geo,       // 8 矿藏
+        LayerCat.Geo,       // 9 土壤
+        LayerCat.Climate,   // 10 月降水
+        LayerCat.Climate,   // 11 月温度
+        LayerCat.Human,     // 12 人口
+        LayerCat.Human,     // 13 文化
+        LayerCat.Human,     // 14 部落
+        LayerCat.Human,     // 15 科技
+        LayerCat.Human,     // 16 宗教
+    };
+
     private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技", "宗教" };
+    private static readonly string[] CatNames = { "地理", "气候", "人文" };
+    private LayerCat _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
+    private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
+    private HBoxContainer _layerRow; // 图层按钮行容器（分类切换时重算居中）
+
+    // ── 图例面板（月份滑块左侧，固定大小，内容超出滚动；2026-08-08）──
+    private PanelContainer _legendPanel;
+    private Label _legendTitle;      // 图例标题（图层名）
+    private VBoxContainer _legendBox; // 图例条目容器（ScrollContainer 内）
 
     /// <summary>部落图层调色板（部落标签取色；高区分度 8 色循环——文化层已改每文化独立色，勿复用）。</summary>
     private static readonly Color[] CulturePalette =
@@ -206,30 +239,6 @@ public partial class MapViewer : Node3D
             GD.Print($"[MapViewer] pending path: {_mapPath}");
         }
         Generate();
-    }
-
-    public override void _UnhandledInput(InputEvent @event)
-    {
-        if (@event is InputEventKey key && key.Pressed && !key.Echo)
-        {
-            int layer = -1;
-            if (key.Keycode == Key.Key1) layer = 0;
-            else if (key.Keycode == Key.Key2) layer = 1;
-            else if (key.Keycode == Key.Key3) layer = 2;
-            else if (key.Keycode == Key.Key4) layer = 3;
-            else if (key.Keycode == Key.Key5) layer = 4;
-            else if (key.Keycode == Key.Key6) layer = 5;
-            else if (key.Keycode == Key.Key7) layer = 6;
-            else if (key.Keycode == Key.Key8) layer = 7;
-            else if (key.Keycode == Key.Key9) layer = 8;
-            else if (key.Keycode == Key.Key0) layer = 9;
-            if (layer >= 0)
-            {
-                Layer = layer;
-                GD.Print($"[MapViewer] layer={layer} ({LayerName(layer)})");
-                GetViewport().SetInputAsHandled();
-            }
-        }
     }
 
     private static string LayerName(int l) => l switch
@@ -824,6 +833,8 @@ public partial class MapViewer : Node3D
             }
             _progress = 1f;
             _phase = "完成";
+            // 图例动态条目（文化/宗教）在 BuildAll 后才就绪 → 生成完成补刷一次
+            RebuildLegend();
         }
         catch (Exception e)
         {
@@ -1438,16 +1449,46 @@ public partial class MapViewer : Node3D
 
         _panel.Visible = false;
 
-        // ── 图层切换按钮组（屏幕下方中间）──
-        // ⚠️ 2026-08-02 v3：SVG 图标按钮（每个 42px，整排 ~294px）。
-        //   只显示 4 个的真相 = 后 3 个 SVG 用了 Q/T/A 曲线命令，thorvg 解析器不支持
-        //   → 加载失败空白（非宽度问题）。全部图标已重写为纯直线命令 M/L/H/V/Z。
-        //   悬停 TooltipText 显示中文名。
+        // ── 分类按钮行（最底下一排：地理/气候/人文）──
+        // 2026-08 用户拍板：17 图层分三类；点分类只切换上方子按钮显示，不改变当前图层。
+        var catGroup = new ButtonGroup();
+        var catBox = new HBoxContainer();
+        catBox.SetAnchorsPreset(Control.LayoutPreset.CenterBottom); // 锚点底部居中
+        catBox.Position = new Vector2(-128, -44);   // 3×80px + 8px 间距居中
+        catBox.AddThemeConstantOverride("separation", 8);
+        _uiLayer.AddChild(catBox);
+
+        _catButtons = new Button[CatNames.Length];
+        for (int i = 0; i < CatNames.Length; i++)
+        {
+            int cat = i; // 闭包捕获
+            var btn = new Button
+            {
+                Text = CatNames[i],
+                ToggleMode = true,
+                ButtonGroup = catGroup,
+                CustomMinimumSize = new Vector2(80, 32),
+            };
+            btn.Pressed += () =>
+            {
+                _category = (LayerCat)cat;
+                ShowCategoryButtons();   // 只切显示，不改 _layer（用户拍板）
+                GD.Print($"[MapViewer] category={CatNames[cat]} layer仍={LayerName(_layer)}");
+            };
+            catBox.AddChild(btn);
+            _catButtons[i] = btn;
+        }
+
+        // ── 图层按钮行（分类按钮上方；只显示当前分类的子图层，其余隐藏）──
+        // ⚠️ 2026-08-02 v3：SVG 图标按钮。只显示 4 个的真相 = 后 3 个 SVG 用了
+        //   Q/T/A 曲线命令，thorvg 解析器不支持 → 加载失败空白（非宽度问题）。
+        //   全部图标已重写为纯直线命令 M/L/H/V/Z。悬停 TooltipText 显示中文名。
         var group = new ButtonGroup();
         var hbox = new HBoxContainer();
         hbox.SetAnchorsPreset(Control.LayoutPreset.CenterBottom); // 锚点底部居中
-        hbox.Position = new Vector2(-21f * LayerNames.Length, -50);   // 42px/按钮动态居中
+        hbox.Position = new Vector2(-21f * LayerNames.Length, -84); // 占位，SyncLayerButtons 重算
         _uiLayer.AddChild(hbox);
+        _layerRow = hbox;
 
         _layerButtons = new Button[LayerNames.Length];
         for (int i = 0; i < LayerNames.Length; i++)
@@ -1468,10 +1509,10 @@ public partial class MapViewer : Node3D
         }
         SyncLayerButtons();
 
-        // ── 月份滑块（图层 10/11 显示；1-12 月切换季风箭头/月降水）──
+        // ── 月份滑块（右下角；图层 10/11 显示；1-12 月切换季风箭头/月降水）──
         var monthRow = new HBoxContainer();
-        monthRow.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
-        monthRow.Position = new Vector2(-130, -100);   // 图层按钮（-50）上方
+        monthRow.SetAnchorsPreset(Control.LayoutPreset.BottomRight);
+        monthRow.Position = new Vector2(-300, -44);   // 右下角（用户拍板 2026-08）
         monthRow.AddThemeConstantOverride("separation", 8);
         _uiLayer.AddChild(monthRow);
 
@@ -1506,6 +1547,53 @@ public partial class MapViewer : Node3D
         monthRow.AddChild(_monthLabel);
 
         _monthSlider.Visible = false;   // 默认隐藏，进季风/月降水图层才显示
+
+        // ── 图例面板（月份滑块左侧，固定大小，内容超出滚动）──
+        // 2026-08-08：图例 = 当前图层颜色说明；放右下角月份滑块左边。
+        // 固定大小 236×320；ScrollContainer 垂直滚动（生物群系 22 条目/文化动态条目必然超界）。
+        _legendPanel = new PanelContainer();
+        _legendPanel.SetAnchorsPreset(Control.LayoutPreset.BottomRight);
+        // ⚠️ 必须在 AddChild 前设 Position（入树后 Position setter 会用父尺寸反推 offset → 屏幕外）
+        _legendPanel.Position = new Vector2(-560, -52);
+        _legendPanel.CustomMinimumSize = new Vector2(236, 320);
+        _legendPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
+        {
+            BgColor = new Color(0.06f, 0.08f, 0.12f, 0.85f),
+            BorderColor = new Color(0.35f, 0.40f, 0.50f, 0.9f),
+            BorderWidthLeft = 1, BorderWidthTop = 1, BorderWidthRight = 1, BorderWidthBottom = 1,
+            CornerRadiusTopLeft = 6, CornerRadiusTopRight = 6, CornerRadiusBottomLeft = 6, CornerRadiusBottomRight = 6,
+        });
+        _uiLayer.AddChild(_legendPanel);
+
+        var legendVBox = new VBoxContainer();
+        legendVBox.AddThemeConstantOverride("separation", 4);
+        _legendPanel.AddChild(legendVBox);
+
+        _legendTitle = new Label
+        {
+            Text = LayerNames[0],
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
+            CustomMinimumSize = new Vector2(0, 26),
+        };
+        _legendTitle.AddThemeFontSizeOverride("font_size", 17);
+        _legendTitle.AddThemeColorOverride("font_color", new Color(0.95f, 0.95f, 0.85f));
+        legendVBox.AddChild(_legendTitle);
+
+        var scroll = new ScrollContainer
+        {
+            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
+            VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
+            CustomMinimumSize = new Vector2(220, 270),
+        };
+        legendVBox.AddChild(scroll);
+
+        _legendBox = new VBoxContainer();
+        _legendBox.AddThemeConstantOverride("separation", 3);
+        _legendBox.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        scroll.AddChild(_legendBox);
+
+        RebuildLegend();   // 初始图层图例
     }
 
     /// <summary>矿种固定色（索引 = MineralSystem 矿种：1铁 2铜 3锡 4金 5煤 6盐 7石料 8宝石）。
@@ -1594,12 +1682,259 @@ public partial class MapViewer : Node3D
         }
     }
 
-    /// <summary>同步图层按钮的按下态（键盘/Inspector 切图层时 UI 跟随）。</summary>
+    /// <summary>同步图层按钮的按下态与可见性（键盘/Inspector/分类切换时 UI 跟随）。
+    /// 可见性 = 只显示当前分类的子按钮；按下态跟随 _layer；行位置按可见按钮数重算居中。
+    /// ⚠️ 分类跟随：外部（Inspector/代码）直接改 Layer 时自动切到其所属分类，
+    ///   保证选中按钮可见；但 UI 点分类按钮走 ShowCategoryButtons（不改 _layer）。</summary>
     private void SyncLayerButtons()
     {
         if (_layerButtons == null)
             return;
+        // 外部改 Layer → 分类跟随（选中按钮必须在可见集合内）
+        _category = LayerCats[_layer];
         for (int i = 0; i < _layerButtons.Length; i++)
             _layerButtons[i].ButtonPressed = i == _layer;
+        ShowCategoryButtons();
+    }
+
+    /// <summary>按当前分类刷新图层按钮可见性 + 分类按钮按下态 + 行居中（不改 _layer）。</summary>
+    private void ShowCategoryButtons()
+    {
+        if (_layerButtons == null)
+            return;
+        int visible = 0;
+        for (int i = 0; i < _layerButtons.Length; i++)
+        {
+            bool show = LayerCats[i] == _category;
+            _layerButtons[i].Visible = show;
+            if (show) visible++;
+        }
+        for (int i = 0; i < _catButtons.Length; i++)
+            _catButtons[i].ButtonPressed = (int)_category == i;
+        // 42px/按钮 + 4px separation 居中；可见按钮数变化时重算。
+        // ⚠️ 必须用 Offset（相对 anchor 的原始偏移）而非 Position——Position setter 会用
+        //   父尺寸反推 offset（offset = pos - anchor×parentSize），AddChild 后调用会把
+        //   rect 起点推到屏幕外（实测 global=(-113,-84)，2026-08-08）。
+        float halfW = 21f * visible + 2f * (visible - 1);
+        _layerRow.OffsetLeft = -halfW;
+        _layerRow.OffsetTop = -84;
+    }
+
+    // ── 图例 ──
+
+    /// <summary>生物群系显示名（索引=BiomeType 值；0-31 全覆盖）。</summary>
+    private static readonly string[] BiomeNames =
+    {
+        "深海", "海洋", "冰原(EF)", "苔原(ET)", "", "", "", "", "", "", "", "",
+        "高山", "河岸带",
+        "热带雨林(Af)", "热带季风林(Am)", "热带稀树草原(Aw)",
+        "热沙漠(BWh)", "冷沙漠(BWk)", "热半干旱草原(BSh)", "冷半干旱草原(BSk)",
+        "湿润亚热带(Cfa)", "海洋性温带(Cfb)", "冬干亚热带(Cwa)",
+        "地中海热夏(Csa)", "地中海凉夏(Csb)",
+        "湿润大陆热夏(Dfa)", "湿润大陆暖夏(Dfb)", "亚寒带针叶林(Dfc)", "冬干大陆(Dwa)",
+        "极地海洋", "热带海洋",
+    };
+
+    /// <summary>土壤肥力名（索引 1-5）。</summary>
+    private static readonly string[] SoilNames = { "", "贫瘠", "差", "中", "好", "肥沃" };
+
+    /// <summary>科技时代名（索引 0=石器 1-4=TechEpochColors）。</summary>
+    private static readonly string[] TechEpochNames = { "石器", "新石器", "青铜", "铁器", "古典" };
+
+    /// <summary>重建图例（当前图层颜色说明；内容超出固定面板 → ScrollContainer 滚动）。</summary>
+    private void RebuildLegend()
+    {
+        if (_legendBox == null) return;   // UI 未建（EnsureUi 前）或已释放
+        // 清空旧条目（RemoveChild 立即脱离树 + QueueFree 帧末释放——纯 QueueFree 会残留到帧末）
+        foreach (Node c in _legendBox.GetChildren())
+        {
+            _legendBox.RemoveChild(c);
+            c.QueueFree();
+        }
+        _legendTitle.Text = LayerNames[_layer];
+
+        switch (_layer)
+        {
+            case 0: // 海拔：色带分段（深海→浅海→沙滩→低地→高地→雪顶）
+                AddLegendGradient(
+                    new[] { new Color(0.01f, 0.05f, 0.18f), new Color(0.12f, 0.45f, 0.68f), new Color(0.70f, 0.65f, 0.40f), new Color(0.30f, 0.65f, 0.10f), new Color(0.95f, 0.97f, 1.00f) },
+                    "深海", "雪顶");
+                AddLegendText($"海平面 ≈ {_hSea * 100f:F0}% 海拔");
+                break;
+            case 1: // 温度：分段色带
+                AddLegendGradient(
+                    new[] { new Color(0.08f, 0.12f, 0.45f), new Color(0.22f, 0.52f, 0.72f), new Color(0.38f, 0.72f, 0.42f), new Color(0.92f, 0.78f, 0.28f), new Color(0.88f, 0.30f, 0.15f) },
+                    "-85°C", "+45°C");
+                AddLegendText("分段色带：极寒/冰点/0-15°/宜居/高温");
+                break;
+            case 2: // 降水
+                AddLegendGradient(
+                    new[] { new Color(0.90f, 0.80f, 0.40f), new Color(0.10f, 0.30f, 0.70f) },
+                    $"{_precipMin:F0}mm", $"{_precipMax:F0}mm");
+                AddLegendText("陆地自适应色带（随地图分布）");
+                break;
+            case 3: // 生物群系
+                for (int b = 0; b < BiomeNames.Length; b++)
+                {
+                    if (string.IsNullOrEmpty(BiomeNames[b])) continue;
+                    AddLegendRow(BiomeColors.BiomeToColor((BiomeType)b), BiomeNames[b]);
+                }
+                break;
+            case 4: // 风场
+                AddLegendText("→ 箭头 = 盛行风向（月风场）");
+                AddLegendText("疏密 = 风速强度");
+                AddLegendText("月份滑块切换 1-12 月");
+                break;
+            case 5: // 洋流
+                AddLegendRow(new Color(0.95f, 0.35f, 0.25f), "暖流");
+                AddLegendRow(new Color(0.25f, 0.55f, 0.95f), "寒流");
+                AddLegendText("箭头大小 = 流速");
+                break;
+            case 6: // 河流
+                AddLegendRow(new Color(0.25f, 0.45f, 0.75f), "湖泊");
+                AddLegendRow(new Color(0.35f, 0.70f, 1.00f), "河流");
+                AddLegendText("干涸盆地（盐湖）不显示");
+                break;
+            case 7: // 流域
+                AddLegendText("每流域独立颜色");
+                AddLegendText("海洋/边缘排水区 = 浅蓝/灰绿");
+                break;
+            case 8: // 矿藏
+                for (int m = 1; m < MineralSystem.Names.Length; m++)
+                    AddLegendRow(MineralColors[m], MineralSystem.Names[m]);
+                AddLegendText("明度 = 富度（贫暗/富中/巨型亮）");
+                break;
+            case 9: // 土壤
+                for (int s = 1; s <= 5; s++)
+                    AddLegendRow(SoilColors[s], SoilNames[s]);
+                break;
+            case 10: // 月降水
+                AddLegendGradient(
+                    new[] { new Color(0.90f, 0.80f, 0.40f), new Color(0.10f, 0.30f, 0.70f) },
+                    $"{_monthPrecipMin:F0}mm", $"{_monthPrecipMax:F0}mm");
+                AddLegendText("当月降水（×12 年尺度色带）");
+                break;
+            case 11: // 月温度
+                AddLegendGradient(
+                    new[] { new Color(0.08f, 0.12f, 0.45f), new Color(0.22f, 0.52f, 0.72f), new Color(0.38f, 0.72f, 0.42f), new Color(0.92f, 0.78f, 0.28f), new Color(0.88f, 0.30f, 0.15f) },
+                    "-60°C", "+60°C");
+                AddLegendText("当月均温");
+                break;
+            case 12: // 人口
+                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人");
+                AddLegendGradient(
+                    new[] { new Color(0.95f, 0.75f, 0.25f), new Color(0.80f, 0.15f, 0.05f) },
+                    "少", "多");
+                AddLegendText("log 压缩 + P1/P99 分位自适应");
+                break;
+            case 13: // 文化：动态条目（每文化独立色，按覆盖格数排序，滚动查看）
+                AddLegendText("每文化独立颜色（金色角散列）");
+                AddLegendDynamic(_tileCulture, c => HslToRgb(GoldenHue(c), 0.55f, 0.62f), "文化");
+                break;
+            case 14: // 部落：谱系调色板
+                for (int t = 0; t < CulturePalette.Length; t++)
+                    AddLegendRow(CulturePalette[t], $"部落谱系 {t + 1}");
+                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人");
+                break;
+            case 15: // 科技
+                for (int e = 0; e <= 4; e++)
+                {
+                    var col = e == 0 ? new Color(0.55f, 0.42f, 0.28f) : TechEpochColors[e - 1];
+                    AddLegendRow(col, TechEpochNames[e]);
+                }
+                break;
+            case 16: // 宗教：动态条目
+                AddLegendText("每宗教派别独立颜色");
+                AddLegendDynamic(_tileReligion, r => HslToRgb(GoldenHue(r), 0.55f, 0.62f), "派别");
+                break;
+        }
+    }
+
+    /// <summary>图例条目：色块 + 文字（横向）。</summary>
+    private void AddLegendRow(Color c, string text)
+    {
+        var row = new HBoxContainer();
+        row.AddThemeConstantOverride("separation", 6);
+        var swatch = new ColorRect
+        {
+            Color = c,
+            CustomMinimumSize = new Vector2(16, 16),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+        };
+        row.AddChild(swatch);
+        var lab = new Label { Text = text, VerticalAlignment = VerticalAlignment.Center };
+        lab.AddThemeFontSizeOverride("font_size", 13);
+        row.AddChild(lab);
+        _legendBox.AddChild(row);
+    }
+
+    /// <summary>图例条目：渐变色带 + 两端标注。</summary>
+    private void AddLegendGradient(Color[] stops, string low, string high)
+    {
+        // Offsets 动态生成（段数任意；均匀分布）
+        var offs = new float[stops.Length];
+        for (int i = 0; i < stops.Length; i++)
+            offs[i] = stops.Length > 1 ? i / (float)(stops.Length - 1) : 0f;
+        var bar = new GradientTexture2D
+        {
+            Gradient = new Gradient { Offsets = offs, Colors = stops },
+            Fill = GradientTexture2D.FillEnum.Linear,
+            FillFrom = new Vector2(0, 0),
+            FillTo = new Vector2(1, 0),
+            Width = 180, Height = 14,
+        };
+        var tr = new TextureRect
+        {
+            Texture = bar,
+            CustomMinimumSize = new Vector2(180, 14),
+            StretchMode = TextureRect.StretchModeEnum.Scale,
+            SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter,
+        };
+        _legendBox.AddChild(tr);
+        var labels = new HBoxContainer();
+        var lo = new Label { Text = low }; lo.AddThemeFontSizeOverride("font_size", 12);
+        var hi = new Label { Text = high, HorizontalAlignment = HorizontalAlignment.Right, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
+        hi.AddThemeFontSizeOverride("font_size", 12);
+        labels.AddChild(lo);
+        labels.AddChild(hi);
+        _legendBox.AddChild(labels);
+    }
+
+    /// <summary>图例条目：纯说明文字（小字号、浅灰）。</summary>
+    private void AddLegendText(string text)
+    {
+        var lab = new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+        lab.AddThemeFontSizeOverride("font_size", 12);
+        lab.AddThemeColorOverride("font_color", new Color(0.75f, 0.78f, 0.85f));
+        _legendBox.AddChild(lab);
+    }
+
+    /// <summary>图例动态条目：统计数组中出现过的 key，按覆盖格数降序显示前 12 个（超出滚动查看）。</summary>
+    private void AddLegendDynamic(int[] tileKeys, System.Func<int, Color> colorOf, string kind)
+    {
+        if (tileKeys == null)
+        {
+            AddLegendText($"（{kind}数据未加载）");
+            return;
+        }
+        var counts = new System.Collections.Generic.Dictionary<int, int>();
+        for (int i = 0; i < tileKeys.Length; i++)
+        {
+            int k = tileKeys[i];
+            if (k == 0) continue;
+            counts[k] = counts.TryGetValue(k, out int v) ? v + 1 : 1;
+        }
+        if (counts.Count == 0)
+        {
+            AddLegendText("（无）");
+            return;
+        }
+        var sorted = new System.Collections.Generic.List<KeyValuePair<int, int>>(counts);
+        sorted.Sort((a, b) => b.Value.CompareTo(a.Value));
+        int shown = Mathf.Min(12, sorted.Count);
+        for (int i = 0; i < shown; i++)
+            AddLegendRow(colorOf(sorted[i].Key), $"{kind} {sorted[i].Key}（{sorted[i].Value}格）");
+        if (sorted.Count > shown)
+            AddLegendText($"…共 {sorted.Count} 个{kind}（滚动查看）");
     }
 }
