@@ -128,6 +128,7 @@ public partial class MapViewer : Node3D
     private int[] _tileReligion;    // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
     private int[] _tileTribe;       // 每格主导部落 id（-1=无）
     private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
+    private int[] _tileTerritory;   // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
     private float _popLogMin, _popLogMax;   // 人口图层自适应色带端点（log 压缩 + 分位数裁剪）
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
     private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
@@ -184,9 +185,10 @@ public partial class MapViewer : Node3D
         LayerCat.Human,     // 14 部落
         LayerCat.Human,     // 15 科技
         LayerCat.Human,     // 16 宗教
+        LayerCat.Human,     // 17 势力范围
     };
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技", "宗教" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技", "宗教", "势力范围" };
     private static readonly string[] CatNames = { "地理", "气候", "人文" };
     private LayerCat _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
     private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
@@ -453,6 +455,7 @@ public partial class MapViewer : Node3D
         _tileReligion = new int[n];
         _tileTribe = new int[n];
         _tileTechEpoch = new byte[n];
+        _tileTerritory = new int[n];
         System.Array.Fill(_tileTribe, -1);
         bool hasCiv = _civCtx != null;
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
@@ -513,6 +516,9 @@ public partial class MapViewer : Node3D
                     _tileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
                     _tileTribe[i] = dom.Id;
                     _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
+                    // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
+                    //    与 byte 截断的 _tileCultureGroup 区分，防 8 位撞色）
+                    _tileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
                 }
             }
             // ⚠️ 2026-08-16：每 64 格报一次进度（并行 For 内；不调取消——检查在外部）
@@ -692,7 +698,14 @@ public partial class MapViewer : Node3D
     								    if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
     								    								    return HslToRgb(GoldenHue(rel), 0.55f, 0.62f);
     								}
-    			default: // 海拔
+    								case 17: // 势力范围：每领地独立色（语言群 key 完整哈希 → 黄金角 HSL；无领地/无人灰）
+									{
+									    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+									    int terr = _tileTerritory[id];
+									    if (terr == 0 || _tilePop[id] <= 0f) return new Color(0.30f, 0.32f, 0.36f);
+									    return HslToRgb(GoldenHue(terr), 0.55f, 0.85f);
+									}
+			default: // 海拔
     				{
     					float h = _tileElev[id];
     					// h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
@@ -1659,6 +1672,8 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='14' cy='11' r='7' fill='none' stroke='#8f8' stroke-width='2'/><path d='M11 19 H17 M12.5 23 H15.5 M14 16 V19' stroke='#8f8' stroke-width='2' stroke-linecap='round'/></svg>",
         // 16 宗教：神庙（三角顶+立柱，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 22 L4 22 Z M8 22 L8 26 M12 22 L12 26 M16 22 L16 26 M20 22 L20 26' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
+        // 17 势力范围：领地边界（六边形 + 内部边界线，直线；每领地独立色）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L24 9 L24 19 L14 25 L4 19 L4 9 Z' stroke='#fd8' stroke-width='2' fill='none' stroke-linejoin='miter'/><path d='M14 3 L14 25 M4 9 L24 19 M24 9 L4 19' stroke='#fd8' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)
@@ -1846,6 +1861,11 @@ public partial class MapViewer : Node3D
             case 16: // 宗教：动态条目
                 AddLegendText("每宗教派别独立颜色");
                 AddLegendDynamic(_tileReligion, r => HslToRgb(GoldenHue(r), 0.55f, 0.62f), "派别");
+                break;
+            case 17: // 势力范围：静态说明（每领地独立色，动态条目过多故仅说明）
+                AddLegendRow(new Color(0.30f, 0.32f, 0.36f), "无领地 / 无人");
+                AddLegendText("每领地独立颜色（语言群 key 完整哈希）");
+                AddLegendText("同领地必同语言群 → 同领地同色");
                 break;
         }
     }
