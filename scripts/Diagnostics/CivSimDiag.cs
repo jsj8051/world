@@ -131,6 +131,7 @@ public partial class CivSimDiag : Node
         // 无地图依赖的 T 测试（构造场景风格，S 段注册）
         if (Want("T24")) T24_TerritoryCohesion();
         if (Want("T25")) T25_FissionPressure();
+        if (Want("T23")) T23_TerritoryMult();
     }
 
     /// <summary>小网格（N=2 赤道相邻两点，Neighbors 连通；RadiusKm 决定胞面积）。</summary>
@@ -450,6 +451,23 @@ public partial class CivSimDiag : Node
         bool fedKept = ctxB.Fissions == 0;
         Check("T25 裂变压力", famineFissioned && fedKept,
             $"饥荒250裂变={famineFissioned}(Fissions={ctxA.Fissions}) 盈余300不裂={fedKept}(Fissions={ctxB.Fissions})");
+    }
+
+    /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
+    private void T23_TerritoryMult()
+    {
+        var a = new CivEntity { TerritoryId = 7, TerritorySize = 2 };
+        var b = new CivEntity { TerritoryId = 7, TerritorySize = 2 };
+        var c = new CivEntity { TerritoryId = 9, TerritorySize = 2 };
+        var d = new CivEntity { TerritoryId = -1, TerritorySize = 1 };
+        var e = new CivEntity { TerritoryId = -1, TerritorySize = 1 };
+        float same = SpreadModel.TerritoryMult(a, b);
+        float cross = SpreadModel.TerritoryMult(a, c);
+        float lone = SpreadModel.TerritoryMult(d, e);
+        bool ok = same == CivSimContext.TerritorySpreadMult
+               && cross == CivSimContext.CrossBorderSpreadMult
+               && lone == 1f;
+        Check("T23 领地传播乘数", ok, $"同领地×{same} 跨领地×{cross} 散兵×{lone}");
     }
 
     // ═══════════════════ T 地图测试 ═══════════════════

@@ -451,17 +451,26 @@ public sealed class SpreadModel : CivModelBase
         return best;
     }
 
+    /// <summary>领地传播乘数：同领地 ×1.5（整合加成）；至少一方是正式领地（≥2 band）→ ×0.5（跨边界软冲突）；散兵部落间 ×1（BorderCost 已有）。</summary>
+    internal static float TerritoryMult(CivEntity a, CivEntity b)
+    {
+        if (a.TerritoryId >= 0 && a.TerritoryId == b.TerritoryId) return CivSimContext.TerritorySpreadMult;
+        if (a.TerritorySize >= 2 || b.TerritorySize >= 2) return CivSimContext.CrossBorderSpreadMult;
+        return 1f;
+    }
+
     /// <summary>技术传播 from → to（to 缺 from 的技术且依赖满足 → 按概率获得）。
     /// ⚠️ 性能：只遍历 from.TechKeys（科技差集，通常 3-8 项）而非全表 16 项——n64 同格/邻格对合计 6 亿次/演化。</summary>
     private void SpreadTech(CivSimContext ctx, CivEntity from, CivEntity to, float border = 1f)
     {
+        float terr = TerritoryMult(from, to);   // 领地乘数（同领地×1.5 / 跨领地×0.5 / 散兵×1）
         foreach (var key in from.TechKeys)
         {
             if (to.TechKeys.Contains(key)) continue;
             var t = TechTable.Get(key);
             if (t == null || t.IsAgricultureConcept) continue;
             if (!HasAll(to.TechKeys, t.Requires)) continue;   // 依赖硬门槛
-            float p = t.SpreadBase * border;
+            float p = t.SpreadBase * border * terr;
             if (t.IsSeed)
                 p *= Mathf.Clamp(ctx.Phi(to.Cell, t.SeedIndex), 0.3f, 1f);   // 种子传播修正
             if (ctx.Rng.NextDouble() < Mathf.Min(0.5f, p))
@@ -710,6 +719,10 @@ public sealed class SplitMigrateModel : CivModelBase
             float tension = Mathf.Clamp((t.P - CivSimContext.FissionTensionStart) / CivSimContext.FissionTensionSpan, 0f, 1f);
             float pEff = t.P * (1f + Mathf.Max(0f, 1f - t.FLast / t.P) + tension);
             if (pEff <= CivSimContext.SplitPop) continue;
+            // 领地自稳：母 band 在 ≥2 band 领地内 → 分裂漂变概率减半（凝聚抑制方言漂变）
+            float drift = t.TerritorySize >= 2
+                ? CivSimContext.CultureDriftChance * CivSimContext.TerritoryDriftDiv
+                : CivSimContext.CultureDriftChance;
             // 分家目标：无人陆地邻格优先 → 低密度陆地邻格 → canoe 跨 1 格海；无目标且母格未满 → 留母格
             int target = FindSplitTarget(ctx, t);
             if (target < 0)
@@ -734,17 +747,17 @@ public sealed class SplitMigrateModel : CivModelBase
                 BornTick = ctx.Tick,
             };
             // 文化标签分化：5% 新 key（习俗漂变——方言分化伴习俗变，独立于文化群判定）
-            if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
+            if (ctx.Rng.NextDouble() < drift)
             {
                 nt.CultureShare[0] = new ShareEntry { Key = ctx.NextCultureKey(), Frac = nt.CultureShare[0].Frac };
             }
             // 文化群分化：5% 新 key（方言→语言群漂变），独立计数（2026-08-07 与文化标签分开——防标签挤占语言群 key 空间）
-            if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
+            if (ctx.Rng.NextDouble() < drift)
             {
                 nt.CultureGroupShare[0] = new ShareEntry { Key = ctx.NextCultureGroupKey(), Frac = nt.CultureGroupShare[0].Frac };
             }
             // 宗教派别分化：2% 新 key（图腾漂变），与文化群分化独立判定
-            if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
+            if (ctx.Rng.NextDouble() < drift)
             {
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
             }
