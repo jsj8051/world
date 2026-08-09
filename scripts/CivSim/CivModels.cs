@@ -389,9 +389,9 @@ public sealed class TerritoryModel : CivModelBase
 
     private static CivEntity MaxPop(List<CivEntity> list)
     {
-        var best = list[0];
-        for (int k = 1; k < list.Count; k++)
-            if (!list[k].Dead && list[k].P > best.P) best = list[k];
+        CivEntity best = null;
+        for (int k = 0; k < list.Count; k++)
+            if (!list[k].Dead && (best == null || list[k].P > best.P)) best = list[k];
         return best;
     }
 }

@@ -419,12 +419,14 @@ public partial class CivSimDiag : Node
         ctx.TerritoryLastRebuild = -10;   // 越过频率守卫（Tick=0，0-(-10)=10 ≥ 10）
         new TerritoryModel().Execute(ctx);
         bool united = a.TerritoryId == b.TerritoryId && a.TerritorySize == 2;
+        bool sameId = a.TerritoryId == b.TerritoryId;
+        int sizeWhenUnited = a.TerritorySize;
         b.CultureGroupShare = ShareField.NewCulture("cultg_999");   // 语言群分歧
         ctx.TerritoryLastRebuild = -10;
         new TerritoryModel().Execute(ctx);
         bool split = a.TerritoryId != b.TerritoryId && a.TerritorySize == 1 && b.TerritorySize == 1;
         Check("T24 领地凝聚/断裂", united && split,
-            $"凝聚(同id={a.TerritoryId == b.TerritoryId},size={a.TerritorySize}) 断裂(异id,size=1)");
+            $"凝聚(同id={sameId},size={sizeWhenUnited}) 断裂(异id,size=1)");
     }
 
     // ═══════════════════ T 地图测试 ═══════════════════
