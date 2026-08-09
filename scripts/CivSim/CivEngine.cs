@@ -123,6 +123,10 @@ public static class CivEngine
             var e = ctx.Entities[i];
             if (e.Dead) continue;
             e.FLast = ctx.FOf(e);
+            // 货物累积（副产品 = 各方式 F × 副产率；2026-08-09）
+            e.Goods[CivSimContext.GoodsLeather] += e.FHuntLast * CivSimContext.LeatherRate;
+            e.Goods[CivSimContext.GoodsWool] += e.FHerdLast * CivSimContext.WoolRate;
+            e.Goods[CivSimContext.GoodsStraw] += e.FFarmLast * CivSimContext.StrawRate;
             ctx.CellF[e.Cell] += e.FLast;
         }
     }

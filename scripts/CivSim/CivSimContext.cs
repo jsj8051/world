@@ -242,9 +242,40 @@ public sealed class CivSimContext
         return floor;
     }
 
-    /// <summary>实体当 tick 实际产出 F_i = max(生产方式实际产出, 寒冷下限)（增长/核算/格压力用）。</summary>
-    public float FOf(CivEntity e) =>
-        Mathf.Max(e.IsFarming ? FFarmActual(e) : FHunt(e), ColdFloor(e));
+    /// <summary>格内活部落数（土地份额分母；0 → 1 防除零）。</summary>
+    private int NTribes(int cell)
+    {
+        int n = 0;
+        var tl = CellTribes != null ? CellTribes[cell] : null;
+        if (tl != null)
+            foreach (var o in tl)
+                if (!o.Dead) n++;
+        return Mathf.Max(1, n);
+    }
+
+    /// <summary>生产方式并行产出（2026-08-09 用户拍板：混合经济 + 收益权重土地分配，Vic3/EU5 PM 参考）：
+    /// 部落方式集 M = {hunt} ∪ {herd if livestock能力+生态位} ∪ {farm if IsFarming}；
+    /// 权重 w_k = 方式潜在全地产出（R_k×A×m_k）；土地份额 s_k = w_k/Σw；
+    /// 实际 F_k = w_k×s_k×min(1, P/(LaborFrac×w_k×s_k))（份额劳动爬坡）；
+    /// 总产出 = ΣF_k。单方式时退化为原公式（纯猎含劳动 ✓ 兼容）。
+    /// 分量缓存 FHuntLast/FHerdLast/FFarmLast（货物分解用）。</summary>
+    public float FOf(CivEntity e)
+    {
+        float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
+        float A = Grid.CellAreaKm2 / NTribes(e.Cell);
+        float pHunt = R[e.Cell] * A * m;
+        float pHerd = CapabilityTable.Has(this, e, "livestock") ? R[e.Cell] * HerdMult * A * m : 0f;
+        float pFarm = e.IsFarming ? FFarmPotential(e) : 0f;
+        float sw = pHunt + pHerd + pFarm;
+        float floor = ColdFloor(e);
+        if (sw <= 0f) return floor;
+        float sHunt = pHunt / sw, sHerd = pHerd / sw, sFarm = pFarm / sw;
+        float fHunt = pHunt * sHunt * Mathf.Min(1f, e.P / Mathf.Max(1f, LaborFrac * pHunt * sHunt));
+        float fHerd = pHerd * sHerd * Mathf.Min(1f, e.P / Mathf.Max(1f, LaborFrac * pHerd * sHerd));
+        float fFarm = pFarm * sFarm * Mathf.Min(1f, e.P / Mathf.Max(1f, LaborFrac * pFarm * sFarm));
+        e.FHuntLast = fHunt; e.FHerdLast = fHerd; e.FFarmLast = fFarm;   // 分量缓存（货物分解）
+        return Mathf.Max(fHunt + fHerd + fFarm, floor);
+    }
 
     // ── 环境判定（§6.1 硬门槛判定函数）──
 
