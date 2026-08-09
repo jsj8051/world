@@ -37,7 +37,7 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 6;
+    public const ushort Version = 7;
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
@@ -103,6 +103,7 @@ public static class CivMapArchive
             f.Store32((uint)e.Cell);
             f.Store32((uint)e.OriginCell);
             f.Store32((uint)e.BornTick);
+            for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);   // 货物 3×float（v7）
         }
         if (log)
             GD.Print($"[CivMapArchive] wrote v{Version} {path} (ticks={result.FinalTick} " +
@@ -259,6 +260,7 @@ public static class CivMapArchive
             e.Cell = (int)f.Get32();
             e.OriginCell = (int)f.Get32();
             e.BornTick = (int)f.Get32();
+            for (int gi = 0; gi < 3; gi++) e.Goods[gi] = f.GetFloat();   // 货物（v7）
             entities.Add(e);
             if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell].Add(e);
         }
@@ -360,7 +362,7 @@ public static class CivMapArchive
             pop += f.GetFloat();        // P
             f.Get8();                   // IsFarming
             int keyCount = f.Get16();
-            long skip = 16L * keyCount + 34 + 34 + 5 + 34 + 12;   // keys + 份额×3 + Cell/OriginCell/BornTick
+            long skip = 16L * keyCount + 34 + 34 + 5 + 34 + 12 + 12;   // keys + 份额×3 + Cell/OriginCell/BornTick + 货物3×float(v7)
             f.Seek(f.GetPosition() + (ulong)skip);
         }
         return true;

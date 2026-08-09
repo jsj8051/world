@@ -69,6 +69,13 @@ public sealed class CivSimContext
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
     public const float TerritoryDriftDiv = 0.5f;     // 领地内分裂漂变概率减半（凝聚自稳）
     public const float StorageFamineRelief = 0.6f;   // 存储饿死缓冲：缺口衰减系数（Testart 分水岭 2026-08-09）
+
+    // ── 货物系统（2026-08-09：生产方式副产品，累积入档 v7；贸易期接物物交换）──
+    public const int GoodsLeather = 0, GoodsWool = 1, GoodsStraw = 2;   // Goods[] 索引
+    public const float LeatherRate = 0.10f;   // 狩猎产出 → 皮革（★ 标定）
+    public const float WoolRate = 0.15f;      // 畜牧产出 → 羊毛（★ 标定）
+    public const float StrawRate = 0.05f;     // 农业产出 → 秸秆（★ 标定）
+    public const float HerdMult = 2.0f;       // 畜牧单位土地产出倍率（"少许土地产生食物"；★ 标定）
     public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P_格/F_格）
     public const float MigrateShare = 0.5f;           // 饱和迁徙分出比例
     public const float ScoutChance = 0.02f;           // 探路迁徙概率/tick

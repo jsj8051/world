@@ -179,6 +179,10 @@ public class GameGrid
     /// <summary>野生作物位（惰性重建：确定性 f(seed, 气候场)，不存档；读档后现场重推导）。</summary>
     public byte[] EnsureWildCrops() => WildCrops ??= World.MapGen.WildCropsSystem.Compute(this, Seed);
 
+    /// <summary>野生畜牧位（1=草原可驯；同 WildCrops 同构：确定性重建，不存档；2026-08-09）。</summary>
+    public byte[] WildLivestock;   // null=未生成，读档后惰性重建
+    public byte[] EnsureWildLivestock() => WildLivestock ??= World.MapGen.WildCropsSystem.ComputeLivestock(this, Seed);
+
     /// <summary>每格胞面积（km²；均匀近似 4πR²/N——Icosahedron 胞面积几乎相等）。</summary>
     public float CellAreaKm2 => 4f * Mathf.Pi * RadiusKm * RadiusKm / N;
 

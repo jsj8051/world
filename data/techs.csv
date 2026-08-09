@@ -9,6 +9,7 @@ canoe,独木舟,coast,0.01,100,0.02,fire,unlock_sea:1
 storage,存储,any,0.008,150,0.02,fire,
 pottery,陶器,any,0.008,200,0.02,fire,
 grinding,研磨器,any,0.01,100,0.02,handaxe,carry:1.15
+livestock,畜牧,grass,0.01,200,0.02,grinding,carry:1.1
 agriculture,农业（母科技·概念位）,any,0,0,0,,agri:1
 seed_wheat,种子·小麦/大麦,seed,0,0,0.008,grinding,agri:4
 seed_millet,种子·粟/高粱,seed,0,0,0.008,grinding,agri:3.5

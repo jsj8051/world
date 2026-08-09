@@ -50,6 +50,12 @@ public class CivEntity
     // ── 能力位图缓存（CapabilityTable.MaskOf；RefreshCellState 每 tick；不存档——从科技/状态确定性重算）──
     public uint CapMask;
 
+    // ── 货物库存（副产品累积；入档 .cmp v7——每实体 3×float 12B）──
+    public float[] Goods = new float[3];   // 0=皮革 1=羊毛 2=秸秆（CivSimContext 索引常量）
+
+    // ── 生产方式 F 分量（派生缓存：RefreshCellState 每 tick；不存档——货物分解用）──
+    public float FHuntLast, FHerdLast, FFarmLast;   // 各方式当 tick 产出
+
     // ── 身份份额场（Σ=1，255 归一）──
     public ShareEntry[] CultureShare = NewEmpty();        // top-2：{key,份额}×2（具体文化，快）
     public ShareEntry[] CultureGroupShare = NewEmpty();   // top-2：{key,份额}×2（文化群，慢）

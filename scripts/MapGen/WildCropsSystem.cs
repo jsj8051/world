@@ -234,4 +234,23 @@ public static class WildCropsSystem
         s *= 1f + 0.3f * Mathf.Clamp(g.Elev[i] / 2500f, 0f, 1f);   // 高原加成
         return Mathf.Clamp(s, 0f, 1f);
     }
+
+    /// <summary>野生畜牧位（bitmask 1 位；2026-08-09）：草原类 biome（HotSteppe/ColdSteppe/TropicalSavanna/
+    /// MediterraneanHot/MediterraneanCool）+ 年降水 300-1200mm → 可驯。同 WildCrops 同构：确定性重建不入档。</summary>
+    public static byte[] ComputeLivestock(GameGrid g, int seed)
+    {
+        int n = g.N;
+        var bits = new byte[n];
+        for (int i = 0; i < n; i++)
+        {
+            if (!g.IsLandCell(i)) continue;
+            var b = (Biome.BiomeType)g.Biome[i];
+            bool grass = b is Biome.BiomeType.HotSteppe or Biome.BiomeType.ColdSteppe
+                       or Biome.BiomeType.TropicalSavanna or Biome.BiomeType.MediterraneanHot
+                       or Biome.BiomeType.MediterraneanCool;
+            if (!grass) continue;
+            if (g.Precip[i] >= 300f && g.Precip[i] <= 1200f) bits[i] = 1;   // 年降水 mm
+        }
+        return bits;
+    }
 }

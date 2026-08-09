@@ -44,6 +44,7 @@ public static class TechTable
     public const string Canoe = "canoe";
     public const string Storage = "storage";
     public const string Pottery = "pottery";
+    public const string Livestock = "livestock";
     public const string Grinding = "grinding";
     public const string Agriculture = "agriculture";
     public const string SeedWheat = "seed_wheat";

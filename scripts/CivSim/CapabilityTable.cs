@@ -38,6 +38,8 @@ public static class CapabilityTable
         Register(new Capability { Id = "clothing",  Unlocked = (e, c) => e.TechKeys.Contains(TechTable.Clothing) });
         Register(new Capability { Id = "seed",      Unlocked = (e, c) => TechTable.HeldSeeds(e.TechKeys).Count > 0 });
         Register(new Capability { Id = "storage",   Unlocked = (e, c) => e.TechKeys.Contains(TechTable.Storage) });
+        Register(new Capability { Id = "livestock", Unlocked = (e, c) => e.TechKeys.Contains(TechTable.Livestock)
+            && c.Grid.EnsureWildLivestock()[e.Cell] != 0 });
     }
 
     /// <summary>实体能力位掩码（RefreshCellState 每 tick 缓存；条件含环境——同 tick 内环境稳定）。</summary>
