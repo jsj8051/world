@@ -476,7 +476,7 @@ public partial class CivSimDiag : Node
     {
         GD.Print("[CivSimDiag] ── T 地图测试 ──");
         // 演化 gate：未选任何地图测试（如 --only=S1,S2）时跳过完整演化（最贵段 ~11s）
-        bool needEvol = WantAny("T03", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "存档");
+        bool needEvol = WantAny("T03", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "T22", "存档");
         CivSimResult r1 = null;    // 演化结果（needEvol=false 时为 null，依赖它的测试已被筛掉）
         if (needEvol) r1 = EvolveAndDebug(seed, origins);
         else GD.Print("[CivSimDiag] --only 未含地图测试：跳过演化");
@@ -494,6 +494,7 @@ public partial class CivSimDiag : Node
         if (Want("T13")) T13_Religion(c);
         if (WantAny("T15", "T16")) T15_T16_Coverage(c);
         if (Want("T21")) T21_PopGradient(c);
+        if (Want("T22")) T22_TerritoryEmergence(c);
         if (Want("T18")) T18_Perf(seed, origins);   // 第三次演化（~11s），仅选中时跑
         // T20 全链确定性（复现×WildCrops×存档往返 组合指标）——需要 T03+T17+存档组同时被选才有意义
         if (Want("T20") && Want("T03") && Want("T17") && (outPath == null || WantAny("T01", "T02", "T04", "T19", "存档")))
@@ -644,12 +645,17 @@ public partial class CivSimDiag : Node
             if (wrote && CivMapArchive.Read(outPath, out gridBack, out rBack))
             {
                 natOk = NaturalUnchanged(_grid, gridBack);
+                // 领地是滞后重算的派生状态——对比前强制重算（确定性：同状态 → 同领地）
+                TerritoryModel.Rebuild(c);
+                TerritoryModel.Rebuild(rBack.Context);
                 rtOk = EntitiesEqual(c, rBack.Context);
                 // T04 读档续跑无分叉（IsFarming 入档验证）
                 int baseTicks = rBack.Context.Tick;   // 存档 tick（finalTick）
                 CivEngine.Continue(rBack.Context, 20);
                 var ctxFull = MakeCtx(_grid, seed, origins);
                 RunTicks(ctxFull, baseTicks + 20);
+                TerritoryModel.Rebuild(rBack.Context);
+                TerritoryModel.Rebuild(ctxFull);
                 contOk = EntitiesEqual(rBack.Context, ctxFull);
                 // [临时验证] Peek vs Read 摘要一致性（跑完即删；只对 Read 成功的档才有对照意义）
                 if (CivMapArchive.Peek(outPath, out int pSeed, out int pTick, out float pPop, out int pEnt,
@@ -831,6 +837,18 @@ public partial class CivSimDiag : Node
             $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>50) 峰值密度={densMax:F1} 人/km²(目标≥10) max={popMax:F0}");
     }
 
+    /// <summary>T22 领地涌现（演化后）：存在 ≥2 band 的凝聚体（领地 = 现实地域部落；需演化 r1）。
+    /// ⚠️ 若 FAIL：领地碎片化过重（漂变 5% 全碎）——调 TerritoryRebuildEvery 或 TerritoryDriftDiv。</summary>
+    private void T22_TerritoryEmergence(CivSimContext c)
+    {
+        var ids = new HashSet<int>();
+        int inTribe = 0;
+        foreach (var e in c.Entities)
+            if (e.TerritorySize >= 2) { ids.Add(e.TerritoryId); inTribe++; }
+        bool emerged = ids.Count >= 1;
+        Check("T22 领地涌现", emerged, $"领地 {ids.Count} 个（≥2 band），成员 band {inTribe} 个");
+    }
+
     /// <summary>T18 性能：全演化计时（第三次演化，仅选中时跑 ~11s）。</summary>
     private void T18_Perf(int seed, int origins)
     {
@@ -873,7 +891,8 @@ public partial class CivSimDiag : Node
         {
             var x = a.Entities[k]; var y = b.Entities[k];
             if (x.Id != y.Id || x.Cell != y.Cell || x.P != y.P || x.IsFarming != y.IsFarming
-                || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick)
+                || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick
+                || x.TerritoryId != y.TerritoryId || x.TerritorySize != y.TerritorySize)
             {
                 GD.Print($"  [往返诊断{tag}] 实体{k}: id={x.Id}vs{y.Id} cell={x.Cell}vs{y.Cell} P={x.P:F1}vs{y.P:F1} farm={x.IsFarming}vs{y.IsFarming} origin={x.OriginCell}vs{y.OriginCell} born={x.BornTick}vs{y.BornTick}");
                 return false;
