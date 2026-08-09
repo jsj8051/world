@@ -473,7 +473,7 @@ public partial class CivSimDiag : Node
         bool seedOk = CapabilityTable.Has(ctx, withSeed, "seed") && !CapabilityTable.Has(ctx, noCanoe, "seed");
         // 完整性：引用 id 全部注册（不漏不重）
         var ids = new HashSet<string>(CapabilityTable.AllIds());
-        bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage" });
+        bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage", "livestock" });
         Check("T26 能力开关", canoeOk && seedOk && complete,
             $"canoe开关={canoeOk} seed开关={seedOk} 能力集={string.Join(",", ids)}");
     }
@@ -707,11 +707,11 @@ public partial class CivSimDiag : Node
                 TerritoryModel.Rebuild(ctxFull);
                 contOk = EntitiesEqual(rBack.Context, ctxFull);
             }
-            // T19 存档版本：ver>6 拒绝；v5/v4 旧档拒绝（v6 头部 +4B 群计数，旧档续跑分叉）；旧 biome 4-11 拒绝
+            // T19 存档版本：ver>7 拒绝；v6/v5/v4 旧档拒绝（格式变更，旧档续跑分叉）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";
-            WriteBadVersion(badPath, 7);                      // ver>6 → 拒绝
+            WriteBadVersion(badPath, 8);                      // ver>7 → 拒绝
             verRejected = !CivMapArchive.Read(badPath, out _, out _);
-            WriteBadVersion(badPath, 5);                      // v5 旧档 → 拒绝（缺群独立计数，续跑分叉）
+            WriteBadVersion(badPath, 6);                      // v6 旧档 → 拒绝（缺货物段，读档错位）
             v4Rejected = !CivMapArchive.Read(badPath, out _, out _);
             WriteBadBiome(badPath, _grid);
             biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
@@ -720,7 +720,7 @@ public partial class CivSimDiag : Node
         if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
         if (Want("T04")) Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
         if (Want("T19")) Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
-            $"ver>6 拒绝={verRejected} v5/v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
+            $"ver>7 拒绝={verRejected} v6/v5/v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
         return rtOk;
     }
 
