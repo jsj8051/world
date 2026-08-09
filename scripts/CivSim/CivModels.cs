@@ -705,8 +705,9 @@ public sealed class SplitMigrateModel : CivModelBase
             // 裂变压力（2026-08-09 用户拍板：资源压力+内部张力涌现，替代纯 P>SplitPop）：
             //   P_eff = P × (1 + 资源压力 + 内部张力)
             //   资源压力 = max(0, 1 − F/P)：饥荒缺口 → 提前裂变求存
-            //   内部张力 = min(1, (P−300)/250)：超 SplitPop 后规模压力线性升，550 封顶
-            float tension = Mathf.Min(1f, (t.P - CivSimContext.FissionTensionStart) / CivSimContext.FissionTensionSpan);
+            //   内部张力 = clamp((P−300)/250, 0, 1)：超 SplitPop 后规模压力线性升，550 封顶
+            //   必须 clamp 0..1：P<300 时 (P−300)/250 为负，负张力会错误压制饥荒裂变，保底 0
+            float tension = Mathf.Clamp((t.P - CivSimContext.FissionTensionStart) / CivSimContext.FissionTensionSpan, 0f, 1f);
             float pEff = t.P * (1f + Mathf.Max(0f, 1f - t.FLast / t.P) + tension);
             if (pEff <= CivSimContext.SplitPop) continue;
             // 分家目标：无人陆地邻格优先 → 低密度陆地邻格 → canoe 跨 1 格海；无目标且母格未满 → 留母格
