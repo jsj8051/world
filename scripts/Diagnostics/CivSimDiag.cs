@@ -289,6 +289,11 @@ public partial class CivSimDiag : Node
         }
         bool aFarms = ea.IsFarming;    // φ=1.0 → 稳态农业
         bool bFarms = eb.IsFarming;    // φ=0.3 → 稳态狩猎（农业 K<狩猎 K 自动拒绝）
+        // [临时诊断] 场景 B 数值分解（狩猎土地份额+劳动力修复后排障）
+        float yHB = ctx.FHunt(eb), yFB = ctx.FFarmPotential(eb);
+        GD.Print($"[S2诊断] 场景B φ=0.3: P={eb.P:F0} yH={yHB:F0} yF={yFB:F0} m={eb.CarryMult:F2} " +
+                 $"plabor={CivSimContext.LaborFrac * (ctx.R[1] * g.CellAreaKm2 / 1f * eb.CarryMult):F0} " +
+                 $"eH={CivSimContext.EHunt(yHB, eb.P):F3} eF={CivSimContext.EFarm(yFB, eb.P):F3}");
         Check("S2 生产方式矩阵", aFarms && !bFarms,
             $"φ=1.0 农={aFarms}（应 True） φ=0.3 农={bFarms}（应 False）");
 
@@ -476,7 +481,7 @@ public partial class CivSimDiag : Node
     {
         GD.Print("[CivSimDiag] ── T 地图测试 ──");
         // 演化 gate：未选任何地图测试（如 --only=S1,S2）时跳过完整演化（最贵段 ~11s）
-        bool needEvol = WantAny("T03", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "T22", "存档");
+        bool needEvol = WantAny("T01", "T02", "T03", "T04", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "T22", "存档");
         CivSimResult r1 = null;    // 演化结果（needEvol=false 时为 null，依赖它的测试已被筛掉）
         if (needEvol) r1 = EvolveAndDebug(seed, origins);
         else GD.Print("[CivSimDiag] --only 未含地图测试：跳过演化");
@@ -667,11 +672,11 @@ public partial class CivSimDiag : Node
                 TerritoryModel.Rebuild(ctxFull);
                 contOk = EntitiesEqual(rBack.Context, ctxFull);
             }
-            // T19 存档版本：ver>5 拒绝；v4 旧档拒绝（两层公式变更 2026-08-17）；旧 biome 4-11 拒绝
+            // T19 存档版本：ver>6 拒绝；v5/v4 旧档拒绝（v6 头部 +4B 群计数，旧档续跑分叉）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";
-            WriteBadVersion(badPath, 6);                      // ver>5 → 拒绝
+            WriteBadVersion(badPath, 7);                      // ver>6 → 拒绝
             verRejected = !CivMapArchive.Read(badPath, out _, out _);
-            WriteBadVersion(badPath, 4);                      // v4 旧档 → 拒绝（公式变更，续跑行为不同）
+            WriteBadVersion(badPath, 5);                      // v5 旧档 → 拒绝（缺群独立计数，续跑分叉）
             v4Rejected = !CivMapArchive.Read(badPath, out _, out _);
             WriteBadBiome(badPath, _grid);
             biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
@@ -680,7 +685,7 @@ public partial class CivSimDiag : Node
         if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
         if (Want("T04")) Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
         if (Want("T19")) Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
-            $"ver>5 拒绝={verRejected} v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
+            $"ver>6 拒绝={verRejected} v5/v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
         return rtOk;
     }
 

@@ -163,12 +163,25 @@ public sealed class CivSimContext
 
     // ── 产量与能量（§4.2-4.4 定稿公式；两层模型 2026-08-17）──
 
-    /// <summary>实体狩猎产出 F_猎 = R × 胞面积 × 工具乘数链（猎物再生率恒定近似，种群动态二期）。
+    /// <summary>实体狩猎产出 = 土地份额 × 劳动力（2026-08-09 用户拍板：采集也是"劳动力维持的获取方式"，与农业同构）。
+    /// 土地份额 A_i = 格面积 ÷ 格内活部落数（部落拥有的土地，均分——人多地少，格总承载 = R×面积×m 与部落数无关，
+    ///   修复此前每部落各拿整格产出 → 8 部落同格 8 倍人口超载）；
+    /// 潜在产出 Y_pot = R × A_i × 工具乘数链 m（猎物再生率恒定近似，种群动态二期）；
+    /// 实际产出 = Y_pot × min(1, P_i / P_劳动)，P_劳动 = LaborFrac × Y_pot（劳动力爬坡，同农业 Boserup——
+    ///   新分裂的小部落劳动不足产出受限，需长大）。
     /// CarryMult 走实体缓存（RefreshCellState 每 tick 算；测试构造未算时 fallback 实时）。</summary>
     public float FHunt(CivEntity e)
     {
         float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
-        return R[e.Cell] * Grid.CellAreaKm2 * m;
+        int nTribes = 0;
+        var tl = CellTribes != null ? CellTribes[e.Cell] : null;
+        if (tl != null)
+            foreach (var o in tl)
+                if (!o.Dead) nTribes++;
+        float yPot = R[e.Cell] * Grid.CellAreaKm2 / Mathf.Max(1, nTribes) * m;
+        if (yPot <= 0f) return 0f;
+        float plabor = LaborFrac * yPot;
+        return yPot * Mathf.Min(1f, e.P / Mathf.Max(1f, plabor));
     }
 
     /// <summary>农业潜在产出（劳动因子=1；生产方式选择用——防小部落开垦不足永不转农死锁）。</summary>

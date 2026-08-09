@@ -9,14 +9,17 @@ using World.MapGen;
 namespace World.CivSim;
 
 /// <summary>
-/// 游玩地图存档 .cmp v5（石器时代段；自包含——自然层快照 + 实体表，独立于 .mpa/.gmp）。
+/// 游玩地图存档 .cmp v6（石器时代段；自包含——自然层快照 + 实体表，独立于 .mpa/.gmp）。
 /// 源自然地图只读，演化不修改任何自然字段。
 ///
+/// v6（2026-08-09）：头部 +4B CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
+///   读档恢复的群计数器 ≠ 从头演化实际值 → 续跑群漂变 key 错位 → 读档续跑分叉（T04）。v5 旧档拒绝。
 /// v5（2026-08-17，两层食物流）：公式变更（R 场/按部落增长/农业尖峰）→ v4 旧档续跑行为不同，拒绝。
 /// v4（2026-08-06，纯实体模型）：
 ///   [4B]  magic "CMP1"
-///   [2B]  version = 5
+///   [2B]  version = 6
 ///   [4B]  seed | [4B] tick | [4B] years（= tick×100）
+///   [8B]  rngState | [4B] cultKey | [4B] cultgKey（v6） | [4B] relKey
 ///   GameMapArchive.WriteBody（自然段，与 .gmp 布局一致，复用不变）
 ///   实体段（部落表）：
 ///     [4B] count
@@ -34,12 +37,14 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 5;
+    public const ushort Version = 6;
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
     /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
-    /// （旧档显示"旧版本存档"，可展示但禁止进入）。当前只认 v5。</summary>
+    /// （旧档显示"旧版本存档"，可展示但禁止进入）。
+    /// v6（2026-08-09）：头部 +4B 存 CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
+    ///   读档恢复的群计数器 = max(合并值, 场推导) ≠ 从头演化实际值 → 续跑群漂变 key 编号错位 → 读档续跑分叉（T04）。</summary>
     public static readonly ushort[] CompatibleArchiveVersions = { Version };
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
@@ -75,6 +80,7 @@ public static class CivMapArchive
         f.Store32((uint)(result.FinalTick * CivSimContext.TickYears));
         f.Store64((ctx.Rng as DeterministicRandom)?.State ?? (ulong)ctx.Seed);   // Rng 状态（读档续跑无分叉）
         f.Store32((uint)ctx.CultureKeyCount);   // 文化 key 计数（分裂分化接续 key 空间；推导不可靠——被同化掉的 key 不在份额场）
+        f.Store32((uint)ctx.CultureGroupKeyCount);   // 文化群 key 计数（v6 独立入档：读档续跑群漂变无分叉——v5 只存合并值致 key 错位）
         f.Store32((uint)ctx.ReligionKeyCount);  // 宗教派别 key 计数
         GameMapArchive.WriteBody(f, grid);      // 自然层（只读源，原样快照）
 
@@ -197,6 +203,7 @@ public static class CivMapArchive
         int years = (int)f.Get32();
         ulong rngState = f.Get64();   // Rng 状态（0=旧档无状态，用 seed 重建）
         int cultureKeyCount = (int)f.Get32();   // 文化 key 计数（读档续跑接续 key 空间）
+        int cultureGroupKeyCount = (int)f.Get32();   // 文化群 key 计数（v6 独立入档——v5 只存合并值，读档恢复不可靠致续跑群漂变分叉）
         int religionKeyCount = (int)f.Get32();  // 宗教派别 key 计数
         var g = new GameGrid();
         if (!GameMapArchive.ReadBody(f, g))
@@ -291,7 +298,7 @@ public static class CivMapArchive
             Suit = WildCropsSystem.Suitability(g),
             FirstFarmTick = -1,
             CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，标签份额推导兜底
-            CultureGroupKeyCount = Math.Max(cultureKeyCount, maxGroupId + 1),  // 群计数：旧档取合并值（群原与标签共享），新档 cultg_ 推导
+            CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数：v6 头部独立值优先（续跑无分叉）；场推导兜底
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
         };
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
@@ -317,7 +324,7 @@ public static class CivMapArchive
 
     /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：只读头部（seed/tick）+ 跳过自然段 + 统计实体段（人口/数量）。
     /// 不加载任何自然数组、不重建 WildCrops/R/RefreshCellState——n=64 档从全量 Read 的 ~1-2s 降到 ~50ms。
-    /// 布局：CivMapArchive 头 34B + 自然段（WriteBody 直连，无 GMP1 magic，长度 = 53 + 94n） + 实体段（count + 每实体 130 + 16×keyCount B）。
+    /// 布局：CivMapArchive 头 38B + 自然段（WriteBody 直连，无 GMP1 magic，长度 = 53 + 94n） + 实体段（count + 每实体 130 + 16×keyCount B）。
     /// 版本不符/损坏 → false，但输出版本号+状态（菜单区分"旧版本存档"与"损坏"）；结构失败 → false 状态 Unknown。</summary>
     public static bool Peek(string path, out int seed, out int tick, out float pop, out int entities,
                             out ushort archiveVersion, out ArchiveVersionStatus status)
@@ -334,7 +341,7 @@ public static class CivMapArchive
             return false;   // 版本不符（菜单据此区分"旧版本存档"与"损坏"）
         seed = (int)f.Get32();
         tick = (int)f.Get32();
-        f.Get32(); f.Get64(); f.Get32(); f.Get32();   // years / rngState / cultKey / relKey
+        f.Get32(); f.Get64(); f.Get32(); f.Get32(); f.Get32();   // years / rngState / cultKey / grpKey(v6) / relKey
         // 自然段（WriteBody 布局，无 GMP1 magic——.gmp 才有 magic+gVer 的 6B）：
         // 直接 GridN + N，验结构不变量（10n²+2，防伪造 N 让偏移爆炸）后整体跳过
         int gridN = (int)f.Get32();
@@ -342,7 +349,7 @@ public static class CivMapArchive
         long expectN = (long)gridN * gridN * 10 + 2;
         if (gridN < 8 || gridN > 512 || expectN != n) return false;   // 与 ReadBody 同语义（N=顶点数=10n²+2）
         long naturalLen = 53L + 94L * n;              // WriteBody 固定 53B（GridN 起→Verts 前）+ 每格 94B
-        f.Seek((ulong)(34 + naturalLen));             // 实体段起点（CivMapArchive 头 34B + 自然段）
+        f.Seek((ulong)(38 + naturalLen));             // 实体段起点（CivMapArchive 头 38B + 自然段）
         // 实体段：count + 每实体只取 P，其余 Seek 跳过
         long count = f.Get32();
         if (count < 0 || count > 2000000) return false;
