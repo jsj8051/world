@@ -649,15 +649,7 @@ public partial class CivSimDiag : Node
                 TerritoryModel.Rebuild(c);
                 TerritoryModel.Rebuild(rBack.Context);
                 rtOk = EntitiesEqual(c, rBack.Context);
-                // T04 读档续跑无分叉（IsFarming 入档验证）
-                int baseTicks = rBack.Context.Tick;   // 存档 tick（finalTick）
-                CivEngine.Continue(rBack.Context, 20);
-                var ctxFull = MakeCtx(_grid, seed, origins);
-                RunTicks(ctxFull, baseTicks + 20);
-                TerritoryModel.Rebuild(rBack.Context);
-                TerritoryModel.Rebuild(ctxFull);
-                contOk = EntitiesEqual(rBack.Context, ctxFull);
-                // [临时验证] Peek vs Read 摘要一致性（跑完即删；只对 Read 成功的档才有对照意义）
+                // [临时验证] Peek vs Read 摘要一致性（只对读档即时状态对照——续跑会推进 tick/人口/实体，放 T04 之后必不一致）
                 if (CivMapArchive.Peek(outPath, out int pSeed, out int pTick, out float pPop, out int pEnt,
                                        out ushort aVer, out var aSt))
                 {
@@ -666,6 +658,14 @@ public partial class CivSimDiag : Node
                     GD.Print($"[Peek验证] seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Entities.Count}) 一致={pkOk}");
                 }
                 else GD.Print("[Peek验证] FAIL 无法 Peek");
+                // T04 读档续跑无分叉（IsFarming 入档验证）
+                int baseTicks = rBack.Context.Tick;   // 存档 tick（finalTick）
+                CivEngine.Continue(rBack.Context, 20);
+                var ctxFull = MakeCtx(_grid, seed, origins);
+                RunTicks(ctxFull, baseTicks + 20);
+                TerritoryModel.Rebuild(rBack.Context);
+                TerritoryModel.Rebuild(ctxFull);
+                contOk = EntitiesEqual(rBack.Context, ctxFull);
             }
             // T19 存档版本：ver>5 拒绝；v4 旧档拒绝（两层公式变更 2026-08-17）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";

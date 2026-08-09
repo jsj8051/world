@@ -297,6 +297,7 @@ public static class CivMapArchive
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
         CivEngine.RefreshCellState(ctx);
         TerritoryModel.Rebuild(ctx);   // 领地派生状态重建（确定性；.cmp v5 格式不变）
+        ctx.TerritoryLastRebuild = ctx.Tick;   // 对齐重算时刻：读档后的领地视为"当前 tick 重算"（漂变抑制已实时化，此处仅为领地语义一致）
 
         result = new CivSimResult { Context = ctx, FinalTick = finalTick };
         grid = g;

@@ -719,8 +719,23 @@ public sealed class SplitMigrateModel : CivModelBase
             float tension = Mathf.Clamp((t.P - CivSimContext.FissionTensionStart) / CivSimContext.FissionTensionSpan, 0f, 1f);
             float pEff = t.P * (1f + Mathf.Max(0f, 1f - t.FLast / t.P) + tension);
             if (pEff <= CivSimContext.SplitPop) continue;
-            // 领地自稳：母 band 在 ≥2 band 领地内 → 分裂漂变概率减半（凝聚抑制方言漂变）
-            float drift = t.TerritorySize >= 2
+            // 领地自稳（实时判定，不依赖凝聚重算时刻——读档续跑无分叉的关键）：
+            //   母 band 存在同语言群活邻居（同格或邻格）→ 漂变概率减半（凝聚抑制方言漂变）
+            bool hasCoh = false;
+            var tl0 = ctx.CellTribes[t.Cell];
+            foreach (var o in tl0)
+                if (!o.Dead && o.Id != t.Id && ShareField.DomKey(o.CultureGroupShare) == ShareField.DomKey(t.CultureGroupShare))
+                { hasCoh = true; break; }
+            if (!hasCoh)
+                foreach (int nb in ctx.Grid.Neighbors[t.Cell])
+                {
+                    var nbl = ctx.CellTribes[nb];
+                    foreach (var o in nbl)
+                        if (!o.Dead && ShareField.DomKey(o.CultureGroupShare) == ShareField.DomKey(t.CultureGroupShare))
+                        { hasCoh = true; break; }
+                    if (hasCoh) break;
+                }
+            float drift = hasCoh
                 ? CivSimContext.CultureDriftChance * CivSimContext.TerritoryDriftDiv
                 : CivSimContext.CultureDriftChance;
             // 分家目标：无人陆地邻格优先 → 低密度陆地邻格 → canoe 跨 1 格海；无目标且母格未满 → 留母格
