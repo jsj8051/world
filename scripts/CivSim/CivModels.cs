@@ -212,6 +212,10 @@ public sealed class GrowthModel : CivModelBase
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
             if (f <= 0f) continue;
             float factor = Mathf.Exp(r * (1f - e.P / f));
+            // 存储缓冲（Testart 分水岭，2026-08-09）：有 storage 的部落饿死缺口衰减 ×0.6
+            //   （无状态效果——不引盈余池入档，读档续跑无分叉；宏观等效饥荒缓冲）
+            if (factor < 1f && CapabilityTable.Has(ctx, e, "storage"))
+                factor = 1f + (factor - 1f) * CivSimContext.StorageFamineRelief;
             e.P *= factor;
             if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
         }

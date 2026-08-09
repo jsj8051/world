@@ -132,6 +132,7 @@ public partial class CivSimDiag : Node
         if (Want("T24")) T24_TerritoryCohesion();
         if (Want("T25")) T25_FissionPressure();
         if (Want("T26")) T26_CapabilitySwitches();
+        if (Want("T27")) T27_StorageBuffer();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -475,6 +476,21 @@ public partial class CivSimDiag : Node
         bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage" });
         Check("T26 能力开关", canoeOk && seedOk && complete,
             $"canoe开关={canoeOk} seed开关={seedOk} 能力集={string.Join(",", ids)}");
+    }
+
+    /// <summary>T27 存储缓冲（Testart 分水岭）：有 storage 部落饿死衰减慢（缺口 ×0.6），无 storage 正常饿死。</summary>
+    private void T27_StorageBuffer()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var withS = AddEntity(ctx, 0, 1000f, TechTable.Storage, TechTable.Fire);     // 有存储
+        var noS = AddEntity(ctx, 1, 1000f, TechTable.Fire);                          // 无存储
+        withS.FLast = 500f; noS.FLast = 500f;   // 缺口 50%（D/F = 2 → 负增长）
+        var growth = new GrowthModel();
+        for (int t = 0; t < 3; t++) { ctx.Tick = t; growth.Execute(ctx); }
+        bool buffered = withS.P > noS.P;   // 有存储的饿死更慢
+        bool stillAlive = withS.P > 1f && noS.P > 1f;
+        Check("T27 存储缓冲", buffered && stillAlive, $"有存储 P={withS.P:F0} 无存储 P={noS.P:F0}（缺口×0.6 应更慢）");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>

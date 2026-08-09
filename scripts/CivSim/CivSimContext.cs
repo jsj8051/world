@@ -68,6 +68,7 @@ public sealed class CivSimContext
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
     public const float TerritoryDriftDiv = 0.5f;     // 领地内分裂漂变概率减半（凝聚自稳）
+    public const float StorageFamineRelief = 0.6f;   // 存储饿死缓冲：缺口衰减系数（Testart 分水岭 2026-08-09）
     public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P_格/F_格）
     public const float MigrateShare = 0.5f;           // 饱和迁徙分出比例
     public const float ScoutChance = 0.02f;           // 探路迁徙概率/tick
