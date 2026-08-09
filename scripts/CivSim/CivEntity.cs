@@ -47,6 +47,9 @@ public class CivEntity
     public int TerritoryId = -1;     // 领地 id = 分量内最小实体 Id（连通分量标号，确定性）
     public int TerritorySize = 1;    // 领地内 band 数（≥2 = 正式领地，触发加成）
 
+    // ── 能力位图缓存（CapabilityTable.MaskOf；RefreshCellState 每 tick；不存档——从科技/状态确定性重算）──
+    public uint CapMask;
+
     // ── 身份份额场（Σ=1，255 归一）──
     public ShareEntry[] CultureShare = NewEmpty();        // top-2：{key,份额}×2（具体文化，快）
     public ShareEntry[] CultureGroupShare = NewEmpty();   // top-2：{key,份额}×2（文化群，慢）

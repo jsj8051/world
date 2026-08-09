@@ -131,6 +131,7 @@ public partial class CivSimDiag : Node
         // 无地图依赖的 T 测试（构造场景风格，S 段注册）
         if (Want("T24")) T24_TerritoryCohesion();
         if (Want("T25")) T25_FissionPressure();
+        if (Want("T26")) T26_CapabilitySwitches();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -456,6 +457,24 @@ public partial class CivSimDiag : Node
         bool fedKept = ctxB.Fissions == 0;
         Check("T25 裂变压力", famineFissioned && fedKept,
             $"饥荒250裂变={famineFissioned}(Fissions={ctxA.Fissions}) 盈余300不裂={fedKept}(Fissions={ctxB.Fissions})");
+    }
+
+    /// <summary>T26 能力开关（单元）：canoe/seed 解锁条件正确；能力 id 全集完整（无引用缺失）。</summary>
+    private void T26_CapabilitySwitches()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var withCanoe = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
+        var noCanoe = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var withSeed = AddEntity(ctx, 0, 100f, TechTable.Grinding, TechTable.SeedWheat);
+        CivEngine.RefreshCellState(ctx);   // 算 CapMask
+        bool canoeOk = CapabilityTable.Has(ctx, withCanoe, "canoe") && !CapabilityTable.Has(ctx, noCanoe, "canoe");
+        bool seedOk = CapabilityTable.Has(ctx, withSeed, "seed") && !CapabilityTable.Has(ctx, noCanoe, "seed");
+        // 完整性：引用 id 全部注册（不漏不重）
+        var ids = new HashSet<string>(CapabilityTable.AllIds());
+        bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage" });
+        Check("T26 能力开关", canoeOk && seedOk && complete,
+            $"canoe开关={canoeOk} seed开关={seedOk} 能力集={string.Join(",", ids)}");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>

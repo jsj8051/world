@@ -114,6 +114,7 @@ public static class CivEngine
             var e = ctx.Entities[i];
             if (e.Dead) continue;
             e.CarryMult = TechTable.HuntingCarry(e.TechKeys);
+            e.CapMask = CapabilityTable.MaskOf(ctx, e);
             ctx.CellPop[e.Cell] += e.P;
             if (e.IsFarming) ctx.CellFarmPop[e.Cell] += e.P;
         }
