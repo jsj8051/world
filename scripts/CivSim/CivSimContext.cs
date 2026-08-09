@@ -39,6 +39,7 @@ public sealed class CivSimContext
     public int CultureGroupKeyCount;    // 文化群 key 计数器（2026-08-07 与文化标签分开——语言大群独立 key 空间，防标签挤占）
     public int ReligionKeyCount;        // 宗教派别 key 计数器（起源/分裂分化分配新 key，如 "relig_3"）
     public int FirstFarmTick = -1;      // 首转农 tick（终止条件锚点）
+    public int TerritoryLastRebuild = -1;   // 最近凝聚重算 tick（TerritoryModel 频率守卫）
     public int[] BfsStamp;
     public int BfsStampValue;
 
@@ -61,6 +62,12 @@ public sealed class CivSimContext
     public const float SplitPop = 300f;               // 分裂阈值（2026-08-07 400→300：分裂更勤 → 分化更多）
     public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
+    public const float FissionTensionStart = 300f;   // 规模张力起算点（= SplitPop；裂变压力机制 2026-08-09）
+    public const float FissionTensionSpan = 250f;    // 张力封顶跨度（300+250=550 → 张力 1.0）
+    public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
+    public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
+    public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
+    public const float TerritoryDriftDiv = 0.5f;     // 领地内分裂漂变概率减半（凝聚自稳）
     public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P_格/F_格）
     public const float MigrateShare = 0.5f;           // 饱和迁徙分出比例
     public const float ScoutChance = 0.02f;           // 探路迁徙概率/tick

@@ -20,10 +20,23 @@ public partial class CivSimDiag : Node
 {
     private int _pass, _fail;
     private GameGrid _grid;
+    private HashSet<string> _only;   // --only= 白名单（空 = 全部）
+    private HashSet<string> _skip;   // --skip= 黑名单
+    private string _forcedArch;      // SetArch() 注入（编辑器/代码内调用等价 --arch=）
+
+    /// <summary>代码/编辑器内调用入口：设置测试筛选（等价命令行 --only= / --skip=；须在节点入树前调用）。</summary>
+    public void SetFilter(string only, string skip)
+    {
+        if (!string.IsNullOrEmpty(only)) _only = ParseSet(only);
+        if (!string.IsNullOrEmpty(skip)) _skip = ParseSet(skip);
+    }
+
+    /// <summary>代码/编辑器内调用入口：指定地图路径（等价 --arch=；须在节点入树前调用）。</summary>
+    public void SetArch(string path) => _forcedArch = path;
 
     public override void _Ready()
     {
-        string arch = ArchiveDiag.ResolveArchPath();
+        string arch = _forcedArch ?? ArchiveDiag.ResolveArchPath();
         int seed = 42, origins = 3;
         string outPath = arch != null ? arch.GetBaseName() + ".cmp" : null;
         var ua = OS.GetCmdlineUserArgs();
@@ -34,7 +47,11 @@ public partial class CivSimDiag : Node
             if (v.StartsWith("seed=", StringComparison.OrdinalIgnoreCase) && int.TryParse(v.Substring(5), out int s)) seed = s;
             else if (v.StartsWith("origins=", StringComparison.OrdinalIgnoreCase) && int.TryParse(v.Substring(8), out int o)) origins = Mathf.Clamp(o, 1, 6);
             else if (v.StartsWith("out=", StringComparison.OrdinalIgnoreCase)) outPath = v.Substring(4);
+            else if (v.StartsWith("only=", StringComparison.OrdinalIgnoreCase)) _only = ParseSet(v.Substring(5));
+            else if (v.StartsWith("skip=", StringComparison.OrdinalIgnoreCase)) _skip = ParseSet(v.Substring(4));
         }
+        if (_only != null || _skip != null)
+            GD.Print($"[CivSimDiag] 筛选: --only=[{string.Join(",", _only ?? new HashSet<string>())}] --skip=[{string.Join(",", _skip ?? new HashSet<string>())}]");
 
         // ── S 构造场景（无地图依赖，先跑）──
         RunScenarios();
@@ -69,17 +86,50 @@ public partial class CivSimDiag : Node
         GD.Print($"  {(ok ? "PASS" : "FAIL")} {name}{(data.Length > 0 ? " | " + data : "")}");
     }
 
+    /// <summary>测试筛选：--only（白名单，空=全部）与 --skip（黑名单）取交集语义。
+    /// 支持前缀：S=全部构造场景，T=全部地图测试（含存档组）；"存档"=T01/T02/T04/T19 组。
+    /// 共享计算的组（T14/T08、T15/T16）由组 gate 触发一次，组内各 Check 再按 Want 各自开关。</summary>
+    private bool Want(string id)
+    {
+        if (_skip != null && _skip.Contains(id)) return false;
+        if (_only == null || _only.Count == 0) return true;
+        if (_only.Contains(id)) return true;
+        if (_only.Contains("S") && id.StartsWith("S", StringComparison.Ordinal)) return true;
+        if (_only.Contains("T") && (id.StartsWith("T", StringComparison.Ordinal) || id == "存档")) return true;
+        return false;
+    }
+
+    private bool WantAny(params string[] ids)
+    {
+        foreach (var id in ids) if (Want(id)) return true;
+        return false;
+    }
+
+    private static HashSet<string> ParseSet(string s)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var t in s.Split(','))
+        {
+            string id = t.Trim();
+            if (id.Length > 0) set.Add(id);
+        }
+        return set;
+    }
+
     // ═══════════════════ S 构造场景 ═══════════════════
 
     private void RunScenarios()
     {
         GD.Print("[CivSimDiag] ── S 构造场景 ──");
-        S1_GrowthAndEnergy();
-        S2_ModeMatrix();
-        S3_ShareConservation();
-        S4_FissionInherit();
-        S5_SpreadDependency();
-        S6_ReligionLock();
+        if (Want("S1")) S1_GrowthAndEnergy();
+        if (Want("S2")) S2_ModeMatrix();
+        if (Want("S3")) S3_ShareConservation();
+        if (Want("S4")) S4_FissionInherit();
+        if (Want("S5")) S5_SpreadDependency();
+        if (Want("S6")) S6_ReligionLock();
+
+        // 无地图依赖的 T 测试（构造场景风格，S 段注册）
+        if (Want("T24")) T24_TerritoryCohesion();
     }
 
     /// <summary>小网格（N=2 赤道相邻两点，Neighbors 连通；RadiusKm 决定胞面积）。</summary>
@@ -359,11 +409,59 @@ public partial class CivSimDiag : Node
             $"萨满份额={ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman)} 祖先份额全0={noAncestor}");
     }
 
+    /// <summary>T24 领地凝聚/断裂：同格同语言群 → 同领地；语言群分歧 → 领地分裂（确定性，无地图依赖）。</summary>
+    private void T24_TerritoryCohesion()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var a = AddEntity(ctx, 0, 200f, TechTable.StoneCore);
+        var b = AddEntity(ctx, 0, 200f, TechTable.StoneCore);   // 同格；AddEntity 默认同语言群 test_grp
+        ctx.TerritoryLastRebuild = -10;   // 越过频率守卫（Tick=0，0-(-10)=10 ≥ 10）
+        new TerritoryModel().Execute(ctx);
+        bool united = a.TerritoryId == b.TerritoryId && a.TerritorySize == 2;
+        b.CultureGroupShare = ShareField.NewCulture("cultg_999");   // 语言群分歧
+        ctx.TerritoryLastRebuild = -10;
+        new TerritoryModel().Execute(ctx);
+        bool split = a.TerritoryId != b.TerritoryId && a.TerritorySize == 1 && b.TerritorySize == 1;
+        Check("T24 领地凝聚/断裂", united && split,
+            $"凝聚(同id={a.TerritoryId == b.TerritoryId},size={a.TerritorySize}) 断裂(异id,size=1)");
+    }
+
     // ═══════════════════ T 地图测试 ═══════════════════
 
     private void RunMapTests(int seed, int origins, string outPath)
     {
         GD.Print("[CivSimDiag] ── T 地图测试 ──");
+        // 演化 gate：未选任何地图测试（如 --only=S1,S2）时跳过完整演化（最贵段 ~11s）
+        bool needEvol = WantAny("T03", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "存档");
+        CivSimResult r1 = null;    // 演化结果（needEvol=false 时为 null，依赖它的测试已被筛掉）
+        if (needEvol) r1 = EvolveAndDebug(seed, origins);
+        else GD.Print("[CivSimDiag] --only 未含地图测试：跳过演化");
+        var c = r1?.Context;   // 演化 context（needEvol=false 时为 null）
+
+        bool repro = false, wcDet = false, rtOk = false;
+        if (Want("T03")) repro = T03_Reproducibility(c, seed, origins);   // 内部二次演化（~11s），仅选中时跑
+        if (Want("T17")) wcDet = T17_WildCrops(seed);
+        if (WantAny("T01", "T02", "T04", "T19", "存档")) rtOk = ArchiveChecks(outPath, r1, c, seed, origins);
+        if (Want("T05")) T05_Origins(seed, origins);
+        if (Want("T09")) T09_DependencyChain(c);
+        if (WantAny("T14", "T08")) T14_T08_Agriculture(c);
+        if (Want("T10")) T10_Spread(c);
+        if (Want("T11")) T11_FissionMigration(c);
+        if (Want("T13")) T13_Religion(c);
+        if (WantAny("T15", "T16")) T15_T16_Coverage(c);
+        if (Want("T21")) T21_PopGradient(c);
+        if (Want("T18")) T18_Perf(seed, origins);   // 第三次演化（~11s），仅选中时跑
+        // T20 全链确定性（复现×WildCrops×存档往返 组合指标）——需要 T03+T17+存档组同时被选才有意义
+        if (Want("T20") && Want("T03") && Want("T17") && (outPath == null || WantAny("T01", "T02", "T04", "T19", "存档")))
+            Check("T20 全链确定性", repro && wcDet && (outPath == null || rtOk), $"复现={repro} WildCrops={wcDet} 往返={rtOk}");
+        else if (Want("T20"))
+            GD.Print("  - T20 跳过：需同时选中 T03+T17+存档组（--only=T03,T17,存档,T20）");
+    }
+
+    /// <summary>完整演化一次 + [文化调试] 状态摘要打印（只被地图测试共享；演化后无条件打印摘要）。</summary>
+    private CivSimResult EvolveAndDebug(int seed, int origins)
+    {
         var sw = Stopwatch.StartNew();
         var r1 = CivEngine.Run(_grid, seed, origins);
         sw.Stop();
@@ -441,13 +539,23 @@ public partial class CivSimDiag : Node
         }
         GD.Print($"[文化调试] 文化群存活={grpCount.Count} 宗教派别存活={relCount.Count} (CultureKeyCount={r1.Context.CultureKeyCount} ReligionKeyCount={r1.Context.ReligionKeyCount})");
         GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Entities.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms");
+        return r1;
+    }
 
-        // T03 复现性
+    /// <summary>T03 复现性：同 seed 二次演化结果逐实体一致（唯一要跑第二遍演化的测试 ~11s，仅选中时跑）。
+    /// 返回 repro 供 T20 全链确定性组合。</summary>
+    private bool T03_Reproducibility(CivSimContext c, int seed, int origins)
+    {
         var r2 = CivEngine.Run(_grid, seed, origins);
         bool repro = EntitiesEqual(c, r2.Context);
         Check("T03 复现性（同 seed 两次一致）", repro, $"实体 {c.Entities.Count}");
+        return repro;
+    }
 
-        // T17 WildCrops：确定性重建 + 斑块 + 只落陆地
+    /// <summary>T17 WildCrops：确定性重建 + 斑块 + 只落陆地（Compute×2 + Suitability，秒级）。
+    /// 返回 wcDet 供 T20 全链确定性组合。</summary>
+    private bool T17_WildCrops(int seed)
+    {
         var wc1 = WildCropsSystem.Compute(_grid, seed);
         var wc2 = WildCropsSystem.Compute(_grid, seed);
         bool wcDet = ByteSeqEqual(wc1, wc2);
@@ -476,13 +584,21 @@ public partial class CivSimDiag : Node
         Check("T17 WildCrops", wcOk,
             $"确定性={wcDet} 只落陆地={wcLand} 斑块格数=[{string.Join(",", wcCount)}] 灭绝={string.Join(";", extinct)}");
         if (extinct.Count > 0) GD.Print($"  ⚠ [T17] 天然灭绝种子: {string.Join(";", extinct)}（星球气候不匹配，按设计不保底）");
+        return wcDet;
+    }
 
-        // T01 自然层零改动 + T02 实体往返 + T04 读档续跑 + T19 存档版本（写 .cmp → 读回）
+    /// <summary>T01/T02/T04/T19 存档组（写 .cmp → 读回 → 续跑对照 → 版本拒绝）：共享一次 Write+Read（~1s）。
+    /// 组内各 Check 按 --only/--skip 独立开关；无 --out 时整组跳过（不再制造 FAIL 噪声）。
+    /// 返回 rtOk 供 T20 全链确定性组合。</summary>
+    private bool ArchiveChecks(string outPath, CivSimResult r1, CivSimContext c, int seed, int origins)
+    {
         bool natOk = false, rtOk = false, contOk = false, verRejected = false, v4Rejected = false, biomeRejected = false;
         if (outPath != null)
         {
             bool wrote = CivMapArchive.Write(outPath, _grid, r1);
-            if (wrote && CivMapArchive.Read(outPath, out var gridBack, out var rBack))
+            GameGrid gridBack = null;
+            CivSimResult rBack = null;
+            if (wrote && CivMapArchive.Read(outPath, out gridBack, out rBack))
             {
                 natOk = NaturalUnchanged(_grid, gridBack);
                 rtOk = EntitiesEqual(c, rBack.Context);
@@ -492,6 +608,15 @@ public partial class CivSimDiag : Node
                 var ctxFull = MakeCtx(_grid, seed, origins);
                 RunTicks(ctxFull, baseTicks + 20);
                 contOk = EntitiesEqual(rBack.Context, ctxFull);
+                // [临时验证] Peek vs Read 摘要一致性（跑完即删；只对 Read 成功的档才有对照意义）
+                if (CivMapArchive.Peek(outPath, out int pSeed, out int pTick, out float pPop, out int pEnt,
+                                       out ushort aVer, out var aSt))
+                {
+                    bool pkOk = pSeed == rBack.Context.Seed && pTick == rBack.Context.Tick
+                        && pPop == rBack.Context.TotalPopulation() && pEnt == rBack.Context.Entities.Count;
+                    GD.Print($"[Peek验证] seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Entities.Count}) 一致={pkOk}");
+                }
+                else GD.Print("[Peek验证] FAIL 无法 Peek");
             }
             // T19 存档版本：ver>5 拒绝；v4 旧档拒绝（两层公式变更 2026-08-17）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";
@@ -502,13 +627,17 @@ public partial class CivSimDiag : Node
             WriteBadBiome(badPath, _grid);
             biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
         }
-        Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
-        Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
-        Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
-        Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
+        if (Want("T01")) Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
+        if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
+        if (Want("T04")) Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
+        if (Want("T19")) Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
             $"ver>5 拒绝={verRejected} v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
+        return rtOk;
+    }
 
-        // T05 起源播种（单独跑 OriginModel）
+    /// <summary>T05 起源播种（独立跑 OriginModel，不依赖演化结果）。</summary>
+    private void T05_Origins(int seed, int origins)
+    {
         bool t05 = false;
         var ctx0 = MakeCtx(_grid, seed, origins);
         new OriginModel().Execute(ctx0);
@@ -529,10 +658,12 @@ public partial class CivSimDiag : Node
             t05 = distOk && richOk && cultOk;
         }
         Check("T05 起源播种", t05, $"N={ctx0.Entities.Count} 格距≥12格 富饶区 泛灵 独立文化");
+    }
 
-        // T09 依赖链不变量 + 种子压力触发
+    /// <summary>T09 依赖链不变量（bow→microlith→handaxe→stone_core）。</summary>
+    private void T09_DependencyChain(CivSimContext c)
+    {
         bool depOk = true;
-        int[] seedHolders = new int[5];
         foreach (var e in c.Entities)
         {
             if (e.TechKeys.Contains(TechTable.Bow) && !e.TechKeys.Contains(TechTable.Microlith)) depOk = false;
@@ -540,19 +671,22 @@ public partial class CivSimDiag : Node
             if (e.TechKeys.Contains(TechTable.Handaxe) && !e.TechKeys.Contains(TechTable.StoneCore)) depOk = false;
             if (e.TechKeys.Contains(TechTable.Canoe) && !e.TechKeys.Contains(TechTable.Fire)) depOk = false;
             if (e.TechKeys.Contains(TechTable.Grinding) && !e.TechKeys.Contains(TechTable.Handaxe)) depOk = false;
-            for (int s = 0; s < 5; s++)
-                if (e.TechKeys.Contains(TechTable.SeedKeys[s])) seedHolders[s]++;
         }
         Check("T09 依赖链不变量", depOk, "bow→microlith→handaxe→stone_core 全链成立");
+    }
 
-        // T14 农业涌现 + T08 退农检查
-        int farmCount = 0;
-        foreach (var e in c.Entities) if (e.IsFarming) farmCount++;
+    /// <summary>T14 农业涌现 + T08 稳态不退农（共享一次遍历；各自 Check 按 --only 独立开关）。</summary>
+    private void T14_T08_Agriculture(CivSimContext c)
+    {
+        int farmCount = CountFarming(c);
         bool agriEmerged = c.FirstFarmTick >= 0;
         bool noRevert = true;   // 终态农业实体 e_农 > e_猎（稳态站稳）
         int revertCount = 0;
+        int[] seedHolders = new int[5];
         foreach (var e in c.Entities)
         {
+            for (int s = 0; s < 5; s++)
+                if (e.TechKeys.Contains(TechTable.SeedKeys[s])) seedHolders[s]++;
             if (!e.IsFarming) continue;
             float eh = CivSimContext.EHunt(c.FHunt(e), e.P);
             float ef = CivSimContext.EFarm(c.FFarmPotential(e), e.P);
@@ -566,21 +700,31 @@ public partial class CivSimDiag : Node
             }
         }
         GD.Print($"  [T08数据] 农业实体 {farmCount} 个，其中 e_农<e_猎 的 {revertCount} 个");
-        Check("T14 农业涌现", agriEmerged && farmCount > 0, $"首转农 tick={c.FirstFarmTick} 农业实体={farmCount} 种子持有=[{string.Join(",", seedHolders)}]");
-        Check("T08 稳态不退农", noRevert || farmCount == 0, $"终态农业实体 e_农>e_猎 全成立={noRevert}（退农 {revertCount}/{farmCount}）");
+        if (Want("T14")) Check("T14 农业涌现", agriEmerged && farmCount > 0, $"首转农 tick={c.FirstFarmTick} 农业实体={farmCount} 种子持有=[{string.Join(",", seedHolders)}]");
+        if (Want("T08")) Check("T08 稳态不退农", noRevert || farmCount == 0, $"终态农业实体 e_农>e_猎 全成立={noRevert}（退农 {revertCount}/{farmCount}）");
+    }
 
-        // T10 传播（工具扩散 > 种子扩散，参考指标）
+    /// <summary>T10 传播（工具扩散 > 种子扩散，参考指标；farmCount 自算，不依赖 T14 组）。</summary>
+    private void T10_Spread(CivSimContext c)
+    {
+        int farmCount = CountFarming(c);
         int toolTechHolders = 0;
         foreach (var e in c.Entities)
             if (e.TechKeys.Contains(TechTable.Bow)) toolTechHolders++;
         bool spreadOk = toolTechHolders >= farmCount;   // 工具类扩散显著（软指标）
         Check("T10 传播扩散", spreadOk, $"弓箭持有 {toolTechHolders} ≥ 农业实体 {farmCount}");
+    }
 
-        // T11 分裂/迁徙（地图统计）
+    /// <summary>T11 分裂/迁徙（地图统计）。</summary>
+    private void T11_FissionMigration(CivSimContext c)
+    {
         bool splitOk = c.Fissions > 0 && c.Migrations > 0;
         Check("T11 分裂/迁徙", splitOk, $"分裂 {c.Fissions} 迁徙 {c.Migrations}");
+    }
 
-        // T13 宗教：旧石器无祖先/多神/一神（锁死）+ 派别多样性
+    /// <summary>T13 宗教：旧石器无祖先/多神/一神（锁死）+ 派别多样性。</summary>
+    private void T13_Religion(CivSimContext c)
+    {
         bool relOk = true;
         int shamanEnts = 0;
         var cultSet = new System.Collections.Generic.HashSet<string>();
@@ -594,8 +738,11 @@ public partial class CivSimDiag : Node
             if (ck != null) cultSet.Add(ck);
         }
         Check("T13 宗教演进", relOk, $"萨满实体 {shamanEnts}（祖先/多神/一神全 0={relOk}）· 派别 {cultSet.Count} 种");
+    }
 
-        // T15 覆盖 + T16 时代分布
+    /// <summary>T15 覆盖（参考指标）+ T16 时代分布金字塔（共享一次扫描；各自 Check 按 --only 独立开关）。</summary>
+    private void T15_T16_Coverage(CivSimContext c)
+    {
         int occupied = 0, land = 0, maxCellEnts = 0, cellsWithEnts = 0;
         for (int i = 0; i < _grid.N; i++)
         {
@@ -606,11 +753,18 @@ public partial class CivSimDiag : Node
         }
         GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Entities.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
         float cover = land > 0 ? occupied * 100f / land : 0f;
-        Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（参考指标，不硬卡）");
-        bool pyramid = farmCount < c.Entities.Count / 2;
-        Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Entities.Count - farmCount}");
+        if (Want("T15")) Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（参考指标，不硬卡）");
+        if (Want("T16"))
+        {
+            int farmCount = CountFarming(c);
+            bool pyramid = farmCount < c.Entities.Count / 2;
+            Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Entities.Count - farmCount}");
+        }
+    }
 
-        // T21 人口分布梯度（两层模型核心验收 2026-08-17：人口=空间R×食物流，不再每格趋同）
+    /// <summary>T21 人口分布梯度（两层模型核心验收 2026-08-17：人口=空间R×食物流，不再每格趋同）。</summary>
+    private void T21_PopGradient(CivSimContext c)
+    {
         var pops = new List<float>();
         float popMax = 0f;
         for (int i = 0; i < _grid.N; i++)
@@ -632,17 +786,23 @@ public partial class CivSimDiag : Node
         float densMax = _grid.CellAreaKm2 > 0f ? popMax / _grid.CellAreaKm2 : 0f;   // 峰值密度 人/km²
         Check("T21 人口分布梯度", popRatio > 50f && densMax >= 10f,
             $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>50) 峰值密度={densMax:F1} 人/km²(目标≥10) max={popMax:F0}");
+    }
 
-        // T18 性能
-        sw.Restart();
+    /// <summary>T18 性能：全演化计时（第三次演化，仅选中时跑 ~11s）。</summary>
+    private void T18_Perf(int seed, int origins)
+    {
+        var sw = Stopwatch.StartNew();
         var r3 = CivEngine.Run(_grid, seed, origins);
         sw.Stop();
         long ms = sw.ElapsedMilliseconds;
         Check("T18 性能 n=64 全演化 <10s", ms < 10000, $"{ms}ms（tick {r3.FinalTick}）");
+    }
 
-        // T20 全链确定性（WildCrops 重建 + 演化 + 存档读回 逐位一致）
-        bool t20 = repro && wcDet && (outPath == null || rtOk);
-        Check("T20 全链确定性", t20, $"复现={repro} WildCrops={wcDet} 往返={rtOk}");
+    private static int CountFarming(CivSimContext c)
+    {
+        int n = 0;
+        foreach (var e in c.Entities) if (e.IsFarming) n++;
+        return n;
     }
 
     private HashSet<int> RichZone(GameGrid g)

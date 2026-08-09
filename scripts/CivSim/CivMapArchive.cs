@@ -28,11 +28,33 @@ namespace World.CivSim;
 /// 旧档放弃（用户拍板）：v3/v4 部落表 / biome 值 4-11 一律报错要求重新生成，不做兼容转换。ver>5 拒绝。
 /// WildCrops 不存档（确定性重建：同 seed 同网格同结果）。
 /// </summary>
+/// <summary>存档版本分类：Current（本版）/ Compatible（兼容表内旧版）/ Older（版本过旧）/ Newer（版本过新）/ Unknown（读不出）。</summary>
+public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newer }
+
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
     public const ushort Version = 5;
     private const int KeyMaxLen = 16;
+
+    /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
+    /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
+    /// （旧档显示"旧版本存档"，可展示但禁止进入）。当前只认 v5。</summary>
+    public static readonly ushort[] CompatibleArchiveVersions = { Version };
+
+    /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
+    public static string GameVersion =>
+        ProjectSettings.GetSetting("application/config/version", "0.0.0").AsString();
+
+    /// <summary>版本分类：Current/Compatible 可读；Older/Newer/Unknown 拒绝（与 Read/Peek 共用，菜单据此区分文案）。</summary>
+    public static ArchiveVersionStatus ClassifyVersion(ushort ver)
+    {
+        if (ver == Version) return ArchiveVersionStatus.Current;
+        foreach (ushort v in CompatibleArchiveVersions)
+            if (v == ver) return ArchiveVersionStatus.Compatible;
+        if (ver == 0) return ArchiveVersionStatus.Unknown;
+        return ver > Version ? ArchiveVersionStatus.Newer : ArchiveVersionStatus.Older;
+    }
 
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {
@@ -160,15 +182,15 @@ public static class CivMapArchive
             return false;
         }
         ushort ver = f.Get16();
-        if (ver > Version)
+        switch (ClassifyVersion(ver))
         {
-            GD.PrintErr($"[CivMapArchive] unsupported version {ver} in {path} (need ≤{Version})");
-            return false;
-        }
-        if (ver < Version)
-        {
-            GD.PrintErr($"[CivMapArchive] old version {ver} in {path}（旧档已放弃，请重新演化生成 v{Version}）");
-            return false;
+            case ArchiveVersionStatus.Newer:
+                GD.PrintErr($"[CivMapArchive] unsupported version {ver} in {path} (need ≤{Version})");
+                return false;
+            case ArchiveVersionStatus.Older:
+            case ArchiveVersionStatus.Unknown:
+                GD.PrintErr($"[CivMapArchive] old version {ver} in {path}（旧档已放弃，请重新演化生成 v{Version}）");
+                return false;
         }
         int seed = (int)f.Get32();
         int finalTick = (int)f.Get32();
@@ -274,6 +296,7 @@ public static class CivMapArchive
         };
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
         CivEngine.RefreshCellState(ctx);
+        TerritoryModel.Rebuild(ctx);   // 领地派生状态重建（确定性；.cmp v5 格式不变）
 
         result = new CivSimResult { Context = ctx, FinalTick = finalTick };
         grid = g;
@@ -286,5 +309,52 @@ public static class CivMapArchive
         var a = new byte[n];
         for (int i = 0; i < n; i++) a[i] = f.Get8();
         return a;
+    }
+
+    private static bool IsMagic(byte[] a, char c0, char c1, char c2, char c3) =>
+        a.Length == 4 && a[0] == (byte)c0 && a[1] == (byte)c1 && a[2] == (byte)c2 && a[3] == (byte)c3;
+
+    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：只读头部（seed/tick）+ 跳过自然段 + 统计实体段（人口/数量）。
+    /// 不加载任何自然数组、不重建 WildCrops/R/RefreshCellState——n=64 档从全量 Read 的 ~1-2s 降到 ~50ms。
+    /// 布局：CivMapArchive 头 34B + 自然段（WriteBody 直连，无 GMP1 magic，长度 = 53 + 94n） + 实体段（count + 每实体 130 + 16×keyCount B）。
+    /// 版本不符/损坏 → false，但输出版本号+状态（菜单区分"旧版本存档"与"损坏"）；结构失败 → false 状态 Unknown。</summary>
+    public static bool Peek(string path, out int seed, out int tick, out float pop, out int entities,
+                            out ushort archiveVersion, out ArchiveVersionStatus status)
+    {
+        seed = 0; tick = 0; pop = 0f; entities = 0;
+        archiveVersion = 0; status = ArchiveVersionStatus.Unknown;
+        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
+        if (f == null) return false;
+        if (!IsMagic(ReadBytes(f, 4), 'C', 'M', 'P', '1')) return false;
+        ushort ver = f.Get16();
+        archiveVersion = ver;
+        status = ClassifyVersion(ver);
+        if (status is ArchiveVersionStatus.Older or ArchiveVersionStatus.Newer or ArchiveVersionStatus.Unknown)
+            return false;   // 版本不符（菜单据此区分"旧版本存档"与"损坏"）
+        seed = (int)f.Get32();
+        tick = (int)f.Get32();
+        f.Get32(); f.Get64(); f.Get32(); f.Get32();   // years / rngState / cultKey / relKey
+        // 自然段（WriteBody 布局，无 GMP1 magic——.gmp 才有 magic+gVer 的 6B）：
+        // 直接 GridN + N，验结构不变量（10n²+2，防伪造 N 让偏移爆炸）后整体跳过
+        int gridN = (int)f.Get32();
+        int n = (int)f.Get32();
+        long expectN = (long)gridN * gridN * 10 + 2;
+        if (gridN < 8 || gridN > 512 || expectN != n) return false;   // 与 ReadBody 同语义（N=顶点数=10n²+2）
+        long naturalLen = 53L + 94L * n;              // WriteBody 固定 53B（GridN 起→Verts 前）+ 每格 94B
+        f.Seek((ulong)(34 + naturalLen));             // 实体段起点（CivMapArchive 头 34B + 自然段）
+        // 实体段：count + 每实体只取 P，其余 Seek 跳过
+        long count = f.Get32();
+        if (count < 0 || count > 2000000) return false;
+        entities = (int)count;
+        for (int i = 0; i < count; i++)
+        {
+            f.Get32();                  // Id
+            pop += f.GetFloat();        // P
+            f.Get8();                   // IsFarming
+            int keyCount = f.Get16();
+            long skip = 16L * keyCount + 34 + 34 + 5 + 34 + 12;   // keys + 份额×3 + Cell/OriginCell/BornTick
+            f.Seek(f.GetPosition() + (ulong)skip);
+        }
+        return true;
     }
 }

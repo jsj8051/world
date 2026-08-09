@@ -39,6 +39,7 @@ public sealed class CivModelRegistry
             .Register(new GrowthModel())
             .Register(new ModeModel())
             .Register(new InventionModel())
+            .Register(new TerritoryModel())
             .Register(new SpreadModel())
             .Register(new CultureModel())
             .Register(new ReligionModel())
@@ -303,6 +304,95 @@ public sealed class InventionModel : CivModelBase
     {
         foreach (var r in req) if (!keys.Contains(r)) return false;
         return true;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ⑤ 领地凝聚（Order 45）：band 凝聚体 = 连通分量（每 TerritoryRebuildEvery tick 重算）。
+//    凝聚边 = 同格 band 对 或 邻格格代表对 + CultureGroupShare 主导 key 相同 + 双方存活。
+//    分量标号 = 分量最小实体 Id（确定性：读档重建 → 续跑无分叉）。纯派生，不入档。
+//    距离衰减 = 接触衰减：远格接触少 → 漂变分群 → 边断（零新常量，全部涌现）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class TerritoryModel : CivModelBase
+{
+    public override string Name => "领地凝聚";
+    public override int Order => 45;
+
+    public override void Execute(CivSimContext ctx)
+    {
+        if (ctx.Tick - ctx.TerritoryLastRebuild < CivSimContext.TerritoryRebuildEvery) return;
+        ctx.TerritoryLastRebuild = ctx.Tick;
+        Rebuild(ctx);
+    }
+
+    /// <summary>重建全部实体领地（读档入口也调用——派生状态从存档确定性重算）。</summary>
+    public static void Rebuild(CivSimContext ctx)
+    {
+        var parent = new Dictionary<int, int>();   // 实体 Id → 并查集父
+        int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+        void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) parent[ra] = rb; }
+
+        foreach (var e in ctx.Entities)
+            if (!e.Dead) parent[e.Id] = e.Id;
+        // 同格凝聚边：格内 band 两两，同语言群 → 凝聚
+        for (int i = 0; i < ctx.Grid.N; i++)
+        {
+            var list = ctx.CellTribes[i];
+            for (int a = 0; a < list.Count; a++)
+            {
+                var ea = list[a];
+                if (ea.Dead) continue;
+                for (int b = a + 1; b < list.Count; b++)
+                {
+                    var eb = list[b];
+                    if (eb.Dead) continue;
+                    if (ShareField.DomKey(ea.CultureGroupShare) == ShareField.DomKey(eb.CultureGroupShare))
+                        Union(ea.Id, eb.Id);
+                }
+            }
+        }
+        // 邻格凝聚边：格代表对（格内 P 最大）× 邻格代表，同语言群 → 凝聚（其余 band 经同格边挂靠）
+        for (int i = 0; i < ctx.Grid.N; i++)
+        {
+            var list = ctx.CellTribes[i];
+            if (list.Count == 0) continue;
+            foreach (int nb in ctx.Grid.Neighbors[i])
+            {
+                if (nb <= i) continue;
+                var nbList = ctx.CellTribes[nb];
+                if (nbList.Count == 0) continue;
+                var repA = MaxPop(list);
+                var repB = MaxPop(nbList);
+                if (repA == null || repB == null) continue;
+                if (ShareField.DomKey(repA.CultureGroupShare) == ShareField.DomKey(repB.CultureGroupShare))
+                    Union(repA.Id, repB.Id);
+            }
+        }
+        // 填分量：标号 = 分量最小实体 Id（确定性）；size = 分量实体数
+        var sizes = new Dictionary<int, int>();
+        var mins = new Dictionary<int, int>();
+        foreach (var e in ctx.Entities)
+        {
+            if (e.Dead) continue;
+            int root = Find(e.Id);
+            sizes[root] = sizes.TryGetValue(root, out var v) ? v + 1 : 1;
+            if (!mins.TryGetValue(root, out var m) || e.Id < m) mins[root] = e.Id;
+        }
+        foreach (var e in ctx.Entities)
+        {
+            if (e.Dead) continue;
+            int root = Find(e.Id);
+            e.TerritoryId = mins[root];
+            e.TerritorySize = sizes[root];
+        }
+    }
+
+    private static CivEntity MaxPop(List<CivEntity> list)
+    {
+        var best = list[0];
+        for (int k = 1; k < list.Count; k++)
+            if (!list[k].Dead && list[k].P > best.P) best = list[k];
+        return best;
     }
 }
 

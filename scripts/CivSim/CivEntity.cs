@@ -43,6 +43,10 @@ public class CivEntity
     public bool Dead;
     public bool IsFarming;            // 生产方式（入档——读档续跑滞回无分叉）
 
+    // ── 领地派生状态（TerritoryModel 凝聚重算填充；不存档——从实体表确定性重算，读档后重建）──
+    public int TerritoryId = -1;     // 领地 id = 分量内最小实体 Id（连通分量标号，确定性）
+    public int TerritorySize = 1;    // 领地内 band 数（≥2 = 正式领地，触发加成）
+
     // ── 身份份额场（Σ=1，255 归一）──
     public ShareEntry[] CultureShare = NewEmpty();        // top-2：{key,份额}×2（具体文化，快）
     public ShareEntry[] CultureGroupShare = NewEmpty();   // top-2：{key,份额}×2（文化群，慢）
