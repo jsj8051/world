@@ -16,6 +16,7 @@ public partial class CmpSelectMenu : Control
     private VBoxContainer _list;
     private Label _status;
     private readonly HashSet<string> _broken = new();   // 损坏存档路径（可展示可选，但禁止进入）
+    private readonly HashSet<string> _locked = new();   // 版本不符存档路径（旧版本/过新，可展示可选，但禁止进入）
 
     public override void _Ready()
     {
@@ -95,44 +96,59 @@ public partial class CmpSelectMenu : Control
         _status.Text = $"找到 {files.Count} 个文明存档：";
         GD.Print($"[CmpSelectMenu] found {files.Count} civ maps");
         _broken.Clear();
+        _locked.Clear();
         foreach (var f in files)
         {
             string path = "user://maps/" + f;
-            string info = Describe(path);
+            var (info, enterable) = Describe(path);
             bool broken = info == null;
+            bool locked = !broken && !enterable;
             if (broken) _broken.Add(path);
+            else if (locked) _locked.Add(path);
             var btn = new Button
             {
-                Text = broken ? $"⚠️ {f}   （存档已损坏，无法进入）" : $"📜 {f}   {info}",
+                Text = broken ? $"⚠️ {f}   （存档已损坏，无法进入）"
+                     : locked ? $"⚠️ {f}   {info}"
+                     : $"📜 {f}   {info}",
                 CustomMinimumSize = new Vector2(740, 56),
                 Alignment = HorizontalAlignment.Left,
             };
             btn.AddThemeFontSizeOverride("font_size", 18);
-            if (broken) btn.AddThemeColorOverride("font_color", new Color(1f, 0.55f, 0.45f));   // 坏档红字
+            if (broken) btn.AddThemeColorOverride("font_color", new Color(1f, 0.55f, 0.45f));    // 坏档红字
+            else if (locked) btn.AddThemeColorOverride("font_color", new Color(0.9f, 0.8f, 0.4f)); // 版本不符黄字
             string captured = path;   // 闭包捕获
             btn.Pressed += () => EnterGame(captured);
             _list.AddChild(btn);
         }
-        if (_broken.Count > 0)
-            _status.Text += $"（{_broken.Count} 个损坏，无法进入）";
+        if (_broken.Count > 0 || _locked.Count > 0)
+            _status.Text += $"（{_broken.Count} 个损坏 + {_locked.Count} 个版本不符，均无法进入）";
     }
 
-    /// <summary>读取 .cmp 头部信息（seed/时长/人口/实体数）。
-    /// 返回 null = 存档损坏（读取失败/版本拒绝/读取异常）——展示但不允许进入。</summary>
-    private string Describe(string path)
+    /// <summary>读取 .cmp 轻量摘要（seed/时长/人口/部落数）——Peek 跳过自然段，不重建 WildCrops/R
+    /// （2026-08-17：原来全量 Read 每个 n=64 档 ~1-2s，列表多个档主线程卡死）。
+    /// 返回 (Info=null → 损坏红字；Info≠null 且 Enterable=false → 版本不符黄字；可进 → 正常)。
+    /// 游戏版本号展示：project.godot application/config/version（仅语义标签，兼容判断走 CompatibleArchiveVersions）。</summary>
+    private (string Info, bool Enterable) Describe(string path)
     {
         try
         {
-            if (!CivMapArchive.Read(path, out var grid, out var result))
-                return null;   // 读取失败/版本拒绝（旧档/化石）→ 损坏
-            float pop = result.Context.TotalPopulation();
-            return $"seed={result.Context.Seed} · 石器时代 · " +
-                   $"{result.FinalTick * World.CivSim.CivSimContext.TickYears} 年 · 人口 {pop:F0} · 部落 {result.Context.Entities.Count}";
+            if (!CivMapArchive.Peek(path, out int seed, out int tick, out float pop, out int entities,
+                                     out ushort aVer, out var st))
+            {
+                if (st == ArchiveVersionStatus.Older)
+                    return ($"旧版本存档 v{aVer}，当前仅支持 v{CivMapArchive.Version}（请重新演化生成新档）", false);
+                if (st == ArchiveVersionStatus.Newer)
+                    return ($"存档版本过新 v{aVer}（需要 v{CivMapArchive.Version}，请升级游戏）", false);
+                return (null, false);   // 真损坏
+            }
+            return ($"seed={seed} · 石器时代 · " +
+                    $"{tick * World.CivSim.CivSimContext.TickYears} 年 · 人口 {pop:F0} · 部落 {entities}",
+                    true);
         }
         catch (Exception ex)
         {
-            GD.PrintErr($"[CmpSelectMenu] 存档损坏 {path}: {ex}");
-            return null;   // 读取异常（旧档格式不兼容等）→ 损坏
+            GD.PrintErr($"[CmpSelectMenu] 存档异常 {path}: {ex}");
+            return (null, false);   // 读取异常 → 损坏
         }
     }
 
@@ -142,6 +158,12 @@ public partial class CmpSelectMenu : Control
         {
             _status.Text = "⚠️ 该存档已损坏，无法进入。请重新生成/演化。";
             GD.Print($"[CmpSelectMenu] 拒绝进入损坏存档 {path}");
+            return;
+        }
+        if (_locked.Contains(path))
+        {
+            _status.Text = "⚠️ 该存档版本与本游戏不兼容，无法进入。请用当前版本重新演化。";
+            GD.Print($"[CmpSelectMenu] 拒绝进入版本不符存档 {path}");
             return;
         }
         ViewerLauncher.PendingPath = path;
