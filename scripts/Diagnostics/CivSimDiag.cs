@@ -130,6 +130,7 @@ public partial class CivSimDiag : Node
 
         // 无地图依赖的 T 测试（构造场景风格，S 段注册）
         if (Want("T24")) T24_TerritoryCohesion();
+        if (Want("T25")) T25_FissionPressure();
     }
 
     /// <summary>小网格（N=2 赤道相邻两点，Neighbors 连通；RadiusKm 决定胞面积）。</summary>
@@ -427,6 +428,28 @@ public partial class CivSimDiag : Node
         bool split = a.TerritoryId != b.TerritoryId && a.TerritorySize == 1 && b.TerritorySize == 1;
         Check("T24 领地凝聚/断裂", united && split,
             $"凝聚(同id={sameId},size={sizeWhenUnited}) 断裂(异id,size=1)");
+    }
+
+    /// <summary>T25 裂变压力：饥荒(资源压力)→提前裂变；盈余小规模(无压力无张力)→不裂（确定性，无地图依赖）。</summary>
+    private void T25_FissionPressure()
+    {
+        // ctxA：饥荒 P=250, FLast=125（压力 0.5）→ P_eff=375>300 → 裂变（旧逻辑 P<300 不裂 → 本测试在旧代码下 FAIL）
+        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctxA = MakeCtx(gA);
+        var famine = AddEntity(ctxA, 0, 250f, TechTable.StoneCore);
+        famine.FLast = 125f;           // 产出减半（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
+        var sm = new SplitMigrateModel();
+        sm.Execute(ctxA);
+        bool famineFissioned = ctxA.Fissions == 1;
+        // ctxB：盈余 P=300（FLast=600）→ 无压力无张力 → P_eff=300 不裂
+        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctxB = MakeCtx(gB);
+        var fed = AddEntity(ctxB, 0, 300f, TechTable.StoneCore);
+        fed.FLast = 600f;
+        sm.Execute(ctxB);
+        bool fedKept = ctxB.Fissions == 0;
+        Check("T25 裂变压力", famineFissioned && fedKept,
+            $"饥荒250裂变={famineFissioned}(Fissions={ctxA.Fissions}) 盈余300不裂={fedKept}(Fissions={ctxB.Fissions})");
     }
 
     // ═══════════════════ T 地图测试 ═══════════════════
