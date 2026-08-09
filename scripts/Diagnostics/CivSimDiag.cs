@@ -133,6 +133,9 @@ public partial class CivSimDiag : Node
         if (Want("T25")) T25_FissionPressure();
         if (Want("T26")) T26_CapabilitySwitches();
         if (Want("T27")) T27_StorageBuffer();
+        if (Want("T28")) T28_LivestockEmergence();
+        if (Want("T29")) T29_GoodsAccumulation();
+        if (Want("T30")) T30_WeightAllocation();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -491,6 +494,55 @@ public partial class CivSimDiag : Node
         bool buffered = withS.P > noS.P;   // 有存储的饿死更慢
         bool stillAlive = withS.P > 1f && noS.P > 1f;
         Check("T27 存储缓冲", buffered && stillAlive, $"有存储 P={withS.P:F0} 无存储 P={noS.P:F0}（缺口×0.6 应更慢）");
+    }
+
+    /// <summary>T28 畜牧涌现：草原格(WildLivestock=1)+livestock 科技 → 牧产出>0；无生态位/无科技 → 牧=0。</summary>
+    private void T28_LivestockEmergence()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        g.WildLivestock = new byte[] { 1, 0 };   // 格0 草原可牧；格1 无
+        var herd = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);
+        var noHerd = AddEntity(ctx, 1, 10000f, TechTable.StoneCore);          // 无科技（格1 也无生态位）
+        CivEngine.RefreshCellState(ctx);
+        bool herdActive = ctx.FOf(herd) > 0f && herd.FHerdLast > 0f;
+        bool herdOff = noHerd.FHerdLast == 0f;
+        Check("T28 畜牧涌现", herdActive && herdOff,
+            $"草原+科技 牧F={herd.FHerdLast:F0}(>0) 无生态位/无科技 牧F={noHerd.FHerdLast:F0}(=0)");
+    }
+
+    /// <summary>T29 货物累积：三方式并行产出后 Goods 按副产率增加（皮革/羊毛/秸秆）。</summary>
+    private void T29_GoodsAccumulation()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        g.WildLivestock = new byte[] { 1, 0 };
+        var e = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding);
+        e.IsFarming = true;   // 三方式并行
+        ctx.Suit[0, 0] = 1.0f;
+        CivEngine.RefreshCellState(ctx);
+        bool leather = e.Goods[CivSimContext.GoodsLeather] > 0f;
+        bool wool = e.Goods[CivSimContext.GoodsWool] > 0f;
+        bool straw = e.Goods[CivSimContext.GoodsStraw] > 0f;
+        Check("T29 货物累积", leather && wool && straw,
+            $"皮革={e.Goods[CivSimContext.GoodsLeather]:F0} 羊毛={e.Goods[CivSimContext.GoodsWool]:F0} 秸秆={e.Goods[CivSimContext.GoodsStraw]:F0}");
+    }
+
+    /// <summary>T30 收益权重土地分配（单元）：草原格 牧2×猎 → 产出 4:1（土地份额×单产：s_herd=2/3×2 倍率 vs s_hunt=1/3×1）；无农。</summary>
+    private void T30_WeightAllocation()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);   // 草原
+        var ctx = MakeCtx(g);
+        g.WildLivestock = new byte[] { 1, 0 };   // 格0 可牧
+        var e = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);   // P 大：劳动充足
+        e.IsFarming = false;
+        CivEngine.RefreshCellState(ctx);
+        float f = ctx.FOf(e);
+        // 权重 pHerd = 2×pHunt → s_herd=2/3；产出 fHerd/fHunt = (2×2/3)/(1×1/3) = 4:1（劳动充足）
+        bool herdShare = Mathf.Abs(e.FHerdLast - 4f * e.FHuntLast) < e.FHuntLast * 0.1f;
+        bool huntActive = e.FHuntLast > 0f;   // 并行：猎仍产出
+        Check("T30 收益权重分配", herdShare && huntActive,
+            $"牧F={e.FHerdLast:F0} 猎F={e.FHuntLast:F0}（应 4:1）总={f:F0}");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
