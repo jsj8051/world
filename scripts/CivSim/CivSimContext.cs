@@ -223,20 +223,20 @@ public sealed class CivSimContext
     public static float EFarm(float yFarm, float pop) =>
         yFarm > 0f ? yFarm / Mathf.Max(0.001f, pop) - W : 0f;
 
-    /// <summary>寒冷区 F 下限（§4.5：火 → 0.05·面积×3；皮毛 → 再 ×3——空间层被技术解锁）。</summary>
-    public float ColdFloor(int cell, HashSet<string> keys)
+    /// <summary>寒冷区 F 下限（§4.5：火 → 0.05·面积×3；皮毛 → 再 ×3——空间层被技术解锁；能力查询 2026-08-09）。</summary>
+    public float ColdFloor(CivEntity e)
     {
-        if (!IsColdZone((BiomeType)Grid.Biome[cell])) return 0f;
-        if (!keys.Contains(TechTable.Fire)) return 0f;
+        if (!IsColdZone((BiomeType)Grid.Biome[e.Cell])) return 0f;
+        if (!CapabilityTable.Has(this, e, "fire")) return 0f;
         float area = Grid.CellAreaKm2;
         float floor = 0.05f * area * 3f;
-        if (keys.Contains(TechTable.Clothing)) floor *= 3f;
+        if (CapabilityTable.Has(this, e, "clothing")) floor *= 3f;
         return floor;
     }
 
     /// <summary>实体当 tick 实际产出 F_i = max(生产方式实际产出, 寒冷下限)（增长/核算/格压力用）。</summary>
     public float FOf(CivEntity e) =>
-        Mathf.Max(e.IsFarming ? FFarmActual(e) : FHunt(e), ColdFloor(e.Cell, e.TechKeys));
+        Mathf.Max(e.IsFarming ? FFarmActual(e) : FHunt(e), ColdFloor(e));
 
     // ── 环境判定（§6.1 硬门槛判定函数）──
 

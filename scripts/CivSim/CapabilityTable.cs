@@ -53,6 +53,9 @@ public static class CapabilityTable
     public static bool Has(CivSimContext ctx, CivEntity e, string id)
     {
         EnsureInited();
+        // 惰性兜底：CapMask 未缓存（手动构造场景/未跑 RefreshCellState）时即时算一次并回填——
+        //   演化中 RefreshCellState 每 tick 已全量算，此处仅在未初始化时触发（确定性：同输入同掩码）
+        if (e.CapMask == 0) e.CapMask = MaskOf(ctx, e);
         return _bits.TryGetValue(id, out uint bit) && (e.CapMask & bit) != 0;
     }
 

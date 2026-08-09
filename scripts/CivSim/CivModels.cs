@@ -234,7 +234,7 @@ public sealed class ModeModel : CivModelBase
         {
             var e = ctx.Entities[i];
             if (e.Dead) continue;
-            bool hasSeed = TechTable.HeldSeeds(e.TechKeys).Count > 0;
+            bool hasSeed = CapabilityTable.Has(ctx, e, "seed");
             if (!hasSeed) { e.IsFarming = false; continue; }
             float yH = ctx.FHunt(e);                 // 狩猎实际产出
             float yF = ctx.FFarmPotential(e);        // 农业潜在产出（劳动因子=1，防小部落死锁）
@@ -284,7 +284,7 @@ public sealed class InventionModel : CivModelBase
             float pressure = ctx.CellF[e.Cell] > 0f ? ctx.CellPop[e.Cell] / ctx.CellF[e.Cell] : 0f;
             bool pressureOk = pressure > CivSimContext.SeedPressure;
             bool soilOk = ctx.Grid.SoilLevel[e.Cell] >= 3;
-            bool grindOk = e.TechKeys.Contains(TechTable.Grinding);
+            bool grindOk = CapabilityTable.Has(ctx, e, "grinding");
             if (pressureOk && soilOk && grindOk)
             {
                 byte wild = ctx.WildCrops[e.Cell];
@@ -602,7 +602,7 @@ public sealed class ReligionModel : CivModelBase
             var e = ctx.Entities[i];
             if (e.Dead) continue;
             // 泛灵 → 萨满：盈余 s>0 + 细石器
-            if (e.Surplus > 0f && e.TechKeys.Contains(TechTable.Microlith))
+            if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, "microlith"))
             {
                 int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionUpgradeRate);
                 ShareField.RelTransfer(e.ReligionShare, ReligionStage.Animism, ReligionStage.Shaman, amt);
@@ -830,7 +830,7 @@ public sealed class SplitMigrateModel : CivModelBase
     private static int FindSplitTarget(CivSimContext ctx, CivEntity t)
     {
         var g = ctx.Grid;
-        bool canoe = t.TechKeys.Contains(TechTable.Canoe);
+        bool canoe = CapabilityTable.Has(ctx, t, "canoe");
         string cult = ShareField.DomKey(t.CultureShare);
         int best = -1;
         float bestScore = float.MaxValue;
@@ -859,7 +859,7 @@ public sealed class SplitMigrateModel : CivModelBase
     {
         string moverCult = ShareField.DomKey(mover.CultureShare);
         int best = -1; float bestScore = -1f;
-        bool canoe = mover.TechKeys.Contains(TechTable.Canoe);
+        bool canoe = CapabilityTable.Has(ctx, mover, "canoe");
         foreach (int nb in ctx.Grid.Neighbors[from])
         {
             if (ctx.Grid.IsLandCell(nb) && ctx.R[nb] > 0f)
