@@ -262,6 +262,7 @@ public partial class MapViewer : Node3D
         14 => "部落",
         15 => "科技",
         16 => "宗教",
+        17 => "势力范围",
         _ => "风场",
     };
     public override void _Process(double delta)
