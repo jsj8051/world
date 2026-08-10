@@ -31,6 +31,11 @@ public static class MapArchive
     public const string Magic = "MPA1";
     public const ushort Version = 5;   // v5：头部加 radiusKm（星球大小口径 5km²/格，2026-08-10）
 
+    /// <summary>星球半径标准默认值（km，地球平均半径）。标度统一源（2026-08-10）：
+    /// 所有"默认半径/旧档回退"引用此常量，禁止散落 6330/6367/6371 魔数。
+    /// GameGrid.DefaultRadiusKm = 此值（LogicGrid 便捷别名）。</summary>
+    public const float DefaultRadiusKm = 6371f;
+
     /// <summary>v3 球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。</summary>
     public static bool WriteSpherical(
         string path, int seed, Vector3[] verts,
@@ -43,7 +48,7 @@ public static class MapArchive
         byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null, byte[] lakeLevel = null,
         byte[] mineralLevel = null, byte[] soilLevel = null,
         byte[] monsoonLevel = null, byte[][] monthPrecip = null, byte[][] monthTemp = null,
-        float radiusKm = 6371f,   // v5 头：星球半径（km；旧存档无=地球默认）
+        float radiusKm = DefaultRadiusKm,   // v5 头：星球半径（km；旧存档无=地球默认）
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -154,7 +159,7 @@ public static class MapArchive
         }
         map.Seed = (int)f.Get32();
         map.Version = ver;
-        map.RadiusKm = ver >= 5 ? f.GetFloat() : 6371f;   // v5 头：seed 后 radiusKm（旧档无=地球默认）
+        map.RadiusKm = ver >= 5 ? f.GetFloat() : DefaultRadiusKm;   // v5 头：seed 后 radiusKm（旧档无=地球默认）
 
         if (ver >= 3)
         {
@@ -309,7 +314,7 @@ public class MapData
 {
     public int Seed;
     public ushort Version;
-    public float RadiusKm = 6371f;           // 星球半径（v5 头部；旧存档默认地球 6371）
+    public float RadiusKm = DefaultRadiusKm;           // 星球半径（v5 头部；旧存档默认地球 6371）
     public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
     public float RotationSpeed = 1f;       // 自转速度（v3 尾部 float；旧存档默认 1.0 地球）
     public float AxialTilt = 23.4f;        // 轴向倾角（v3.8 尾部 float；旧存档默认 23.4；季风月风场现场重算用）

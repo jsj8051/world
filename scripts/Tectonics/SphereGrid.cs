@@ -33,7 +33,9 @@ namespace World.Tectonics
             // 复用项目现有 Icosahedron 细分（n 段切边）。
             // ⚠️ Icosahedron.VertexKey 按 1km 量化——必须传真实半径(km)再归一化，
             //    传 1 会让全部顶点合并（实测 verts=26）。2026-08-02 修复。
-            Icosahedron.Subdivide(n, 6330f, out var verts, out var indices);
+            // ⚠️ 板块模拟内部标度固定 6371km（与存档默认一致；板块输出是 rad 角度格局，
+            //    与星球实际半径无关——2026-08-10 统一标度决策）。
+            Icosahedron.Subdivide(n, 6371f, out var verts, out var indices);
             Vertices = new Vector3[verts.Count];
             for (int i = 0; i < verts.Count; i++)
                 Vertices[i] = verts[i].Normalized();

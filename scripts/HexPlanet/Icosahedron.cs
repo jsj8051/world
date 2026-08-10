@@ -147,9 +147,9 @@ namespace World.HexPlanet
 
         private static string VertexKey(Vector3 v)
         {
-            // Quantize to 1km cells. Coordinates are in km units (radius 6330 = 6330km),
+            // Quantize to 1km cells. Coordinates are in km units (radius 6371 = 6371km),
             // so key = round(v): 1 key unit = 1km.
-            // Cell must exceed float noise (~1-3m at radius 6330km: ULP≈0.5m +
+            // Cell must exceed float noise (~1-3m at radius 6371km: ULP≈0.5m +
             // Normalized/barycentric chain error) or identical vertices from adjacent
             // faces land in different cells — observed: subdivisions=96 produced 780
             // duplicate pairs (dist 0..1m) at 0.1m cells, 16 pairs at 100m cells.

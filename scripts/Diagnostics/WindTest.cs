@@ -39,7 +39,7 @@ public partial class WindTest : Node
     /// <summary>存档直读：用存档海拔重算降水，扫多速度——改 ClimateGenerator 后秒级验证雨影。</summary>
     private void RunFromArchive(DiagContext ctx)
     {
-        const float radius = 6330f;
+        const float radius = MapArchive.DefaultRadiusKm;   // 坐标标度（纬度驱动，R 任意）
         int vn = ctx.VertexCount;
         var verts = ctx.Verts;
         var eNorm = ctx.ElevNorm;
@@ -78,7 +78,7 @@ public partial class WindTest : Node
     private void RunSeed(int seed)
     {
         const int n = 16;
-        const float radius = 6330f;
+        const float radius = MapArchive.DefaultRadiusKm;   // 坐标标度（纬度驱动，R 任意）
         var sim = new TectonicsSimulation(n);
         sim.GenerateInitialCrust(seed);
         sim.SplitIntoPlates(8, seed);

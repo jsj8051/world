@@ -1,5 +1,6 @@
 using Godot;
 using World.Biome;
+using World.MapGen;
 
 namespace World.Diagnostics;
 
@@ -31,6 +32,6 @@ public partial class TiltDiag : Node
     {
         float la = Mathf.DegToRad(latDeg);
         var p = new Vector3(Mathf.Cos(la), Mathf.Sin(la), 0f);
-        return c.ComputeTemperature(p * 6330f, 0f);
+        return c.ComputeTemperature(p * MapArchive.DefaultRadiusKm, 0f);   // 坐标标度（纬度驱动，R 任意）
     }
 }

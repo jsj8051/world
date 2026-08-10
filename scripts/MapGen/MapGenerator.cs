@@ -20,7 +20,7 @@ namespace World.MapGen;
 public partial class MapGenerator : Node
 {
 	[Export] public int Seed = 42;
-	[Export] public float RadiusKm = 6330f;
+	[Export] public float RadiusKm = MapArchive.DefaultRadiusKm;   // 星球半径（默认地球 6371；UI/headless 覆盖）
 	[Export] public string OutputPath = "user://maps/map1.mpa";
 	[Export] public bool AutoQuit = false; // true=生成后退出；false=切到查看场景
 	[Export] public bool ExportPreview = true; // 生成后导出海拔预览 PNG（headless 调参可视化）

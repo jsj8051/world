@@ -13,8 +13,8 @@ namespace World.LogicGrid;
 /// </summary>
 public class GameGrid
 {
-    /// <summary>星球半径默认值（km；.mpa v5 起存档含半径，旧档默认地球）。</summary>
-    public const float DefaultRadiusKm = 6371f;
+    /// <summary>星球半径默认值（km；.mpa v5 起存档含半径，旧档默认地球）。标度统一源 = MapArchive.DefaultRadiusKm。</summary>
+    public const float DefaultRadiusKm = MapArchive.DefaultRadiusKm;
 
     // ── 头部参数 ──
     public int GridN;              // 原始网格参数 n（顶点数 = 10n²+2）

@@ -28,7 +28,7 @@ namespace World.Tectonics
 		const float Thickness = 100e3f;    // 板片厚（m）
 		const float ShapeParameter = 0.725f;
 		const float SlabDipAngleConstant = 4.025f;
-		const float WorldRadius = 6367e3f; // 地球半径（m）
+		const float WorldRadius = 6371e3f; // 地球半径（m）；内部物理标度固定（2026-08-10 统一为 6371，与存档默认一致；板块输出为 rad 角度格局，与星球实际半径无关）
 
 		/// <summary>每牛顿的横向速度系数（rad/My per N），只依赖常量。
 		/// ⚠️ 2026-08-02 标定：JS 原版缺 MEGAYEAR 因子导致速度比真实小 ~12 个数量级

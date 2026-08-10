@@ -44,7 +44,7 @@ public partial class MapViewer : Node3D
     private MapData _map;
     private bool _mapLoaded;
 
-    [Export] public float RadiusKm = 6330f;
+    [Export] public float RadiusKm = MapArchive.DefaultRadiusKm;   // 星球半径（默认地球 6371；读档后按存档口径覆盖）
 
     // 改 GridN → 自动重建星球。IsInsideTree() 保证编辑器和运行时都实时响应
     // （编辑器视口不跑 _Ready，但改属性时节点已在树内，照样触发重建）。

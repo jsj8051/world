@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.HexPlanet;
+using World.MapGen;
 
 namespace World.Diagnostics;
 
@@ -15,7 +16,8 @@ public partial class PolarDiagnosis : Node
     public override void _Ready()
     {
         const int n = 128;   // GridN（和 MapViewer 验证一致）
-        const float radius = 6330f;
+        // 坐标标度：任意 R（单位向量 × R），温度/降水基于纬度与 R 无关——统一默认地球标度
+        const float radius = MapArchive.DefaultRadiusKm;
         Icosahedron.Subdivide(n, radius, out var verts, out var indices);
         var mesh = new SubdividedMesh(verts, indices);
         var builder = new GoldbergBuilder(mesh, radius, null);

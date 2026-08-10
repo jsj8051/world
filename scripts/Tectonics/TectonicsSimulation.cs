@@ -87,7 +87,7 @@ namespace World.Tectonics
 
             // 1. 每格高度排名：球面低频噪声（多路独立求和，块形完整）
             //    对应 JS World 初始化的 height_ranks（噪声驱动，非逐格随机）
-            // ⚠️ 频率按 km 坐标标定（半径 6330km）——必须传 顶点×半径，
+            // ⚠️ 频率按 km 坐标标定（内部标度 6371km，2026-08-10 统一）——必须传 顶点×半径，
             //    传单位球坐标（-1..1）会让波长 6250km 的噪声在 2 单位尺度上
             //    几乎恒定 → 排名退化随机 → 大陆块消失（2026-08-02 修复）。
             var noise1 = new FastNoiseLite();
@@ -103,7 +103,7 @@ namespace World.Tectonics
             float minR = float.MaxValue, maxR = float.MinValue;
             for (int i = 0; i < n; i++)
             {
-                Vector3 p = GlobalGrid.Vertices[i] * 6330f;   // 单位球 → km 坐标
+                Vector3 p = GlobalGrid.Vertices[i] * 6371f;   // 内部标度（2026-08-10 统一）→ km 坐标
                 float v = 0.53f * noise1.GetNoise3D(p.X, p.Y, p.Z)
                         + 0.47f * noise2.GetNoise3D(p.X, p.Y, p.Z);
                 ranks[i] = v;
@@ -144,7 +144,7 @@ namespace World.Tectonics
             for (int i = 0; i < n; i++)
             {
                 float d = elevations[i];
-                Vector3 p = GlobalGrid.Vertices[i] * 6330f;   // km 坐标（age 噪声用）
+                Vector3 p = GlobalGrid.Vertices[i] * 6371f;   // 内部标度（2026-08-10 统一）→ km 坐标（age 噪声用）
                 // 洋壳：mafic_volcanic 在 -1500..-950 之间线性
                 // ⚠️ 2026-08-02 观察：深海全 7100m 恒定 → isostasy 位移 -455~+427m（真实洋底 -2000~-6000m）。
                 //   洋壳厚度需"距中脊越远越厚"梯度，此处先统计确认。
@@ -958,7 +958,7 @@ namespace World.Tectonics
                     float felsic = wPools[3][i] + wPools[4][i];
                     if (wPools[5][i] > 1e6f && felsic < 1e7f)
                     {
-                        Vector3 p = GlobalGrid.Vertices[i] * 6330f;   // km 坐标（噪声频率标定）
+                        Vector3 p = GlobalGrid.Vertices[i] * 6371f;   // 内部标度（2026-08-10 统一）→ km 坐标（噪声频率标定）
                         float t = 0.5f * (ageNoise1.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f)
                                 + 0.5f * (ageNoise2.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f);
                         crust.Age[i] = Mathf.Clamp(t, 0f, 1f) * 200f * Units.MEGAYEAR;

@@ -1,11 +1,12 @@
 using Godot;
+using World.MapGen;
 
 namespace World.Camera
 {
 
 	public partial class OrbitalCamera : Node3D
 	{
-		[Export] private float _planetRadius = 6330f;
+		[Export] private float _planetRadius = MapArchive.DefaultRadiusKm;   // 默认地球 6371；读档后 SetPlanetRadius 按存档覆盖
 
 		// 球坐标参数
 		private float _theta = 0.8f;       // 水平角度
@@ -37,7 +38,7 @@ namespace World.Camera
 		{
 			_camera = new Camera3D
 			{
-				// 真实比例星球（半径 6330 km）：far 必须覆盖整颗球。
+				// 真实比例星球（默认半径 6371 km）：far 必须覆盖整颗球。
 				// near=10 允许贴地视角（最小 1.02× 半径 → 球面距相机 ~127km）
 				Near = 10f,
 				Far = 50000f
