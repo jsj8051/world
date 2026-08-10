@@ -46,6 +46,7 @@ namespace World.Tectonics
         public float[] MineralSed;               // 沉积矿化强度（沉积增厚累积 → 煤/盐）
         public float[] MineralMeta;              // 变质矿化强度（变质累积 → 宝石/铁）
         public int GridN = 16;                   // Icosahedron 细分（verts≈2562）
+        public int NumContinents = 6;            // 大陆块数（≈球面噪声波长数；2=超大陆/20=碎陆，2026-08-10 参数化）
         public bool EnableErosion = true;        // M3：地表过程（侵蚀/风化/成岩/变质）开关
         public bool EnableRifting = true;        // M3-2：裂谷（离散边界生成新洋壳）开关
         public bool EnableSupercontinent = true; // M3-4：超级大陆循环（150My 重新分割）开关
@@ -87,23 +88,24 @@ namespace World.Tectonics
 
             // 1. 每格高度排名：球面低频噪声（多路独立求和，块形完整）
             //    对应 JS World 初始化的 height_ranks（噪声驱动，非逐格随机）
-            // ⚠️ 频率按 km 坐标标定（内部标度 6371km，2026-08-10 统一）——必须传 顶点×半径，
-            //    传单位球坐标（-1..1）会让波长 6250km 的噪声在 2 单位尺度上
-            //    几乎恒定 → 排名退化随机 → 大陆块消失（2026-08-02 修复）。
+            // ⚠️ 2026-08-10 大陆块数参数化：坐标用单位球（不乘半径），波长数 = 频率 × 球面周长 2π。
+            // 令 freq1 = NumContinents/2π → 球面恰 NumContinents 个波长（大陆块尺度）。
+            //    （此前固定 0.00016@6371km 等价于 6.4 块；此改动消除噪声链路的 6371 标度魔数）
+            float freq1 = NumContinents / (2f * Mathf.Pi);   // 主尺度：N 个波长/球
             var noise1 = new FastNoiseLite();
             noise1.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
-            noise1.Frequency = 0.00016f;   // 波长 ~6250km
+            noise1.Frequency = freq1;
             noise1.Seed = seed;
             var noise2 = new FastNoiseLite();
             noise2.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
-            noise2.Frequency = 0.00026f;   // 波长 ~3850km
+            noise2.Frequency = freq1 * 1.625f;              // 次尺度：保持 6250/3850 波长比例（细碎纹理）
             noise2.Seed = seed + 100;
 
             var ranks = new float[n];
             float minR = float.MaxValue, maxR = float.MinValue;
             for (int i = 0; i < n; i++)
             {
-                Vector3 p = GlobalGrid.Vertices[i] * 6371f;   // 内部标度（2026-08-10 统一）→ km 坐标
+                Vector3 p = GlobalGrid.Vertices[i];   // 单位球坐标（频率已按 N/2π 标定，2026-08-10）
                 float v = 0.53f * noise1.GetNoise3D(p.X, p.Y, p.Z)
                         + 0.47f * noise2.GetNoise3D(p.X, p.Y, p.Z);
                 ranks[i] = v;
@@ -144,7 +146,7 @@ namespace World.Tectonics
             for (int i = 0; i < n; i++)
             {
                 float d = elevations[i];
-                Vector3 p = GlobalGrid.Vertices[i] * 6371f;   // 内部标度（2026-08-10 统一）→ km 坐标（age 噪声用）
+                Vector3 p = GlobalGrid.Vertices[i];   // 单位球坐标（age 噪声用，频率同 N/2π 标定）
                 // 洋壳：mafic_volcanic 在 -1500..-950 之间线性
                 // ⚠️ 2026-08-02 观察：深海全 7100m 恒定 → isostasy 位移 -455~+427m（真实洋底 -2000~-6000m）。
                 //   洋壳厚度需"距中脊越远越厚"梯度，此处先统计确认。
@@ -936,11 +938,11 @@ namespace World.Tectonics
 
             var ageNoise1 = new FastNoiseLite();
             ageNoise1.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
-            ageNoise1.Frequency = 0.00016f;   // 波长 ~6250km（与 GenerateInitialCrust 一致）
+            ageNoise1.Frequency = NumContinents / (2f * Mathf.Pi);   // 同 GenerateInitialCrust 主尺度（N 波长/球）
             ageNoise1.Seed = Seed;
             var ageNoise2 = new FastNoiseLite();
             ageNoise2.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
-            ageNoise2.Frequency = 0.00026f;   // 波长 ~3850km
+            ageNoise2.Frequency = ageNoise1.Frequency * 1.625f;      // 次尺度（同比例）
             ageNoise2.Seed = Seed + 100;
 
             var wPools = WorldCrust.AllPools();
@@ -958,7 +960,7 @@ namespace World.Tectonics
                     float felsic = wPools[3][i] + wPools[4][i];
                     if (wPools[5][i] > 1e6f && felsic < 1e7f)
                     {
-                        Vector3 p = GlobalGrid.Vertices[i] * 6371f;   // 内部标度（2026-08-10 统一）→ km 坐标（噪声频率标定）
+                        Vector3 p = GlobalGrid.Vertices[i];   // 单位球坐标（噪声频率标定，同 N/2π）
                         float t = 0.5f * (ageNoise1.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f)
                                 + 0.5f * (ageNoise2.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f);
                         crust.Age[i] = Mathf.Clamp(t, 0f, 1f) * 200f * Units.MEGAYEAR;

@@ -25,6 +25,7 @@ public partial class MapGenMenu : Control
     private bool _generating;
     private OptionButton _rotBox;   // 自转方向（枚举）
     private SpinBox _radiusSpin;    // 星球半径 km（主输入；n 派生，2026-08-10 口径：每格 5 km²）
+    private SpinBox _continentsSpin; // 大陆块数（构造格局：2=超大陆/20=碎陆）
     private Label _derivedLabel;    // 半径 → n/顶点数/实际半径/格面积/耗时 派生显示
     private SpinBox _tiltSpin;      // 轴向倾角（滑动+输入）
     private SpinBox _distSpin;      // 距太阳距离
@@ -105,6 +106,8 @@ public partial class MapGenMenu : Control
         _generateGrid.AddChild(MakeRow("种子（Seed）", _seedBox = MakeSpin(0, 999999, 42, 1)));
         // 星球大小主输入（2026-08-10 口径定案：每格固定 5 km²，n 由半径派生）
         _generateGrid.AddChild(MakeSliderRow("星球半径(km)", 8f, 511f, 1f, 16f, 128f, out _radiusSpin));
+        // 大陆块数（构造格局；校验 N≤n/2 防碎渣，见 StartGenerate）
+        _generateGrid.AddChild(MakeSliderRow("大陆块数", 2f, 20f, 1f, 2f, 6f, out _continentsSpin));
         _generateGrid.AddChild(MakeRow("初始板块数", _platesBox = MakeSpin(2, 32, 8, 1)));
         _generateGrid.AddChild(MakeSliderRow("模拟时长(My)", 100f, 2000f, 1f, 50f, 600f, out _mySpin));
 
@@ -400,6 +403,18 @@ public partial class MapGenMenu : Control
             _status.Text = $"❌ 半径 {_radiusSpin.Value:F0} km 过小 → 网格 n={n}（Icosahedron 细分需 n≥4），请 ≥ 8 km";
             return;
         }
+        int continents = (int)_continentsSpin.Value;
+        if (continents > n / 2)
+        {
+            _status.Text = $"❌ 大陆块数 {continents} 过多：n={n} 网格每块仅 ~{4 * n / continents} 格（<8 会碎成渣），" +
+                           $"请 ≤ {n / 2} 或增大星球半径";
+            return;
+        }
+        if (continents < 2)
+        {
+            _status.Text = "❌ 大陆块数至少 2（超大陆），请 ≥ 2";
+            return;
+        }
         if (plates > 64)
         {
             _status.Text = $"❌ 初始板块数 {plates} 过多——每板顶点过少无法模拟，请 ≤ 64";
@@ -436,6 +451,7 @@ public partial class MapGenMenu : Control
             Seed = seed,
             TectonicsGridN = n,
             RadiusKm = radiusKm,           // 星球半径（口径：每格 5 km²；n 由半径派生）
+            NumContinents = continents,    // 大陆块数（构造格局）
             NumPlates = plates,
             SimMegayears = my,
             SimStepMy = 2f,
@@ -454,7 +470,7 @@ public partial class MapGenMenu : Control
         _gen.GenerateAsync(
             p => _progress = p,     // 后台线程写 volatile（线程安全）
             (ok, path) => { });     // 实际完成回调走 SetAsyncDoneCallback（主线程）
-        GD.Print($"[MapGenMenu] 开始生成 seed={seed} R={radiusKm:F0}km n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× 水量={oceanScale}× 周期={scCycle}My 侵蚀={erosionScale}× → {_lastOutPath}");
+        GD.Print($"[MapGenMenu] 开始生成 seed={seed} R={radiusKm:F0}km n={n} 大陆={continents}块 plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× 水量={oceanScale}× 周期={scCycle}My 侵蚀={erosionScale}× → {_lastOutPath}");
     }
 
     private void OnGenerateDone(bool ok, string path)

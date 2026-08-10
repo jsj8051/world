@@ -31,6 +31,7 @@ public partial class MapGenerator : Node
 	[Export] public float SupercontinentCycleMy = 150f; // 超级大陆聚合-裂解周期（百万年）
 	[Export] public float ErosionScale = 1f;   // 侵蚀/风化强度倍率（0.5=温和，2=剧烈夷平）
 	[Export] public int NumPlates = 8;         // 初始板块数
+	[Export] public int NumContinents = 6;     // 大陆块数（≈球面噪声波长；2=超大陆/20=碎陆，2026-08-10）
 	[Export] public bool ProgradeRotation = true; // 自转方向：true=顺转（地球式），false=逆转（金星式）
 	[Export] public float AxialTilt = 23.4f;   // 轴向倾角（度）：0=无季节，23.4=地球，90=极端季节
 	[Export] public float Insolation = 1.0f;    // 恒星辐照度（相对地球 1AU）：0.7=远、冷，1.3=近、热
@@ -81,6 +82,7 @@ public partial class MapGenerator : Node
 			else if (TryFloat("SupercontinentCycleMy", c => SupercontinentCycleMy = c)) { }
 			else if (TryFloat("ErosionScale", e => ErosionScale = e)) { }
 			else if (TryInt("NumPlates", p => NumPlates = p)) { }
+			else if (TryInt("NumContinents", c => NumContinents = c)) { }
 			else if (TryFloat("AxialTilt", t => AxialTilt = t)) { }
 			else if (TryFloat("Insolation", i => Insolation = i)) { }
 			else if (TryFloat("RotationSpeed", r => RotationSpeed = r)) { }
@@ -125,6 +127,7 @@ public partial class MapGenerator : Node
 		// ── 海拔生成：球面板块模拟（tectonics.js 移植，M1-M3）──
 		GD.Print($"[MapGenerator] 板块模拟开始 seed={Seed} n={TectonicsGridN} {SimMegayears}My ...");
 		var sim = new TectonicsSimulation(TectonicsGridN);
+		sim.NumContinents = NumContinents;    // 大陆块数（构造格局；2=超大陆/20=碎陆）
 		sim.GenerateInitialCrust(Seed);
 		sim.SplitIntoPlates(NumPlates, Seed);
 		sim.OceanScale = OceanScale;              // 海洋水量（海陆比）
@@ -230,8 +233,41 @@ public partial class MapGenerator : Node
 		for (int i = 0; i < vn; i++) if (monsoonLevel[i] >= 64) monsoonCells++;
 		GD.Print($"[MapGenerator] 季风区（强度≥0.25）：{monsoonCells} 格 ({monsoonCells * 100f / vn:F1}%)");
 
+		// 大陆块统计（2026-08-10：验证 NumContinents 参数——陆地格球面连通分量。
+		// 注意：600My 演化后大陆会被裂解/侵蚀切割成许多小块，连通块数 ≠ 初始 N；
+		// 真正反映格局的是最大块面积占比（N=2 应 ~70%+ 超大陆，N=20 应分散）。
+		var (masses, maxFrac) = CountLandMasses(sim.GlobalGrid.Neighbors, pipe.Elev);
+		GD.Print($"[MapGenerator] 陆地连通块：{masses} 块（最大块占陆地 {maxFrac * 100f:F0}%；参数 NumContinents={NumContinents}，碎渣风险当 N≫n/2）");
+
 		if (ExportPreview)
 			ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
+	}
+
+	/// <summary>陆地连通块统计：elev&gt;0 按球面邻接 BFS 分块，返回（块数, 最大块面积占比）。</summary>
+	private static (int masses, float maxFrac) CountLandMasses(int[][] neighbors, float[] elev)
+	{
+		int n = elev.Length;
+		var visited = new bool[n];
+		int masses = 0, maxSize = 0, landCells = 0;
+		for (int i = 0; i < n; i++)
+		{
+			if (visited[i] || elev[i] <= 0f) continue;
+			masses++;
+			int size = 0;
+			var stack = new System.Collections.Generic.Stack<int>();
+			stack.Push(i);
+			visited[i] = true;
+			while (stack.Count > 0)
+			{
+				int v = stack.Pop();
+				size++;
+				foreach (int nb in neighbors[v])
+					if (!visited[nb] && elev[nb] > 0f) { visited[nb] = true; stack.Push(nb); }
+			}
+			if (size > maxSize) maxSize = size;
+		}
+		for (int i = 0; i < n; i++) if (elev[i] > 0f) landCells++;
+		return (masses, landCells > 0 ? (float)maxSize / landCells : 0f);
 	}
 
 	/// <summary>
@@ -251,6 +287,7 @@ public partial class MapGenerator : Node
 		{
 			// ── 板块模拟（纯数据）──
 			var sim = new TectonicsSimulation(n);
+			sim.NumContinents = NumContinents;    // 大陆块数（构造格局；2=超大陆/20=碎陆）
 			sim.GenerateInitialCrust(seed);
 			sim.SplitIntoPlates(plates, seed);
 			int totalSteps = (int)(my / step);

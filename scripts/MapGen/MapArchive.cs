@@ -314,7 +314,7 @@ public class MapData
 {
     public int Seed;
     public ushort Version;
-    public float RadiusKm = DefaultRadiusKm;           // 星球半径（v5 头部；旧存档默认地球 6371）
+    public float RadiusKm = MapArchive.DefaultRadiusKm;           // 星球半径（v5 头部；旧存档默认地球 6371）
     public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
     public float RotationSpeed = 1f;       // 自转速度（v3 尾部 float；旧存档默认 1.0 地球）
     public float AxialTilt = 23.4f;        // 轴向倾角（v3.8 尾部 float；旧存档默认 23.4；季风月风场现场重算用）
