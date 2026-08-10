@@ -20,8 +20,18 @@ namespace World.Camera
 
 		private Camera3D _camera;
 
-		private float MinDistance => _planetRadius * 1.02f; // 贴地视角（球面距 ~127km）
+		private float MinDistance => _planetRadius * 1.02f; // 贴地视角（球面距 ~2% R）
 		private float MaxDistance => _planetRadius * 5f;
+
+		/// <summary>按存档星球半径重设相机（读档后调用；轨道距离/远近裁剪全 ∝ R）。</summary>
+		public void SetPlanetRadius(float radiusKm)
+		{
+			_planetRadius = radiusKm;
+			// 初始满屏视图 + 缩放范围随 R 重算（当前距离若超出新范围则钳制）
+			_distance = Mathf.Clamp(_distance, MinDistance, MaxDistance);
+			_targetDistance = _distance;
+			UpdatePosition();
+		}
 
 		public override void _Ready()
 		{

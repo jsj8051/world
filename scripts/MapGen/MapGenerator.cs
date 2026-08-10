@@ -84,6 +84,15 @@ public partial class MapGenerator : Node
 			else if (TryFloat("AxialTilt", t => AxialTilt = t)) { }
 			else if (TryFloat("Insolation", i => Insolation = i)) { }
 			else if (TryFloat("RotationSpeed", r => RotationSpeed = r)) { }
+			else if (TryFloat("RadiusKm", r => RadiusKm = r)) { }
+			else if (v.StartsWith("ExportPreview", StringComparison.OrdinalIgnoreCase))
+			{
+				// 支持 --ExportPreview false/true/0/1（headless 验证常关预览，防导出 PNG 卡进程）
+				if (v.Contains("false") || v.Contains("=0")) ExportPreview = false;
+				else if (v.Contains("true") || v.Contains("=1")) ExportPreview = true;
+			}
+			else if (v.StartsWith("OutputPath=", StringComparison.OrdinalIgnoreCase)) { OutputPath = v.Substring("OutputPath=".Length); }
+			else if (v.StartsWith("--OutputPath=", StringComparison.OrdinalIgnoreCase)) { OutputPath = v.Substring("--OutputPath=".Length); }
 			else if (v == "AutoQuit" || v == "--AutoQuit" || v == "AutoQuit=true" || v == "--AutoQuit=true") AutoQuit = true;
 			else if (v.StartsWith("ProgradeRotation", StringComparison.OrdinalIgnoreCase))
 			{
@@ -210,9 +219,11 @@ public partial class MapGenerator : Node
 			pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
 			prograde: ProgradeRotation, rotationSpeed: RotationSpeed, axialTilt: AxialTilt,
 			currentDirs: _curDirs, currentWarmth: _curWarmth, currentStrength: _curStrength,
+			psi: pipe.Psi,   // ⚠️ 必须传：读取端 ver≥4 无条件读 psi 段（2026-08-10 修复，曾致河流段错位）
 			riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
 			mineralLevel: _mineralLevel, soilLevel: _soilLevel,
-			monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp);
+			monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp,
+			radiusKm: RadiusKm);
 
 		// 季风区统计（headless 验证用）
 		int monsoonCells = 0;
@@ -301,7 +312,8 @@ public partial class MapGenerator : Node
 			    psi: pipe.Psi,
 				riverLevel: _riverLevel, riverFlow: _riverFlow, riverVolume: _riverVolume, lakeLevel: _lakeLevel,
 				mineralLevel: _mineralLevel, soilLevel: _soilLevel,
-				monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp, log: false);   // 后台线程禁止 GD.Print
+				monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTemp,
+				radiusKm: radius, log: false);   // 后台线程禁止 GD.Print
 			if (exportPreview)
 				ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
 			return (ok, outPath);

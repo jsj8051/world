@@ -98,10 +98,11 @@ public partial class MonsoonDiag : Node
             map.MinTemp, map.MaxTemp, map.MinPrecip, map.MaxPrecip,
             prograde: map.ProgradeRotation, rotationSpeed: map.RotationSpeed, axialTilt: tilt,
             currentDirs: map.CurrentDirs, currentWarmth: map.CurrentWarmth, currentStrength: map.CurrentStrength,
+            psi: map.Psi,   // 保留源档 psi（null 时写入端补零，读取端不误读河流段）
             riverLevel: map.RiverLevel, riverFlow: map.RiverFlow, riverVolume: map.RiverVolume, lakeLevel: map.LakeLevel,
             mineralLevel: map.MineralLevel, soilLevel: map.SoilLevel,
             monsoonLevel: monsoonLevel, monthPrecip: monthPrecip, monthTemp: monthTempB,
-            log: false);
+            radiusKm: map.RadiusKm, log: false);
 
         // ── 像素图自检（--selftest，用户验收机制 2026-08-16）：──
         //   程序生成 Equirect 投影 7 月温度像素图 → 读像素断言：

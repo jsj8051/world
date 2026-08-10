@@ -9,6 +9,7 @@ using World.HexPlanet;
 using World.PlanetLOD;
 using World.Surface;
 using World.UI;
+using World.Camera;
 
 namespace World.MapView;
 
@@ -326,6 +327,15 @@ public partial class MapViewer : Node3D
                     GD.Print($"[MapViewer] 存档模拟 n={simN}（{_map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
                     _gridN = simN;
                 }
+            }
+
+            // 星球半径：读档口径（.mpa v5 头 / .cmp 快照；旧档默认地球 6371）。
+            // 显示几何 + 相机轨道距离全 ∝ R，读档后必须应用，否则小星球按地球半径显示。
+            if (Mathf.Abs(RadiusKm - _map.RadiusKm) > 1e-3f)
+            {
+                RadiusKm = _map.RadiusKm;
+                GetNode<OrbitalCamera>("OrbitalCamera")?.SetPlanetRadius(RadiusKm);
+                GD.Print($"[MapViewer] 星球半径 R={RadiusKm:F0} km（存档口径）");
             }
 
             // ⚠️ 2026-08-02：流域现场算（不存档——纯计算毫秒级）。

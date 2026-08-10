@@ -29,7 +29,7 @@ namespace World.MapGen;
 public static class MapArchive
 {
     public const string Magic = "MPA1";
-    public const ushort Version = 4;   // v4：洋流加流函数 psi（环流圈"每环最外圈"显示）
+    public const ushort Version = 5;   // v5：头部加 radiusKm（星球大小口径 5km²/格，2026-08-10）
 
     /// <summary>v3 球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。</summary>
     public static bool WriteSpherical(
@@ -43,6 +43,7 @@ public static class MapArchive
         byte[] riverLevel = null, int[] riverFlow = null, float[] riverVolume = null, byte[] lakeLevel = null,
         byte[] mineralLevel = null, byte[] soilLevel = null,
         byte[] monsoonLevel = null, byte[][] monthPrecip = null, byte[][] monthTemp = null,
+        float radiusKm = 6371f,   // v5 头：星球半径（km；旧存档无=地球默认）
         bool log = true)
     {
         string dir = path.GetBaseDir();
@@ -61,6 +62,7 @@ public static class MapArchive
         f.Store8((byte)'1');
         f.Store16(Version);
         f.Store32((uint)seed);
+        f.StoreFloat(radiusKm);   // v5 头：星球半径（km；旧档无=地球默认，读端 ver<5 跳过）
         f.Store32((uint)n);
         foreach (var v in verts) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
         f.StoreFloat(minElev);
@@ -86,8 +88,13 @@ public static class MapArchive
             if (currentStrength != null)
                 foreach (var cs in currentStrength) f.StoreFloat(cs);
             // 尾部扩展7（2026-08-06，v4）：流函数 psi（每格 1 float；环流圈"每环最外圈"显示用）
+            // ⚠️ 2026-08-10 修（同 .gmp 坑）：psi 必须无条件写满（null → 补零）——读取端 ver≥4 无条件读该段，
+            //   条件写会让"无 psi 的网格"（MapGenerator 同步路径曾不传 psi）写档后河流段错位
+            //   （读取端把河流段前 4n 字节误当 psi → RiverFlow 全垃圾 → MapViewer 流域 IndexOutOfRange）。
             if (psi != null)
                 foreach (var p in psi) f.StoreFloat(p);
+            else
+                for (int i = 0; i < n; i++) f.StoreFloat(0f);
         }
         // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无=null）
         // 尾部扩展5（2026-08-02）：湖泊（级别 n bytes；旧存档无=null）
@@ -147,6 +154,7 @@ public static class MapArchive
         }
         map.Seed = (int)f.Get32();
         map.Version = ver;
+        map.RadiusKm = ver >= 5 ? f.GetFloat() : 6371f;   // v5 头：seed 后 radiusKm（旧档无=地球默认）
 
         if (ver >= 3)
         {
@@ -301,6 +309,7 @@ public class MapData
 {
     public int Seed;
     public ushort Version;
+    public float RadiusKm = 6371f;           // 星球半径（v5 头部；旧存档默认地球 6371）
     public bool ProgradeRotation = true;   // 自转方向（v3 尾部字节；旧存档默认顺转）
     public float RotationSpeed = 1f;       // 自转速度（v3 尾部 float；旧存档默认 1.0 地球）
     public float AxialTilt = 23.4f;        // 轴向倾角（v3.8 尾部 float；旧存档默认 23.4；季风月风场现场重算用）

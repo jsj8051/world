@@ -13,7 +13,7 @@ namespace World.LogicGrid;
 /// </summary>
 public class GameGrid
 {
-    /// <summary>星球半径默认值（km；.mpa 存档未存半径，生成参数里 RadiusKm 默认地球）。</summary>
+    /// <summary>星球半径默认值（km；.mpa v5 起存档含半径，旧档默认地球）。</summary>
     public const float DefaultRadiusKm = 6371f;
 
     // ── 头部参数 ──
@@ -69,6 +69,7 @@ public class GameGrid
             N = n,
             GridN = (int)Mathf.Round(Mathf.Sqrt(Mathf.Max(0, (n - 2) / 10f))),
             Seed = map.Seed,
+            RadiusKm = map.RadiusKm,   // 星球半径（.mpa v5 头部；旧档默认地球）
             ProgradeRotation = map.ProgradeRotation,
             RotationSpeed = map.RotationSpeed,
             AxialTilt = map.AxialTilt,
@@ -130,6 +131,7 @@ public class GameGrid
         {
             Version = 3,
             Seed = Seed,
+            RadiusKm = RadiusKm,   // 星球半径（.cmp 读档 → MapViewer 显示口径）
             ProgradeRotation = ProgradeRotation,
             RotationSpeed = RotationSpeed,
             AxialTilt = AxialTilt,

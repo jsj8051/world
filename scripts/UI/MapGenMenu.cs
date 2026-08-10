@@ -11,9 +11,7 @@ namespace World.UI;
 public partial class MapGenMenu : Control
 {
     private SpinBox _seedBox;
-    private OptionButton _gridNBox;
     private SpinBox _platesBox;
-    private OptionButton _myBox;
     private Button _startBtn;
     private Button _backBtn;
     private ProgressBar _bar;
@@ -26,7 +24,8 @@ public partial class MapGenMenu : Control
     private Button _terrainTab;
     private bool _generating;
     private OptionButton _rotBox;   // 自转方向（枚举）
-    private SpinBox _gridNSpin;     // 网格分辨率 n（滑动+输入，4~128）
+    private SpinBox _radiusSpin;    // 星球半径 km（主输入；n 派生，2026-08-10 口径：每格 5 km²）
+    private Label _derivedLabel;    // 半径 → n/顶点数/实际半径/格面积/耗时 派生显示
     private SpinBox _tiltSpin;      // 轴向倾角（滑动+输入）
     private SpinBox _distSpin;      // 距太阳距离
     private SpinBox _speedSpin;     // 自转速度
@@ -104,9 +103,23 @@ public partial class MapGenMenu : Control
         content.AddChild(_generateGrid);
 
         _generateGrid.AddChild(MakeRow("种子（Seed）", _seedBox = MakeSpin(0, 999999, 42, 1)));
-        _generateGrid.AddChild(MakeSliderRow("网格分辨率 n", 4f, 128f, 1f, 8f, 32f, out _gridNSpin));
+        // 星球大小主输入（2026-08-10 口径定案：每格固定 5 km²，n 由半径派生）
+        _generateGrid.AddChild(MakeSliderRow("星球半径(km)", 8f, 511f, 1f, 16f, 128f, out _radiusSpin));
         _generateGrid.AddChild(MakeRow("初始板块数", _platesBox = MakeSpin(2, 32, 8, 1)));
         _generateGrid.AddChild(MakeSliderRow("模拟时长(My)", 100f, 2000f, 1f, 50f, 600f, out _mySpin));
+
+        // 半径 → 网格派生显示（跟随输入实时刷新；与生成参数页同显同隐）
+        _derivedLabel = new Label
+        {
+            CustomMinimumSize = new Vector2(960, 0),
+            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
+        };
+        _derivedLabel.AddThemeFontSizeOverride("font_size", 17);
+        _derivedLabel.AddThemeColorOverride("font_color", new Color(0.72f, 0.85f, 0.72f));
+        content.AddChild(_derivedLabel);
+        var radiusRef = _radiusSpin;
+        radiusRef.ValueChanged += _ => UpdateDerived();
+        UpdateDerived();
 
         // 分类 2：星球物理（两列）
         _planetGrid = new GridContainer { Columns = 2, Visible = false };
@@ -315,6 +328,7 @@ public partial class MapGenMenu : Control
         _generateGrid.Visible = idx == 0;
         _planetGrid.Visible = idx == 1;
         _terrainGrid.Visible = idx == 2;
+        _derivedLabel.Visible = idx == 0;   // 半径派生信息跟生成参数页
         void SetTab(Button tab, bool active) =>
             tab.AddThemeColorOverride("font_color", active
                 ? new Color(1f, 0.85f, 0.5f)      // 选中：亮金
@@ -324,6 +338,48 @@ public partial class MapGenMenu : Control
         SetTab(_terrainTab, idx == 2);
     }
 
+    // ── 星球大小 ↔ 网格分辨率（2026-08-10 口径定案：每格固定 5 km²，用户选半径，n 派生）──
+
+    /// <summary>半径(km) → 网格 n（四舍五入到最近细分档；顶点 = 10n²+2）。
+    /// 推导：4πR² = (10n²)·5 → n = √(4πR²/50)。</summary>
+    private static int RadiusToGridN(float radiusKm)
+    {
+        double areaKm2 = 4.0 * Math.PI * radiusKm * radiusKm;
+        return (int)Math.Round(Math.Sqrt(areaKm2 / 50.0), MidpointRounding.AwayFromZero);
+    }
+
+    /// <summary>网格 n → 实际半径(km)（反算；保证 4πR²/(10n²) ≈ 5 km²/格，口径自洽）。</summary>
+    private static float GridNToRadius(int n) => (float)Math.Sqrt(50.0 * n * n / (4.0 * Math.PI));
+
+    /// <summary>耗时预估（板块模拟实测基线：n=16 秒级 / 32≈30s / 64≈3min / 128≈12min，×4 关系）。</summary>
+    private static string EstimateTime(int n)
+    {
+        if (n <= 16) return "预计约 30 秒";
+        if (n <= 32) return "预计约 1 分钟";
+        if (n <= 64) return "预计约 3 分钟";
+        if (n <= 128) return "预计约 12 分钟";
+        return "预计 40 分钟以上（红线档，慎用）";
+    }
+
+    /// <summary>半径输入 → 派生信息实时刷新（n / 顶点数 / 实际半径 / 每格面积 / 耗时）。</summary>
+    private void UpdateDerived()
+    {
+        int n = RadiusToGridN((float)_radiusSpin.Value);
+        if (n < 4 || n > 256)
+        {
+            _derivedLabel.Text = n < 4
+                ? "⚠️ 半径过小：细分下限 n≥4（≈8 km），请加大半径"
+                : $"⚠️ 半径过大：n={n}（顶点 {10L * n * n + 2:N0}）超性能红线，请 ≤ 511 km（n=256）";
+            _derivedLabel.AddThemeColorOverride("font_color", new Color(1f, 0.6f, 0.5f));
+            return;
+        }
+        float r = GridNToRadius(n);
+        long verts = 10L * n * n + 2;
+        float cellArea = 4f * Mathf.Pi * r * r / verts;
+        _derivedLabel.AddThemeColorOverride("font_color", new Color(0.72f, 0.85f, 0.72f));
+        _derivedLabel.Text = $"→ 网格 n={n}（{verts:N0} 格）｜实际半径 {r:F1} km｜每格 ≈{cellArea:F2} km²｜{EstimateTime(n)}";
+    }
+
     // ── 生成逻辑 ──
 
     private void StartGenerate()
@@ -331,16 +387,17 @@ public partial class MapGenMenu : Control
         if (_generating) return;
 
         // 防御校验：只拦会引发 bug 的极端值（内存/算法可行性），其余随意
-        int n = (int)_gridNSpin.Value;
+        int n = RadiusToGridN((float)_radiusSpin.Value);
+        float radiusKm = GridNToRadius(n);   // 实际半径（口径自洽：4πR'²/N ≈ 5 km²/格）
         int plates = (int)_platesBox.Value;
         if (n > 256)
         {
-            _status.Text = $"❌ 网格分辨率 n={n} 过大（顶点 {10L * n * n + 2:N0}）——内存/时间不可行，请 ≤ 256";
+            _status.Text = $"❌ 半径 {_radiusSpin.Value:F0} km 过大 → 网格 n={n}（顶点 {10L * n * n + 2:N0}）——内存/时间不可行，请 ≤ 511 km";
             return;
         }
         if (n < 4)
         {
-            _status.Text = $"❌ 网格分辨率 n={n} 过小（Icosahedron 细分需 n≥4），请 ≥ 4";
+            _status.Text = $"❌ 半径 {_radiusSpin.Value:F0} km 过小 → 网格 n={n}（Icosahedron 细分需 n≥4），请 ≥ 8 km";
             return;
         }
         if (plates > 64)
@@ -372,12 +429,13 @@ public partial class MapGenMenu : Control
         float oceanScale = (float)_oceanSpin.Value; // 海洋水量 ×
         int scCycle = (int)_scCycleSpin.Value;      // 超级大陆周期 My
         float erosionScale = (float)_erosionSpin.Value; // 侵蚀强度 ×
-        _lastOutPath = $"user://maps/map_seed{seed}_n{n}.mpa";
+        _lastOutPath = $"user://maps/map_seed{seed}_n{n}_r{radiusKm:F0}.mpa";
 
         _gen = new MapGenerator
         {
             Seed = seed,
             TectonicsGridN = n,
+            RadiusKm = radiusKm,           // 星球半径（口径：每格 5 km²；n 由半径派生）
             NumPlates = plates,
             SimMegayears = my,
             SimStepMy = 2f,
@@ -396,7 +454,7 @@ public partial class MapGenMenu : Control
         _gen.GenerateAsync(
             p => _progress = p,     // 后台线程写 volatile（线程安全）
             (ok, path) => { });     // 实际完成回调走 SetAsyncDoneCallback（主线程）
-        GD.Print($"[MapGenMenu] 开始生成 seed={seed} n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× 水量={oceanScale}× 周期={scCycle}My 侵蚀={erosionScale}× → {_lastOutPath}");
+        GD.Print($"[MapGenMenu] 开始生成 seed={seed} R={radiusKm:F0}km n={n} plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× 水量={oceanScale}× 周期={scCycle}My 侵蚀={erosionScale}× → {_lastOutPath}");
     }
 
     private void OnGenerateDone(bool ok, string path)

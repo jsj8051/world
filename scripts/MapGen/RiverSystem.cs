@@ -162,6 +162,9 @@ public static class RiverSystem
     public static List<int[]> RebuildPaths(int[] flow, byte[] riverLevel, float[] elevNorm)
     {
         int n = flow.Length;
+        // ⚠️ 2026-08-10 防御：损坏存档 flow 越界消毒（同 ComputeWatersheds；防查看器崩）。
+        for (int i = 0; i < n; i++)
+            if ((uint)flow[i] >= (uint)n) flow[i] = i;
         var paths = new List<int[]>();
         var incoming = new List<int>[n];
         for (int i = 0; i < n; i++) incoming[i] = new List<int>();
@@ -423,6 +426,10 @@ public static class RiverSystem
         out int[] watershedId, out List<int> outlets)
     {
         int n = flow.Length;
+        // ⚠️ 2026-08-10 防御：损坏存档 flow 可能越界（曾因 .mpa psi 段错位读到垃圾 flow）。
+        //   消毒为"终点自指"（盆地语义）——等价于断流，避免任意解引用 IndexOutOfRange。
+        for (int i = 0; i < n; i++)
+            if ((uint)flow[i] >= (uint)n) flow[i] = i;
         watershedId = new int[n];
         System.Array.Fill(watershedId, -1);
         outlets = new List<int>();
