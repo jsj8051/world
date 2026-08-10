@@ -136,6 +136,11 @@ public partial class CivSimDiag : Node
         if (Want("T28")) T28_LivestockEmergence();
         if (Want("T29")) T29_GoodsAccumulation();
         if (Want("T30")) T30_WeightAllocation();
+        if (Want("T31")) T31_DepletionMigrate();
+        if (Want("T32")) T32_CompetitiveTakeover();
+        if (Want("T33")) T33_ConflictBurst();
+        if (Want("T34")) T34_WeaponAdvantage();
+        if (Want("T35")) T35_LockHoldReclaim();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -231,6 +236,7 @@ public partial class CivSimDiag : Node
             CellBestOwner = EnumerableFill(-1, n),
             CellBestInf = new float[n],
             CellOwnerInf = new float[n],
+            LockedUntil = EnumerableFill(0, n),   // 实控锁定（v8 冲突机制）
         };
         ctx.TerritoryCells = new List<int>[4096];
         ctx.TerritoryDists = new List<byte>[4096];
@@ -630,6 +636,146 @@ public partial class CivSimDiag : Node
         bool huntActive = e.FHuntLast > 0f;   // 并行：猎仍产出
         Check("T30 收益权重分配", herdShare && huntActive,
             $"牧F={e.FHerdLast:F0} 猎F={e.FHuntLast:F0}（应 4:1）总={f:F0}");
+    }
+
+    /// <summary>T31 耗竭-迁移闭环（2026-08-10 定稿 T23-新）：存量低→F<D→饿→迁移→新驻扎点。
+    /// P=1 濒死 band（pEff≤2 不触发分裂段，隔离迁移）；确定性构造。</summary>
+    private void T31_DepletionMigrate()
+    {
+        // ctxA：饿（FLast=0.5 < P=1）→ 迁移
+        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctxA = MakeCtx(gA);
+        var eA = AddEntity(ctxA, 0, 1f, TechTable.StoneCore);
+        eA.FLast = 0.5f;   // 存量耗竭 → 饿
+        ctxA.CellOwner[0] = 0;
+        ctxA.TerritoryCells[0].Add(0);
+        ctxA.TerritoryDists[0].Add(0);
+        new SplitMigrateModel().Execute(ctxA);
+        bool migrated = eA.Cell != 0 && eA.LastMigrateTick >= 0;
+        // ctxB：不饿（FLast=2 > P=1）→ 不迁移
+        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctxB = MakeCtx(gB);
+        var eB = AddEntity(ctxB, 0, 1f, TechTable.StoneCore);
+        eB.FLast = 2f;
+        ctxB.CellOwner[0] = 0;
+        ctxB.TerritoryCells[0].Add(0);
+        ctxB.TerritoryDists[0].Add(0);
+        new SplitMigrateModel().Execute(ctxB);
+        bool stayed = eB.Cell == 0;
+        Check("T31 耗竭-迁移闭环", migrated && stayed,
+            $"饿迁={migrated}(格{eA.Cell}→{eA.Cell}) 富饶留={stayed}");
+    }
+
+    /// <summary>T32 竞争易主（2026-08-10 定稿 T24-新，软冲突）：强 band 超粘性覆盖弱 band 边界格；势均力敌粘性保住。
+    /// N=12 赤道环（BuildRing 顶点在 XY 平面，lat=lon——|lat|≥60° 的格进极区桶查不到 30° 纬差格）：
+    /// A 驻格0(lat0)、B 驻格11(lat−30°)、边界格1(lat30°)——全部低纬可达。</summary>
+    private void T32_CompetitiveTakeover()
+    {
+        // 场景 A：强覆盖——A P=200 → I_A=220×0.79=173.8 > I_B×1.15=43.5×1.15 → 易主
+        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var ctxA = MakeCtx(gA);
+        var aA = AddEntity(ctxA, 0, 200f, TechTable.StoneCore);
+        var bA = AddEntity(ctxA, 11, 50f, TechTable.StoneCore);
+        ctxA.CellOwner[0] = 0;
+        ctxA.CellOwner[11] = 1;
+        ctxA.CellOwner[1] = 1;   // 边界格归 B（弱）
+        new InfluenceModel().Execute(ctxA);
+        bool strongTook = ctxA.CellOwner[1] == 0;
+        // 场景 B：势均力敌——A P=50 → I_A=43.5 = I_B → 粘性保住 B
+        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var ctxB = MakeCtx(gB);
+        var aB = AddEntity(ctxB, 0, 50f, TechTable.StoneCore);
+        var bB = AddEntity(ctxB, 11, 50f, TechTable.StoneCore);
+        ctxB.CellOwner[0] = 0;
+        ctxB.CellOwner[11] = 1;
+        ctxB.CellOwner[1] = 1;
+        new InfluenceModel().Execute(ctxB);
+        bool stickyHeld = ctxB.CellOwner[1] == 1;
+        Check("T32 竞争易主", strongTook && stickyHeld,
+            $"强覆盖易主={strongTook}(owner={ctxA.CellOwner[1]}) 势均粘性保={stickyHeld}(owner={ctxB.CellOwner[1]})");
+    }
+
+    /// <summary>T33 冲突爆发（2026-08-10 定稿 T25-新，硬冲突）：损耗+掠夺+易主+锁定+驱逐（直接调 ResolveConflict，确定性）。</summary>
+    private void T33_ConflictBurst()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        ctx.Tick = 10;
+        var ch = AddEntity(ctx, 0, 130f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);   // 军事 2.7
+        var ow = AddEntity(ctx, 1, 50f, TechTable.StoneCore);
+        ctx.CellOwner[0] = 0;
+        ctx.CellOwner[1] = 1;
+        ctx.CellOwner[2] = 1;   // 争议格归 owner
+        ctx.Stock[2] = 100f;    // 掠夺源
+        ctx.Stock[0] = 10f;     // 胜者驻扎点（掠夺入账处）
+        ctx.RebuildInfluence(); // 缓存 I（CellBestOwner/CellOwnerInf）——Resolve 本身不用，但保持状态一致
+        float pCh0 = ch.P, pOw0 = ow.P;
+        ConflictModel.ResolveConflict(ctx, ch, ow, 2);
+        bool popLost = ch.P < pCh0 && ow.P < pOw0;                       // 双方损耗
+        bool plundered = ctx.Stock[2] < 100f && ctx.Stock[0] > 10f;      // 掠夺转移
+        bool locked = ctx.LockedUntil[2] > ctx.Tick;                     // 实控锁定（无论谁赢，争议格锁定）
+        bool coolDown = ch.LastConflictTick == 10 && ow.LastConflictTick == 10;
+        Check("T33 冲突爆发", popLost && plundered && locked && coolDown,
+            $"损耗={ch.P:F0}/{ow.P:F0} 掠夺S2={ctx.Stock[2]:F0}→S0={ctx.Stock[0]:F0} 锁定={ctx.LockedUntil[2]} 冷却={coolDown} 冲突计数={ctx.Conflicts}");
+    }
+
+    /// <summary>T34 武器加成（2026-08-10 定稿 T26-新）：MilitMult 与 CarryMult 解耦——同 P 下有弓 band 军事显著强。
+    /// 胜率公式断言 + 固定 seed 采样统计。</summary>
+    private void T34_WeaponAdvantage()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var withBow = AddEntity(ctx, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
+        var plain = AddEntity(ctx, 1, 50f, TechTable.StoneCore);
+        float milBow = TechTable.MilitaryMult(withBow.TechKeys);
+        float milPlain = TechTable.MilitaryMult(plain.TechKeys);
+        bool decoupled = milBow > 1f && milPlain == 1f;   // 解耦：武器进军事、无武器=1
+        // 采样：同 P 一有弓一无——胜率 = 50×m / (50×m + 50)；固定 seed 确定性统计
+        int bowWins = 0, plainWins = 0;
+        var ctxS = MakeCtx(g, seed: 7);
+        var cb = AddEntity(ctxS, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
+        var cp = AddEntity(ctxS, 1, 50f, TechTable.StoneCore);
+        for (int k = 0; k < 60; k++)
+        {
+            cb.P = 50f; cp.P = 50f;   // 每次重置（损耗累积会衰减到 1 失真）
+            ConflictModel.ResolveConflict(ctxS, cb, cp, 2);
+            if (cb.P > cp.P) bowWins++; else plainWins++;   // 胜者损耗小 → P 高
+        }
+        bool advantage = bowWins > plainWins * 2;   // 有弓显著胜出（60 次采样）
+        Check("T34 武器加成", decoupled && advantage,
+            $"milit弓={milBow:F2}(应2.7) 无武器={milPlain:F1}(应1) 采样胜场 有弓{bowWins}/无弓{plainWins}");
+    }
+
+    /// <summary>T35 实控锁定（2026-08-10 定稿 T27-新）：锁定内场不重算（武力既成事实）；锁定过期后场恢复（强方收回）。
+    /// N=12：A 驻格0、B 驻格11、边界格1（低纬可达，见 T32 注）。</summary>
+    private void T35_LockHoldReclaim()
+    {
+        // 场景 A：锁定内——A 武力夺取格 1（P=200），锁定 8 tick；场重算不碰
+        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var ctxA = MakeCtx(gA);
+        ctxA.Tick = 10;
+        var aA = AddEntity(ctxA, 0, 200f, TechTable.StoneCore);
+        var bA = AddEntity(ctxA, 11, 50f, TechTable.StoneCore);
+        ctxA.CellOwner[0] = 0;
+        ctxA.CellOwner[11] = 1;
+        ctxA.CellOwner[1] = 0;              // 武力夺取：格 1 归 A
+        ctxA.LockedUntil[1] = ctxA.Tick + CivSimContext.ConflictLockTicks;   // 锁定中
+        new InfluenceModel().Execute(ctxA);
+        bool held = ctxA.CellOwner[1] == 0;   // 锁定内不被场覆盖
+        // 场景 B：锁定过期——B 人口涨强于 A → 场收回
+        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var ctxB = MakeCtx(gB);
+        ctxB.Tick = 10;
+        var aB = AddEntity(ctxB, 0, 50f, TechTable.StoneCore);
+        var bB = AddEntity(ctxB, 11, 200f, TechTable.StoneCore);
+        ctxB.CellOwner[0] = 0;
+        ctxB.CellOwner[11] = 1;
+        ctxB.CellOwner[1] = 0;              // A 曾武力夺取
+        ctxB.LockedUntil[1] = ctxB.Tick - 1;   // 锁定已过期
+        new InfluenceModel().Execute(ctxB);
+        bool reclaimed = ctxB.CellOwner[1] == 1;   // 场恢复：强 B 收回
+        Check("T35 实控锁定", held && reclaimed,
+            $"锁定内保持={held}(owner={ctxA.CellOwner[1]}) 过期后收回={reclaimed}(owner={ctxB.CellOwner[1]})");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>

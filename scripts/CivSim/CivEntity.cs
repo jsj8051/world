@@ -42,6 +42,7 @@ public class CivEntity
     public int BornTick;
     public int LastMigrateTick = -1;   // 最近迁移 tick（迁移冷却；入档——读档续跑无分叉）
     public int LastSplitTick = -1;     // 最近分裂 tick（分裂冷却；入档）
+    public int LastConflictTick = -1;  // 最近冲突 tick（冲突冷却；入档——2026-08-10 冲突机制）
     public bool Dead;
     public bool IsFarming;            // 生产方式（入档——读档续跑滞回无分叉）
 

@@ -3,8 +3,8 @@ stone_core,石核工具,any,0,0,0.08,,carry:1.1
 fire,火,any,0.02,30,0.05,,carry:1.2;unlock_cold:3
 handaxe,手斧,any,0.02,50,0.08,stone_core,carry:1.15
 clothing,皮毛衣物,any,0.015,40,0.02,stone_core,unlock_cold2:3
-microlith,细石器,any,0.015,80,0.08,handaxe,carry:1.3
-bow,弓箭,any,0.01,120,0.05,microlith,carry:1.4
+microlith,细石器,any,0.015,80,0.08,handaxe,carry:1.1;milit:1.5
+bow,弓箭,any,0.01,120,0.05,microlith,carry:1.15;milit:1.8
 canoe,独木舟,coast,0.01,100,0.02,fire,unlock_sea:1
 storage,存储,any,0.008,150,0.02,fire,
 pottery,陶器,any,0.008,200,0.02,fire,

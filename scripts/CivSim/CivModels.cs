@@ -45,6 +45,7 @@ public sealed class CivModelRegistry
             .Register(new SpreadModel())
             .Register(new CultureModel())
             .Register(new ReligionModel())
+            .Register(new ConflictModel())      // 边境冲突（Order 75，2026-08-10）：粘性僵局暴力出口
             .Register(new SplitMigrateModel());
     }
 }
@@ -555,6 +556,108 @@ public sealed class SpreadModel : CivModelBase
 }
 
 // ══════════════════════════════════════════════════════════════════
+// ⑨ 边境冲突（Order 75，2026-08-10 定稿 §十五）：归属两条途径——和平（场 argmax+粘性）/
+//    武力（冲突强制易主+实控锁定）。军事实力 MilitMult 与影响力解耦（武器科技只进军事）。
+//    触发：粘性僵持窗口（I_B < I_A ≤ I_B×1.15）+ 资源压力 + 低频概率。
+//    结果：损耗（胜者小败者大）+ 掠夺存量 + 易主锁定（场不重算 N tick）+ 驱逐。
+// ══════════════════════════════════════════════════════════════════
+public sealed class ConflictModel : CivModelBase
+{
+    public override string Name => "边境冲突";
+    public override int Order => 75;
+
+    public override void Execute(CivSimContext ctx)
+    {
+        if (ctx.LockedUntil == null || ctx.Entities.Count < 2) return;
+        int n = ctx.Grid.N;
+        for (int c = 0; c < n; c++)
+        {
+            int owner = ctx.CellOwner[c];
+            if (owner < 0) continue;
+            if (ctx.LockedUntil[c] > ctx.Tick) continue;               // 锁定格不冲突（既成事实）
+            int ch = ctx.CellBestOwner[c];
+            if (ch < 0 || ch == owner) continue;
+            float iCh = ctx.CellBestInf[c];
+            float iOwn = ctx.CellOwnerInf[c];
+            if (iCh <= iOwn || iCh > iOwn * CivSimContext.Stickiness) continue;   // 必须粘性僵持窗口
+            var eo = FindEntity(ctx, owner);
+            var ec = FindEntity(ctx, ch);
+            if (eo == null || ec == null || eo.Dead || ec.Dead) continue;
+            if (ec.LastConflictTick >= 0 && ctx.Tick - ec.LastConflictTick < CivSimContext.ConflictCooldown) continue;
+            if (eo.LastConflictTick >= 0 && ctx.Tick - eo.LastConflictTick < CivSimContext.ConflictCooldown) continue;
+            // 压力门控（低频：旧石器战争偶发——饿/超载才打）
+            bool pressure = ctx.IsStarving(ec) || ctx.IsStarving(eo)
+                || ec.P > CivSimContext.SplitPop || eo.P > CivSimContext.SplitPop;
+            if (!pressure) continue;
+            if (ctx.Rng.NextDouble() >= CivSimContext.ConflictChance) continue;
+            ResolveConflict(ctx, ec, eo, c);
+            if (ctx.Conflicts >= 3) return;   // 单 tick 最多 3 场（性能/爆炸防护）
+        }
+    }
+
+    internal static void ResolveConflict(CivSimContext ctx, CivEntity challenger, CivEntity owner, int cell)
+    {
+        // 胜率：P×MilitMult 对比（武器科技加成；随机——弱 band 可爆冷）
+        float pC = challenger.P * TechTable.MilitaryMult(challenger.TechKeys);
+        float pO = owner.P * TechTable.MilitaryMult(owner.TechKeys);
+        float winChance = pC / Mathf.Max(0.0001f, pC + pO);
+        bool challengerWins = ctx.Rng.NextDouble() < winChance;
+        var winner = challengerWins ? challenger : owner;
+        var loser = challengerWins ? owner : challenger;
+        // 损耗（胜者小、败者大；不直接灭——饿死兜底）
+        winner.P *= (1f - CivSimContext.ConflictLossChallenger);
+        loser.P *= (1f - CivSimContext.ConflictLossOwner);
+        if (loser.P < 1f) loser.P = 1f;
+        winner.LastConflictTick = ctx.Tick;
+        loser.LastConflictTick = ctx.Tick;
+        // 掠夺：争议格存量 → 胜者驻扎点格（即时资源收益）
+        float plunder = ctx.Stock[cell] * CivSimContext.ConflictPlunderRate;
+        ctx.Stock[cell] -= plunder;
+        ctx.Stock[winner.Cell] += plunder;
+        if (challengerWins)
+        {
+            // 武力夺取：争议格 + 挑战者影响圈内败者格，全部强制易主 + 实控锁定
+            ctx.CellOwner[cell] = challenger.Id;
+            ctx.LockedUntil[cell] = ctx.Tick + CivSimContext.ConflictLockTicks;
+            ctx.BfsRadius(cell, CivSimContext.InfluenceRadius, (c2, d) =>
+            {
+                if (ctx.CellOwner[c2] == owner.Id && ctx.LockedUntil[c2] <= ctx.Tick)
+                {
+                    ctx.CellOwner[c2] = challenger.Id;
+                    ctx.LockedUntil[c2] = ctx.Tick + CivSimContext.ConflictLockTicks;
+                }
+            }, landOnly: true);
+        }
+        else
+        {
+            // 防御成功：挑战者退兵，争议格锁定给 owner（防御方巩固）
+            ctx.LockedUntil[cell] = ctx.Tick + CivSimContext.ConflictLockTicks;
+        }
+        // 驱逐：败者损耗后饿 → 强制迁移（被赶出争议区）
+        if (ctx.Rng.NextDouble() < CivSimContext.ConflictExpelChance && ctx.IsStarving(loser))
+        {
+            int target = SplitMigrateModel.PickMigrateTarget(ctx, loser);
+            if (target >= 0)
+            {
+                ctx.CellTribes[loser.Cell].Remove(loser);
+                loser.Cell = target;
+                loser.LastMigrateTick = ctx.Tick;
+                ctx.CellTribes[target].Add(loser);
+                ctx.Migrations++;
+            }
+        }
+        ctx.Conflicts++;
+    }
+
+    private static CivEntity FindEntity(CivSimContext ctx, int id)
+    {
+        for (int i = 0; i < ctx.Entities.Count; i++)
+            if (ctx.Entities[i].Id == id && !ctx.Entities[i].Dead) return ctx.Entities[i];
+        return null;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // ⑦ 文化互动（Order 60）：格级聚合-演化-分摊（不分部落，用户拍板）+ 相邻格 Axelrod。
 //    同化：主导 x' = x + 0.3(1−x)；文化群：Abrams-Strogatz 竞争（慢）。
 // ══════════════════════════════════════════════════════════════════
@@ -840,7 +943,7 @@ public sealed class SplitMigrateModel : CivModelBase
 
     /// <summary>迁移目标：1-3 跳 BFS 内最高富饶度（R × 路径 BorderCost 乘积）的**无主格**（CellOwner==-1）。
     /// 确定性：时间戳标记 + 固定遍历顺序；无主 = 落脚不侵犯（冲突未实现）。</summary>
-    private static int PickMigrateTarget(CivSimContext ctx, CivEntity mover)
+    internal static int PickMigrateTarget(CivSimContext ctx, CivEntity mover)
     {
         var grid = ctx.Grid;
         var keys = mover.TechKeys;

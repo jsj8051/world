@@ -41,6 +41,7 @@ public static class CivEngine
             CellBestOwner = EnumerableRepeat(-1, n),
             CellBestInf = new float[n],
             CellOwnerInf = new float[n],
+            LockedUntil = EnumerableRepeat(0, n),   // 实控锁定（v8 冲突机制；0=无锁定）
         };
         ctx.TerritoryCells = new List<int>[4096];
         ctx.TerritoryDists = new List<byte>[4096];

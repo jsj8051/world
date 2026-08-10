@@ -24,6 +24,7 @@ public sealed class TechDef
     public int SeedIndex;        // WildCrops 位 0-4（种子行序）
     public float AgriBase;       // agri:value → 种子基线倍数 ×Y_猎0（母科技=1）
     public float CarryMult;      // carry:value → 狩猎产量乘数链
+    public float MilitMult;      // milit:value → 军事实力乘数链（2026-08-10 冲突机制：武器科技只进军事，与影响力解耦——"人口少但武器精良"的 band = 影响力弱但军事强）
     public bool UnlockCold;      public float ColdMult;    // 火：寒冷区 K 下限 ×3
     public bool UnlockCold2;     public float ColdMult2;   // 皮毛：再 ×3
     public bool UnlockSea;       // 独木舟：跨海
@@ -73,6 +74,17 @@ public static class TechTable
         var r = new List<string>(2);
         foreach (var s in SeedKeys) if (keys.Contains(s)) r.Add(s);
         return r;
+    }
+
+    /// <summary>军事实力乘数链 Π milit（持武器科技；2026-08-10 冲突机制——与采集 CarryMult 解耦，
+    /// 武器科技只进军事。冲突胜率 = P×MilitMult 对比）。</summary>
+    public static float MilitaryMult(HashSet<string> keys)
+    {
+        float f = 1f;
+        foreach (var t in _techs)
+            if (t.MilitMult > 0f && keys.Contains(t.Key))
+                f *= t.MilitMult;
+        return f;
     }
 
     /// <summary>狩猎产量乘数链 Π carry（持科技，含研磨器；种子/母科技不计入）。</summary>
@@ -134,6 +146,7 @@ public static class TechTable
                 switch (kind)
                 {
                     case "carry": t.CarryMult = v; break;
+                    case "milit": t.MilitMult = v; break;   // 武器科技军事乘数（2026-08-10 冲突机制）
                     case "unlock_cold": t.UnlockCold = true; t.ColdMult = v > 0f ? v : 3f; break;
                     case "unlock_cold2": t.UnlockCold2 = true; t.ColdMult2 = v > 0f ? v : 3f; break;
                     case "unlock_sea": t.UnlockSea = true; break;

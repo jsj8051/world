@@ -469,6 +469,12 @@ public partial class MapViewer : Node3D
         _tileTerritory = new int[n];
         System.Array.Fill(_tileTribe, -1);
         bool hasCiv = _civCtx != null;
+        // 2026-08-10 影响力场模型（v8）：band 实体只在驻扎点格，领地=归属格——文明图层改为
+        // **归属格主导**（每格查 CellOwner → 该 band 的文化/宗教/部落/科技；人口=领地均摊，5 km² 量级）
+        var civIdMap = new System.Collections.Generic.Dictionary<int, World.CivSim.CivEntity>();
+        if (hasCiv)
+            foreach (var ce in _civCtx.Entities)
+                if (!ce.Dead) civIdMap[ce.Id] = ce;
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
@@ -510,16 +516,16 @@ public partial class MapViewer : Node3D
             minArr[i] = hasMineral ? map.MineralLevel[vid] : (byte)0;
             soilArr[i] = map.SoilLevel != null ? map.SoilLevel[vid] : (byte)0;
             monsoonArr[i] = map.MonsoonLevel != null ? map.MonsoonLevel[vid] : (byte)0;
-            // 文明图层（.cmp v4：格 id = 模拟顶点 id，零重采样直读；实体模型：格=容器，主导实体=人口最大）
+            // 文明图层（.cmp v8 影响力场模型：归属格主导——每格查 CellOwner，领地全显示）
             if (hasCiv)
             {
-                _tilePop[i] = _civCtx.CellPop[vid];
-                var tlist = _civCtx.CellTribes[vid];
-                if (tlist.Count > 0)
+                int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1;
+                if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
-                    var dom = tlist[0];
-                    for (int k = 1; k < tlist.Count; k++)
-                        if (tlist[k].P > dom.P) dom = tlist[k];
+                    // 领地均摊人口（band.P / 领地格数——5 km² 格量级 0.5~3 人；驻扎格与领地格同显示）
+                    int idx = _civCtx.Entities.IndexOf(dom);
+                    int terrCount = idx >= 0 && idx < _civCtx.TerritoryCells.Length ? _civCtx.TerritoryCells[idx].Count : 1;
+                    _tilePop[i] = dom.P / Mathf.Max(1, terrCount);
                     _tileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
                     _tileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
                     // ⚠️ 2026-08-07 宗教图层改显示"具体派别"（relig_N，每摇篮/每次漂变独立）——

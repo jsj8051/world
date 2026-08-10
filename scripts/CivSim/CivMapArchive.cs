@@ -106,11 +106,13 @@ public static class CivMapArchive
             f.Store32((uint)e.BornTick);
             f.Store32((uint)e.LastMigrateTick);   // 迁移冷却（v8）
             f.Store32((uint)e.LastSplitTick);     // 分裂冷却（v8）
+            f.Store32((uint)e.LastConflictTick);  // 冲突冷却（v8 冲突机制 2026-08-10）
             for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);   // 货物 3×float（v7）
         }
-        // 尾部：影响力场模型（v8）——存量场 + 格归属（读档续跑无分叉）
+        // 尾部：影响力场模型（v8）——存量场 + 格归属 + 实控锁定（读档续跑无分叉）
         for (int c = 0; c < ctx.Grid.N; c++) f.StoreFloat(ctx.Stock[c]);
         for (int c = 0; c < ctx.Grid.N; c++) f.Store32((uint)ctx.CellOwner[c]);
+        for (int c = 0; c < ctx.Grid.N; c++) f.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);   // 实控锁定（v8 冲突机制；0=无）
         if (log)
             GD.Print($"[CivMapArchive] wrote v{Version} {path} (ticks={result.FinalTick} " +
                      $"entities={alive} pop={ctx.TotalPopulation():F0} farm={CountFarming(ctx)} fission={ctx.Fissions} migrate={ctx.Migrations})");
@@ -269,6 +271,7 @@ public static class CivMapArchive
             e.BornTick = (int)f.Get32();
             e.LastMigrateTick = ver >= 8 ? (int)f.Get32() : -1;   // 迁移冷却（v8）
             e.LastSplitTick = ver >= 8 ? (int)f.Get32() : -1;     // 分裂冷却（v8）
+            e.LastConflictTick = ver >= 8 ? (int)f.Get32() : -1;  // 冲突冷却（v8 冲突机制 2026-08-10）
             for (int gi = 0; gi < 3; gi++) e.Goods[gi] = f.GetFloat();   // 货物（v7）
             entities.Add(e);
             if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell].Add(e);
@@ -284,6 +287,11 @@ public static class CivMapArchive
         if (ver >= 8)
         {
             for (int c = 0; c < n; c++) cellOwner[c] = (int)f.Get32();
+        }
+        int[] lockedUntil = ver >= 8 ? new int[n] : null;   // 实控锁定（v8 冲突机制）
+        if (ver >= 8)
+        {
+            for (int c = 0; c < n; c++) lockedUntil[c] = (int)f.Get32();
         }
 
         // 文化 key 计数兜底：份额场推导（旧档无头部计数时；被同化掉的 key 可能使推导偏小，故取 max）
@@ -324,9 +332,10 @@ public static class CivMapArchive
             CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数：v6 头部独立值优先（续跑无分叉）；场推导兜底
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
             NextEntityId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
-            // 影响力场模型（v8）：Stock/CellOwner 从存档恢复；暂存/领地索引重建
+            // 影响力场模型（v8）：Stock/CellOwner/LockedUntil 从存档恢复；暂存/领地索引重建
             Stock = stock ?? new float[n],
             CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
+            LockedUntil = lockedUntil ?? EnumerableRepeat(0, n),   // 实控锁定（v8 冲突机制）
             CellBestOwner = EnumerableRepeat(-1, n),
             CellBestInf = new float[n],
             CellOwnerInf = new float[n],
@@ -397,7 +406,7 @@ public static class CivMapArchive
             pop += f.GetFloat();        // P
             f.Get8();                   // IsFarming
             int keyCount = f.Get16();
-            long skip = 16L * keyCount + 34 + 34 + 5 + 34 + 12 + 20;   // keys + 份额×3 + Cell/OriginCell/BornTick/LastMigrateTick/LastSplitTick(v8) + 货物3×float
+            long skip = 16L * keyCount + 34 + 34 + 5 + 34 + 12 + 24;   // keys + 份额×3 + Cell/OriginCell/BornTick/冷却×3(v8冲突) + 货物3×float
             f.Seek(f.GetPosition() + (ulong)skip);
         }
         return true;

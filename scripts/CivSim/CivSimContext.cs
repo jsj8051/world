@@ -46,6 +46,7 @@ public sealed class CivSimContext
     // ── 演化统计（诊断/输出）──
     public int Fissions;
     public int Migrations;
+    public int Conflicts;   // 冲突计数（2026-08-10 冲突机制）
     public int CultureKeyCount;         // 文化标签 key 计数器（分裂分化分配新 key，如 "cult_12"）
     public int CultureGroupKeyCount;    // 文化群 key 计数器（2026-08-07 与文化标签分开——语言大群独立 key 空间，防标签挤占）
     public int ReligionKeyCount;        // 宗教派别 key 计数器（起源/分裂分化分配新 key，如 "relig_3"）
@@ -55,6 +56,7 @@ public sealed class CivSimContext
     public int BfsStampValue;
     public int NextEntityId;   // 实体 Id 分配计数器（2026-08-10：独立于 Entities.Count——存档只存活实体，Count 会分叉）
     public string[] KeyBuf;    // 科技遍历排序缓冲（SpreadTech 复用，无分配；2026-08-10 确定性）
+    public int[] LockedUntil;  // 武力夺取格锁定到期 tick（-1=无锁定；2026-08-10 冲突机制——锁定内场不重算）
 
     /// <summary>分配新文化 key（确定性递增；与科技 key 同风格——字符串可读）。</summary>
     public string NextCultureKey() => $"cult_{CultureKeyCount++}";
@@ -115,6 +117,14 @@ public sealed class CivSimContext
     public const float RegenRate = 0.2f;         // 存量再生率（每 tick，向 K 线性回归；S=0 也能恢复——logistic 死锁已否）
     public const float CapRate = 0.2f;           // 采集上限比例（每 tick 最多采存量 α；2026-08-10 标定：0.05→0.2——平衡产出 F=α·S*·Σw ≈ R×领地面积，band 平衡 ~28 人）
     public const float StockYears = 100f;        // 存量深度（K = StockYears×R×5 人当量；2026-08-10 标定 20→100——平衡人口 F≈R×领地面积，band 平衡 ~50 人）
+    // ── 冲突机制（2026-08-10 定稿 §十五）：归属两条途径——和平（场 argmax+粘性）/ 武力（冲突强制易主+实控锁定）──
+    public const int ConflictLockTicks = 8;      // 实控锁定：武力夺取格 N tick 内场不重算（胜者持续产粮→人口增长窗口）
+    public const float ConflictChance = 0.01f;   // 每僵持格/tick 触发概率（低频——旧石器战争是偶发事件，全演化 0~十几次）
+    public const float ConflictLossChallenger = 0.08f;  // 胜者（挑战者）损耗比例（胜者损失小）
+    public const float ConflictLossOwner = 0.20f;       // 败者（owner）损耗比例（败者损失大）
+    public const float ConflictPlunderRate = 0.3f;      // 掠夺：败者易主格存量转移比例（即时资源收益）
+    public const float ConflictExpelChance = 0.6f;      // 败者被驱逐概率（损耗后强制迁移）
+    public const int ConflictCooldown = 12;      // 冲突冷却 tick（实体级，防连续刷）
     public const int MigrateCooldown = 8;        // 迁移冷却 tick（防抖动）
     public const int SplitCooldown = 4;          // 分裂冷却 tick（2026-08-10 殖民式分裂：防每 tick 指数爆炸）
 
@@ -404,6 +414,7 @@ public sealed class CivSimContext
         }
         for (int c = 0; c < n; c++)
         {
+            if (LockedUntil != null && LockedUntil[c] > Tick) continue;   // 实控锁定格：武力既成事实，场不重算（2026-08-10 冲突机制）
             int best = CellBestOwner[c];
             if (best < 0)
             {
@@ -515,7 +526,7 @@ public sealed class CivSimContext
 
     /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。
     /// landOnly：只走 R>0 陆地可居格（影响圈/领地不进海洋——2026-08-10 修复：此前领地含 R=0 格致分裂驻海洋）。</summary>
-    private void BfsRadius(int start, int maxDepth, Action<int, int> visit, bool landOnly = false)
+    internal void BfsRadius(int start, int maxDepth, Action<int, int> visit, bool landOnly = false)
     {
         BfsStampValue++;
         int sv = BfsStampValue;
