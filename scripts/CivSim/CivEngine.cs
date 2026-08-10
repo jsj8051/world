@@ -36,10 +36,23 @@ public static class CivEngine
             BfsStampValue = 1,
             WildCrops = grid.EnsureWildCrops(),
             Suit = WildCropsSystem.Suitability(grid),
+            // 影响力场模型（2026-08-10）
+            CellOwner = EnumerableRepeat(-1, n),
+            CellBestOwner = EnumerableRepeat(-1, n),
+            CellBestInf = new float[n],
+            CellOwnerInf = new float[n],
         };
+        ctx.TerritoryCells = new List<int>[4096];
+        ctx.TerritoryDists = new List<byte>[4096];
+        for (int i = 0; i < ctx.TerritoryCells.Length; i++)
+        {
+            ctx.TerritoryCells[i] = new List<int>();
+            ctx.TerritoryDists[i] = new List<byte>();
+        }
         for (int i = 0; i < n; i++)
             ctx.CellTribes[i] = new List<CivEntity>();
         BuildLayer1(ctx);   // 层1 空间生产力 R（Miami NPP × 水因子，k 相对标定 → 陆地中位数 0.3 人/km²）
+        ctx.InitStock();    // 存量场 S₀ = StockYears×R×5
 
         var registry = CivModelRegistry.StoneAge();
         int maxTicks = CivSimContext.MaxTicksNoAgri + CivSimContext.TerminateAfterAgri;
@@ -102,7 +115,8 @@ public static class CivEngine
     }
 
     /// <summary>重算每格总人口与当 tick 总产出（F_格 = Σ 实体实际产出 F_i）。
-    /// 两遍循环：① CarryMult/CellPop/CellFarmPop ② FLast/CellF（劳动因子用当 tick 完整 farmPop）。</summary>
+    /// 第一遍 CarryMult/CapMask/CellPop/CellFarmPop（Influence 用 CarryMult）；
+    /// 第二遍 CellF 聚合（FLast 由 HarvestModel 算好，此处只汇总——2026-08-10 影响力场模型）。</summary>
     public static void RefreshCellState(CivSimContext ctx)
     {
         int n = ctx.Grid.N;
@@ -122,13 +136,19 @@ public static class CivEngine
         {
             var e = ctx.Entities[i];
             if (e.Dead) continue;
-            e.FLast = ctx.FOf(e);
             // 货物累积（副产品 = 各方式 F × 副产率；2026-08-09）
             e.Goods[CivSimContext.GoodsLeather] += e.FHuntLast * CivSimContext.LeatherRate;
             e.Goods[CivSimContext.GoodsWool] += e.FHerdLast * CivSimContext.WoolRate;
             e.Goods[CivSimContext.GoodsStraw] += e.FFarmLast * CivSimContext.StrawRate;
             ctx.CellF[e.Cell] += e.FLast;
         }
+    }
+
+    private static int[] EnumerableRepeat(int v, int n)
+    {
+        var a = new int[n];
+        Array.Fill(a, v);
+        return a;
     }
 }
 

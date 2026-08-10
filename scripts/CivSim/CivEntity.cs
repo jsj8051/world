@@ -40,6 +40,8 @@ public class CivEntity
     public HashSet<string> TechKeys = new();   // 已获科技 key 集合（字符串可读，非位掩码）
     public int OriginCell;
     public int BornTick;
+    public int LastMigrateTick = -1;   // 最近迁移 tick（迁移冷却；入档——读档续跑无分叉）
+    public int LastSplitTick = -1;     // 最近分裂 tick（分裂冷却；入档）
     public bool Dead;
     public bool IsFarming;            // 生产方式（入档——读档续跑滞回无分叉）
 

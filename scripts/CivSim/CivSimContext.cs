@@ -28,6 +28,17 @@ public sealed class CivSimContext
     public float[] CellPop;      // 每格总人口
     public float[] CellFarmPop;  // 每格农业部落总人口（劳动因子用；RefreshCellState 缓存）
 
+    // ── 影响力场模型（2026-08-10 定稿，5 km² 口径：每格归属 = argmax(P×M×w(d))）──
+    public float[] Stock;            // 格存量（人当量食物；0=海洋/不可居；S₀ = StockYears×R×5）
+    public int[] CellOwner;          // 格归属 band id（-1=无主；归属唯一，其他 band 禁入）
+    public int[] CellBestOwner;      // 影响力场重算暂存：每格当前最强影响力 band
+    public float[] CellBestInf;      // 影响力场重算暂存：最强影响力值
+    public float[] CellOwnerInf;     // 现 owner 的影响力（粘性比较基准；本 tick 开头）
+    public List<int>[] TerritoryCells;   // 每 band 领地格列表（CellOwner 反查派生，RebuildTerritory 重建）
+    public List<byte>[] TerritoryDists;  // 每 band 领地格到驻扎点距离（0-3，w 加权用）
+    private Queue<int> _bfsQ;            // BFS 复用队列（GC 优化）
+    private Queue<int> _bfsDQ;
+
     // ── 自然层派生缓存（确定性重建，不存档）──
     public byte[] WildCrops;   // WildCrops 位（grid.EnsureWildCrops 惰性）
     public float[,] Suit;      // 每格每种子适宜度 φ（WildCropsSystem.Suitability 缓存）
@@ -42,6 +53,8 @@ public sealed class CivSimContext
     public int TerritoryLastRebuild = -1;   // 最近凝聚重算 tick（TerritoryModel 频率守卫）
     public int[] BfsStamp;
     public int BfsStampValue;
+    public int NextEntityId;   // 实体 Id 分配计数器（2026-08-10：独立于 Entities.Count——存档只存活实体，Count 会分叉）
+    public string[] KeyBuf;    // 科技遍历排序缓冲（SpreadTech 复用，无分配；2026-08-10 确定性）
 
     /// <summary>分配新文化 key（确定性递增；与科技 key 同风格——字符串可读）。</summary>
     public string NextCultureKey() => $"cult_{CultureKeyCount++}";
@@ -59,11 +72,11 @@ public sealed class CivSimContext
     public const float W = 0.2f;                      // 耕作劳动成本差（Sahlins；稳态论证 0.8 > 0.77）
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
     public const float Hysteresis = 0.02f;            // 滞回带（必须 < 农业稳态差 0.03，否则锁死切换）
-    public const float SplitPop = 300f;               // 分裂阈值（2026-08-07 400→300：分裂更勤 → 分化更多）
+    public const float SplitPop = 50f;               // 分裂阈值（2026-08-10 影响力场模型：band 量级——旧 300 是格内 8 部落口径，新模型 band 平衡人口 ~30-50）
     public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
-    public const float FissionTensionStart = 300f;   // 规模张力起算点（= SplitPop；裂变压力机制 2026-08-09）
-    public const float FissionTensionSpan = 250f;    // 张力封顶跨度（300+250=550 → 张力 1.0）
+    public const float FissionTensionStart = 50f;   // 规模张力起算点（= SplitPop；band 量级，2026-08-10）
+    public const float FissionTensionSpan = 40f;    // 张力封顶跨度（50+40=90 → 张力 1.0）
     public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
@@ -93,9 +106,17 @@ public sealed class CivSimContext
     public const float SeedInvProb = 0.005f;          // 种子基础发明概率/tick（起源区少数）
     public const float EnvMismatchFactor = 0.3f;      // 发明 env_i：环境不匹配但非硬门槛
     public const int OriginDistMin = 12;              // 起源两两最小球面格距（≈1300 km）
-    public const float OriginPop = 100f;
+    public const float OriginPop = 50f;   // 起源 band 人口（band 量级；5 km² 格超载靠快速扩张消化，2026-08-10）
     public const int TerminateAfterAgri = 100;        // 首转农 +100 ticks 结束
     public const int MaxTicksNoAgri = 500;            // 兜底：无农 500 ticks 停止（天然灭绝星球）
+    // ── 影响力场模型常量（2026-08-10 定稿）──
+    public const int InfluenceRadius = 3;        // 影响范围（格步数；物理标定 foraging 单程 15 km / 5 km² 格）
+    public const float Stickiness = 1.15f;       // 归属粘性：非 owner 需超现 owner 影响力 ×1.15 才易主
+    public const float RegenRate = 0.2f;         // 存量再生率（每 tick，向 K 线性回归；S=0 也能恢复——logistic 死锁已否）
+    public const float CapRate = 0.2f;           // 采集上限比例（每 tick 最多采存量 α；2026-08-10 标定：0.05→0.2——平衡产出 F=α·S*·Σw ≈ R×领地面积，band 平衡 ~28 人）
+    public const float StockYears = 100f;        // 存量深度（K = StockYears×R×5 人当量；2026-08-10 标定 20→100——平衡人口 F≈R×领地面积，band 平衡 ~50 人）
+    public const int MigrateCooldown = 8;        // 迁移冷却 tick（防抖动）
+    public const int SplitCooldown = 4;          // 分裂冷却 tick（2026-08-10 殖民式分裂：防每 tick 指数爆炸）
 
     public float TickFactor => GrowthRatePerYear * TickYears;   // 0.5/tick ★
 
@@ -320,4 +341,205 @@ public sealed class CivSimContext
             if (!Entities[i].Dead) s += Entities[i].P;
         return s;
     }
+
+    // ══════════════════════════════════════════════════════════════════
+    // 影响力场模型（2026-08-10 定稿，5 km² 口径）
+    //   归属 = argmax(P×CarryMult×w(d))，w = 紧支撑平滑核，粘性 1.15；
+    //   领地 = 归属格集合；F = Σ 领地格 min(需求份额, Cap×w)；存量耗竭→饿→迁移。
+    // ══════════════════════════════════════════════════════════════════
+
+    /// <summary>紧支撑平滑核：w(d) = max(0, (1−d²/R²)²)。d=格步数（BFS 深度），d≥R 严格 0。</summary>
+    public static float InfluenceWeight(float d)
+    {
+        float r = InfluenceRadius;
+        float t = 1f - (d * d) / (r * r);
+        return t > 0f ? t * t : 0f;
+    }
+
+    /// <summary>存量初始化：S₀ = StockYears×R×5（20 年产量；海洋/不可居 0）。Run 前调用一次。</summary>
+    public void InitStock()
+    {
+        int n = Grid.N;
+        Stock = new float[n];
+        for (int c = 0; c < n; c++)
+            Stock[c] = R[c] > 0f ? StockYears * R[c] * 5f : 0f;
+    }
+
+    /// <summary>存量再生：S' = S + ρ·(K−S)（向 K 线性回归——S=0 也恢复，无 logistic 死锁；K = StockYears×R×5）。</summary>
+    public void RegenStocks()
+    {
+        int n = Grid.N;
+        for (int c = 0; c < n; c++)
+        {
+            float k = StockYears * R[c] * 5f;
+            if (k <= 0f) continue;
+            float s = Stock[c];
+            Stock[c] = s + RegenRate * (k - s);
+        }
+    }
+
+    /// <summary>影响力场重算：每格归属 = argmax(P×M×w(d))；粘性：非 owner 需超现 owner×1.15 才易主。
+    /// band 驱动（每 band 写半径 R 内格，O(band×28)）；确定性（固定遍历顺序）。</summary>
+    public void RebuildInfluence()
+    {
+        int n = Grid.N;
+        Array.Fill(CellBestOwner, -1);
+        Array.Clear(CellBestInf, 0, n);
+        Array.Clear(CellOwnerInf, 0, n);
+        for (int i = 0; i < Entities.Count; i++)
+        {
+            var e = Entities[i];
+            if (e.Dead) continue;
+            float M = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
+            float strength = e.P * M;
+            if (strength <= 0f) continue;
+            BfsRadius(e.Cell, InfluenceRadius, (c, d) =>
+            {
+                float w = InfluenceWeight(d);
+                if (w <= 0f) return;
+                float inf = strength * w;
+                if (inf > CellBestInf[c]) { CellBestInf[c] = inf; CellBestOwner[c] = e.Id; }
+                if (CellOwner[c] == e.Id && inf > CellOwnerInf[c]) CellOwnerInf[c] = inf;
+            }, landOnly: true);   // 影响圈只走陆地可居格（R>0）——海洋不进领地，2026-08-10
+        }
+        for (int c = 0; c < n; c++)
+        {
+            int best = CellBestOwner[c];
+            if (best < 0)
+            {
+                if (CellOwner[c] >= 0 && CellOwner[c] < Entities.Count && Entities[CellOwner[c]].Dead)
+                    CellOwner[c] = -1;   // 现 owner 已死且无新覆盖 → 归无主
+                continue;
+            }
+            int cur = CellOwner[c];
+            if (cur == best) continue;
+            if (cur < 0 || CellBestInf[c] > CellOwnerInf[c] * Stickiness)
+                CellOwner[c] = best;
+        }
+        RebuildTerritory();
+    }
+
+    /// <summary>惰性确保领地索引数组存在（构造场景/读档路径可能未初始化）。</summary>
+    public void EnsureTerritory()
+    {
+        if (TerritoryCells != null) return;
+        int cap = Math.Max(4096, Entities.Count + 256);
+        TerritoryCells = new List<int>[cap];
+        TerritoryDists = new List<byte>[cap];
+        for (int i = 0; i < cap; i++)
+        {
+            TerritoryCells[i] = new List<int>();
+            TerritoryDists[i] = new List<byte>();
+        }
+    }
+
+    /// <summary>领地索引重建：每 band 的领地格 = 归属格 ∩ 其影响圈（BFS 半径 R 内）。距离入 TerritoryDists。</summary>
+    public void RebuildTerritory()
+    {
+        EnsureTerritory();
+        for (int i = 0; i < Entities.Count; i++)
+        {
+            if (Entities[i].Dead) continue;
+            if (i >= TerritoryCells.Length) EnsureTerritoryCapacity(i + 256);
+            TerritoryCells[i].Clear();
+            TerritoryDists[i].Clear();
+        }
+        for (int i = 0; i < Entities.Count; i++)
+        {
+            var e = Entities[i];
+            if (e.Dead) continue;
+            var terr = TerritoryCells[i];
+            var dists = TerritoryDists[i];
+            BfsRadius(e.Cell, InfluenceRadius, (c, d) =>
+            {
+                if (CellOwner[c] == e.Id)
+                {
+                    terr.Add(c);
+                    dists.Add((byte)d);
+                }
+            }, landOnly: true);   // 领地 = 陆地可达域（2026-08-10）
+        }
+    }
+
+    private void EnsureTerritoryCapacity(int size)
+    {
+        int old = TerritoryCells.Length;
+        if (size <= old) return;
+        var tc = new List<int>[size];
+        var td = new List<byte>[size];
+        Array.Copy(TerritoryCells, tc, old);
+        Array.Copy(TerritoryDists, td, old);
+        for (int i = old; i < size; i++)
+        {
+            tc[i] = new List<int>();
+            td[i] = new List<byte>();
+        }
+        TerritoryCells = tc;
+        TerritoryDists = td;
+    }
+
+    /// <summary>领地采集：返回**潜在产出**（Σ Cap×w，增长用——F 可 > P 才有盈余增长），
+    /// 扣减按需求分摊（每格 min(份额, Cap×w)）。Cap_格 = CapRate×S（剩余多→上限高→耗竭反馈）。
+    /// ⚠️ 2026-08-10 修：F 若按需求分摊报告则 F≤P 恒成立 → 增长公式永 ≤1 → 全员饿死；
+    ///    F 必须报告潜在（旧模型 F=R×面积 同语义），实际采量另算。</summary>
+    public float Harvest(CivEntity e)
+    {
+        var terr = TerritoryCells[e.Id];
+        if (terr == null || terr.Count == 0) return 0f;
+        var dists = TerritoryDists[e.Id];
+        float sumW = 0f;
+        for (int k = 0; k < terr.Count; k++)
+            sumW += InfluenceWeight(dists[k]);
+        if (sumW <= 0f) return 0f;
+        float D = e.P;
+        float potCap = 0f;   // 潜在可采（增长基准）
+        for (int k = 0; k < terr.Count; k++)
+        {
+            int c = terr[k];
+            float w = InfluenceWeight(dists[k]);
+            potCap += CapRate * Stock[c] * w;
+        }
+        if (potCap <= 0f) return 0f;
+        float scale = Mathf.Min(1f, D / potCap);   // 需求不足时按比例少采（S 保住）
+        for (int k = 0; k < terr.Count; k++)
+        {
+            int c = terr[k];
+            float w = InfluenceWeight(dists[k]);
+            float take = CapRate * Stock[c] * w * scale;
+            if (take <= 0f) continue;
+            take = Mathf.Min(take, Stock[c]);
+            Stock[c] -= take;
+        }
+        return potCap;
+    }
+
+    /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。
+    /// landOnly：只走 R>0 陆地可居格（影响圈/领地不进海洋——2026-08-10 修复：此前领地含 R=0 格致分裂驻海洋）。</summary>
+    private void BfsRadius(int start, int maxDepth, Action<int, int> visit, bool landOnly = false)
+    {
+        BfsStampValue++;
+        int sv = BfsStampValue;
+        _bfsQ ??= new Queue<int>();
+        _bfsDQ ??= new Queue<int>();
+        _bfsQ.Clear(); _bfsDQ.Clear();
+        BfsStamp[start] = sv;
+        _bfsQ.Enqueue(start); _bfsDQ.Enqueue(0);
+        visit(start, 0);
+        while (_bfsQ.Count > 0)
+        {
+            int c = _bfsQ.Dequeue();
+            int d = _bfsDQ.Dequeue();
+            if (d >= maxDepth) continue;
+            foreach (int nb in Grid.Neighbors[c])
+                if (BfsStamp[nb] != sv && (!landOnly || R[nb] > 0f))
+                {
+                    BfsStamp[nb] = sv;
+                    _bfsQ.Enqueue(nb); _bfsDQ.Enqueue(d + 1);
+                    visit(nb, d + 1);
+                }
+        }
+    }
+
+    /// <summary>本 tick 归属是否可迁移：饿（F<D）且领地内无可扩（领地格数已达影响圈内无主格上限）——简化：F<P 且连续饿。</summary>
+    public bool IsStarving(CivEntity e) => e.FLast < e.P * 0.999f;
 }
