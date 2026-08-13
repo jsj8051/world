@@ -42,6 +42,7 @@ public sealed class CivSimContext
     // ── 酋邦层（2026-08-17）：第二层并查集——部落联盟（跨领地政治整合）──
     public List<int>[] ChiefdomCells;    // 酋邦 id → 成员 band Id（ChiefdomModel.Rebuild 填充）
     public int ChiefdomLastEval = -100;  // 凝聚评估频率守卫（与领地同频）
+    public int AbsorptionLastEval = -100; // 吞并评估频率守卫（2026-08-17；10 tick 同频，不入档）
     private Queue<int> _bfsQ;            // BFS 复用队列（GC 优化）
     private Queue<int> _bfsDQ;
 
@@ -448,12 +449,17 @@ public sealed class CivSimContext
     //   领地 = 归属格集合；F = Σ 领地格 min(需求份额, Cap×w)；存量耗竭→饿→迁移。
     // ══════════════════════════════════════════════════════════════════
 
-    /// <summary>紧支撑平滑核：w(d) = max(0, (1−d²/R²)²)。d=格步数（BFS 深度），d≥R 严格 0。</summary>
+    /// <summary>紧支撑平滑核：w(d) = (1−d/R)^1.5（d=格步数，d≥R 严格 0；2026-08-17 陡化修正）。</summary>
+    private static readonly float[] InfluenceWeightLUT = { 1f, 0.544f, 0.192f, 0f };   // (1−d/3)^1.5 查表
     public static float InfluenceWeight(float d)
     {
-        float r = InfluenceRadius;
-        float t = 1f - (d * d) / (r * r);
-        return t > 0f ? t * t : 0f;
+        // ⚠️ 2026-08-17 修正：衰减陡化（用户质疑：弱 band 驻扎格不该被轻易覆盖——家门口应优势明显）。
+        //   旧版 (1−d²/r²)² 在 d=1 仍 0.79（邻居仅需大 1.27 倍就覆盖——粘性 1.15 后 1.46 倍）。
+        //   改 (1−d/r)^1.5：d=0 权重 1（家）、d=1 半衰 0.54、d=2 保留 0.19——驻扎格覆盖需
+        //   邻 P×M ≥ 2.1×自己（含粘性）——家门口稳定（foraging site catchment 衰减，Binford）；
+        //   d=2 不过度削弱（远格仍贡献——世界密度不塌）。d≥R 严格 0（紧支撑不变）。
+        int di = (int)d;
+        return di >= 0 && di < InfluenceWeightLUT.Length ? InfluenceWeightLUT[di] : 0f;
     }
 
     /// <summary>猎物占比（biome 相关；浆果 = 1−占比）。草地/萨瓦纳猎物多（草食动物），密林/湿润浆果采集为主。

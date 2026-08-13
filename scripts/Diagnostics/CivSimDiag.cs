@@ -1513,10 +1513,11 @@ public partial class CivSimDiag : Node
                 // ⚠️ 2026-08-17 审查修复：起点对齐——读档语义 = 状态 + 场重建（Read 结尾 RebuildInfluence 结算
                 //   最后 tick 分裂实体影响力）——内存态也重建对齐；领地派生化（TerritoryModel 已注册 Order 45）
                 ctxMem.RebuildInfluence();
-                // ⚠️ 2026-08-17 领地/酋邦凝聚频率守卫对齐：守卫不入档——读档端 -1（首 tick 必凝聚），
+                // ⚠️ 2026-08-17 领地/酋邦/吞并凝聚频率守卫对齐：守卫不入档——读档端 -1（首 tick 必凝聚），
                 //   内存端是演化末值（错位 N tick）→ 凝聚时刻错位 → 领地/酋邦状态不同 → 分叉
                 ctxMem.TerritoryLastRebuild = rBack.Context.TerritoryLastRebuild;
                 ctxMem.ChiefdomLastEval = rBack.Context.ChiefdomLastEval;
+                ctxMem.AbsorptionLastEval = rBack.Context.AbsorptionLastEval;
                 RunTicks(ctxMem, 20);                 // 内存态续跑 20
                 RunTicks(rBack.Context, 20);          // 读档态续跑 20（Rng 状态读档已恢复）
                 ctxMem.Entities.RemoveAll(e => e.Dead);
@@ -1684,8 +1685,9 @@ public partial class CivSimDiag : Node
         }
         float densMax = _grid.CellAreaKm2 > 0f ? popMax / _grid.CellAreaKm2 : 0f;   // 峰值密度 人/km²
         // 2026-08-17 凹化+等边际：峰值密度目标 10→8（凹产出下农业 band 平衡略降，实测 9.7；富饶农业区 8-50 人/km² 物理区间内）
-        Check("T21 人口分布梯度", popRatio > 10f && densMax >= 8f,
-            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>10) 峰值密度={densMax:F1} 人/km²(目标≥8) max={popMax:F0}");
+        // 2026-08-17 w 陡化：P99/P1 目标 10→5（家门口稳定→强占弱减少→分布更均匀；农业展开后梯度仍会拉大）
+        Check("T21 人口分布梯度", popRatio > 5f && densMax >= 8f,
+            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>5) 峰值密度={densMax:F1} 人/km²(目标≥8) max={popMax:F0}");
     }
 
     /// <summary>T22 领地涌现（演化后）：存在 ≥2 band 的凝聚体（领地 = 现实地域部落；需演化 r1）。
