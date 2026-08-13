@@ -784,16 +784,26 @@ public partial class MapViewer : Node3D
     								        float sat = _tilePolity[id] switch { 0 => 0.30f, 1 => 0.50f, _ => 0.58f };
     								        return HslToRgb(hue + perturb, sat, 0.55f);
     								    }
-			default: // 海拔
+			default: // 海拔——分段色带（2026-08-17 用户拍板：近海/深海等显示清楚——分段非线性）
     			{
     				float h = _tileElev[id];
-    				// h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
-    				// 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶）。
+    				if (IsDisplaySea(id))
+    				{
+    					// 海洋：按深度分段（depth 0=海面 1=最深——相对 hSea 比例）
+    					float depth = (_hSea - h) / Mathf.Max(0.001f, _hSea);
+    					if (depth > 0.66f) return new Color(0.01f, 0.05f, 0.18f);   // 深海（深蓝）
+    					if (depth > 0.33f) return new Color(0.08f, 0.20f, 0.45f);   // 浅海（中蓝）
+    					return new Color(0.20f, 0.45f, 0.68f);                      // 近海/大陆架（亮蓝）
+    				}
+    				// 陆地：按高度分段（h 是 0..1 归一化，海平面位置 = -MinElev/range（≠0.5）。
+    				//   转成以海平面为 0 的 -1..1；逻辑陆地近海格（byte 量化 h<hSea 但 R>0）强制海滩起）
     				float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
-    				// ⚠️ 2026-08-17：逻辑陆地（近海格 R>0）强制陆地色带起（海滩）——
-    				//   地形层与人文层海陆统一（IsDisplaySea 为权威判定）
-    				if (!IsDisplaySea(id) && e1 < 0f) e1 = 0f;
-    				return PlanetColors.ElevationToColor(e1);
+    				if (e1 < 0f) e1 = 0f;
+    				if (e1 < 0.10f) return new Color(0.70f, 0.65f, 0.40f);   // 海滩/低地（沙黄）
+    				if (e1 < 0.35f) return new Color(0.30f, 0.65f, 0.10f);   // 低地（绿）
+    				if (e1 < 0.60f) return new Color(0.50f, 0.55f, 0.20f);   // 丘陵（黄绿）
+    				if (e1 < 0.85f) return new Color(0.60f, 0.50f, 0.35f);   // 高地（棕）
+    				return new Color(0.95f, 0.97f, 1.00f);                   // 雪顶（白）
     			}
     		}
     	};
@@ -1889,11 +1899,13 @@ public partial class MapViewer : Node3D
 
         switch (_layer)
         {
-            case 0: // 海拔：色带分段（深海→浅海→沙滩→低地→高地→雪顶）
+            case 0: // 海拔：分段色带（深海→浅海→近海→海滩→低地→丘陵→高地→雪顶）
                 AddLegendGradient(
-                    new[] { new Color(0.01f, 0.05f, 0.18f), new Color(0.12f, 0.45f, 0.68f), new Color(0.70f, 0.65f, 0.40f), new Color(0.30f, 0.65f, 0.10f), new Color(0.95f, 0.97f, 1.00f) },
+                    new[] { new Color(0.01f, 0.05f, 0.18f), new Color(0.08f, 0.20f, 0.45f), new Color(0.20f, 0.45f, 0.68f),
+                            new Color(0.70f, 0.65f, 0.40f), new Color(0.30f, 0.65f, 0.10f), new Color(0.50f, 0.55f, 0.20f),
+                            new Color(0.60f, 0.50f, 0.35f), new Color(0.95f, 0.97f, 1.00f) },
                     "深海", "雪顶");
-                AddLegendText($"海平面 ≈ {_hSea * 100f:F0}% 海拔");
+                AddLegendText($"海平面 ≈ {_hSea * 100f:F0}% 海拔 · 海分深海/浅海/近海 · 陆分海滩/低地/丘陵/高地/雪顶");
                 break;
             case 1: // 温度：分段色带
                 AddLegendGradient(
