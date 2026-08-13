@@ -58,10 +58,18 @@ public static class CivEngine
 
         var registry = CivModelRegistry.StoneAge();
         int maxTicks = CivSimContext.MaxTicksNoAgri + CivSimContext.TerminateAfterAgri;
+        var modelMs = new Dictionary<string, long>();   // ⚠️ 2026-08-17 逐模型计时（监督劣化定位）
+        var swRun = System.Diagnostics.Stopwatch.StartNew();
         for (ctx.Tick = 0; ctx.Tick < maxTicks; ctx.Tick++)
         {
             RefreshCellState(ctx);
-            registry.ExecuteAll(ctx);
+            foreach (var m in registry.SortedModels())
+            {
+                var swm = System.Diagnostics.Stopwatch.StartNew();
+                m.Execute(ctx);
+                swm.Stop();
+                modelMs[m.Name] = modelMs.TryGetValue(m.Name, out var prev) ? prev + swm.ElapsedMilliseconds : swm.ElapsedMilliseconds;
+            }
             onProgress?.Invoke(Mathf.Min((ctx.Tick + 1f) / maxTicks, 1f));
 
             // 终止：首转农 +100 ticks；无农 500 ticks 兜底（天然灭绝星球）
@@ -70,9 +78,21 @@ public static class CivEngine
             if (ctx.FirstFarmTick < 0 && ctx.Tick >= CivSimContext.MaxTicksNoAgri - 1)
             { ctx.Tick++; break; }
         }
+        swRun.Stop();
 
         ctx.Entities.RemoveAll(e => e.Dead);
         RefreshCellState(ctx);
+        // ⚠️ 2026-08-17 监督机制：CivSim 逐模型耗时入历史（对比/告警；--arch 全量测试时也自动记录）
+        modelMs["总"] = swRun.ElapsedMilliseconds;
+        var (hisAvg, _, hisCnt) = World.Diagnostics.PerfLog.Stats("civsim", "总");
+        World.Diagnostics.PerfLog.Append("civsim", $"{ctx.Tick}t/{ctx.Entities.Count}e", modelMs);
+        if (hisCnt > 0)
+        {
+            if (swRun.ElapsedMilliseconds > hisAvg * 1.5)
+                GD.Print($"[性能] ⚠️ CivSim 劣化告警：总={swRun.ElapsedMilliseconds}ms > 历史均值 {hisAvg:F0}ms ×1.5——检查近期模型改动");
+            else
+                GD.Print($"[性能] CivSim 本次总={swRun.ElapsedMilliseconds}ms（历史均值 {hisAvg:F0}ms / {hisCnt} 次 → 正常）");
+        }
         return new CivSimResult { Context = ctx, FinalTick = ctx.Tick };
     }
 

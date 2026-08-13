@@ -197,6 +197,16 @@ public partial class MapGenerator : Node
 		LastTimings["archive_ms"] = archiveMs;
 		LastTimings["total_ms"] = sw.ElapsedMilliseconds;
 		GD.Print($"[MapGenTiming] 板块={swTec.ElapsedMilliseconds}ms 管线={swPipe.ElapsedMilliseconds}ms 存档={archiveMs}ms 总={sw.ElapsedMilliseconds}ms (n={TectonicsGridN} seed={Seed})");
+		// ⚠️ 2026-08-17 监督机制：历史对比 + 劣化告警（每次生成自动记录）
+		var (hisAvg, hisMax, hisCnt) = World.Diagnostics.PerfLog.Stats("mapgen", "total_ms");
+		World.Diagnostics.PerfLog.Append("mapgen", $"n{TectonicsGridN}/s{Seed}", LastTimings);
+		if (hisCnt > 0)
+		{
+			if (sw.ElapsedMilliseconds > hisAvg * 1.5)
+				GD.Print($"[性能] ⚠️ MapGen 劣化告警：总={sw.ElapsedMilliseconds}ms > 历史均值 {hisAvg:F0}ms ×1.5（峰值 {hisMax}ms / {hisCnt} 次）——检查近期算法改动");
+			else
+				GD.Print($"[性能] MapGen 本次总={sw.ElapsedMilliseconds}ms（历史均值 {hisAvg:F0}ms / 峰值 {hisMax}ms / {hisCnt} 次 → 正常）");
+		}
 		long total = vn;
 		var sb = new System.Text.StringBuilder("[MapGenerator] biome dist: ");
 		var dist = new int[32];   // biome 0..31（旧 0-13 + 柯本 14-31）

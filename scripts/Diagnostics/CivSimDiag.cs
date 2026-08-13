@@ -145,7 +145,8 @@ public partial class CivSimDiag : Node
         if (Want("T37")) T37_CultivationGrowth();
         if (Want("T38")) T38_EquiMarginal();
         if (Want("T39")) T39_SettleStorage();
-        if (Want("T40")) T40_PerfSegments();   // ⚠️ n16 快生成 ~30-40s——仅显式 --only=T40 定期跑（不进全量默认）
+        if (Want("T40")) T40_PerfSegments();   // ⚠️ n16 快生成 ~3-5s——仅显式 --only=T40 定期跑（不进全量默认）
+        if (Want("T41")) T41_PerfHistory();    // ⚠️ 只读历史汇总，秒级——可进全量；默认不进（避免输出噪音）
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -999,6 +1000,30 @@ public partial class CivSimDiag : Node
         }
         Check("T40 MapGen 分段基线（n16）", baselineOk && hasTec && hasPipe && hasArc,
             $"板块={tec}ms 管线={pipe}ms 存档={arc}ms 总={total}ms");
+        PerfLog.Summarize("mapgen", "MapGen 分段");
+    }
+
+    /// <summary>T41 性能历史汇总（2026-08-17 监督机制：只读 user://perf_history.json 打印趋势）。
+    /// 显示 MapGen/CivSim 各段的历史均值/峰值 + 最近 8 条时间序列（劣化趋势肉眼可见）。</summary>
+    private void T41_PerfHistory()
+    {
+        PerfLog.Summarize("mapgen", "MapGen 分段");
+        PerfLog.Summarize("civsim", "CivSim 逐模型");
+        // 最近 8 条趋势（mapgen 总耗时）
+        var all = new List<long>();
+        foreach (var (_, v) in PerfLog.Enumerate("mapgen", "total_ms")) all.Add(v);
+        int start = Math.Max(0, all.Count - 8);
+        var trend = new System.Text.StringBuilder("[T41] MapGen 总耗时趋势(ms): ");
+        for (int i = start; i < all.Count; i++)
+        {
+            trend.Append(all[i]);
+            if (i < all.Count - 1) trend.Append(" → ");
+        }
+        GD.Print(trend.ToString());
+        int civCount = 0;
+        foreach (var _ in PerfLog.Enumerate("civsim", "总")) civCount++;
+        Check("T41 性能历史可读", all.Count > 0 || civCount > 0,
+            $"MapGen 历史 {all.Count} 条 + CivSim 历史 {civCount} 条（趋势见上；mapgen 需先跑 --only=T40 生成）");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
@@ -1431,13 +1456,15 @@ public partial class CivSimDiag : Node
         Check("T22 领地涌现", emerged, $"领地 {ids.Count} 个（≥2 band），成员 band {inTribe} 个");
     }
 
-    /// <summary>T18 性能：全演化计时（第三次演化，仅选中时跑 ~11s）。</summary>
+    /// <summary>T18 性能：全演化计时（第三次演化，仅选中时跑 ~11s）。
+    /// ⚠️ 2026-08-17 监督机制：逐模型耗时已由 CivEngine.Run 入 PerfLog 历史——此处显示历史汇总（劣化定位）。</summary>
     private void T18_Perf(int seed, int origins)
     {
         var sw = Stopwatch.StartNew();
         var r3 = CivEngine.Run(_grid, seed, origins);
         sw.Stop();
         long ms = sw.ElapsedMilliseconds;
+        PerfLog.Summarize("civsim", "CivSim 逐模型");
         Check("T18 性能 n=64 全演化 <10s", ms < 10000, $"{ms}ms（tick {r3.FinalTick}）");
     }
 
