@@ -579,10 +579,10 @@ public partial class MapViewer : Node3D
         //   同格共住合法（分裂/驱逐瞬态：模拟无格容量上限）→ 求和 = 该格真实总人口。
         if (hasCiv)
         {
-            // ⚠️ 2026-08-17 语义修正 v3：人口 = 营地 + 领地活动人口（用户反馈"势力内没人"——
-            //   旧版只在驻扎格显示 P，势力色块 5-20 格只有 1 个点（视觉无人）。
-            //   流动采集者物理：营地集中（P×0.5 驻扎格）+ 活动圈分散（P×0.5 按距离权重
-            //   w/Σw 摊到领地格——近营多远营少，Binford 营地-活动圈模型）；总人口守恒。
+            // ⚠️ 2026-08-17 语义修正 v4（用户拍板）：人口格子就显示有人口的格子——
+            //   人口 = 驻扎格 P（营地实有人口）；领地格（采集格）无人即无人（物理正确——
+            //   采集者活动范围≠定居点）。不做活动人口分散（v3 被否：所有领地格造淡人口不真实）。
+            //   保留 v2 修复：驻扎格归势力（人口格必有势力色）+ 逻辑陆地判定（R>0）。
             var bestByCell = new Dictionary<int, World.CivSim.CivEntity>();
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
@@ -602,23 +602,7 @@ public partial class MapViewer : Node3D
                 var ce = _civCtx.Entities[e];
                 if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
                 if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地（与模拟一致）
-                _tilePop[ce.Cell] += ce.P * 0.5f;   // 营地（驻扎格——集中）
-                // 领地活动人口（按距离权重分散——近营多、远营少）
-                var terr = ce.Id < (_civCtx.TerritoryCells?.Length ?? 0) ? _civCtx.TerritoryCells[ce.Id] : null;
-                if (terr == null || terr.Count < 2) continue;
-                var dists = _civCtx.TerritoryDists != null ? _civCtx.TerritoryDists[ce.Id] : null;
-                if (dists == null || dists.Count != terr.Count) continue;
-                float wSum = 0f;
-                for (int k = 0; k < terr.Count; k++)
-                    if (terr[k] != ce.Cell) wSum += World.CivSim.CivSimContext.InfluenceWeight(dists[k]);
-                if (wSum <= 0f) continue;
-                for (int k = 0; k < terr.Count; k++)
-                {
-                    int c = terr[k];
-                    if (c == ce.Cell || c < 0 || c >= n) continue;
-                    if (_civCtx.R != null && _civCtx.R[c] <= 0f) continue;
-                    _tilePop[c] += ce.P * 0.5f * World.CivSim.CivSimContext.InfluenceWeight(dists[k]) / wSum;
-                }
+                _tilePop[ce.Cell] += ce.P;   // 驻扎格实有人口（营地）——只有人的格显示人
             }
         }
         // 人口图层自适应归一化（相对本图分布——分位数模型，用户拍板风格）：
@@ -1981,7 +1965,7 @@ public partial class MapViewer : Node3D
                     string label = i == 15 ? $"≥ {FmtPop(p)}（最高 {FmtPop(_popMax)}）" : FmtPop(p);
                     AddLegendRow(lo.Lerp(hi, x), label);
                 }
-                AddLegendText("营地+领地活动人口（人/格）· log 分位自适应");
+                AddLegendText("驻扎格人口（人/格）· log 分位自适应");
                 break;
             }
             case 13: // 文化：动态条目（每文化独立色，按覆盖格数排序，滚动查看）
