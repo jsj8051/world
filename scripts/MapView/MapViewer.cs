@@ -527,7 +527,10 @@ public partial class MapViewer : Node3D
             // 文明图层（.cmp v8 影响力场模型：归属格主导——每格查 CellOwner，领地全显示）
             if (hasCiv)
             {
-                int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1;
+                // ⚠️ 2026-08-17 修复：文明场按**逻辑格索引 i**（CellOwner 是逻辑格数组）——
+                //   旧版用 vid（显示顶点编号）——显示网格顶点排序 ≠ 逻辑格排序（实测错位 4）→
+                //   驻扎格查邻居归属（多为 -1）→ 人口格无势力。自然层（海拔等）仍用 vid（显示顶点）。
+                int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1;
                 if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
                     // ⚠️ 2026-08-17：人口图层不在这里写——领地格 = 采集格（无常住人口），
