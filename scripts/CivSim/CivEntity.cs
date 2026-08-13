@@ -58,6 +58,7 @@ public class CivEntity
 
     // ── 生产方式 F 分量（派生缓存：RefreshCellState 每 tick；不存档——货物分解用）──
     public float FHuntLast, FHerdLast, FFarmLast;   // 各方式当 tick 产出
+    public float FBerryLast;                        // 当 tick 浆果采集（采集拆分 2026-08-17；猎物 = FHuntLast−FBerryLast）
 
     // ── 身份份额场（Σ=1，255 归一）──
     public ShareEntry[] CultureShare = NewEmpty();        // top-2：{key,份额}×2（具体文化，快）

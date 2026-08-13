@@ -35,9 +35,9 @@ public sealed class CivModelRegistry
     {
         return new CivModelRegistry()
             .Register(new OriginModel())
-            .Register(new ResourceModel())      // 存量再生（2026-08-10 影响力场模型）
+            .Register(new CultivateModel())     // 农田开垦（Order 6，2026-08-17 土地挂钩）
             .Register(new InfluenceModel())     // 归属 = argmax(P×M×w(d))，粘性 1.15
-            .Register(new HarvestModel())       // 领地采集（扣存量）→ FLast
+            .Register(new HarvestModel())       // 领地采集（静态丰度×土地×劳动力）→ FLast
             .Register(new EnergyModel())
             .Register(new GrowthModel())
             .Register(new ModeModel())
@@ -51,16 +51,26 @@ public sealed class CivModelRegistry
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ①a 资源再生（Order 5）：存量向 K 线性回归（S=0 也恢复，无 logistic 死锁）。
+// ①a 农田开垦（Order 6）：农业 band 每 tick 提高驻扎格开垦率（农田占用土地——
+//    采集产出 ×(1−开垦)、农业产出 ×开垦；土地竞争载体，2026-08-17 用户拍板）。
 // ══════════════════════════════════════════════════════════════════
-public sealed class ResourceModel : CivModelBase
+public sealed class CultivateModel : CivModelBase
 {
-    public override string Name => "资源再生";
-    public override int Order => 5;
+    public override string Name => "农田开垦";
+    public override int Order => 6;
 
     public override void Execute(CivSimContext ctx)
     {
-        ctx.RegenStocks();
+        if (ctx.Cultivation == null) return;
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead || !e.IsFarming) continue;
+            int c = e.Cell;
+            if (c < 0 || c >= ctx.Cultivation.Length) continue;
+            float v = ctx.Cultivation[c] + CivSimContext.CultivateRate * (1f - ctx.Cultivation[c]);
+            ctx.Cultivation[c] = Mathf.Min(1f, v);
+        }
     }
 }
 
@@ -80,8 +90,8 @@ public sealed class InfluenceModel : CivModelBase
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ①c 采集收获（Order 9）：F_猎 = Σ_领地格 min(距离加权需求份额, Cap×w)（扣存量）；
-//     农业/畜牧暂缓 = 保持单格逻辑（驻扎点格）；FLast = 三方式之和。
+// ①c 采集收获（Order 9）：F_猎果 = Σ_领地格 静态丰度×可用土地×劳动力（2026-08-17 砍存量重构）；
+//     农业单格（暂缓，5 km² 后接领地）；FLast = 采集+农业（畜牧暂缓）。
 // ══════════════════════════════════════════════════════════════════
 public sealed class HarvestModel : CivModelBase
 {
@@ -610,10 +620,8 @@ public sealed class ConflictModel : CivModelBase
         if (loser.P < 1f) loser.P = 1f;
         winner.LastConflictTick = ctx.Tick;
         loser.LastConflictTick = ctx.Tick;
-        // 掠夺：争议格存量 → 胜者驻扎点格（即时资源收益）
-        float plunder = ctx.Stock[cell] * CivSimContext.ConflictPlunderRate;
-        ctx.Stock[cell] -= plunder;
-        ctx.Stock[winner.Cell] += plunder;
+        // ⚠️ 2026-08-17 掠夺改纯控制权（用户拍板）：砍存量后无货可抢——掠夺 = 武力夺取格子控制权
+        //   （下方 CellOwner 强制易主 + 实控锁定；即时资源收益取消）
         if (challengerWins)
         {
             // 武力夺取：争议格 + 挑战者影响圈内败者格，全部强制易主 + 实控锁定

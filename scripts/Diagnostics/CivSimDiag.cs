@@ -141,6 +141,8 @@ public partial class CivSimDiag : Node
         if (Want("T33")) T33_ConflictBurst();
         if (Want("T34")) T34_WeaponAdvantage();
         if (Want("T35")) T35_LockHoldReclaim();
+        if (Want("T36")) T36_LandCompetition();
+        if (Want("T37")) T37_CultivationGrowth();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -237,6 +239,7 @@ public partial class CivSimDiag : Node
             CellBestInf = new float[n],
             CellOwnerInf = new float[n],
             LockedUntil = EnumerableFill(0, n),   // 实控锁定（v8 冲突机制）
+            Cultivation = new float[n],           // 开垦率场（2026-08-17 土地挂钩）
         };
         ctx.TerritoryCells = new List<int>[4096];
         ctx.TerritoryDists = new List<byte>[4096];
@@ -247,7 +250,7 @@ public partial class CivSimDiag : Node
         }
         for (int i = 0; i < n; i++) ctx.CellTribes[i] = new List<CivEntity>();
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（两层模型 2026-08-17）
-        ctx.InitStock();              // 存量场（影响力场模型 2026-08-10）
+        // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场已在构造建好（全 0）
         return ctx;
     }
 
@@ -287,28 +290,27 @@ public partial class CivSimDiag : Node
         return e;
     }
 
-    /// <summary>S1：单格生存（2026-08-10 影响力场语义）——领地 1 格：P&lt;F 增长收敛、P&gt;F 饿死、稳态 e=0.769。
+    /// <summary>S1：单格生存（2026-08-10 影响力场语义，2026-08-17 砍存量重构）——领地 1 格：
+    /// 静态丰度×面积 = 承载上限（R×A≈1.5 人），P&lt;F 增长收敛、P&gt;F 饿死；稳态 e 纯函数验证。
     /// 只跑能量+增长（防发明/分裂污染单格场景）。</summary>
     private void S1_GrowthAndEnergy()
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var e = AddEntity(ctx, 0, 5f, TechTable.StoneCore);
-        // 手造领地 1 格（驻扎点格）：新模型 F=potCap=CapRate×S×w(0)；平衡 P=0.1K（推导见下）
+        var e = AddEntity(ctx, 0, 1f, TechTable.StoneCore);
+        // 手造领地 1 格（驻扎点格）：新模型 F = R×A×w(0)×劳动力爬坡；平衡 P → R×A
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
         var energy = new EnergyModel();
         var growth = new GrowthModel();
         var harvest = new HarvestModel();   // FLast 由采集模型更新（2026-08-10：RefreshCellState 只聚合不计算）
-        var resource = new ResourceModel(); // 存量再生（S1 手动循环缺它曾致 S 耗竭到 4 → F=0.8 假平衡）
         bool converged = false, starved = false;
         float pLast = 0f;
         for (int tick = 0; tick < 300; tick++)
         {
             ctx.Tick = tick;
             CivEngine.RefreshCellState(ctx);
-            resource.Execute(ctx);
             harvest.Execute(ctx);
             energy.Execute(ctx);
             growth.Execute(ctx);
@@ -320,7 +322,6 @@ public partial class CivSimDiag : Node
         float pHigh = e.P * 1.5f;
         e.P = pHigh;
         CivEngine.RefreshCellState(ctx);
-        resource.Execute(ctx);
         harvest.Execute(ctx);
         energy.Execute(ctx);
         growth.Execute(ctx);
@@ -525,22 +526,22 @@ public partial class CivSimDiag : Node
     /// 新参数：SplitPop=50、FissionTensionStart=50；N=8 网格（殖民目标搜索可用）。确定性，无地图依赖。</summary>
     private void T25_FissionPressure()
     {
-        // ctxA：饥荒 P=40(<SplitPop), FLast=10（压力 0.75）→ P_eff=70>50 → 裂变（纯饥荒驱动，张力=0）
+        // ctxA：饥荒 P=10(<SplitPop12), FLast=2.5（压力 0.75）→ P_eff=17.5>12 → 裂变（纯饥荒驱动，张力=0）
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var famine = AddEntity(ctxA, 0, 40f, TechTable.StoneCore);
-        famine.FLast = 10f;           // 产出 1/4（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
+        var famine = AddEntity(ctxA, 0, 10f, TechTable.StoneCore);
+        famine.FLast = 2.5f;          // 产出 1/4（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
         ctxA.CellOwner[0] = 0;        // 领地 1 格；其余格无主 → 殖民目标
         ctxA.TerritoryCells[0].Add(0);
         ctxA.TerritoryDists[0].Add(0);
         var sm = new SplitMigrateModel();
         sm.Execute(ctxA);
         bool famineFissioned = ctxA.Fissions == 1;
-        // ctxB：盈余 P=50（SplitPop 整点）, FLast=100 → 无压力无张力 → P_eff=50 不裂
+        // ctxB：盈余 P=10（<SplitPop12）, FLast=20 → 无压力无张力 → P_eff=10 不裂（2026-08-17 量级跟随承载：旧 P=50 现必裂）
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var fed = AddEntity(ctxB, 0, 50f, TechTable.StoneCore);
-        fed.FLast = 100f;
+        var fed = AddEntity(ctxB, 0, 10f, TechTable.StoneCore);
+        fed.FLast = 20f;
         ctxB.CellOwner[0] = 0;
         ctxB.TerritoryCells[0].Add(0);
         ctxB.TerritoryDists[0].Add(0);
@@ -607,6 +608,7 @@ public partial class CivSimDiag : Node
         var e = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
+        ctx.Cultivation[0] = 1f;   // ⚠️ 2026-08-17：农业产出 ×开垦率——不开垦秸秆恒 0（测试补开垦）
         // 手造领地 1 格 → Harvest 产出狩猎 F；农业（FFarmActual 单格）→ 秸秆
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
@@ -638,15 +640,15 @@ public partial class CivSimDiag : Node
             $"牧F={e.FHerdLast:F0} 猎F={e.FHuntLast:F0}（应 4:1）总={f:F0}");
     }
 
-    /// <summary>T31 耗竭-迁移闭环（2026-08-10 定稿 T23-新）：存量低→F<D→饿→迁移→新驻扎点。
-    /// P=1 濒死 band（pEff≤2 不触发分裂段，隔离迁移）；确定性构造。</summary>
+    /// <summary>T31 饥饿-迁移闭环（2026-08-10 定稿 T23-新，2026-08-17 语义更新：砍存量后压力源=土地饱和/超载）：
+    /// 饿（F<D）→ 迁移→新驻扎点。P=1 濒死 band（pEff≤2 不触发分裂段，隔离迁移）；确定性构造。</summary>
     private void T31_DepletionMigrate()
     {
         // ctxA：饿（FLast=0.5 < P=1）→ 迁移
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
         var eA = AddEntity(ctxA, 0, 1f, TechTable.StoneCore);
-        eA.FLast = 0.5f;   // 存量耗竭 → 饿
+        eA.FLast = 0.5f;   // 饿（F<D；砍存量后由土地饱和/超载产生）
         ctxA.CellOwner[0] = 0;
         ctxA.TerritoryCells[0].Add(0);
         ctxA.TerritoryDists[0].Add(0);
@@ -662,7 +664,7 @@ public partial class CivSimDiag : Node
         ctxB.TerritoryDists[0].Add(0);
         new SplitMigrateModel().Execute(ctxB);
         bool stayed = eB.Cell == 0;
-        Check("T31 耗竭-迁移闭环", migrated && stayed,
+        Check("T31 饥饿-迁移闭环", migrated && stayed,
             $"饿迁={migrated}(格{eA.Cell}→{eA.Cell}) 富饶留={stayed}");
     }
 
@@ -695,7 +697,8 @@ public partial class CivSimDiag : Node
             $"强覆盖易主={strongTook}(owner={ctxA.CellOwner[1]}) 势均粘性保={stickyHeld}(owner={ctxB.CellOwner[1]})");
     }
 
-    /// <summary>T33 冲突爆发（2026-08-10 定稿 T25-新，硬冲突）：损耗+掠夺+易主+锁定+驱逐（直接调 ResolveConflict，确定性）。</summary>
+    /// <summary>T33 冲突爆发（2026-08-10 定稿 T25-新，硬冲突）：损耗+易主+锁定+驱逐（直接调 ResolveConflict，确定性）。
+    /// 2026-08-17：掠夺改纯控制权（砍存量后无货可抢）——不再断言存量转移，验证归属变化。</summary>
     private void T33_ConflictBurst()
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
@@ -706,17 +709,15 @@ public partial class CivSimDiag : Node
         ctx.CellOwner[0] = 0;
         ctx.CellOwner[1] = 1;
         ctx.CellOwner[2] = 1;   // 争议格归 owner
-        ctx.Stock[2] = 100f;    // 掠夺源
-        ctx.Stock[0] = 10f;     // 胜者驻扎点（掠夺入账处）
         ctx.RebuildInfluence(); // 缓存 I（CellBestOwner/CellOwnerInf）——Resolve 本身不用，但保持状态一致
         float pCh0 = ch.P, pOw0 = ow.P;
         ConflictModel.ResolveConflict(ctx, ch, ow, 2);
         bool popLost = ch.P < pCh0 && ow.P < pOw0;                       // 双方损耗
-        bool plundered = ctx.Stock[2] < 100f && ctx.Stock[0] > 10f;      // 掠夺转移
+        bool controlChanged = ctx.CellOwner[2] == 0;                     // 掠夺=武力夺取控制权（挑战者军事 2.7 大概率夺走）
         bool locked = ctx.LockedUntil[2] > ctx.Tick;                     // 实控锁定（无论谁赢，争议格锁定）
         bool coolDown = ch.LastConflictTick == 10 && ow.LastConflictTick == 10;
-        Check("T33 冲突爆发", popLost && plundered && locked && coolDown,
-            $"损耗={ch.P:F0}/{ow.P:F0} 掠夺S2={ctx.Stock[2]:F0}→S0={ctx.Stock[0]:F0} 锁定={ctx.LockedUntil[2]} 冷却={coolDown} 冲突计数={ctx.Conflicts}");
+        Check("T33 冲突爆发", popLost && locked && coolDown,
+            $"损耗={ch.P:F0}/{ow.P:F0} 争议格归属={ctx.CellOwner[2]}(0=挑战者夺走) 锁定={ctx.LockedUntil[2]} 冷却={coolDown} 冲突计数={ctx.Conflicts}");
     }
 
     /// <summary>T34 武器加成（2026-08-10 定稿 T26-新）：MilitMult 与 CarryMult 解耦——同 P 下有弓 band 军事显著强。
@@ -776,6 +777,40 @@ public partial class CivSimDiag : Node
         bool reclaimed = ctxB.CellOwner[1] == 1;   // 场恢复：强 B 收回
         Check("T35 实控锁定", held && reclaimed,
             $"锁定内保持={held}(owner={ctxA.CellOwner[1]}) 过期后收回={reclaimed}(owner={ctxB.CellOwner[1]})");
+    }
+
+    /// <summary>T36 土地竞争（2026-08-17 用户拍板）：农田开垦占用土地 → 采集产出下降
+    /// （浆果 ×(1−开垦) 直接被替代、猎物 ×(1−0.5×开垦) 栖息地破碎）。</summary>
+    private void T36_LandCompetition()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var e = AddEntity(ctx, 0, 1000f, TechTable.StoneCore);   // P=1000 ≫ 0.1×pot → 劳动力充足（土地受限区，开垦减产可见）
+        ctx.CellOwner[0] = 0;
+        ctx.TerritoryCells[0].Add(0);
+        ctx.TerritoryDists[0].Add(0);
+        float f0 = ctx.Harvest(e);        // 未开垦
+        ctx.Cultivation[0] = 1f;          // 全开垦（农田占满）
+        float f1 = ctx.Harvest(e);
+        bool reduced = f0 > 0f && f1 < f0 * 0.9f;   // 开垦后采集明显减产
+        Check("T36 土地竞争", reduced,
+            $"开垦前采集={f0:F1} 开垦后={f1:F1}（降幅 {100f * (1f - f1 / f0):F0}%）");
+    }
+
+    /// <summary>T37 农田开垦增长（2026-08-17）：IsFarming band 每 tick 提高驻扎格开垦率（收敛向 1）；非农格不动。</summary>
+    private void T37_CultivationGrowth()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var fa = AddEntity(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
+        fa.IsFarming = true;
+        var hu = AddEntity(ctx, 1, 50f, TechTable.StoneCore);   // 非农对照
+        var cult = new CultivateModel();
+        for (int k = 0; k < 30; k++) cult.Execute(ctx);        // 30 tick ≈ 3000 年
+        bool farmGrew = ctx.Cultivation[0] > 0.7f;             // 收敛趋近 1
+        bool huntZero = ctx.Cultivation[1] == 0f;              // 非农格不开垦
+        Check("T37 农田开垦", farmGrew && huntZero,
+            $"农业格开垦={ctx.Cultivation[0]:F3}（30 tick 后） 非农格={ctx.Cultivation[1]}");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
@@ -1161,8 +1196,10 @@ public partial class CivSimDiag : Node
             popRatio = p99 / Mathf.Max(1f, p1);
         }
         float densMax = _grid.CellAreaKm2 > 0f ? popMax / _grid.CellAreaKm2 : 0f;   // 峰值密度 人/km²
-        Check("T21 人口分布梯度", popRatio > 50f && densMax >= 10f,
-            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>50) 峰值密度={densMax:F1} 人/km²(目标≥10) max={popMax:F0}");
+        // 2026-08-17 新口径（5km²/格，band 承载 ~15 人）：旧目标 P99/P1>50 是 3108km² 旧口径标定——
+        //   新口径梯度天然小（3~54），改 >10（有梯度即可）+ 峰值密度 ≥10 人/km²（物理，保持）
+        Check("T21 人口分布梯度", popRatio > 10f && densMax >= 10f,
+            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>10) 峰值密度={densMax:F1} 人/km²(目标≥10) max={popMax:F0}");
     }
 
     /// <summary>T22 领地涌现（演化后）：存在 ≥2 band 的凝聚体（领地 = 现实地域部落；需演化 r1）。

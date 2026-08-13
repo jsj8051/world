@@ -37,7 +37,7 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 8;   // v8（2026-08-10）：影响力场模型——实体段 +LastMigrateTick(4B)，尾部 +Stock(n×4B)+CellOwner(n×4B)；v7 旧档拒绝（模型变更）
+    public const ushort Version = 9;   // v9（2026-08-17 土地挂钩）：砍存量再生——尾部 Stock(n×4B) 换开垦率 Cultivation(n×4B)；采集=静态丰度×土地×劳动力；掠夺改纯控制权；v8 旧档拒绝（模型变更）
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
@@ -109,8 +109,9 @@ public static class CivMapArchive
             f.Store32((uint)e.LastConflictTick);  // 冲突冷却（v8 冲突机制 2026-08-10）
             for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);   // 货物 3×float（v7）
         }
-        // 尾部：影响力场模型（v8）——存量场 + 格归属 + 实控锁定（读档续跑无分叉）
-        for (int c = 0; c < ctx.Grid.N; c++) f.StoreFloat(ctx.Stock[c]);
+        // 尾部：土地挂钩（v9）——开垦率场 + 格归属 + 实控锁定（读档续跑无分叉）
+        // ⚠️ 2026-08-17：v8 的存量 Stock 段移除（砍存量再生），原位换开垦率 Cultivation
+        for (int c = 0; c < ctx.Grid.N; c++) f.StoreFloat(ctx.Cultivation != null ? ctx.Cultivation[c] : 0f);
         for (int c = 0; c < ctx.Grid.N; c++) f.Store32((uint)ctx.CellOwner[c]);
         for (int c = 0; c < ctx.Grid.N; c++) f.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);   // 实控锁定（v8 冲突机制；0=无）
         if (log)
@@ -277,11 +278,11 @@ public static class CivMapArchive
             if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell].Add(e);
         }
 
-        // 尾部：影响力场模型（v8）——存量场 + 格归属
-        float[] stock = ver >= 8 ? new float[n] : null;
-        if (ver >= 8)
+        // 尾部：土地挂钩（v9）——开垦率场 + 格归属
+        float[] cultivation = ver >= 9 ? new float[n] : null;
+        if (ver >= 9)
         {
-            for (int c = 0; c < n; c++) stock[c] = f.GetFloat();
+            for (int c = 0; c < n; c++) cultivation[c] = f.GetFloat();
         }
         int[] cellOwner = ver >= 8 ? new int[n] : null;
         if (ver >= 8)
@@ -332,8 +333,8 @@ public static class CivMapArchive
             CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数：v6 头部独立值优先（续跑无分叉）；场推导兜底
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
             NextEntityId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
-            // 影响力场模型（v8）：Stock/CellOwner/LockedUntil 从存档恢复；暂存/领地索引重建
-            Stock = stock ?? new float[n],
+            // 土地挂钩（v9）：Cultivation 从存档恢复；暂存/领地索引重建
+            Cultivation = cultivation ?? new float[n],
             CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
             LockedUntil = lockedUntil ?? EnumerableRepeat(0, n),   // 实控锁定（v8 冲突机制）
             CellBestOwner = EnumerableRepeat(-1, n),

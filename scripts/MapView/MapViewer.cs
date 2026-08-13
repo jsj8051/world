@@ -131,6 +131,7 @@ public partial class MapViewer : Node3D
     private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
     private int[] _tileTerritory;   // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
     private float _popLogMin, _popLogMax;   // 人口图层自适应色带端点（log 压缩 + 分位数裁剪）
+    private float _popMax;                  // 驻扎格人口最大值（图例"最高"标注；0=无人口数据）
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
     private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
     private float _monthPrecipMin, _monthPrecipMax; // 陆地当月月降水 min/max（RefreshMonthPrecip 统计）
@@ -199,6 +200,7 @@ public partial class MapViewer : Node3D
     private PanelContainer _legendPanel;
     private Label _legendTitle;      // 图例标题（图层名）
     private VBoxContainer _legendBox; // 图例条目容器（ScrollContainer 内）
+    private VBoxContainer _legendFooter; // 图例说明文字区（滚动区外，常驻面板底部——2026-08-17 用户拍板）
 
     /// <summary>部落图层调色板（部落标签取色；高区分度 8 色循环——文化层已改每文化独立色，勿复用）。</summary>
     private static readonly Color[] CulturePalette =
@@ -522,10 +524,9 @@ public partial class MapViewer : Node3D
                 int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1;
                 if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
-                    // 领地均摊人口（band.P / 领地格数——5 km² 格量级 0.5~3 人；驻扎格与领地格同显示）
-                    int idx = _civCtx.Entities.IndexOf(dom);
-                    int terrCount = idx >= 0 && idx < _civCtx.TerritoryCells.Length ? _civCtx.TerritoryCells[idx].Count : 1;
-                    _tilePop[i] = dom.P / Mathf.Max(1, terrCount);
+                    // ⚠️ 2026-08-17：人口图层不在这里写——领地格 = 采集格（无常住人口），
+                    //   人口只在驻扎格（CivEntity.Cell）显示该 band 的 P（并行循环后实体表直写）。
+                    //   旧"领地均摊 P/领地格数"让每个归属格都有人口，与"大部分是采集格"矛盾（用户反馈）。
                     _tileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
                     _tileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
                     // ⚠️ 2026-08-07 宗教图层改显示"具体派别"（relig_N，每摇篮/每次漂变独立）——
@@ -543,15 +544,31 @@ public partial class MapViewer : Node3D
                 progress(done / (float)n);
         });
         progress?.Invoke(1f);
+        // ⚠️ 2026-08-17：人口 = 驻扎格人口（实体表直写，每 band 只点亮 1 格）。
+        //   并行循环按归属格走无法区分驻扎格（冲突边缘：驻扎格归属可能与驻扎者不同），
+        //   实体表最直接——领地格（采集格）保持 0 = 无人。
+        //   同格共住合法（分裂/驱逐瞬态：模拟无格容量上限）→ 求和 = 该格真实总人口。
+        if (hasCiv)
+        {
+            for (int e = 0; e < _civCtx.Entities.Count; e++)
+            {
+                var ce = _civCtx.Entities[e];
+                if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
+                if (elevArr[ce.Cell] < hSea) continue;   // 驻扎格必为陆地，防御（byte 量化边界格除外）
+                _tilePop[ce.Cell] += ce.P;
+            }
+        }
         // 人口图层自适应归一化（相对本图分布——分位数模型，用户拍板风格）：
         // log(p+1) 压缩重尾 + 有人陆地格 P1/P99 分位为色带端点 → 单格超大城市不拉爆、
         // 最小聚落也有可见色（旧版 log(全局max) 归一：全球最大值单点把其余全压成近黑色）
         var popLog = new System.Collections.Generic.List<float>();
+        _popMax = 0f;
         for (int i = 0; i < n; i++)
         {
             if (_tileElev[i] < hSea) continue;   // 只统计陆地
             if (_tilePop[i] <= 0f) continue;     // 无人格不入带
             popLog.Add(Mathf.Log(_tilePop[i] + 1f));
+            if (_tilePop[i] > _popMax) _popMax = _tilePop[i];
         }
         if (popLog.Count >= 2)
         {
@@ -562,25 +579,6 @@ public partial class MapViewer : Node3D
             _popLogMax = Mathf.Max(_popLogMin + 1f, popLog[p99]);   // 防退化（全同值）
         }
         else { _popLogMin = 0f; _popLogMax = 1f; }   // 无人口数据 → 全图灰
-        // [临时诊断] 文化/宗教/人口图层验证（headless 跑完即删）
-        {
-            var cultSet = new System.Collections.Generic.HashSet<int>();
-            var relSet = new System.Collections.Generic.HashSet<int>();
-            var cultHue = new System.Collections.Generic.HashSet<int>();
-            var relHue = new System.Collections.Generic.HashSet<int>();
-            int land = 0, cultTiles = 0, relTiles = 0, cultHueCol = 0, relHueCol = 0;
-            float maxPop = 0f;
-            for (int i = 0; i < n; i++)
-            {
-                if (_tileElev[i] < hSea) continue;
-                land++;
-                if (_tilePop[i] > maxPop) maxPop = _tilePop[i];
-                if (_tileCulture[i] != 0 && cultSet.Add(_tileCulture[i]) && !cultHue.Add((int)(GoldenHue(_tileCulture[i]) * 1e6f))) cultHueCol++;
-                if (_tileReligion[i] != 0 && relSet.Add(_tileReligion[i]) && !relHue.Add((int)(GoldenHue(_tileReligion[i]) * 1e6f))) relHueCol++;
-            }
-            GD.Print($"[图层诊断] 陆地={land} 文化key={cultSet.Count}(格{cultTiles}) 宗教key={relSet.Count}(格{relTiles}) 文化色相碰撞={cultHueCol} 宗教色相碰撞={relHueCol}");
-            GD.Print($"[图层诊断] 人口 有人格={popLog.Count} P1={Mathf.Exp(_popLogMin) - 1f:F0} P99={Mathf.Exp(_popLogMax) - 1f:F0} max={maxPop:F0}");
-        }
         // ⚠️ 2026-08-16：年降水自适应色带 min/max（用户拍板：最低到最高归一化，不用固定 2000mm）
         _precipMin = float.MaxValue;
         _precipMax = float.MinValue;
@@ -719,7 +717,9 @@ public partial class MapViewer : Node3D
 									{
 									    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
 									    int terr = _tileTerritory[id];
-									    if (terr == 0 || _tilePop[id] <= 0f) return new Color(0.30f, 0.32f, 0.36f);
+									    // ⚠️ 2026-08-17：领地按归属显示全领地（不能再用人口判"无人"——
+									    //   人口图层已改只在驻扎格显示，采集格人口=0）
+									    if (terr == 0) return new Color(0.30f, 0.32f, 0.36f);
 									    return HslToRgb(GoldenHue(terr), 0.55f, 0.85f);
 									}
 			default: // 海拔
@@ -1584,8 +1584,12 @@ public partial class MapViewer : Node3D
         _legendPanel = new PanelContainer();
         _legendPanel.SetAnchorsPreset(Control.LayoutPreset.BottomRight);
         // ⚠️ 必须在 AddChild 前设 Position（入树后 Position setter 会用父尺寸反推 offset → 屏幕外）
-        _legendPanel.Position = new Vector2(-560, -52);
-        _legendPanel.CustomMinimumSize = new Vector2(236, 320);
+        // 2026-08-17 修复链：BottomRight 锚点下 Position 的 y 是【顶缘】偏移——必须 = -(底边距+面板高)。
+        //   ① 原 (-560,-52) 顶缘在底上 52px → 面板 268px 裁出屏幕（用户报"图例太矮"）；
+        //   ② 加高 500 → 用户嫌高 → 缩半 250（内容滚动）；
+        //   ③ 用户要求锚定到底部 → 底边距 0，完全贴屏幕底（滑块在右侧水平分离不冲突）。
+        _legendPanel.Position = new Vector2(-560, -250);
+        _legendPanel.CustomMinimumSize = new Vector2(236, 250);
         _legendPanel.AddThemeStyleboxOverride("panel", new StyleBoxFlat
         {
             BgColor = new Color(0.06f, 0.08f, 0.12f, 0.85f),
@@ -1614,14 +1618,33 @@ public partial class MapViewer : Node3D
         {
             HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
             VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
-            CustomMinimumSize = new Vector2(220, 270),
+            // 2026-08-17：面板高度随内容自适应（上限 250）→ scroll min 只保底，不撑大面板
+            CustomMinimumSize = new Vector2(220, 40),
+            // ⚠️ 2026-08-17 用户反馈"底下留白"：VBox 不拉伸非 expand 控件 → 固定 250 面板里
+            //   内容不足时余白堆在底部。ExpandFill = 滚动区动态吃掉全部剩余高度（无留白）。
+            SizeFlagsVertical = Control.SizeFlags.ExpandFill,
         };
         legendVBox.AddChild(scroll);
+        // ⚠️ 2026-08-17：图例区滚轮只滚图例——ScrollContainer 滚到底不消费事件 → 穿透到
+        //   3D 相机 _UnhandledInput → 地图缩放（用户报"滚动到底后再滚会导致地图缩放"）。
+        //   在内容区（scroll+footer+标题）统一消费滚轮：滚动正常，滚到底/在说明文字上都不穿透。
+        legendVBox.GuiInput += (e) =>
+        {
+            if (e is InputEventMouseButton mb && mb.Pressed
+                && (mb.ButtonIndex == MouseButton.WheelUp || mb.ButtonIndex == MouseButton.WheelDown))
+                legendVBox.AcceptEvent();   // Control.AcceptEvent（C# 里 InputEvent 无此方法）
+        };
 
         _legendBox = new VBoxContainer();
         _legendBox.AddThemeConstantOverride("separation", 3);
         _legendBox.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
         scroll.AddChild(_legendBox);
+
+        // 常驻说明文字区（滚动区外）：AddLegendText 的灰色说明行固定显示在面板底部
+        _legendFooter = new VBoxContainer();
+        _legendFooter.AddThemeConstantOverride("separation", 2);
+        _legendFooter.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        legendVBox.AddChild(_legendFooter);
 
         RebuildLegend();   // 初始图层图例
     }
@@ -1776,13 +1799,19 @@ public partial class MapViewer : Node3D
     /// <summary>重建图例（当前图层颜色说明；内容超出固定面板 → ScrollContainer 滚动）。</summary>
     private void RebuildLegend()
     {
-        if (_legendBox == null) return;   // UI 未建（EnsureUi 前）或已释放
+        if (_legendBox == null || _legendPanel == null) return;   // UI 未建（EnsureUi 前）或已释放
         // 清空旧条目（RemoveChild 立即脱离树 + QueueFree 帧末释放——纯 QueueFree 会残留到帧末）
         foreach (Node c in _legendBox.GetChildren())
         {
             _legendBox.RemoveChild(c);
             c.QueueFree();
         }
+        if (_legendFooter != null)
+            foreach (Node c in _legendFooter.GetChildren())
+            {
+                _legendFooter.RemoveChild(c);
+                c.QueueFree();
+            }
         _legendTitle.Text = LayerNames[_layer];
 
         switch (_layer)
@@ -1852,13 +1881,26 @@ public partial class MapViewer : Node3D
                     "-60°C", "+60°C");
                 AddLegendText("当月均温");
                 break;
-            case 12: // 人口
-                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人");
-                AddLegendGradient(
-                    new[] { new Color(0.95f, 0.75f, 0.25f), new Color(0.80f, 0.15f, 0.05f) },
-                    "少", "多");
-                AddLegendText("log 压缩 + P1/P99 分位自适应");
+            case 12: // 人口：无人（采集格）+ 16 档等比色块（log 分位，与地图同色；驻扎格人口）
+            {
+                var lo = new Color(0.95f, 0.75f, 0.25f);
+                var hi = new Color(0.80f, 0.15f, 0.05f);
+                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人（采集格 / 海洋）");
+                if (_popMax <= 0f)
+                {
+                    AddLegendText("（无人口数据）");
+                    break;
+                }
+                for (int i = 0; i <= 15; i++)
+                {
+                    float x = i / 15f;
+                    float p = Mathf.Exp(_popLogMin + x * (_popLogMax - _popLogMin)) - 1f;
+                    string label = i == 15 ? $"≥ {p:0.#}（最高 {_popMax:0.#}）" : $"{p:0.#}";
+                    AddLegendRow(lo.Lerp(hi, x), label);
+                }
+                AddLegendText("驻扎格人口（人/格）· log 分位自适应");
                 break;
+            }
             case 13: // 文化：动态条目（每文化独立色，按覆盖格数排序，滚动查看）
                 AddLegendText("每文化独立颜色（金色角散列）");
                 AddLegendDynamic(_tileCulture, c => HslToRgb(GoldenHue(c), 0.55f, 0.62f), "文化");
@@ -1880,11 +1922,25 @@ public partial class MapViewer : Node3D
                 AddLegendDynamic(_tileReligion, r => HslToRgb(GoldenHue(r), 0.55f, 0.62f), "派别");
                 break;
             case 17: // 势力范围：静态说明（每领地独立色，动态条目过多故仅说明）
-                AddLegendRow(new Color(0.30f, 0.32f, 0.36f), "无领地 / 无人");
+                AddLegendRow(new Color(0.30f, 0.32f, 0.36f), "无领地");
                 AddLegendText("每领地独立颜色（语言群 key 完整哈希）");
                 AddLegendText("同领地必同语言群 → 同领地同色");
                 break;
         }
+        // ⚠️ 2026-08-17 用户拍板：图例数量不足时面板高度自适应缩短（上限 250，贴底锚定）。
+        //   内容高 = 色块行 min 高 + 行间隙；footer 常驻文字也计入；clamp [120, 250]。
+        float contentH = 0f;
+        for (int i = 0; i < _legendBox.GetChildCount(); i++)
+            if (_legendBox.GetChild(i) is Control cc) contentH += cc.GetCombinedMinimumSize().Y;
+        contentH += Mathf.Max(0, _legendBox.GetChildCount() - 1) * 3;
+        float footH = 0f;
+        for (int i = 0; i < _legendFooter.GetChildCount(); i++)
+            if (_legendFooter.GetChild(i) is Control cc) footH += cc.GetCombinedMinimumSize().Y;
+        footH += Mathf.Max(0, _legendFooter.GetChildCount() - 1) * 2;
+        float panelH = Mathf.Clamp(26 + 4 + contentH + 4 + footH + 12, 120f, 250f);
+        _legendPanel.CustomMinimumSize = new Vector2(236, panelH);
+        // 贴底：BottomRight 锚点下 OffsetTop = -高（已入树必须用 Offset，Position setter 会飞屏）
+        _legendPanel.OffsetTop = -panelH;
     }
 
     /// <summary>图例条目：色块 + 文字（横向）。</summary>
@@ -1937,13 +1993,15 @@ public partial class MapViewer : Node3D
         _legendBox.AddChild(labels);
     }
 
-    /// <summary>图例条目：纯说明文字（小字号、浅灰）。</summary>
+    /// <summary>图例条目：纯说明文字（小字号、浅灰）——输出到滚动区外的常驻底部区
+    /// （2026-08-17 用户拍板：说明文字固定显示，不随条目滚动）。</summary>
     private void AddLegendText(string text)
     {
+        if (_legendFooter == null) return;
         var lab = new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart };
         lab.AddThemeFontSizeOverride("font_size", 12);
         lab.AddThemeColorOverride("font_color", new Color(0.75f, 0.78f, 0.85f));
-        _legendBox.AddChild(lab);
+        _legendFooter.AddChild(lab);
     }
 
     /// <summary>图例动态条目：统计数组中出现过的 key，按覆盖格数降序显示前 12 个（超出滚动查看）。</summary>

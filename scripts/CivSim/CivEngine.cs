@@ -42,6 +42,7 @@ public static class CivEngine
             CellBestInf = new float[n],
             CellOwnerInf = new float[n],
             LockedUntil = EnumerableRepeat(0, n),   // 实控锁定（v8 冲突机制；0=无锁定）
+            Cultivation = new float[n],              // 开垦率场（2026-08-17 土地挂钩；0=未开垦）
         };
         ctx.TerritoryCells = new List<int>[4096];
         ctx.TerritoryDists = new List<byte>[4096];
@@ -53,7 +54,7 @@ public static class CivEngine
         for (int i = 0; i < n; i++)
             ctx.CellTribes[i] = new List<CivEntity>();
         BuildLayer1(ctx);   // 层1 空间生产力 R（Miami NPP × 水因子，k 相对标定 → 陆地中位数 0.3 人/km²）
-        ctx.InitStock();    // 存量场 S₀ = StockYears×R×5
+        // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场构造时已建（全 0，随农田增长）
 
         var registry = CivModelRegistry.StoneAge();
         int maxTicks = CivSimContext.MaxTicksNoAgri + CivSimContext.TerminateAfterAgri;

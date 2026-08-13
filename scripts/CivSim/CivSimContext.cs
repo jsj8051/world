@@ -29,7 +29,9 @@ public sealed class CivSimContext
     public float[] CellFarmPop;  // 每格农业部落总人口（劳动因子用；RefreshCellState 缓存）
 
     // ── 影响力场模型（2026-08-10 定稿，5 km² 口径：每格归属 = argmax(P×M×w(d))）──
-    public float[] Stock;            // 格存量（人当量食物；0=海洋/不可居；S₀ = StockYears×R×5）
+    // ⚠️ 2026-08-17 土地挂钩（用户拍板）：砍存量/再生——采集 = 静态丰度 × 可用土地 × 劳动力；
+    //   农田开垦率 Cultivation 是土地竞争载体（采集 ×(1−开垦)，农业 ×开垦）。
+    public float[] Cultivation;      // 每格开垦率 0~1（农田占用土地；0=未开垦）
     public int[] CellOwner;          // 格归属 band id（-1=无主；归属唯一，其他 band 禁入）
     public int[] CellBestOwner;      // 影响力场重算暂存：每格当前最强影响力 band
     public float[] CellBestInf;      // 影响力场重算暂存：最强影响力值
@@ -74,11 +76,11 @@ public sealed class CivSimContext
     public const float W = 0.2f;                      // 耕作劳动成本差（Sahlins；稳态论证 0.8 > 0.77）
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
     public const float Hysteresis = 0.02f;            // 滞回带（必须 < 农业稳态差 0.03，否则锁死切换）
-    public const float SplitPop = 50f;               // 分裂阈值（2026-08-10 影响力场模型：band 量级——旧 300 是格内 8 部落口径，新模型 band 平衡人口 ~30-50）
+    public const float SplitPop = 12f;               // 分裂阈值（2026-08-17 土地挂钩：承载=静态丰度×格面积×领地 ≈ 14 人/band——旧 50 是存量深度放大口径，新模型到承载即分裂殖民）
     public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
-    public const float FissionTensionStart = 50f;   // 规模张力起算点（= SplitPop；band 量级，2026-08-10）
-    public const float FissionTensionSpan = 40f;    // 张力封顶跨度（50+40=90 → 张力 1.0）
+    public const float FissionTensionStart = 12f;   // 规模张力起算点（= SplitPop；band 量级，2026-08-17 跟随承载）
+    public const float FissionTensionSpan = 8f;    // 张力封顶跨度（12+8=20 → 张力 1.0）
     public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
@@ -108,21 +110,20 @@ public sealed class CivSimContext
     public const float SeedInvProb = 0.005f;          // 种子基础发明概率/tick（起源区少数）
     public const float EnvMismatchFactor = 0.3f;      // 发明 env_i：环境不匹配但非硬门槛
     public const int OriginDistMin = 12;              // 起源两两最小球面格距（≈1300 km）
-    public const float OriginPop = 50f;   // 起源 band 人口（band 量级；5 km² 格超载靠快速扩张消化，2026-08-10）
+    public const float OriginPop = 15f;   // 起源 band 人口（2026-08-17 跟随承载：5km² 格承载 R×A≈1.5 人/格、领地 ~14 人——旧 50 超载饿死；物理：起源小群体）
     public const int TerminateAfterAgri = 100;        // 首转农 +100 ticks 结束
     public const int MaxTicksNoAgri = 500;            // 兜底：无农 500 ticks 停止（天然灭绝星球）
     // ── 影响力场模型常量（2026-08-10 定稿）──
     public const int InfluenceRadius = 3;        // 影响范围（格步数；物理标定 foraging 单程 15 km / 5 km² 格）
     public const float Stickiness = 1.15f;       // 归属粘性：非 owner 需超现 owner 影响力 ×1.15 才易主
-    public const float RegenRate = 0.2f;         // 存量再生率（每 tick，向 K 线性回归；S=0 也能恢复——logistic 死锁已否）
-    public const float CapRate = 0.2f;           // 采集上限比例（每 tick 最多采存量 α；2026-08-10 标定：0.05→0.2——平衡产出 F=α·S*·Σw ≈ R×领地面积，band 平衡 ~28 人）
-    public const float StockYears = 100f;        // 存量深度（K = StockYears×R×5 人当量；2026-08-10 标定 20→100——平衡人口 F≈R×领地面积，band 平衡 ~50 人）
+    // ── 土地挂钩（2026-08-17 用户拍板：砍存量再生——采集=建筑×可用土地×劳动力；农田占用土地）──
+    public const float CultivateRate = 0.05f;    // 开垦速率/tick（农田占用增长：20 tick=2000 年满开垦；★ 待校准）
+    public const float PreyHabitatLoss = 0.5f;   // 猎物栖息地破碎系数（开垦对猎物间接削减；浆果被直接替代）
     // ── 冲突机制（2026-08-10 定稿 §十五）：归属两条途径——和平（场 argmax+粘性）/ 武力（冲突强制易主+实控锁定）──
     public const int ConflictLockTicks = 8;      // 实控锁定：武力夺取格 N tick 内场不重算（胜者持续产粮→人口增长窗口）
     public const float ConflictChance = 0.01f;   // 每僵持格/tick 触发概率（低频——旧石器战争是偶发事件，全演化 0~十几次）
     public const float ConflictLossChallenger = 0.08f;  // 胜者（挑战者）损耗比例（胜者损失小）
     public const float ConflictLossOwner = 0.20f;       // 败者（owner）损耗比例（败者损失大）
-    public const float ConflictPlunderRate = 0.3f;      // 掠夺：败者易主格存量转移比例（即时资源收益）
     public const float ConflictExpelChance = 0.6f;      // 败者被驱逐概率（损耗后强制迁移）
     public const int ConflictCooldown = 12;      // 冲突冷却 tick（实体级，防连续刷）
     public const int MigrateCooldown = 8;        // 迁移冷却 tick（防抖动）
@@ -240,15 +241,16 @@ public sealed class CivSimContext
         return best;
     }
 
-    /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限）。
-    /// farmPop 走格缓存（RefreshCellState 两遍循环算，劳动因子用当 tick 完整值）。</summary>
+    /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限；
+    /// ×开垦率 Cultivation——2026-08-17 土地挂钩：田是逐步开垦的，0 开垦 0 农业产出，转农当 tick 靠领地采集兜底）。</summary>
     public float FFarmActual(CivEntity e)
     {
         float potential = FFarmPotential(e);
         if (potential <= 0f) return 0f;
+        float cult = Cultivation != null ? Cultivation[e.Cell] : 0f;
         float farmPop = CellFarmPop != null ? CellFarmPop[e.Cell] : e.P;
         float plabor = LaborFrac * potential;
-        return potential * Mathf.Min(1f, farmPop / Mathf.Max(1f, plabor));
+        return potential * cult * Mathf.Min(1f, farmPop / Mathf.Max(1f, plabor));
     }
 
     /// <summary>格/种子适宜度 φ（缓存矩阵）。</summary>
@@ -366,27 +368,15 @@ public sealed class CivSimContext
         return t > 0f ? t * t : 0f;
     }
 
-    /// <summary>存量初始化：S₀ = StockYears×R×5（20 年产量；海洋/不可居 0）。Run 前调用一次。</summary>
-    public void InitStock()
+    /// <summary>猎物占比（biome 相关；浆果 = 1−占比）。草地/萨瓦纳猎物多（草食动物），密林/湿润浆果采集为主。
+    /// 2026-08-17 采集拆分（用户拍板：采集量 = 猎物 + 浆果）。</summary>
+    public static float PreyFrac(BiomeType b) => b switch
     {
-        int n = Grid.N;
-        Stock = new float[n];
-        for (int c = 0; c < n; c++)
-            Stock[c] = R[c] > 0f ? StockYears * R[c] * 5f : 0f;
-    }
-
-    /// <summary>存量再生：S' = S + ρ·(K−S)（向 K 线性回归——S=0 也恢复，无 logistic 死锁；K = StockYears×R×5）。</summary>
-    public void RegenStocks()
-    {
-        int n = Grid.N;
-        for (int c = 0; c < n; c++)
-        {
-            float k = StockYears * R[c] * 5f;
-            if (k <= 0f) continue;
-            float s = Stock[c];
-            Stock[c] = s + RegenRate * (k - s);
-        }
-    }
+        BiomeType.HotSteppe or BiomeType.ColdSteppe or BiomeType.TropicalSavanna => 0.7f,
+        BiomeType.TropicalRainforest or BiomeType.TropicalMonsoon or BiomeType.MonsoonSubtropical
+            or BiomeType.HumidSubtropical or BiomeType.Oceanic => 0.35f,   // 密林/湿润：浆果采集为主
+        _ => 0.5f,
+    };
 
     /// <summary>影响力场重算：每格归属 = argmax(P×M×w(d))；粘性：非 owner 需超现 owner×1.15 才易主。
     /// band 驱动（每 band 写半径 R 内格，O(band×28)）；确定性（固定遍历顺序）。</summary>
@@ -489,39 +479,33 @@ public sealed class CivSimContext
         TerritoryDists = td;
     }
 
-    /// <summary>领地采集：返回**潜在产出**（Σ Cap×w，增长用——F 可 > P 才有盈余增长），
-    /// 扣减按需求分摊（每格 min(份额, Cap×w)）。Cap_格 = CapRate×S（剩余多→上限高→耗竭反馈）。
-    /// ⚠️ 2026-08-10 修：F 若按需求分摊报告则 F≤P 恒成立 → 增长公式永 ≤1 → 全员饿死；
-    ///    F 必须报告潜在（旧模型 F=R×面积 同语义），实际采量另算。</summary>
+    /// <summary>领地采集产出（2026-08-17 土地挂钩重构：砍存量再生——静态丰度 × 可用土地 × 劳动力）。
+    /// 潜在产出 = Σ_领地格 R×w×(1−开垦)（增长基准，F 可 > P 才有盈余——2026-08-10 定稿语义）；
+    /// 实际 = 潜在 × min(1, P/(LaborFrac×潜在))（隐式劳动力爬坡——⚠️ 显式工人分配挂起，用户拍板 2026-08-17）；
+    /// 猎/果拆分：猎物 ×(1−PreyHabitatLoss×开垦)（栖息地破碎），浆果 ×(1−开垦)（地被直接替代）；
+    /// FBerryLast 入实体缓存（派生，不入档）。</summary>
     public float Harvest(CivEntity e)
     {
         var terr = TerritoryCells[e.Id];
         if (terr == null || terr.Count == 0) return 0f;
         var dists = TerritoryDists[e.Id];
-        float sumW = 0f;
-        for (int k = 0; k < terr.Count; k++)
-            sumW += InfluenceWeight(dists[k]);
-        if (sumW <= 0f) return 0f;
-        float D = e.P;
-        float potCap = 0f;   // 潜在可采（增长基准）
+        float A = Grid.CellAreaKm2;   // R 是密度（人/km²）→ ×面积成人当量（旧模型 Stock=StockYears×R×5 同口径）
+        float potPrey = 0f, potBerry = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
             int c = terr[k];
+            if (R[c] <= 0f) continue;
             float w = InfluenceWeight(dists[k]);
-            potCap += CapRate * Stock[c] * w;
+            float cult = Cultivation != null ? Cultivation[c] : 0f;
+            float frac = PreyFrac((BiomeType)Grid.Biome[c]);
+            potPrey += R[c] * A * (1f - PreyHabitatLoss * cult) * frac * w;   // 猎物：栖息地破碎（非全失）
+            potBerry += R[c] * A * (1f - cult) * (1f - frac) * w;             // 浆果：地被直接替代
         }
-        if (potCap <= 0f) return 0f;
-        float scale = Mathf.Min(1f, D / potCap);   // 需求不足时按比例少采（S 保住）
-        for (int k = 0; k < terr.Count; k++)
-        {
-            int c = terr[k];
-            float w = InfluenceWeight(dists[k]);
-            float take = CapRate * Stock[c] * w * scale;
-            if (take <= 0f) continue;
-            take = Mathf.Min(take, Stock[c]);
-            Stock[c] -= take;
-        }
-        return potCap;
+        float pot = potPrey + potBerry;
+        if (pot <= 0f) return 0f;
+        float labor = Mathf.Min(1f, e.P / Mathf.Max(1f, LaborFrac * pot));
+        e.FBerryLast = potBerry * labor;   // 浆果实际（劳动力爬坡暂代显式分配）
+        return pot * labor;                // 实际总采集（猎物 = 总 − 浆果）
     }
 
     /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。
