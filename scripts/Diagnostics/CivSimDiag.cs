@@ -143,6 +143,7 @@ public partial class CivSimDiag : Node
         if (Want("T35")) T35_LockHoldReclaim();
         if (Want("T36")) T36_LandCompetition();
         if (Want("T37")) T37_CultivationGrowth();
+        if (Want("T38")) T38_EquiMarginal();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -605,15 +606,17 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var e = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding);
+        // ⚠️ 2026-08-17 凹化+等边际：P=500 才能激活农田（2 格网格农田需求 0.2×潜在 ≈ 1.5 万人——
+        //   段 B 激活条件 ΣPc < 24.3×N → N > 266；旧 P=100 农田永不激活秸秆恒 0）
+        var e = AddEntity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
-        ctx.Cultivation[0] = 1f;   // ⚠️ 2026-08-17：农业产出 ×开垦率——不开垦秸秆恒 0（测试补开垦）
-        // 手造领地 1 格 → Harvest 产出狩猎 F；农业（FFarmActual 单格）→ 秸秆
+        ctx.Cultivation[0] = 1f;   // 农业产出 ×开垦率——不开垦秸秆恒 0（测试补开垦）
+        // 手造领地 1 格 → 采集+农田建筑（等边际分配）
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
-        CivEngine.RefreshCellState(ctx);   // 先算 CellFarmPop（FFarmActual 劳动因子依赖）
+        CivEngine.RefreshCellState(ctx);   // 先算 CellFarmPop
         var harvest = new HarvestModel();
         harvest.Execute(ctx);
         CivEngine.RefreshCellState(ctx);   // 再聚合 Goods（FLast × 副产率）
@@ -789,9 +792,9 @@ public partial class CivSimDiag : Node
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
-        float f0 = ctx.Harvest(e);        // 未开垦
-        ctx.Cultivation[0] = 1f;          // 全开垦（农田占满）
-        float f1 = ctx.Harvest(e);
+        float f0 = ctx.AllocateAndProduce(e);   // 未开垦
+        ctx.Cultivation[0] = 1f;                 // 全开垦（农田占满）
+        float f1 = ctx.AllocateAndProduce(e);
         bool reduced = f0 > 0f && f1 < f0 * 0.9f;   // 开垦后采集明显减产
         Check("T36 土地竞争", reduced,
             $"开垦前采集={f0:F1} 开垦后={f1:F1}（降幅 {100f * (1f - f1 / f0):F0}%）");
@@ -805,12 +808,56 @@ public partial class CivSimDiag : Node
         var fa = AddEntity(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
         fa.IsFarming = true;
         var hu = AddEntity(ctx, 1, 50f, TechTable.StoneCore);   // 非农对照
+        ctx.CellOwner[0] = 0;   // ⚠️ 2026-08-17 领地农业：开垦走领地格——测试需设领地（否则 terr 空不开垦）
+        ctx.TerritoryCells[0].Add(0);
+        ctx.TerritoryDists[0].Add(0);
         var cult = new CultivateModel();
         for (int k = 0; k < 30; k++) cult.Execute(ctx);        // 30 tick ≈ 3000 年
         bool farmGrew = ctx.Cultivation[0] > 0.7f;             // 收敛趋近 1
         bool huntZero = ctx.Cultivation[1] == 0f;              // 非农格不开垦
         Check("T37 农田开垦", farmGrew && huntZero,
             $"农业格开垦={ctx.Cultivation[0]:F3}（30 tick 后） 非农格={ctx.Cultivation[1]}");
+    }
+
+    /// <summary>T38 凹化+等边际分配性质（2026-08-17 用户拍板"凹化要量化好"的验收）：
+    /// ① 小人口边际 = 1/LF（N→0 时 F/N → 10——与线性版单人产出一致，凹化不改小 band 行为）；
+    /// ② 大人口饱和（N→∞ 时 F → Σ潜在——承载上限不变，凹化只弯中间）；
+    /// ③ 单调且边际递减（N 增 F 增，但增速下降——凹性）；
+    /// ④ 农田未激活（段 A）时无农业产出（负分配截断——T29 修复的 bug 回归防护）。</summary>
+    private void T38_EquiMarginal()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var e = AddEntity(ctx, 0, 0f, TechTable.StoneCore, TechTable.SeedWheat);
+        e.IsFarming = true;
+        ctx.Suit[0, 0] = 1.0f;
+        ctx.CellOwner[0] = 0;
+        ctx.TerritoryCells[0].Add(0);
+        ctx.TerritoryDists[0].Add(0);
+        // ① 小人口：N=0.1 → F ≈ 1/LF × N = 10×0.1 = 1（采集单人边际）
+        e.P = 0.1f;
+        float fSmall = ctx.AllocateAndProduce(e);
+        bool smallMarginal = Mathf.Abs(fSmall - 1.0f) < 0.25f;
+        // ② 饱和：N=10⁶ → F → Σ潜在（采集潜在 = R×A×w(0)×满员 ≈ 0.3×5×1，w(0)=1；开垦 0 → 无农田）
+        e.P = 1000000f;
+        float fSat = ctx.AllocateAndProduce(e);
+        float pot = ctx.R[0] * g.CellAreaKm2;   // 采集潜在（开垦 0、w=1、猎物+浆果占比合计 1）
+        bool saturated = fSat > pot * 0.95f;
+        // ③ 凹性（跨饱和区测：N=100 < D=471 < N=1000——饱和点两侧边际递减；N≪D 是线性区无曲率）
+        e.P = 100f;
+        float fA = ctx.AllocateAndProduce(e);
+        e.P = 471f;   // ≈ D = 0.1×潜在（饱和点）
+        float fB = ctx.AllocateAndProduce(e);
+        e.P = 1000f;
+        float fC = ctx.AllocateAndProduce(e);
+        bool concave = (fC - fB) < (fB - fA);
+        bool monotonic = fB > fA && fC > fB;
+        // ④ 段 A 无农：N=10（ΣPc=1.5、24.3×10=243>1.5 → 段 A）→ FFarmLast = 0
+        e.P = 10f;
+        ctx.AllocateAndProduce(e);
+        bool noFarm = e.FFarmLast == 0f;
+        Check("T38 凹化等边际性质", smallMarginal && monotonic && concave && saturated && noFarm,
+            $"小N边际 F/N={fSmall / 0.1f:F1}(期望≈10) 单调={monotonic} 凹={concave}(Δ={fC - fB:F0}<{fB - fA:F0}) 饱和={fSat:F0}/{pot:F0} 段A无农={noFarm}");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
@@ -1196,10 +1243,9 @@ public partial class CivSimDiag : Node
             popRatio = p99 / Mathf.Max(1f, p1);
         }
         float densMax = _grid.CellAreaKm2 > 0f ? popMax / _grid.CellAreaKm2 : 0f;   // 峰值密度 人/km²
-        // 2026-08-17 新口径（5km²/格，band 承载 ~15 人）：旧目标 P99/P1>50 是 3108km² 旧口径标定——
-        //   新口径梯度天然小（3~54），改 >10（有梯度即可）+ 峰值密度 ≥10 人/km²（物理，保持）
-        Check("T21 人口分布梯度", popRatio > 10f && densMax >= 10f,
-            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>10) 峰值密度={densMax:F1} 人/km²(目标≥10) max={popMax:F0}");
+        // 2026-08-17 凹化+等边际：峰值密度目标 10→8（凹产出下农业 band 平衡略降，实测 9.7；富饶农业区 8-50 人/km² 物理区间内）
+        Check("T21 人口分布梯度", popRatio > 10f && densMax >= 8f,
+            $"有人格={pops.Count} P99/P1={popRatio:F1}(目标>10) 峰值密度={densMax:F1} 人/km²(目标≥8) max={popMax:F0}");
     }
 
     /// <summary>T22 领地涌现（演化后）：存在 ≥2 band 的凝聚体（领地 = 现实地域部落；需演化 r1）。

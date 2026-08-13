@@ -100,7 +100,8 @@ public sealed class CivSimContext
     public const float ScoutShare = 0.3f;             // 探路迁出比例
     // ── 两层模型（2026-08-17 定稿）──
     public const float IrrigMult = 5f;                // 灌溉因子：近水格农业 ×5（河谷尖峰来源；★ 待校准）
-    public const float LaborFrac = 0.1f;              // P_劳动 = 0.1×潜在产出（开垦满需人数；★ 待校准）
+    public const float LaborFrac = 0.1f;              // 采集劳动力需求（P_劳动 = LF×潜在：粗放经济，Sahlins 每周 ~15-20h）
+    public const float LaborFracFarm = 0.2f;          // 农田劳动力需求（2026-08-17 凹化+等边际：农业劳动密集 ~2×采集——Sahlins 每周 40h+；非同构参数使等边际分配有区分度）
     public const float TargetMedianDensity = 0.3f;    // k 标定锚：陆地 R 中位数 ≈ 0.3 人/km²（Binford 量级）
     public const float AssimilateRate = 0.03f;        // 格级同化速率（文化/宗教；2026-08-07 0.3→0.1→0.03：同化放缓 → 弱文化/新派别有存活窗口）
     public const float ReligionSpreadRate = 0.02f;    // 宗教传播速率/tick/接触（只向高阶）
@@ -434,23 +435,27 @@ public sealed class CivSimContext
         }
     }
 
-    /// <summary>领地索引重建：每 band 的领地格 = 归属格 ∩ 其影响圈（BFS 半径 R 内）。距离入 TerritoryDists。</summary>
+    /// <summary>领地索引重建：每 band 的领地格 = 归属格 ∩ 其影响圈（BFS 半径 R 内）。距离入 TerritoryDists。
+    /// ⚠️ 2026-08-17 修：索引统一用 **e.Id**（分配器/开垦/采集全按 Id 取）——旧版按列表索引填，
+    ///   演化中 Id==索引（连续分配无 Remove）正确，但读档后列表只含存活实体、Id 不连续 → 错位
+    ///   （T04 读档续跑分叉的可能帮凶之一）。</summary>
     public void RebuildTerritory()
     {
         EnsureTerritory();
         for (int i = 0; i < Entities.Count; i++)
         {
-            if (Entities[i].Dead) continue;
-            if (i >= TerritoryCells.Length) EnsureTerritoryCapacity(i + 256);
-            TerritoryCells[i].Clear();
-            TerritoryDists[i].Clear();
+            var e = Entities[i];
+            if (e.Dead) continue;
+            if (e.Id >= TerritoryCells.Length) EnsureTerritoryCapacity(e.Id + 256);
+            TerritoryCells[e.Id].Clear();
+            TerritoryDists[e.Id].Clear();
         }
         for (int i = 0; i < Entities.Count; i++)
         {
             var e = Entities[i];
             if (e.Dead) continue;
-            var terr = TerritoryCells[i];
-            var dists = TerritoryDists[i];
+            var terr = TerritoryCells[e.Id];
+            var dists = TerritoryDists[e.Id];
             BfsRadius(e.Cell, InfluenceRadius, (c, d) =>
             {
                 if (CellOwner[c] == e.Id)
@@ -479,18 +484,26 @@ public sealed class CivSimContext
         TerritoryDists = td;
     }
 
-    /// <summary>领地采集产出（2026-08-17 土地挂钩重构：砍存量再生——静态丰度 × 可用土地 × 劳动力）。
-    /// 潜在产出 = Σ_领地格 R×w×(1−开垦)（增长基准，F 可 > P 才有盈余——2026-08-10 定稿语义）；
-    /// 实际 = 潜在 × min(1, P/(LaborFrac×潜在))（隐式劳动力爬坡——⚠️ 显式工人分配挂起，用户拍板 2026-08-17）；
-    /// 猎/果拆分：猎物 ×(1−PreyHabitatLoss×开垦)（栖息地破碎），浆果 ×(1−开垦)（地被直接替代）；
-    /// FBerryLast 入实体缓存（派生，不入档）。</summary>
-    public float Harvest(CivEntity e)
+    /// <summary>领地建筑分配产出（2026-08-17 用户拍板：凹化 + 等边际）。
+    /// 建筑产出 F_i(n) = P_i·n/(D_i+n)，D_i = LF_类型·P_i——需求与潜在成正比但类型参数不同
+    /// （采集 0.1 / 农田 0.2，Sahlins 劳动投入比）：非同构 → 等边际分配有区分度。
+    /// 等边际闭式解（LF 两档分段 water-filling，O(k) 无排序、无迭代）：
+    ///   段 A（仅采集激活，μ∈(5,10]）：√μ = √0.1·ΣPc / (N + 0.1·ΣPc)
+    ///   段 B（采集+农田激活，μ≤5）：  √μ = (√0.1·ΣPc + √0.2·ΣPf) / (N + 0.1·ΣPc + 0.2·ΣPf)
+    /// 每格 n_i = √LF·P_i/√μ − LF·P_i（同档内比例分配，非负由 μ 分段保证）；
+    /// FBerryLast 按浆果占比拆分（猎物 = F_采集 − FBerryLast）。
+    /// 每 tick 派生重算、不入档、无 Rng——读档续跑无分叉。
+    /// 采集潜在 = R·A·w·[(1−0.5·开垦)·猎物占比 + (1−开垦)·浆果占比]（栖息地破碎/地被替代）；
+    /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w（0 开垦无农田）。</summary>
+    public float AllocateAndProduce(CivEntity e)
     {
         var terr = TerritoryCells[e.Id];
         if (terr == null || terr.Count == 0) return 0f;
         var dists = TerritoryDists[e.Id];
-        float A = Grid.CellAreaKm2;   // R 是密度（人/km²）→ ×面积成人当量（旧模型 Stock=StockYears×R×5 同口径）
-        float potPrey = 0f, potBerry = 0f;
+        float A = Grid.CellAreaKm2;
+        bool isFarm = e.IsFarming;
+        // 第一遍：Σ 采集/农田潜在 + 浆果潜在（分配只需总量，逐格 n 按潜在比例）
+        float sumPc = 0f, sumPf = 0f, sumBerry = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
             int c = terr[k];
@@ -498,14 +511,75 @@ public sealed class CivSimContext
             float w = InfluenceWeight(dists[k]);
             float cult = Cultivation != null ? Cultivation[c] : 0f;
             float frac = PreyFrac((BiomeType)Grid.Biome[c]);
-            potPrey += R[c] * A * (1f - PreyHabitatLoss * cult) * frac * w;   // 猎物：栖息地破碎（非全失）
-            potBerry += R[c] * A * (1f - cult) * (1f - frac) * w;             // 浆果：地被直接替代
+            float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
+            if (pc > 0f) { sumPc += pc; sumBerry += R[c] * A * w * (1f - cult) * (1f - frac); }
+            if (isFarm && cult > 0f)
+            {
+                float rAgri = R[c] * IrrigFactor(c) * AlluvFactor(Grid.SoilLevel[c]);
+                if (rAgri > 0f)
+                {
+                    float best = 0f;
+                    foreach (var s in TechTable.SeedKeys)
+                    {
+                        if (!e.TechKeys.Contains(s)) continue;
+                        var def = TechTable.Get(s);
+                        best = Mathf.Max(best, def.AgriBase * Phi(c, def.SeedIndex));
+                    }
+                    if (best > 0f) sumPf += best * rAgri * A * cult * w;
+                }
+            }
         }
-        float pot = potPrey + potBerry;
-        if (pot <= 0f) return 0f;
-        float labor = Mathf.Min(1f, e.P / Mathf.Max(1f, LaborFrac * pot));
-        e.FBerryLast = potBerry * labor;   // 浆果实际（劳动力爬坡暂代显式分配）
-        return pot * labor;                // 实际总采集（猎物 = 总 − 浆果）
+        float total = sumPc + sumPf;
+        if (total <= 0f) return 0f;
+        float N = e.P;
+        // 等边际 μ（LF 两档分段闭式）
+        // 激活条件：建筑激活 ⟺ μ ≤ 1/LF_类型（采集 10 / 农田 5）；段 A 解 μA 若 ≥ 5 → 农田不激活
+        float sqrtMu;
+        float sqrtMuA = Mathf.Sqrt(LaborFrac) * sumPc / (N + LaborFrac * sumPc);   // 段 A：仅采集
+        if (sqrtMuA >= Mathf.Sqrt(1f / LaborFracFarm))   // √μA ≥ √5（μ ≥ 5）→ 农田边际 5 不激活
+            sqrtMu = sqrtMuA;
+        else
+            sqrtMu = (Mathf.Sqrt(LaborFrac) * sumPc + Mathf.Sqrt(LaborFracFarm) * sumPf)
+                   / (N + LaborFrac * sumPc + LaborFracFarm * sumPf);               // 段 B：混合（√μB ≤ √5 自动保证，见推导）
+        // 第二遍：逐格分配 n_i = √LF·P_i/√μ − LF·P_i，产出 F_i = P_i·n_i/(D_i+n_i)
+        float fHunt = 0f, fFarm = 0f;
+        for (int k = 0; k < terr.Count; k++)
+        {
+            int c = terr[k];
+            if (R[c] <= 0f) continue;
+            float w = InfluenceWeight(dists[k]);
+            float cult = Cultivation != null ? Cultivation[c] : 0f;
+            float frac = PreyFrac((BiomeType)Grid.Biome[c]);
+            float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
+            if (pc > 0f)
+            {
+                float n = Mathf.Max(0f, Mathf.Sqrt(LaborFrac) * pc / sqrtMu - LaborFrac * pc);   // 未激活建筑 = 0 工人（段 A 农田负分配截断，2026-08-17）
+                fHunt += pc * n / (LaborFrac * pc + n);
+            }
+            if (isFarm && cult > 0f)
+            {
+                float rAgri = R[c] * IrrigFactor(c) * AlluvFactor(Grid.SoilLevel[c]);
+                if (rAgri > 0f)
+                {
+                    float best = 0f;
+                    foreach (var s in TechTable.SeedKeys)
+                    {
+                        if (!e.TechKeys.Contains(s)) continue;
+                        var def = TechTable.Get(s);
+                        best = Mathf.Max(best, def.AgriBase * Phi(c, def.SeedIndex));
+                    }
+                    if (best > 0f)
+                    {
+                        float pf = best * rAgri * A * cult * w;
+                        float n = Mathf.Max(0f, Mathf.Sqrt(LaborFracFarm) * pf / sqrtMu - LaborFracFarm * pf);   // 未激活截断（同采集）
+                        fFarm += pf * n / (LaborFracFarm * pf + n);
+                    }
+                }
+            }
+        }
+        e.FBerryLast = sumPc > 0f ? fHunt * (sumBerry / sumPc) : 0f;   // 浆果实际（按占比拆分）
+        e.FFarmLast = fFarm;
+        return fHunt + fFarm;
     }
 
     /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。

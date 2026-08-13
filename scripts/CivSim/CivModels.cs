@@ -51,8 +51,8 @@ public sealed class CivModelRegistry
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ①a 农田开垦（Order 6）：农业 band 每 tick 提高驻扎格开垦率（农田占用土地——
-//    采集产出 ×(1−开垦)、农业产出 ×开垦；土地竞争载体，2026-08-17 用户拍板）。
+// ①a 农田开垦（Order 6）：农业 band 每 tick 提高**领地格**开垦率（2026-08-17 领地农业——
+//    农田 = 开垦的领地格；采集产出 ×(1−开垦)、农业产出 ×开垦；土地竞争载体）。
 // ══════════════════════════════════════════════════════════════════
 public sealed class CultivateModel : CivModelBase
 {
@@ -66,10 +66,14 @@ public sealed class CultivateModel : CivModelBase
         {
             var e = ctx.Entities[i];
             if (e.Dead || !e.IsFarming) continue;
-            int c = e.Cell;
-            if (c < 0 || c >= ctx.Cultivation.Length) continue;
-            float v = ctx.Cultivation[c] + CivSimContext.CultivateRate * (1f - ctx.Cultivation[c]);
-            ctx.Cultivation[c] = Mathf.Min(1f, v);
+            var terr = ctx.TerritoryCells[e.Id];
+            if (terr == null || terr.Count == 0) continue;
+            foreach (int c in terr)
+            {
+                if (c < 0 || c >= ctx.Cultivation.Length) continue;
+                float v = ctx.Cultivation[c] + CivSimContext.CultivateRate * (1f - ctx.Cultivation[c]);
+                ctx.Cultivation[c] = Mathf.Min(1f, v);
+            }
         }
     }
 }
@@ -90,8 +94,8 @@ public sealed class InfluenceModel : CivModelBase
 }
 
 // ══════════════════════════════════════════════════════════════════
-// ①c 采集收获（Order 9）：F_猎果 = Σ_领地格 静态丰度×可用土地×劳动力（2026-08-17 砍存量重构）；
-//     农业单格（暂缓，5 km² 后接领地）；FLast = 采集+农业（畜牧暂缓）。
+// ①c 采集收获（Order 9）：领地建筑分配产出（2026-08-17 凹化+等边际——
+//     采集/农田每格建筑，等边际闭式分配劳动力；FBerryLast/FFarmLast 分量缓存）。
 // ══════════════════════════════════════════════════════════════════
 public sealed class HarvestModel : CivModelBase
 {
@@ -104,9 +108,8 @@ public sealed class HarvestModel : CivModelBase
         {
             var e = ctx.Entities[i];
             if (e.Dead) continue;
-            e.FHuntLast = ctx.Harvest(e);
-            e.FFarmLast = e.IsFarming ? ctx.FFarmActual(e) : 0f;   // 农业单格（暂缓，5 km² 后接领地）
-            e.FHerdLast = 0f;   // 畜牧暂缓（5 km² 领地畜牧后续）
+            e.FHuntLast = ctx.AllocateAndProduce(e);   // 采集（猎+果）+ 农业（分配后实际产出）
+            e.FHerdLast = 0f;                          // 畜牧暂缓（5 km² 领地畜牧后续）
             e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
         }
     }
