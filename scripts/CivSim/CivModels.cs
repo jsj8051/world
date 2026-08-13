@@ -46,11 +46,13 @@ public sealed class CivModelRegistry
             .Register(new HarvestModel())       // 领地采集（静态丰度×土地×劳动力）→ FLast
             .Register(new EnergyModel())
             .Register(new GrowthModel())
+            .Register(new PrestigeModel())      // 声望/酋长（Order 25，2026-08-17 酋邦层）
             .Register(new ModeModel())
             .Register(new InventionModel())
             .Register(new SpreadModel())
             .Register(new CultureModel())
             .Register(new ReligionModel())
+            .Register(new ChiefdomModel())      // 酋邦凝聚（Order 46，2026-08-17 酋邦层）
             .Register(new ConflictModel())      // 边境冲突（Order 75，2026-08-10）：粘性僵局暴力出口
             .Register(new SplitMigrateModel());
     }
@@ -298,6 +300,10 @@ public sealed class GrowthModel : CivModelBase
                 if (CapabilityTable.Has(ctx, e, "settle")) relief = CivSimContext.StorageReliefSettle;
                 factor = 1f + (factor - 1f) * relief;
             }
+            // 酋邦再分配互惠（2026-08-17：Halstead-O'Shea 1989 坏年景开仓——贡献过才受赈）：
+            //   成员 band 曾交贡赋（Contributed>0）→ 灾年缺口 ×0.5（酋长开仓）；未贡献不受赈
+            if (factor < 1f && e.ChiefdomId >= 0 && e.Contributed > 0f)
+                factor = 1f + (factor - 1f) * CivSimContext.TributeRelief;
             e.P *= factor;
             if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
         }
@@ -623,7 +629,15 @@ public sealed class ConflictModel : CivModelBase
             bool pressure = ctx.IsStarving(ec) || ctx.IsStarving(eo)
                 || ec.P > CivSimContext.SplitPop || eo.P > CivSimContext.SplitPop;
             if (!pressure) continue;
-            if (ctx.Rng.NextDouble() >= CivSimContext.ConflictChance) continue;
+            // ⚠️ 2026-08-17 酋邦军事整合（Kirch 1984）：
+            //   ① 同酋邦冲突概率 ×0.5（酋长仲裁——非消除，pax 不存在）
+            //   ② 继承窗口内 ×2（权力真空 → 继承战争，Polynesia 常态）
+            float conflictChance = CivSimContext.ConflictChance;
+            bool sameChiefdom = ec.ChiefdomId >= 0 && ec.ChiefdomId == eo.ChiefdomId;
+            if (sameChiefdom) conflictChance *= CivSimContext.InternalConflictMult;
+            bool succession = ec.SuccessionUntil > ctx.Tick || eo.SuccessionUntil > ctx.Tick;
+            if (succession) conflictChance *= CivSimContext.SuccessionConflictMult;
+            if (ctx.Rng.NextDouble() >= conflictChance) continue;
             ResolveConflict(ctx, ec, eo, c);
             if (++conflictsThisTick >= 3) return;   // 单 tick 最多 3 场（性能/爆炸防护）
         }
@@ -634,6 +648,16 @@ public sealed class ConflictModel : CivModelBase
         // 胜率：P×MilitMult 对比（武器科技加成；随机——弱 band 可爆冷）
         float pC = challenger.P * TechTable.MilitaryMult(challenger.TechKeys);
         float pO = owner.P * TechTable.MilitaryMult(owner.TechKeys);
+        // ⚠️ 2026-08-17 联盟合力（Kirch：防御方是酋邦时，入侵者面对酋邦总力量——人多势众，非加成系数）
+        if (owner.ChiefdomId >= 0)
+        {
+            for (int i = 0; i < ctx.Entities.Count; i++)
+            {
+                var m = ctx.Entities[i];
+                if (m.Dead || m == owner || m.ChiefdomId != owner.ChiefdomId) continue;
+                pO += m.P * TechTable.MilitaryMult(m.TechKeys);
+            }
+        }
         float winChance = pC / Mathf.Max(0.0001f, pC + pO);
         bool challengerWins = ctx.Rng.NextDouble() < winChance;
         var winner = challengerWins ? challenger : owner;
@@ -1045,5 +1069,245 @@ public sealed class SplitMigrateModel : CivModelBase
             }
         }
         return best;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ①g 声望积累（Order 25，2026-08-17 酋邦层①）：
+//   盈余 → 宴席（feasting）→ 声望（Sahlins 1963 Big Man：慷慨积累欠人情网络，个人化、可逆）。
+//   BigMan = 声望阈值；酋长 Chief = BigMan + 祖先宗教（Polynesia 谱系合法性——divine kingship，
+//   祖先崇拜提供谱系，Kirch 1984）。
+//   贡赋流入（Earle 1997 实物税）：酋邦成员盈余 → Contributed 累计（互惠记录——灾年开仓资格）。
+//   精英供养（等级结构）：酋长 band 的非生产者比例（EliteFrac）由酋邦贡赋供养——
+//   贡赋不足 → 精英饿死（P 降）——等级 = 结构性供养，非盈余自动（回应"盈余>0≠等级"）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class PrestigeModel : CivModelBase
+{
+    public override string Name => "声望积累";
+    public override int Order => 25;
+
+    public override void Execute(CivSimContext ctx)
+    {
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead) continue;
+            float surplus = e.FLast - e.P;   // 实际盈余（人当量；FLast 由 Harvest/RefreshCellState 已算）
+            if (surplus > 0f && e.P > 0f)
+                e.Prestige += surplus * CivSimContext.PrestigeGainRate;   // **绝对盈余**×rate（宴席=绝对食物量，Sahlins）
+            else
+                e.Prestige = Mathf.Max(0f, e.Prestige - CivSimContext.PrestigeDecay);   // 可逆（个人化）
+            e.IsBigMan = e.Prestige >= CivSimContext.BigManPrestigeThreshold;
+            // 酋长：BigMan + 祖先宗教（谱系合法性——祖先份额 > 0；祖先=settle 派生，旧石器无）
+            e.IsChief = e.IsBigMan && ShareField.RelFrac(e.ReligionShare, ReligionStage.Ancestor) > 0;
+            // 贡赋流入（互惠记录——Earle 实物税）：成员盈余 → 酋邦贡赋累计
+            if (e.ChiefdomId >= 0 && surplus > 0f)
+                e.Contributed += surplus * CivSimContext.TributeRate;
+            // 精英供养（等级结构）：酋长 band 非生产者（祭司/战士/亲信）由酋邦贡赋供养
+            if (e.IsChief && e.P > 0f)
+            {
+                float elite = e.P * CivSimContext.EliteFrac;
+                float pool = TributePool(ctx, e);
+                if (pool >= elite)
+                    ConsumeTribute(ctx, e, elite);
+                else
+                    e.P = Mathf.Max(1f, e.P - (elite - pool) * 0.5f);   // 贡赋不足 → 精英饿死
+            }
+        }
+    }
+
+    /// <summary>酋邦贡赋池 = Σ成员 Contributed（按 ChiefdomId；滞后酋邦状态可接受——派生同 Territory 模式）。</summary>
+    private static float TributePool(CivSimContext ctx, CivEntity chief)
+    {
+        if (chief.ChiefdomId < 0) return 0f;
+        float sum = 0f;
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var m = ctx.Entities[i];
+            if (!m.Dead && m.ChiefdomId == chief.ChiefdomId) sum += m.Contributed;
+        }
+        return sum;
+    }
+
+    /// <summary>消耗贡赋（按成员贡献比例扣减——实物税从贡献者处收取）。</summary>
+    private static void ConsumeTribute(CivSimContext ctx, CivEntity chief, float amount)
+    {
+        float remaining = amount;
+        for (int i = 0; i < ctx.Entities.Count && remaining > 0f; i++)
+        {
+            var m = ctx.Entities[i];
+            if (m.Dead || m.ChiefdomId != chief.ChiefdomId || m.Contributed <= 0f) continue;
+            float take = Mathf.Min(remaining, m.Contributed);
+            m.Contributed -= take;
+            remaining -= take;
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ①h 酋邦凝聚（Order 46，2026-08-17 酋邦层①）：部落联盟第二层并查集（band→部落→酋邦）。
+//   凝聚条件（AND）：① 部落领地边界接触 ② 至少一方有酋长（IsChief）③ 产出结构互补
+//   （主导产出类型不同——Halstead-O'Shea 1989：产出不同步 → 再分配价值高）。
+//   解散：成员部落 < 2；酋长死亡 → 继承窗口（SuccessionUntil——权力真空 → 继承竞争，
+//   Kirch 1984：Polynesia 继承战争常态；窗口内内部冲突概率 ×2——见 ConflictModel）。
+//   派生重建（读档入口同用）：确定性（部落对遍历按部落 Id 序，无 Rng）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class ChiefdomModel : CivModelBase
+{
+    public override string Name => "酋邦凝聚";
+    public override int Order => 46;
+
+    public override void Execute(CivSimContext ctx)
+    {
+        if (ctx.Tick - ctx.ChiefdomLastEval < CivSimContext.ChiefdomEvalEvery) return;   // 频率守卫（与领地同频）
+        ctx.ChiefdomLastEval = ctx.Tick;
+        Rebuild(ctx);
+    }
+
+    /// <summary>确定性重建酋邦（凝聚/解散/继承窗口/成员表）。
+    /// ⚠️ 2026-08-17 设计修正（T50 暴露）：全量重算下"酋长死亡→不凝聚→解散"——继承窗口永无机会。
+    ///   修正：① 旧酋邦快照检测危机（无酋长且未在危机 → 给 Prestige 最高者设窗口）
+    ///   ② 危机成员（SuccessionUntil > Tick）豁免凝聚/解散条件（联盟在酋长死亡后存续，
+    ///   窗口过期后正常重算——继承战争窗口，Kirch）。</summary>
+    public static void Rebuild(CivSimContext ctx)
+    {
+        // ── ① 继承危机检测（旧酋邦快照——不依赖本次凝聚）──
+        var oldChiefdoms = new Dictionary<int, List<CivEntity>>();
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead || e.ChiefdomId < 0) continue;
+            if (!oldChiefdoms.TryGetValue(e.ChiefdomId, out var l)) oldChiefdoms[e.ChiefdomId] = l = new List<CivEntity>();
+            l.Add(e);
+        }
+        foreach (var kv in oldChiefdoms)
+        {
+            if (kv.Value.Count < CivSimContext.ChiefdomMinTribes) continue;   // 单成员不算酋邦
+            bool hasChief = false, inCrisis = false;
+            foreach (var m in kv.Value)
+            {
+                if (m.IsChief) hasChief = true;
+                if (m.SuccessionUntil > ctx.Tick) inCrisis = true;
+            }
+            if (!hasChief && !inCrisis)
+            {
+                // 酋长死亡（且未在危机中）→ 继承窗口：Prestige 最高者成为继位竞争中心
+                CivEntity top = null;
+                foreach (var m in kv.Value) if (top == null || m.Prestige > top.Prestige) top = m;
+                if (top != null) top.SuccessionUntil = ctx.Tick + CivSimContext.SuccessionWindowTicks;
+            }
+        }
+
+        // ── 部落级聚合 ──
+        var tribes = new Dictionary<int, TribeAgg>();   // TerritoryId → 聚合
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead || e.TerritoryId < 0) continue;
+            if (!tribes.TryGetValue(e.TerritoryId, out var agg)) agg = tribes[e.TerritoryId] = new TribeAgg();
+            agg.Members.Add(e);
+        }
+        // 产出主导类型（猎/农/牧——互补判定用）
+        foreach (var kv in tribes)
+        {
+            float hunt = 0, farm = 0, herd = 0;
+            foreach (var m in kv.Value.Members)
+            {
+                hunt += m.FHuntLast;
+                farm += m.FFarmLast;
+                herd += m.FHerdLast;
+                if (m.IsChief) kv.Value.HasChief = true;
+                if (m.SuccessionUntil > ctx.Tick) kv.Value.InCrisis = true;   // 继承危机豁免
+                if (m.IsBigMan && m.Prestige > kv.Value.MaxPrestige) kv.Value.MaxPrestige = m.Prestige;
+            }
+            kv.Value.DomOutput = hunt >= farm && hunt >= herd ? 0 : (farm >= herd ? 1 : 2);
+        }
+
+        // ── 并查集（酋邦 = 分量内最小部落 id）──
+        var parent = new Dictionary<int, int>();
+        int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+        void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) parent[ra] = rb; }
+        foreach (var tid in tribes.Keys) parent[tid] = tid;
+        var tribeIds = new List<int>(tribes.Keys);
+        tribeIds.Sort();
+        for (int a = 0; a < tribeIds.Count; a++)
+            for (int b = a + 1; b < tribeIds.Count; b++)
+            {
+                int ta = tribeIds[a], tb = tribeIds[b];
+                var aggA = tribes[ta]; var aggB = tribes[tb];
+                if (!aggA.HasChief && !aggB.HasChief && !aggA.InCrisis && !aggB.InCrisis) continue;   // ② 需酋长（或继承危机中——联盟存续）
+                if (aggA.DomOutput == aggB.DomOutput) continue;           // ③ 产出互补（主导类型不同）
+                if (!TribesTouch(ctx, aggA, aggB)) continue;              // ① 领地边界接触
+                Union(ta, tb);
+            }
+
+        // ── 填 ChiefdomId/Size + 解散判定（危机成员豁免解散）──
+        var comps = new Dictionary<int, List<int>>();   // 根 → 成员部落
+        foreach (var tid in tribeIds) { int r = Find(tid); if (!comps.TryGetValue(r, out var l)) comps[r] = l = new List<int>(); l.Add(tid); }
+        foreach (var kv in comps)
+        {
+            var comp = kv.Value;
+            bool crisis = false;
+            foreach (var tid in comp)
+                if (tribes[tid].InCrisis) { crisis = true; break; }
+            if (comp.Count < CivSimContext.ChiefdomMinTribes && !crisis)
+            {
+                // 解散：单部落（且非危机）→ ChiefdomId=-1（清除窗口）
+                foreach (var tid in comp)
+                    foreach (var m in tribes[tid].Members) { m.ChiefdomId = -1; m.ChiefdomSize = 1; m.SuccessionUntil = -1; }
+                continue;
+            }
+            int chiefdomId = comp[0];   // 分量内最小部落 id（确定性标号）
+            foreach (var tid in comp)
+                foreach (var m in tribes[tid].Members)
+                {
+                    m.ChiefdomId = chiefdomId;
+                    m.ChiefdomSize = comp.Count;
+                    if (m.SuccessionUntil > 0 && m.SuccessionUntil <= ctx.Tick) m.SuccessionUntil = -1;   // 窗口过期清除
+                }
+        }
+
+        // ── ChiefdomCells 成员表（按酋邦 id；再分配/联盟/供养查询用）──
+        if (ctx.ChiefdomCells == null || ctx.ChiefdomCells.Length < 4096) ctx.ChiefdomCells = new List<int>[4096];
+        for (int i = 0; i < ctx.ChiefdomCells.Length; i++) { if (ctx.ChiefdomCells[i] == null) ctx.ChiefdomCells[i] = new List<int>(); else ctx.ChiefdomCells[i].Clear(); }
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead || e.ChiefdomId < 0) continue;
+            if (e.ChiefdomId >= ctx.ChiefdomCells.Length) continue;
+            ctx.ChiefdomCells[e.ChiefdomId].Add(e.Id);
+        }
+    }
+
+    private sealed class TribeAgg
+    {
+        public readonly List<CivEntity> Members = new();
+        public int DomOutput;      // 0=猎 1=农 2=牧（主导产出类型）
+        public bool HasChief;
+        public bool InCrisis;      // 继承危机中（SuccessionUntil > Tick——联盟存续豁免）
+        public float MaxPrestige;
+    }
+
+    /// <summary>领地边界接触：A 的领地格有邻格属于 B 的领地格（格集从成员 TerritoryCells 并集）。</summary>
+    private static bool TribesTouch(CivSimContext ctx, TribeAgg a, TribeAgg b)
+    {
+        var cellSetA = new HashSet<int>();
+        foreach (var m in a.Members)
+        {
+            var terr = ctx.TerritoryCells[m.Id];
+            if (terr == null) continue;
+            foreach (var c in terr) cellSetA.Add(c);
+        }
+        var cellSetB = new HashSet<int>();
+        foreach (var m in b.Members)
+        {
+            var terr = ctx.TerritoryCells[m.Id];
+            if (terr == null) continue;
+            foreach (var c in terr) cellSetB.Add(c);
+        }
+        foreach (var c in cellSetA)
+            foreach (int nb in ctx.Grid.Neighbors[c])
+                if (cellSetB.Contains(nb)) return true;
+        return false;
     }
 }

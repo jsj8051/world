@@ -147,6 +147,15 @@ public partial class CivSimDiag : Node
         if (Want("T39")) T39_SettleStorage();
         if (Want("T40")) T40_PerfSegments();   // ⚠️ n16 快生成 ~3-5s——仅显式 --only=T40 定期跑（不进全量默认）
         if (Want("T41")) T41_PerfHistory();    // ⚠️ 只读历史汇总，秒级——可进全量；默认不进（避免输出噪音）
+        if (Want("T42")) T42_PrestigeAccumulation();
+        if (Want("T43")) T43_BigManEmergence();
+        if (Want("T44")) T44_ChiefInstitutionalize();
+        if (Want("T45")) T45_ChiefdomCoalesce();
+        if (Want("T46")) T46_TribeIndependence();
+        if (Want("T47")) T47_TributeReciprocity();
+        if (Want("T48")) T48_EliteSupport();
+        if (Want("T49")) T49_AllianceStrength();
+        if (Want("T50")) T50_SuccessionWindow();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -1026,6 +1035,237 @@ public partial class CivSimDiag : Node
             $"MapGen 历史 {all.Count} 条 + CivSim 历史 {civCount} 条（趋势见上；mapgen 需先跑 --only=T40 生成）");
     }
 
+    /// <summary>T42 声望积累（2026-08-17 酋邦层①，Sahlins 1963）：盈余→宴席→声望；
+    /// 缺口→不涨。绝对盈余 2 人 × 60 tick → 声望 0.6（未达 BigMan 阈值 1.0——阈值边界验证）。</summary>
+    private void T42_PrestigeAccumulation()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        a.FLast = 100.5f;   // 绝对盈余 0.5 人（小宴席能力）
+        b.FLast = 90f;    // 缺口 10 人
+        var p = new PrestigeModel();
+        for (int t = 0; t < 60; t++) p.Execute(ctx);
+        bool aGained = a.Prestige > 0f;
+        bool bFlat = b.Prestige == 0f;
+        bool belowThreshold = !a.IsBigMan;   // 0.5×0.02×60 = 0.6 < 1.0（阈值边界）
+        Check("T42 声望积累", aGained && bFlat && belowThreshold,
+            $"盈余A声望={a.Prestige:F2}(>0) 缺口B={b.Prestige:F2}(=0) 未达阈值={belowThreshold}(0.6<1.0)");
+    }
+
+    /// <summary>T43 大人物涌现（Sahlins：Big Man 声望型领袖）：绝对盈余 5 人持续 120 tick →
+    /// 声望 3.0 ≥ 1.0 → BigMan；缺口 band 永不。</summary>
+    private void T43_BigManEmergence()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        a.FLast = 105f;   // 绝对盈余 5 人（宴席能力）
+        b.FLast = 90f;
+        var p = new PrestigeModel();
+        for (int t = 0; t < 120; t++) p.Execute(ctx);
+        bool aBigMan = a.IsBigMan;
+        bool bNot = !b.IsBigMan;
+        Check("T43 大人物涌现", aBigMan && bNot,
+            $"盈余A声望={a.Prestige:F2}(≥1.0→BigMan={aBigMan}) 缺口B声望={b.Prestige:F2}(BigMan={b.IsBigMan})");
+    }
+
+    /// <summary>T44 酋长制度化（Polynesia 谱系合法性——divine kingship）：BigMan + 祖先宗教 → Chief；
+    /// BigMan + 泛灵（无谱系）→ 卡在 BigMan。</summary>
+    private void T44_ChiefInstitutionalize()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        a.IsFarming = true;   // settle → 祖先宗教可达
+        ShareField.RelTransfer(a.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
+        a.Prestige = 1.2f;
+        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        b.Prestige = 1.2f;    // 泛灵（默认）——无谱系
+        new PrestigeModel().Execute(ctx);
+        bool aChief = a.IsChief;
+        bool bStuck = !b.IsChief;
+        Check("T44 酋长制度化", aChief && bStuck,
+            $"祖先+BigMan→Chief={aChief} 泛灵+BigMan→Chief={b.IsChief}(应False——谱系是硬门槛)");
+    }
+
+    /// <summary>T45 酋邦凝聚（2026-08-17 酋邦层①）：两部落领地相邻 + 一方酋长 + 产出互补 → 合并；
+    /// 反例：缺酋长/产出同质 → 不合并。</summary>
+    private void T45_ChiefdomCoalesce()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        // 部落 A：格 0/1（领地相邻），a1 是酋长（祖先宗教+高声望）
+        var a1 = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        a1.IsFarming = true;
+        ShareField.RelTransfer(a1.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
+        a1.Prestige = 1.2f;
+        a1.IsChief = true;   // 手动置位（PrestigeModel 派生——测试直接构造酋长状态）
+        a1.TerritoryId = 10; a1.TerritorySize = 2;
+        var a2 = AddEntity(ctx, 1, 80f, TechTable.StoneCore);
+        a2.TerritoryId = 10; a2.TerritorySize = 2;
+        a1.FHuntLast = 120f; a2.FHuntLast = 80f;   // A 主导猎
+        // 部落 B：格 3（领地 2/3 与 A 相邻），产出主导农
+        var b1 = AddEntity(ctx, 3, 90f, TechTable.StoneCore, TechTable.SeedWheat);
+        b1.TerritoryId = 20; b1.TerritorySize = 1;
+        b1.FFarmLast = 100f;                        // B 主导农（互补 ✓）
+        // 领地格（手造——Rebuild 会覆盖，但 TribesTouch 直接用 TerritoryCells）
+        foreach (var e in ctx.Entities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        // 部落 A 领地含格 1（邻格 2 属 B）
+        ctx.TerritoryCells[a1.Id].Add(1); ctx.TerritoryDists[a1.Id].Add(1);
+        ctx.TerritoryCells[b1.Id].Add(2); ctx.TerritoryDists[b1.Id].Add(1);
+        ctx.ChiefdomLastEval = -100;
+        new ChiefdomModel().Execute(ctx);
+        bool merged = a1.ChiefdomId >= 0 && a1.ChiefdomId == b1.ChiefdomId && a1.ChiefdomSize == 2;
+        // 反例 1：c1（格 4）无酋长、产出猎（与 A 同质）——不合并
+        var c1 = AddEntity(ctx, 4, 70f, TechTable.StoneCore);
+        c1.TerritoryId = 30; c1.TerritorySize = 1;
+        c1.FHuntLast = 60f;
+        ctx.TerritoryCells[c1.Id].Add(4); ctx.TerritoryDists[c1.Id].Add(0);
+        ctx.TerritoryCells[c1.Id].Add(3); ctx.TerritoryDists[c1.Id].Add(1);   // 与 B 接触
+        ctx.ChiefdomLastEval = -100;
+        new ChiefdomModel().Execute(ctx);
+        bool cNotMerged = c1.ChiefdomId < 0;
+        Check("T45 酋邦凝聚", merged && cNotMerged,
+            $"A+B合并(Id={a1.ChiefdomId}/size={a1.ChiefdomSize}) 无酋长C不合并={cNotMerged}");
+    }
+
+    /// <summary>T46 部落独立（层级独立）：酋邦内两部落语言群分歧 → 部落层照常断裂；
+    /// 断裂后单成员酋邦解散（ChiefdomSize < 2 → -1）。</summary>
+    private void T46_TribeIndependence()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        a.TerritoryId = 5; b.TerritoryId = 6;   // 两个部落
+        a.ChiefdomId = 5; b.ChiefdomId = 5; a.ChiefdomSize = 2; b.ChiefdomSize = 2;   // 同一酋邦
+        a.IsChief = true;   // ⚠️ 2026-08-17：酋邦须有酋长（凝聚条件②）——无酋长会触发继承危机续命（T50 语义）
+        a.CultureGroupShare = ShareField.NewCulture("cultg_1");
+        b.CultureGroupShare = ShareField.NewCulture("cultg_2");   // 语言群分歧
+        ctx.TerritoryLastRebuild = -10;
+        new TerritoryModel().Execute(ctx);   // 部落断裂（异语言群不凝聚——但 T24 语义：同格才凝聚——这里是异格——先验证领地断裂）
+        ctx.ChiefdomLastEval = -100;
+        new ChiefdomModel().Execute(ctx);    // 酋邦重估——若部落仍同 id 则保持，否则解散
+        bool dissolved = a.ChiefdomId < 0 && b.ChiefdomId < 0;   // 单部落酋邦解散
+        Check("T46 部落独立", dissolved,
+            $"酋邦解散(单部落): a={a.ChiefdomId} b={b.ChiefdomId}（部落层独立于酋邦层）");
+    }
+
+    /// <summary>T47 再分配互惠（Halstead-O'Shea 1989 坏年景开仓）：贡献过的成员灾年缺口 ×0.5；
+    /// 未贡献不受赈——同一酋邦内对比衰减。</summary>
+    private void T47_TributeReciprocity()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var chief = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        chief.IsFarming = true;
+        ShareField.RelTransfer(chief.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
+        chief.Prestige = 1.2f;
+        chief.ChiefdomId = 9; chief.ChiefdomSize = 3; chief.Contributed = 50f;
+        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        b.ChiefdomId = 9; b.ChiefdomSize = 3; b.Contributed = 20f;   // 贡献过 → 受赈
+        var c = AddEntity(ctx, 2, 100f, TechTable.StoneCore);
+        c.ChiefdomId = 9; c.ChiefdomSize = 3; c.Contributed = 0f;    // 未贡献 → 不受赈
+        new PrestigeModel().Execute(ctx);   // 更新 IsChief（chief 需确认）+ 精英供养
+        b.FLast = 50f; c.FLast = 50f;   // 坏年景（P=100 缺口 50%）
+        var growth = new GrowthModel();
+        growth.Execute(ctx);
+        bool bBuffered = b.P > c.P;   // B 受赈（×0.5 缓冲）饿得慢
+        Check("T47 再分配互惠", bBuffered,
+            $"贡献者B P={b.P:F1} > 未贡献C P={c.P:F1}（互惠开仓生效）");
+    }
+
+    /// <summary>T48 精英供养（等级=结构性供养，回应"盈余>0≠等级"）：酋长 band 精英（10%）
+    /// 由酋邦贡赋供养——贡赋充足 P 稳、不足 → 精英饿死（P 降）。</summary>
+    private void T48_EliteSupport()
+    {
+        // 场景 A：贡赋充足
+        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctxA = MakeCtx(gA);
+        var ca = AddEntity(ctxA, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        ca.IsFarming = true;
+        ShareField.RelTransfer(ca.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
+        ca.Prestige = 1.2f;
+        ca.ChiefdomId = 7; ca.ChiefdomSize = 2; ca.Contributed = 100f;   // 池 100 ≥ 精英 10
+        var ma = AddEntity(ctxA, 1, 50f, TechTable.StoneCore);
+        ma.ChiefdomId = 7; ma.ChiefdomSize = 2; ma.Contributed = 0f;
+        new PrestigeModel().Execute(ctxA);
+        bool fed = ca.P == 100f;   // 精英被供养 → P 不变
+        // 场景 B：贡赋不足
+        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctxB = MakeCtx(gB);
+        var cb = AddEntity(ctxB, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        cb.IsFarming = true;
+        ShareField.RelTransfer(cb.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
+        cb.Prestige = 1.2f;
+        cb.ChiefdomId = 8; cb.ChiefdomSize = 2; cb.Contributed = 2f;    // 池 2 < 精英 10
+        var mb = AddEntity(ctxB, 1, 50f, TechTable.StoneCore);
+        mb.ChiefdomId = 8; mb.ChiefdomSize = 2; mb.Contributed = 0f;
+        new PrestigeModel().Execute(ctxB);
+        bool starved = cb.P < 100f;   // 贡赋不足 → 精英饿死
+        Check("T48 精英供养", fed && starved,
+            $"贡赋充足 P={ca.P:F1}(=100) 不足 P={cb.P:F1}(<100——精英饿死)");
+    }
+
+    /// <summary>T49 联盟合力（Kirch：防御方酋邦 → 入侵者面对总力量）：同 P 入侵者 vs 单部落/酋邦——
+    /// 酋邦时胜率显著更低（采样统计）。</summary>
+    private void T49_AllianceStrength()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        // ⚠️ 2026-08-17 审查修正：相等初始 P（ch=100/ow=100）单轮判定 ch.P>ow.P 才有效
+        //   （不等 P 时 challenger 输了 P 仍高——判定恒真）；联盟 ow=100+70=170 → winChance 0.37 vs 0.5
+        // 场景 A：单部落 owner P=100 vs 入侵 100
+        var ctxA = MakeCtx(g, seed: 7);
+        var owA = AddEntity(ctxA, 0, 100f, TechTable.StoneCore);
+        var inA = AddEntity(ctxA, 1, 100f, TechTable.StoneCore);
+        ctxA.CellOwner[2] = 0;
+        int loneWins = 0;
+        for (int k = 0; k < 60; k++) { inA.P = 100f; owA.P = 100f; ConflictModel.ResolveConflict(ctxA, inA, owA, 2); if (inA.P > owA.P) loneWins++; }
+        // 场景 B：酋邦 owner（100+70）vs 入侵 100
+        var ctxB = MakeCtx(g, seed: 7);
+        var owB = AddEntity(ctxB, 0, 100f, TechTable.StoneCore);
+        var ally = AddEntity(ctxB, 1, 70f, TechTable.StoneCore);
+        owB.ChiefdomId = 3; ally.ChiefdomId = 3;
+        var inB = AddEntity(ctxB, 2, 100f, TechTable.StoneCore);
+        ctxB.CellOwner[3] = 0;
+        int chiefWins = 0;
+        for (int k = 0; k < 60; k++) { inB.P = 100f; owB.P = 100f; ConflictModel.ResolveConflict(ctxB, inB, owB, 3); if (inB.P > owB.P) chiefWins++; }
+        bool allianceHolds = chiefWins < loneWins;   // 联盟显著降低入侵者胜率（0.37 < 0.5）
+        Check("T49 联盟合力", allianceHolds,
+            $"入侵者胜场 单部落={loneWins}/60 酋邦={chiefWins}/60（联盟 100+70=170 > 100 人多势众）");
+    }
+
+    /// <summary>T50 继承窗口（Kirch 1984 继承战争）：酋邦内无酋长（权力真空）→ ChiefdomModel
+    /// 给 Prestige 最高者设 SuccessionUntil（窗口）；窗口内 ConflictModel 冲突概率 ×2（代码路径）。</summary>
+    private void T50_SuccessionWindow()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        a.TerritoryId = 4; b.TerritoryId = 5;
+        a.Prestige = 0.8f; b.Prestige = 0.5f;
+        a.IsChief = true;   // 第一步：a 是酋长 → 凝聚
+        a.FHuntLast = 100f; b.FFarmLast = 100f; // 产出互补（凝聚可发生）
+        foreach (var e in ctx.Entities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        ctx.TerritoryCells[a.Id].Add(2); ctx.TerritoryDists[a.Id].Add(1);
+        ctx.TerritoryCells[b.Id].Add(3); ctx.TerritoryDists[b.Id].Add(1);
+        ctx.ChiefdomLastEval = -100;
+        new ChiefdomModel().Execute(ctx);
+        bool coalesced = a.ChiefdomId == b.ChiefdomId && a.ChiefdomId >= 0;   // 凝聚成功
+        // 第二步：酋长死亡（IsChief 清除）→ 权力真空 → 继承窗口
+        a.IsChief = false;
+        ctx.ChiefdomLastEval = -100;
+        new ChiefdomModel().Execute(ctx);
+        bool windowSet = a.SuccessionUntil > ctx.Tick || b.SuccessionUntil > ctx.Tick;   // 权力真空 → 继承窗口
+        bool windowOnTop = a.SuccessionUntil > ctx.Tick;   // Prestige 最高者（a=0.8）获窗口
+        Check("T50 继承窗口", coalesced && windowSet && windowOnTop,
+            $"凝聚={coalesced} 酋长死亡→窗口 a.SuccessionUntil={a.SuccessionUntil}(tick {ctx.Tick}+20) 最高声望者获窗口={windowOnTop}");
+    }
+
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
     private void T23_TerritoryMult()
     {
@@ -1049,7 +1289,7 @@ public partial class CivSimDiag : Node
     {
         GD.Print("[CivSimDiag] ── T 地图测试 ──");
         // 演化 gate：未选任何地图测试（如 --only=S1,S2）时跳过完整演化（最贵段 ~11s）
-        bool needEvol = WantAny("T01", "T02", "T03", "T04", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "T22", "存档");
+        bool needEvol = WantAny("T01", "T02", "T03", "T04", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "T22", "T52", "存档");
         CivSimResult r1 = null;    // 演化结果（needEvol=false 时为 null，依赖它的测试已被筛掉）
         if (needEvol) r1 = EvolveAndDebug(seed, origins);
         else GD.Print("[CivSimDiag] --only 未含地图测试：跳过演化");
@@ -1068,6 +1308,7 @@ public partial class CivSimDiag : Node
         if (WantAny("T15", "T16")) T15_T16_Coverage(c);
         if (Want("T21")) T21_PopGradient(c);
         if (Want("T22")) T22_TerritoryEmergence(c);
+        if (Want("T52")) T52_ChiefdomEmergence(c);   // 演化级：酋邦涌现统计（先观测后断言）
         if (Want("T18")) T18_Perf(seed, origins);   // 第三次演化（~11s），仅选中时跑
         // ⚠️ 2026-08-17 审查修复：T04 拆独立函数放末尾——它续跑 r1.Context 会污染 T09-T22 的共享态；
         //   且语义改为"读档续跑 vs 内存态续跑"（见 T04_Continuation 注释）
@@ -1456,7 +1697,24 @@ public partial class CivSimDiag : Node
         Check("T22 领地涌现", emerged, $"领地 {ids.Count} 个（≥2 band），成员 band {inTribe} 个");
     }
 
-    /// <summary>T18 性能：全演化计时（第三次演化，仅选中时跑 ~11s）。
+    /// <summary>T52 酋邦涌现统计（2026-08-17 演化级验收）：全演化后统计声望/大人物/酋长/酋邦。
+    /// ⚠️ 先观测后断言：若酋邦 0 涌现 → 调凝聚条件（人口密度驱动）——本版断言"声望涌现"（软指标）+ 酋邦数观测打印。</summary>
+    private void T52_ChiefdomEmergence(CivSimContext c)
+    {
+        int prestigeEnts = 0, bigMen = 0, chiefs = 0;
+        var chiefdomIds = new HashSet<int>();
+        foreach (var e in c.Entities)
+        {
+            if (e.Prestige > 0f) prestigeEnts++;
+            if (e.IsBigMan) bigMen++;
+            if (e.IsChief) chiefs++;
+            if (e.ChiefdomId >= 0) chiefdomIds.Add(e.ChiefdomId);
+        }
+        GD.Print($"[T52数据] 声望band={prestigeEnts} 大人物={bigMen} 酋长={chiefs} 酋邦={chiefdomIds.Count} 个（成员band≥2）");
+        Check("T52 酋邦涌现", prestigeEnts > 0, $"声望涌现={prestigeEnts > 0}（酋邦 {chiefdomIds.Count} 个——观测值，达标断言待演化数据）");
+    }
+
+    /// <summary>T18 性能：全演化计时（第三次演化，仅选中时跑 ~11s）。</summary>
     /// ⚠️ 2026-08-17 监督机制：逐模型耗时已由 CivEngine.Run 入 PerfLog 历史——此处显示历史汇总（劣化定位）。</summary>
     private void T18_Perf(int seed, int origins)
     {
@@ -1524,7 +1782,11 @@ public partial class CivSimDiag : Node
             var x = a.Entities[k]; var y = b.Entities[k];
             if (x.Id != y.Id || x.Cell != y.Cell || x.P != y.P || x.IsFarming != y.IsFarming
                 || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick
-                || x.TerritoryId != y.TerritoryId || x.TerritorySize != y.TerritorySize)
+                || x.TerritoryId != y.TerritoryId || x.TerritorySize != y.TerritorySize
+                // ⚠️ 2026-08-17 酋邦层字段对比（v10 入档；T02/T04 验收）
+                || x.Prestige != y.Prestige || x.IsBigMan != y.IsBigMan || x.IsChief != y.IsChief
+                || x.ChiefdomId != y.ChiefdomId || x.Contributed != y.Contributed
+                || x.SuccessionUntil != y.SuccessionUntil)
             {
                 GD.Print($"  [往返诊断{tag}] 实体{k}: id={x.Id}vs{y.Id} cell={x.Cell}vs{y.Cell} P={x.P:F1}vs{y.P:F1} farm={x.IsFarming}vs{y.IsFarming} origin={x.OriginCell}vs{y.OriginCell} born={x.BornTick}vs{y.BornTick}");
                 return false;

@@ -38,6 +38,10 @@ public sealed class CivSimContext
     public float[] CellOwnerInf;     // 现 owner 的影响力（粘性比较基准；本 tick 开头）
     public List<int>[] TerritoryCells;   // 每 band 领地格列表（CellOwner 反查派生，RebuildTerritory 重建）
     public List<byte>[] TerritoryDists;  // 每 band 领地格到驻扎点距离（0-3，w 加权用）
+
+    // ── 酋邦层（2026-08-17）：第二层并查集——部落联盟（跨领地政治整合）──
+    public List<int>[] ChiefdomCells;    // 酋邦 id → 成员 band Id（ChiefdomModel.Rebuild 填充）
+    public int ChiefdomLastEval = -100;  // 凝聚评估频率守卫（与领地同频）
     private Queue<int> _bfsQ;            // BFS 复用队列（GC 优化）
     private Queue<int> _bfsDQ;
 
@@ -89,6 +93,22 @@ public sealed class CivSimContext
     public const float StorageReliefPottery = 0.4f;  // +陶器：密封储粮容器（2026-08-17 分层强化）
     public const float StorageReliefSettle = 0.3f;   // +定居：粮仓（2026-08-17 分层强化）
     public const float SettleGrowthMult = 1.5f;      // 定居生育跃迁：人口增长 r ×1.5（史实：定居密度 10-50× 游群；★ 标定）
+
+    // ── 酋邦层（2026-08-17：Sahlins 1963 声望 / Earle 1997 贡赋 / Kirch 1984 联盟锚定）──
+    public const float PrestigeGainRate = 0.02f;       // **绝对盈余**（人当量）→ 声望/tick——宴席是绝对食物量
+                                                       //   （能喂多少人，Sahlins）——★ 标定：分裂后盈余窗口
+                                                       //   （P=6/F=14 → 盈余 8 人 × 0.02 = 0.16/tick，
+                                                       //   增长闭合前 ~10-25 tick → 1.6-4.0 声望 → BigMan）
+    public const float PrestigeDecay = 0.001f;         // 无盈余衰减/tick（声望可逆——Big Man 个人化，Sahlins）
+    public const float BigManPrestigeThreshold = 1.0f; // 声望阈值 → BigMan
+    public const int ChiefdomEvalEvery = 10;           // 凝聚评估频率（与领地重建同频）
+    public const int ChiefdomMinTribes = 2;            // 酋邦最小部落数（<2 → 解散）
+    public const float TributeRate = 0.1f;             // 盈余贡赋率（实物税——夏威夷 ahupua'a 土地分区，Earle）
+    public const float TributeRelief = 0.5f;           // 灾年开仓缓冲（互惠：贡献过才受赈，Halstead-O'Shea）
+    public const float EliteFrac = 0.1f;               // 酋长 band 精英比例（非生产者——祭司/战士/亲信，贡赋供养）
+    public const float InternalConflictMult = 0.5f;    // 同酋邦冲突概率 ×0.5（酋长仲裁——非消除，pax 不存在）
+    public const float SuccessionConflictMult = 2.0f;  // 继承窗口冲突概率 ×2（继承战争，Kirch：Polynesia 常态）
+    public const int SuccessionWindowTicks = 20;       // 继承窗口时长
 
     // ── 货物系统（2026-08-09：生产方式副产品，累积入档 v7；贸易期接物物交换）──
     public const int GoodsLeather = 0, GoodsWool = 1, GoodsStraw = 2;   // Goods[] 索引

@@ -37,7 +37,7 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 9;   // v9（2026-08-17 土地挂钩）：砍存量再生——尾部 Stock(n×4B) 换开垦率 Cultivation(n×4B)；采集=静态丰度×土地×劳动力；掠夺改纯控制权；v8 旧档拒绝（模型变更）
+    public const ushort Version = 10;   // v10（2026-08-17 酋邦层）：实体段加声望/酋长/酋邦/贡赋/继承窗口（+18B/实体）；v9 旧档拒绝（模型变更）
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
@@ -108,6 +108,13 @@ public static class CivMapArchive
             f.Store32((uint)e.LastSplitTick);     // 分裂冷却（v8）
             f.Store32((uint)e.LastConflictTick);  // 冲突冷却（v8 冲突机制 2026-08-10）
             for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);   // 货物 3×float（v7）
+            // 酋邦层（v10，2026-08-17）：声望/酋长标记/酋邦归属/贡赋累计/继承窗口
+            f.StoreFloat(e.Prestige);
+            f.Store8((byte)(e.IsBigMan ? 1 : 0));
+            f.Store8((byte)(e.IsChief ? 1 : 0));
+            f.Store32((uint)e.ChiefdomId);      // -1 → 0xFFFFFFFF
+            f.StoreFloat(e.Contributed);
+            f.Store32((uint)e.SuccessionUntil); // -1 → 0xFFFFFFFF
         }
         // 尾部：土地挂钩（v9）——开垦率场 + 格归属 + 实控锁定（读档续跑无分叉）
         // ⚠️ 2026-08-17：v8 的存量 Stock 段移除（砍存量再生），原位换开垦率 Cultivation
@@ -274,6 +281,15 @@ public static class CivMapArchive
             e.LastSplitTick = ver >= 8 ? (int)f.Get32() : -1;     // 分裂冷却（v8）
             e.LastConflictTick = ver >= 8 ? (int)f.Get32() : -1;  // 冲突冷却（v8 冲突机制 2026-08-10）
             for (int gi = 0; gi < 3; gi++) e.Goods[gi] = f.GetFloat();   // 货物（v7）
+            if (ver >= 10)   // 酋邦层（v10，2026-08-17）
+            {
+                e.Prestige = f.GetFloat();
+                e.IsBigMan = f.Get8() != 0;
+                e.IsChief = f.Get8() != 0;
+                e.ChiefdomId = (int)f.Get32();
+                e.Contributed = f.GetFloat();
+                e.SuccessionUntil = (int)f.Get32();
+            }
             entities.Add(e);
             if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell].Add(e);
         }
