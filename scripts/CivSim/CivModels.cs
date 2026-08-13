@@ -26,9 +26,15 @@ public sealed class CivModelRegistry
 
     public void ExecuteAll(CivSimContext ctx)
     {
-        _models.Sort((a, b) => a.Order.CompareTo(b.Order));
-        foreach (var m in _models)
+        foreach (var m in SortedModels())
             m.Execute(ctx);
+    }
+
+    /// <summary>按 Order 排序后的模型列表（诊断逐模型执行用；幂等排序）。</summary>
+    public IReadOnlyList<CivModelBase> SortedModels()
+    {
+        _models.Sort((a, b) => a.Order.CompareTo(b.Order));
+        return _models;
     }
 
     public static CivModelRegistry StoneAge()
@@ -594,6 +600,10 @@ public sealed class ConflictModel : CivModelBase
     {
         if (ctx.LockedUntil == null || ctx.Entities.Count < 2) return;
         int n = ctx.Grid.N;
+        // ⚠️ 2026-08-17 审查修复（真 bug）：防护计数器误用总计数 ctx.Conflicts（演化累计到 3 后
+        //   本模型永久 return——冲突机制实际只生效前 3 场）；且总计数不入档 → 读档端 0 vs 内存端累计
+        //   值 → T04 续跑 Rng 分叉。改为 Execute 内独立的本 tick 计数（总计数保留统计）。
+        int conflictsThisTick = 0;
         for (int c = 0; c < n; c++)
         {
             int owner = ctx.CellOwner[c];
@@ -615,7 +625,7 @@ public sealed class ConflictModel : CivModelBase
             if (!pressure) continue;
             if (ctx.Rng.NextDouble() >= CivSimContext.ConflictChance) continue;
             ResolveConflict(ctx, ec, eo, c);
-            if (ctx.Conflicts >= 3) return;   // 单 tick 最多 3 场（性能/爆炸防护）
+            if (++conflictsThisTick >= 3) return;   // 单 tick 最多 3 场（性能/爆炸防护）
         }
     }
 

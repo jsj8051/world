@@ -1895,7 +1895,9 @@ public partial class MapViewer : Node3D
                 {
                     float x = i / 15f;
                     float p = Mathf.Exp(_popLogMin + x * (_popLogMax - _popLogMin)) - 1f;
-                    string label = i == 15 ? $"≥ {p:0.#}（最高 {_popMax:0.#}）" : $"{p:0.#}";
+                    // ⚠️ 2026-08-17 用户反馈"人口怎么还能是小数"：人口物理上是整数——
+                    //   模型层 P 是 float（连续宏观增长），显示层取整（<1 显示 "<1" 防与无人灰混淆）
+                    string label = i == 15 ? $"≥ {FmtPop(p)}（最高 {FmtPop(_popMax)}）" : FmtPop(p);
                     AddLegendRow(lo.Lerp(hi, x), label);
                 }
                 AddLegendText("驻扎格人口（人/格）· log 分位自适应");
@@ -1942,6 +1944,9 @@ public partial class MapViewer : Node3D
         // 贴底：BottomRight 锚点下 OffsetTop = -高（已入树必须用 Offset，Position setter 会飞屏）
         _legendPanel.OffsetTop = -panelH;
     }
+
+    /// <summary>人口显示取整（2026-08-17 用户反馈小数）：<1 显示 "<1"（防与无人灰混淆），≥1 整数。</summary>
+    private static string FmtPop(float p) => p < 1f ? "<1" : $"{p:F0}";
 
     /// <summary>图例条目：色块 + 文字（横向）。</summary>
     private void AddLegendRow(Color c, string text)

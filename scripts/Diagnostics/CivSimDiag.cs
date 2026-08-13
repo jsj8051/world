@@ -375,11 +375,6 @@ public partial class CivSimDiag : Node
         }
         bool aFarms = ea.IsFarming;    // φ=1.0 → 稳态农业
         bool bFarms = eb.IsFarming;    // φ=0.3 → 稳态狩猎（农业 K<狩猎 K 自动拒绝）
-        // [临时诊断] 场景 B 数值分解（狩猎土地份额+劳动力修复后排障）
-        float yHB = ctx.FHunt(eb), yFB = ctx.FFarmPotential(eb);
-        GD.Print($"[S2诊断] 场景B φ=0.3: P={eb.P:F0} yH={yHB:F0} yF={yFB:F0} m={eb.CarryMult:F2} " +
-                 $"plabor={CivSimContext.LaborFrac * (ctx.R[1] * g.CellAreaKm2 / 1f * eb.CarryMult):F0} " +
-                 $"eH={CivSimContext.EHunt(yHB, eb.P):F3} eF={CivSimContext.EFarm(yFB, eb.P):F3}");
         Check("S2 生产方式矩阵", aFarms && !bFarms,
             $"φ=1.0 农={aFarms}（应 True） φ=0.3 农={bFarms}（应 False）");
 
@@ -429,7 +424,8 @@ public partial class CivSimDiag : Node
             prevDom = dom;
             foreach (var e in ctx.Entities)
             {
-                int sum = e.CultureShare[0].Frac + e.CultureShare[1].Frac;
+                int sum = 0;
+                for (int k = 0; k < e.CultureShare.Length; k++) sum += e.CultureShare[k].Frac;   // ⚠️ 2026-08-17 审查：循环统计全段（硬编码 2 段会在文化特征扩展后漏检）
                 if (sum != 255) conserved = false;
             }
         }
@@ -543,7 +539,8 @@ public partial class CivSimDiag : Node
     }
 
     /// <summary>T25 裂变压力（2026-08-10 影响力场参数）：饥荒（资源压力）→ 提前裂变；盈余小规模（无压力无张力）→ 不裂。
-    /// 新参数：SplitPop=50、FissionTensionStart=50；N=8 网格（殖民目标搜索可用）。确定性，无地图依赖。</summary>
+    /// 新参数：SplitPop=12、FissionTensionStart=12；N=8 网格（殖民目标搜索可用）。确定性，无地图依赖。
+    /// ⚠️ 2026-08-17 审查：注释更新——pEff 公式下 P<SplitPop 恒不裂（pEff≥P 恒成立），"pEff≤2 防分裂"已是旧 SplitPop=50 时代的表述。</summary>
     private void T25_FissionPressure()
     {
         // ctxA：饥荒 P=10(<SplitPop12), FLast=2.5（压力 0.75）→ P_eff=17.5>12 → 裂变（纯饥荒驱动，张力=0）
@@ -689,6 +686,7 @@ public partial class CivSimDiag : Node
         var ctxA = MakeCtx(gA);
         var eA = AddEntity(ctxA, 0, 1f, TechTable.StoneCore);
         eA.FLast = 0.5f;   // 饿（F<D；砍存量后由土地饱和/超载产生）
+        int cellOld = eA.Cell;   // ⚠️ 2026-08-17 审查修复：打印迁移前后对比需记旧格
         ctxA.CellOwner[0] = 0;
         ctxA.TerritoryCells[0].Add(0);
         ctxA.TerritoryDists[0].Add(0);
@@ -705,7 +703,7 @@ public partial class CivSimDiag : Node
         new SplitMigrateModel().Execute(ctxB);
         bool stayed = eB.Cell == 0;
         Check("T31 饥饿-迁移闭环", migrated && stayed,
-            $"饿迁={migrated}(格{eA.Cell}→{eA.Cell}) 富饶留={stayed}");
+            $"饿迁={migrated}(格{cellOld}→{eA.Cell}) 富饶留={stayed}");
     }
 
     /// <summary>T32 竞争易主（2026-08-10 定稿 T24-新，软冲突）：强 band 超粘性覆盖弱 band 边界格；势均力敌粘性保住。
@@ -713,6 +711,7 @@ public partial class CivSimDiag : Node
     /// A 驻格0(lat0)、B 驻格11(lat−30°)、边界格1(lat30°)——全部低纬可达。</summary>
     private void T32_CompetitiveTakeover()
     {
+        // ⚠️ 2026-08-17 审查：以下手算隐含假设 stone_core CarryMult=1.1（I = P×M×w）——若科技表乘数变动本测试静默失效（数字重算时同步检查）
         // 场景 A：强覆盖——A P=200 → I_A=220×0.79=173.8 > I_B×1.15=43.5×1.15 → 易主
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
@@ -971,6 +970,9 @@ public partial class CivSimDiag : Node
         if (Want("T21")) T21_PopGradient(c);
         if (Want("T22")) T22_TerritoryEmergence(c);
         if (Want("T18")) T18_Perf(seed, origins);   // 第三次演化（~11s），仅选中时跑
+        // ⚠️ 2026-08-17 审查修复：T04 拆独立函数放末尾——它续跑 r1.Context 会污染 T09-T22 的共享态；
+        //   且语义改为"读档续跑 vs 内存态续跑"（见 T04_Continuation 注释）
+        if (Want("T04")) T04_Continuation(outPath, seed, origins);
         // T20 全链确定性（复现×WildCrops×存档往返 组合指标）——需要 T03+T17+存档组同时被选才有意义
         if (Want("T20") && Want("T03") && Want("T17") && (outPath == null || WantAny("T01", "T02", "T04", "T19", "存档")))
             Check("T20 全链确定性", repro && wcDet && (outPath == null || rtOk), $"复现={repro} WildCrops={wcDet} 往返={rtOk}");
@@ -1000,9 +1002,12 @@ public partial class CivSimDiag : Node
         for (int q = 0; q < Math.Min(6, cultTop.Count); q++)
             cultStr.Append($"{cultTop[q].Key}={cultTop[q].Value} ");
         GD.Print($"[文化调试] 起源={originCults} | 文化实体数: {cultStr}");
-        // [临时调试] 起源格当前主导文化（是否被外文化吞并）
+        // [调试] 起源格当前主导文化（是否被外文化吞并）——2026-08-17 审查修复：改动态起源格（旧硬编码 {7597,7106,58} 是特定 n128 图的残留）
+        var originCells = new List<int>();
+        foreach (var e in r1.Context.Entities) if (e.BornTick == 0 && !originCells.Contains(e.Cell)) originCells.Add(e.Cell);
+        originCells.Sort();
         var ocStr = new System.Text.StringBuilder();
-        foreach (int oc in new[] { 7597, 7106, 58 })
+        foreach (int oc in originCells)
         {
             if (oc < 0 || oc >= c.CellTribes.Length) continue;
             var tl = c.CellTribes[oc];
@@ -1088,13 +1093,8 @@ public partial class CivSimDiag : Node
             if (!_grid.IsLandCell(i)) wcLand = false;
             for (int s = 0; s < 5; s++) if ((wc1[i] & (1 << s)) != 0) wcCount[s]++;
         }
-        // 分布区非空检查（各种子适宜度 > P70 的格存在）
-        var suit = WildCropsSystem.Suitability(_grid);
-        var landSuitMax = new float[5];
-        for (int i = 0; i < _grid.N; i++)
-            if (_grid.IsLandCell(i))
-                for (int s = 0; s < 5; s++)
-                    landSuitMax[s] = Mathf.Max(landSuitMax[s], suit[i, s]);
+        // 分布区非空检查（各种子适宜度 > P70 的格存在）——2026-08-17 审查：landSuitMax 仅诊断用，不参与断言
+        //（天然灭绝按设计不保底，见 wcOk 下 extinct 提示）
         var extinct = new List<string>();
         for (int s = 0; s < 5; s++)
             if (wcCount[s] == 0)
@@ -1111,7 +1111,7 @@ public partial class CivSimDiag : Node
     /// 返回 rtOk 供 T20 全链确定性组合。</summary>
     private bool ArchiveChecks(string outPath, CivSimResult r1, CivSimContext c, int seed, int origins)
     {
-        bool natOk = false, rtOk = false, contOk = false, verRejected = false, v4Rejected = false, biomeRejected = false;
+        bool natOk = false, rtOk = false, verRejected = false, v4Rejected = false, biomeRejected = false;
         if (outPath != null)
         {
             bool wrote = CivMapArchive.Write(outPath, _grid, r1);
@@ -1120,6 +1120,10 @@ public partial class CivSimDiag : Node
             if (wrote && CivMapArchive.Read(outPath, out gridBack, out rBack))
             {
                 natOk = NaturalUnchanged(_grid, gridBack);
+                // ⚠️ 2026-08-17 审查修复：读档端 Read 结尾 RebuildInfluence() 重建场（CellOwner 等派生场），
+                //   而演化端保存的是 tick 171 Order 8 的滞后值（最后 tick 分裂/迁移实体的影响力从未结算）——
+                //   直接对比必然不等。正确口径：两端都重建派生场后再比（同实体状态 → 同场）。
+                c.RebuildInfluence();
                 // 领地是滞后重算的派生状态——对比前强制重算（确定性：同状态 → 同领地）
                 TerritoryModel.Rebuild(c);
                 TerritoryModel.Rebuild(rBack.Context);
@@ -1133,17 +1137,6 @@ public partial class CivSimDiag : Node
                     GD.Print($"[Peek验证] seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Entities.Count}) 一致={pkOk}");
                 }
                 else GD.Print("[Peek验证] FAIL 无法 Peek");
-                // T04 读档续跑无分叉（IsFarming 入档验证）
-                // ⚠️ 已知问题（2026-08-10 搁置）：v8 影响力场模型下读档续跑 20 tick 与从头跑分叉
-                //   （分叉点：续跑首个 tick 的科技发明 Rng 消耗；0-139 全状态一致但发明内消耗不同——
-                //    疑似某未入档/未对比状态驱动，T04 当前 FAIL，待专项排查）
-                int baseTicks = rBack.Context.Tick;   // 存档 tick（finalTick）
-                var ctxFull = MakeCtx(_grid, seed, origins);
-                RunTicks(ctxFull, baseTicks + 20);
-                ctxFull.Entities.RemoveAll(e => e.Dead);   // ⚠️ 对齐 Run 语义：存档只含活实体（Run 末尾 RemoveAll），RunTicks 不移除
-                TerritoryModel.Rebuild(rBack.Context);
-                TerritoryModel.Rebuild(ctxFull);
-                contOk = EntitiesEqual(rBack.Context, ctxFull);
             }
             // T19 存档版本：ver>7 拒绝；v6/v5/v4 旧档拒绝（格式变更，旧档续跑分叉）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";
@@ -1156,10 +1149,41 @@ public partial class CivSimDiag : Node
         }
         if (Want("T01")) Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
         if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
-        if (Want("T04")) Check("T04 读档续跑无分叉", contOk, "IsFarming 入档验证");
         if (Want("T19")) Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
             $"ver>7 拒绝={verRejected} v6/v5/v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
         return rtOk;
+    }
+
+    /// <summary>T04 读档续跑无分叉（IsFarming 入档验证）。
+    /// ⚠️ 2026-08-17 审查修复（真 bug ×2）：旧版比较"读档时刻(171tick)" vs "从头跑 191tick"——
+    ///   ① 对象不对等（20 tick 演化差必然 FAIL，T04 从未测过"续跑"）② "从头跑"依赖测试 MakeCtx 与
+    ///   CivEngine.Run 初始化完全一致（无人验证，实测 Rng 分叉）。
+    /// 正确语义：**读档续跑 vs 内存态续跑**——两端同从存档 tick 继续、Rng 状态相同（T02 已验）→
+    /// 20 tick 后应逐实体/逐场一致——直接验证"读档恢复的状态 == 内存状态"（续跑无分叉 ⟺ 存档完整）。
+    /// 独立函数放 RunMapTests 末尾：续跑会推进 r1.Context，不能污染 T09-T22 的共享态。</summary>
+    private void T04_Continuation(string outPath, int seed, int origins)
+    {
+        bool contOk = false;
+        if (outPath != null)
+        {
+            if (CivMapArchive.Write(outPath, _grid, CivEngine.Run(_grid, seed, origins))   // 重跑一次得 r1（与主流程独立）——写档
+                && CivMapArchive.Read(outPath, out _, out var rBack))
+            {
+                var ctxMem = CivEngine.Run(_grid, seed, origins).Context;   // 内存态（存档 tick 时刻）——与写档同一演化
+                // ⚠️ 2026-08-17 审查修复：起点对齐——读档语义 = 状态 + 场重建（Read 结尾 RebuildInfluence 结算
+                //   最后 tick 分裂实体的影响力）；内存态是滞后场（tick 171 Order 8 后出生实体的影响力未结算）——
+                //   不对齐则"无主格集合"不同 → 分裂/迁移目标搜索不同 → Rng 消耗不同 → 假分叉（非存档缺陷）。
+                ctxMem.RebuildInfluence();
+                RunTicks(ctxMem, 20);                 // 内存态续跑 20
+                RunTicks(rBack.Context, 20);          // 读档态续跑 20（Rng 状态读档已恢复）
+                ctxMem.Entities.RemoveAll(e => e.Dead);
+                rBack.Context.Entities.RemoveAll(e => e.Dead);
+                TerritoryModel.Rebuild(rBack.Context);
+                TerritoryModel.Rebuild(ctxMem);
+                contOk = EntitiesEqual(rBack.Context, ctxMem);
+            }
+        }
+        Check("T04 读档续跑无分叉", contOk, outPath == null ? "无 --out" : "IsFarming 入档验证");
     }
 
     /// <summary>T05 起源播种（独立跑 OriginModel，不依赖演化结果）。</summary>
@@ -1285,7 +1309,7 @@ public partial class CivSimDiag : Node
         }
         GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Entities.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
         float cover = land > 0 ? occupied * 100f / land : 0f;
-        if (Want("T15")) Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（参考指标，不硬卡）");
+        if (Want("T15")) Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（⚠️ 数据展示型：恒 PASS 参考指标，不硬卡——改阈值需先讨论）");
         if (Want("T16"))
         {
             int farmCount = CountFarming(c);
@@ -1371,6 +1395,29 @@ public partial class CivSimDiag : Node
             GD.Print($"  [往返诊断{tag}] 实体数 {a.Entities.Count} vs {b.Entities.Count}");
             return false;
         }
+        // ⚠️ 2026-08-17 审查修复：场层对比（Cultivation/CellOwner/LockedUntil/Rng 状态）——
+        //   此前只对比实体层，v9 开垦率场往返错位/恢复错误零检测（T02 假 PASS 风险；
+        //   T04 分叉定位也只差场层）。FirstFarmTick/Fissions 不入档 → 不对比（避免往返必 FAIL）。
+        if (!FloatSeqEqual(a.Cultivation, b.Cultivation))
+        {
+            GD.Print($"  [往返诊断{tag}] Cultivation 场不一致（开垦率往返错位）");
+            return false;
+        }
+        if (!IntSeqEqual(a.CellOwner, b.CellOwner))
+        {
+            GD.Print($"  [往返诊断{tag}] CellOwner 场不一致");
+            return false;
+        }
+        if (!IntSeqEqual(a.LockedUntil, b.LockedUntil))
+        {
+            GD.Print($"  [往返诊断{tag}] LockedUntil 场不一致");
+            return false;
+        }
+        if (RngStateOf(a) != RngStateOf(b))
+        {
+            GD.Print($"  [往返诊断{tag}] Rng 状态不一致 {RngStateOf(a)} vs {RngStateOf(b)}");
+            return false;
+        }
         for (int k = 0; k < a.Entities.Count; k++)
         {
             var x = a.Entities[k]; var y = b.Entities[k];
@@ -1416,6 +1463,16 @@ public partial class CivSimDiag : Node
         foreach (var k in a) if (!b.Contains(k)) return false;
         return true;
     }
+
+    private static bool IntSeqEqual(int[] a, int[] b)
+    {
+        if (a == null || b == null || a.Length != b.Length) return false;
+        for (int i = 0; i < a.Length; i++) if (a[i] != b[i]) return false;
+        return true;
+    }
+
+    private static ulong RngStateOf(CivSimContext ctx)
+        => (ctx.Rng as DeterministicRandom)?.State ?? 0UL;
 
     private static bool ByteSeqEqual(byte[] a, byte[] b)
     {

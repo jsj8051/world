@@ -122,6 +122,17 @@ public static class CivEngine
     public static void RefreshCellState(CivSimContext ctx)
     {
         int n = ctx.Grid.N;
+        // ⚠️ 2026-08-17 审查修复：每 tick 按实体列表顺序重建 CellTribes——统一"格内顺序"语义。
+        //   旧版靠演化中 AddEntity/分裂/迁移的"加入顺序"，读档恢复按实体段顺序——两端格内对序不同 →
+        //   SpreadTech(from,to) 方向不同 → Rng 消耗不同 → T04 读档续跑分叉。重建后两端均为
+        //   确定性"实体列表顺序"（分裂 Append 保持，读档恢复同序——T02 已验证）。
+        for (int i = 0; i < n; i++) ctx.CellTribes[i].Clear();
+        for (int i = 0; i < ctx.Entities.Count; i++)
+        {
+            var e = ctx.Entities[i];
+            if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
+            ctx.CellTribes[e.Cell].Add(e);
+        }
         Array.Clear(ctx.CellPop, 0, n);
         Array.Clear(ctx.CellF, 0, n);
         Array.Clear(ctx.CellFarmPop, 0, n);
