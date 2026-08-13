@@ -1099,14 +1099,12 @@ public sealed class AbsorptionModel : CivModelBase
             if (overlordId == e.Id || overlordId < 0) continue;   // 家在自己手里
             var overlord = FindById(ctx, overlordId);
             if (overlord == null || overlord.Dead) continue;
-            // 同领地/同酋邦成员互驻不吞（自家联盟内部——领地内互驻合法）
+            // ⚠️ 2026-08-17 v4 修正：恢复同领地/同酋邦豁免（v3 过度——领地内吞并导致部落
+            //   聚合崩溃，T22 领地 30→2）。联盟内显示同色（PowerIdOf 同 TerritoryId/ChiefdomId
+            //   → 同势力色）→ 弱成员驻扎格被覆盖也显示部落色（色块有强成员驻扎格=有人口）——
+            //   不产生无人口势力。散兵（跨势力被覆盖，含同格共住）→ 吞并（用户拍板）。
             if (e.ChiefdomId >= 0 && e.ChiefdomId == overlord.ChiefdomId) continue;
             if (e.TerritorySize >= 2 && e.TerritoryId == overlord.TerritoryId) continue;
-            // 同格共住合法（分裂/驱逐瞬态——同村共享，CellOwner 是代表）→ 不吞
-            bool cohabited = false;
-            foreach (var m in ctx.Entities)
-                if (!m.Dead && m != e && m.Cell == e.Cell) { cohabited = true; break; }
-            if (cohabited) continue;
             // 覆盖者必须更强（w 陡化后覆盖已需 2.1×——防御性再确认）
             if (overlord.P < e.P) continue;
             // 处置：迁走优先（领地内无主格可逃——流亡保留身份）

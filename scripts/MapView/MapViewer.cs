@@ -723,7 +723,7 @@ public partial class MapViewer : Node3D
     								}
     								case 12: // 人口：log 压缩 + P1/P99 分位自适应色带（无人=暗灰；黄→橙红）
     								{
-    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (_tileElev[id] < _hSea && _tilePop[id] <= 0f) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有人口=逻辑陆地不判海
     								    float p = _tilePop[id];
     								    if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
     								    float x = Mathf.Clamp((Mathf.Log(p + 1f) - _popLogMin) / (_popLogMax - _popLogMin), 0f, 1f);
@@ -731,22 +731,22 @@ public partial class MapViewer : Node3D
     								}
     								case 13: // 文化：每文化独立颜色（key FNV 哈希 → 黄金角 HSL；无 8 色取模上限）
     								{
-    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (_tileElev[id] < _hSea && _tileCulture[id] == 0) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有文化=逻辑陆地不判海
     								    int cult = _tileCulture[id];
     								    if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								    								    return HslToRgb(GoldenHue(cult), 0.55f, 0.62f);
+    								    							    return HslToRgb(GoldenHue(cult), 0.55f, 0.62f);
     								}
     								case 14: // 独立势力（2026-08-17）：每势力独立色（黄金角 HSL）——
     								    //   最高聚合层显示：酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band
     								    {
-    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (_tileElev[id] < _hSea && _tilePower[id] == 0) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有势力=逻辑陆地不判海
     								        int powerId = _tilePower[id];
     								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
     								        return HslToRgb(GoldenHue(powerId), 0.55f, 0.62f);
     								    }
-    								case 15: // 科技：主导部落最高技术时代色带（石器棕→新石器绿→青铜橙→铁器蓝→古典紫）
+    								    case 15: // 科技：主导部落最高技术时代色带（石器棕→新石器绿→青铜橙→铁器蓝→古典紫）
     								    {
-    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (_tileElev[id] < _hSea && _tileTribe[id] < 0) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有归属=逻辑陆地不判海
     								        if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								        byte ep = _tileTechEpoch[id];
     								        if (ep == 0) return new Color(0.55f, 0.42f, 0.28f);   // 石器：棕（有基础技术，非"无"）
@@ -754,15 +754,15 @@ public partial class MapViewer : Node3D
     								    }
     								case 16: // 宗教：每宗教派别独立颜色（relig_N key 哈希 → 黄金角 HSL；不再按 5 阶段色带）
     								{
-    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (_tileElev[id] < _hSea && _tileTribe[id] < 0) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有归属=逻辑陆地不判海
     								    if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								    int rel = _tileReligion[id];
     								    if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								    								    return HslToRgb(GoldenHue(rel), 0.55f, 0.62f);
+    								    							    return HslToRgb(GoldenHue(rel), 0.55f, 0.62f);
     								}
     								case 17: // 势力范围：每领地独立色（语言群 key 完整哈希 → 黄金角 HSL；无领地/无人灰）
     								{
-    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (_tileElev[id] < _hSea && _tileTerritory[id] == 0) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有领地=逻辑陆地不判海
     								    int terr = _tileTerritory[id];
     								    // ⚠️ 2026-08-17：领地按归属显示全领地（不能再用人口判"无人"——
     								    //   人口图层已改只在驻扎格显示，采集格人口=0）
@@ -772,7 +772,7 @@ public partial class MapViewer : Node3D
     								case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色——
     								    //   band=灰蓝系 部落=绿系 酋邦=红橙系；同类同色相 + 势力哈希微扰（势力轮廓可辨）
     								    {
-    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (_tileElev[id] < _hSea && _tilePower[id] == 0) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 有势力=逻辑陆地不判海
     								        int powerId = _tilePower[id];
     								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
     								        float hue = _tilePolity[id] switch
