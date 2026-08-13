@@ -630,7 +630,7 @@ public partial class MapViewer : Node3D
         _precipMax = float.MinValue;
         for (int i = 0; i < n; i++)
         {
-            if (elevArr[i] < hSea) continue;   // 只统计陆地格
+            if (IsDisplaySea(i)) continue;   // ⚠️ 2026-08-17：统一海陆判定（只统计陆地格）
             _precipMin = Mathf.Min(_precipMin, precipArr[i]);
             _precipMax = Mathf.Max(_precipMax, precipArr[i]);
         }
@@ -667,14 +667,14 @@ public partial class MapViewer : Node3D
     					if (_tileLake[id] > 0)
     						return new Color(0.25f, 0.45f, 0.75f);   // 湖蓝（单色）
     					float h = _tileElev[id];
-    					bool ocean = h < _hSea;
+    					bool ocean = IsDisplaySea(id);   // ⚠️ 2026-08-17：统一海陆判定（近海逻辑陆地=陆地）
     					return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);
     				}
     			case 7: // 流域：每流域独立颜色（黄金角）；海洋浅蓝、边缘排水区灰绿
     				{
     					int ws = _tileWatershed[id];
     					if (ws < 0)
-    						return _tileElev[id] < _hSea
+    						return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
     							? new Color(0.45f, 0.55f, 0.70f)   // 海洋
     							: new Color(0.60f, 0.58f, 0.50f);  // 边缘排水区（直接入海，非河）
     										return HslToRgb(GoldenHue(ws), 0.55f, 0.62f);
@@ -684,8 +684,7 @@ public partial class MapViewer : Node3D
     					byte m = _tileMineral[id];
     					if (m == 0)
     					{
-    						float h = _tileElev[id];
-    						return h < _hSea
+    						return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
     							? new Color(0.45f, 0.55f, 0.70f)
     							: new Color(0.55f, 0.52f, 0.42f);
     					}
@@ -704,10 +703,10 @@ public partial class MapViewer : Node3D
     																				{   // ⚠️ 2026-08-16 v3（用户拍板）：与总降水同色带同统计方式；×12 换算回年尺度
     																					//   → 非季风区≈年降水色，季风区 7 月深蓝 / 1 月枯黄；min-max 自适应当月分布
     																					if (_tileMonthPrecip == null || _map == null || _map.MonthPrecip == null)
-    																						return _tileElev[id] < _hSea
+    																						return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
     																							? new Color(0.45f, 0.55f, 0.70f)
     																							: new Color(0.72f, 0.70f, 0.58f);
-    																					if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    																					if (IsDisplaySea(id)) return new Color(0.45f, 0.55f, 0.70f);
     																					float mm = _tileMonthPrecip[id] / 255f * _tilePrecip[id] * 12f;   // 等效年尺度
     																					float x = Mathf.Clamp((mm - _monthPrecipMin) / (_monthPrecipMax - _monthPrecipMin), 0f, 1f);
     																					return new Color(0.90f, 0.80f, 0.40f).Lerp(new Color(0.10f, 0.30f, 0.70f), x);
@@ -715,7 +714,7 @@ public partial class MapViewer : Node3D
     						case 11: // 月温度：当月均温色块（MonthTemp −60~60°C→0-255；月份滑块切换）
     							{
     								if (_tileMonthTemp == null || _map == null || _map.MonthTemp == null)
-    									return _tileElev[id] < _hSea
+    									return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
     										? new Color(0.45f, 0.55f, 0.70f)
     										: new Color(0.72f, 0.70f, 0.58f);
     								float tC = _tileMonthTemp[id] / 255f * 120f - 60f;   // byte → °C
@@ -786,13 +785,16 @@ public partial class MapViewer : Node3D
     								        return HslToRgb(hue + perturb, sat, 0.55f);
     								    }
 			default: // 海拔
-    				{
-    					float h = _tileElev[id];
-    					// h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
-    					// 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶）。
-    					float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
-    					return PlanetColors.ElevationToColor(e1);
-    				}
+    			{
+    				float h = _tileElev[id];
+    				// h 是 0..1 min/max 归一化，海平面位置 = -MinElev/range（≠0.5）。
+    				// 转成以海平面为 0 的 -1..1（ElevationToColor 色阶约定：-1 深海/0 海平面/1 雪顶）。
+    				float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
+    				// ⚠️ 2026-08-17：逻辑陆地（近海格 R>0）强制陆地色带起（海滩）——
+    				//   地形层与人文层海陆统一（IsDisplaySea 为权威判定）
+    				if (!IsDisplaySea(id) && e1 < 0f) e1 = 0f;
+    				return PlanetColors.ElevationToColor(e1);
+    			}
     		}
     	};
     }
@@ -1088,7 +1090,7 @@ public partial class MapViewer : Node3D
         _monthPrecipMax = float.MinValue;
         for (int i = 0; i < n; i++)
         {
-            if (_tileElev[i] < _hSea) continue;   // 只统计陆地格
+            if (IsDisplaySea(i)) continue;   // ⚠️ 2026-08-17：统一海陆判定（只统计陆地格）
             float mm = _tileMonthPrecip[i] / 255f * _tilePrecip[i] * 12f;   // 等效年尺度
             _monthPrecipMin = Mathf.Min(_monthPrecipMin, mm);
             _monthPrecipMax = Mathf.Max(_monthPrecipMax, mm);
