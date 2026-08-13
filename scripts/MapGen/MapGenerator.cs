@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using World.Biome;
 using World.Surface;
@@ -19,6 +20,8 @@ namespace World.MapGen;
 /// </summary>
 public partial class MapGenerator : Node
 {
+    /// <summary>性能分段基线（2026-08-17 T40 防劣化）：最近一次 Generate() 的各段耗时（板块/管线/存档/总）。</summary>
+    public static readonly Dictionary<string, long> LastTimings = new();
 	[Export] public int Seed = 42;
 	[Export] public float RadiusKm = MapArchive.DefaultRadiusKm;   // 星球半径（默认地球 6371；UI/headless 覆盖）
 	[Export] public string OutputPath = "user://maps/map1.mpa";
@@ -125,6 +128,7 @@ public partial class MapGenerator : Node
 		var sw = System.Diagnostics.Stopwatch.StartNew();
 
 		// ── 海拔生成：球面板块模拟（tectonics.js 移植，M1-M3）──
+		var swTec = System.Diagnostics.Stopwatch.StartNew();
 		GD.Print($"[MapGenerator] 板块模拟开始 seed={Seed} n={TectonicsGridN} {SimMegayears}My ...");
 		var sim = new TectonicsSimulation(TectonicsGridN);
 		sim.NumContinents = NumContinents;    // 大陆块数（构造格局；2=超大陆/20=碎陆）
@@ -139,8 +143,10 @@ public partial class MapGenerator : Node
 		float minD = float.MaxValue, maxD = float.MinValue;
 		foreach (var d in disp) { if (d < minD) minD = d; if (d > maxD) maxD = d; }
 		GD.Print($"[MapGenerator] 板块模拟完成 disp[{minD:F0},{maxD:F0}]m sealevel={sea:F0}m land={sim.LandFractionAboveSea() * 100:F1}%");
+		swTec.Stop();
 
 		// ── 阶段化管线（2026-08-03 重构：气候→水文→生态→资源→统计；同步/异步共用）──
+		var swPipe = System.Diagnostics.Stopwatch.StartNew();
 		var pipe = new PlanetPipeline();
 		pipe.Run(sim, new PlanetParams
 		{
@@ -181,8 +187,16 @@ public partial class MapGenerator : Node
 		}
 
 		sw.Stop();
+		swPipe.Stop();
 		GD.Print($"[MapGenerator] seed={Seed} 球面顶点 {vn} elev[{pipe.MinElev:F4},{pipe.MaxElev:F4}] " +
-			 $"temp[{pipe.MinTemp:F1},{pipe.MaxTemp:F1}]°C precip[{pipe.MinPrecip:F0},{pipe.MaxPrecip:F0}]mm took {sw.ElapsedMilliseconds}ms");
+			$"temp[{pipe.MinTemp:F1},{pipe.MaxTemp:F1}]°C precip[{pipe.MinPrecip:F0},{pipe.MaxPrecip:F0}]mm took {sw.ElapsedMilliseconds}ms");
+		// ⚠️ 2026-08-17 性能分段基线（T40 防劣化）：板块/管线/存档各段耗时记录
+		long archiveMs = sw.ElapsedMilliseconds - swTec.ElapsedMilliseconds - swPipe.ElapsedMilliseconds;
+		LastTimings["tectonics_ms"] = swTec.ElapsedMilliseconds;
+		LastTimings["pipeline_ms"] = swPipe.ElapsedMilliseconds;
+		LastTimings["archive_ms"] = archiveMs;
+		LastTimings["total_ms"] = sw.ElapsedMilliseconds;
+		GD.Print($"[MapGenTiming] 板块={swTec.ElapsedMilliseconds}ms 管线={swPipe.ElapsedMilliseconds}ms 存档={archiveMs}ms 总={sw.ElapsedMilliseconds}ms (n={TectonicsGridN} seed={Seed})");
 		long total = vn;
 		var sb = new System.Text.StringBuilder("[MapGenerator] biome dist: ");
 		var dist = new int[32];   // biome 0..31（旧 0-13 + 柯本 14-31）

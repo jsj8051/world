@@ -145,6 +145,7 @@ public partial class CivSimDiag : Node
         if (Want("T37")) T37_CultivationGrowth();
         if (Want("T38")) T38_EquiMarginal();
         if (Want("T39")) T39_SettleStorage();
+        if (Want("T40")) T40_PerfSegments();   // ⚠️ n16 快生成 ~30-40s——仅显式 --only=T40 定期跑（不进全量默认）
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -925,6 +926,79 @@ public partial class CivSimDiag : Node
         bool growthBoost = gB.P > gA.P * 1.05f;
         Check("T39 定居+存储", settleOk && layered && growthBoost,
             $"settle派生={settleOk} 缓冲分层(storage={s1.P:F1} < +陶器={s2.P:F1}) 定居增长(gA={gA.P:F1} < gB={gB.P:F1})");
+    }
+
+    /// <summary>T40 性能分段基线（2026-08-17 审查新增，防优化劣化）：
+    /// MapGen 快管线（n16/600My，与真实生成同参数）分段计时——板块/管线/存档/总。
+    /// 基线存 user://perf_baseline.json（首次记录），后续对比阈值 ×1.5（+50% 报警）。
+    /// 运行：headless -- --only=T40（~30-40s）；⚠️ 不进全量默认（贵）。
+    /// 基线释义：n16 板块 ~26s 基线（n64 的 1/16 时间）——任何模型算法改动后跑一次防回归。</summary>
+    private void T40_PerfSegments()
+    {
+        string baselinePath = "user://perf_baseline.json";
+        string outPath = "user://maps/perf_n16.mpa";
+        var gen = new MapGenerator
+        {
+            Seed = 42,
+            RadiusKm = 128f,
+            TectonicsGridN = 16,       // n16 快基线（n64 的 1/16）
+            SimMegayears = 600f,
+            OutputPath = outPath,
+        };
+        gen.Generate();
+        bool hasTec = MapGenerator.LastTimings.TryGetValue("tectonics_ms", out long tec);
+        bool hasPipe = MapGenerator.LastTimings.TryGetValue("pipeline_ms", out long pipe);
+        bool hasArc = MapGenerator.LastTimings.TryGetValue("archive_ms", out long arc);
+        long total = tec + pipe + arc;
+        // 基线读写（user:// 可写；JSON 简单格式）
+        bool baselineOk = true;
+        string oldBaseline = null;
+        if (FileAccess.FileExists(baselinePath))
+            oldBaseline = FileAccess.GetFileAsString(baselinePath);
+        if (oldBaseline == null || oldBaseline.Length == 0 || !oldBaseline.Contains("tectonics_ms"))
+        {
+            using var f = FileAccess.Open(baselinePath, FileAccess.ModeFlags.Write);
+            if (f != null)
+            {
+                f.StoreString($"{{\"tectonics_ms\":{tec},\"pipeline_ms\":{pipe},\"archive_ms\":{arc},\"total_ms\":{total},\"n\":16,\"seed\":42}}");
+                GD.Print($"[T40] 首次基线已记录 → {baselinePath}（板块{tec}ms 管线{pipe}ms 存档{arc}ms 总{total}ms）");
+            }
+            else
+            {
+                baselineOk = false;
+                GD.Print("[T40] ⚠️ 无法写基线文件（仅本次耗时报告）");
+            }
+        }
+        else
+        {
+            // 解析基线（简单解析 "key":value）
+            float bTec = 0, bPipe = 0, bArc = 0, bTotal = 0;
+            var parts = oldBaseline.Split(',');
+            foreach (var p in parts)
+            {
+                var kv = p.Split(':');
+                if (kv.Length != 2) continue;
+                string k = kv[0].Trim('{', '}', '"', ' ');
+                if (float.TryParse(kv[1].Trim('}', '"', ' '), out float v))
+                {
+                    if (k == "tectonics_ms") bTec = v;
+                    else if (k == "pipeline_ms") bPipe = v;
+                    else if (k == "archive_ms") bArc = v;
+                    else if (k == "total_ms") bTotal = v;
+                }
+            }
+            const float threshold = 1.5f;   // +50% 报警（机器波动容忍）
+            bool tecOk = tec <= bTec * threshold;
+            bool pipeOk = pipe <= bPipe * threshold;
+            bool arcOk = arc <= bArc * threshold;
+            bool totalOk = total <= bTotal * threshold;
+            baselineOk = tecOk && pipeOk && arcOk && totalOk;
+            GD.Print($"[T40] 基线 板块{bTec:F0} 管线{bPipe:F0} 存档{bArc:F0} 总{bTotal:F0} | 本次 {tec}/{pipe}/{arc}/{total} | 阈值 ×{threshold}");
+            if (!baselineOk)
+                GD.Print("  ⚠ [T40] 性能劣化！超基线 +50%——检查近期 MapGen/管线改动（算法回归或死循环）");
+        }
+        Check("T40 MapGen 分段基线（n16）", baselineOk && hasTec && hasPipe && hasArc,
+            $"板块={tec}ms 管线={pipe}ms 存档={arc}ms 总={total}ms");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
