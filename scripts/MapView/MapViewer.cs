@@ -128,6 +128,8 @@ public partial class MapViewer : Node3D
     private byte[] _tileCultureGroup; // 每格主导文化群（0=无）
     private int[] _tileReligion;    // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
     private int[] _tileTribe;       // 每格主导部落 id（-1=无）
+    private int[] _tilePower;       // 每格主导势力 id（2026-08-17：最高聚合——酋邦>部落>band；高位域标记）
+    private byte[] _tilePolity;     // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
     private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
     private int[] _tileTerritory;   // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
     private float _popLogMin, _popLogMax;   // 人口图层自适应色带端点（log 压缩 + 分位数裁剪）
@@ -184,13 +186,14 @@ public partial class MapViewer : Node3D
         LayerCat.Climate,   // 11 月温度
         LayerCat.Human,     // 12 人口
         LayerCat.Human,     // 13 文化
-        LayerCat.Human,     // 14 部落
+        LayerCat.Human,     // 14 独立势力
         LayerCat.Human,     // 15 科技
         LayerCat.Human,     // 16 宗教
         LayerCat.Human,     // 17 势力范围
+        LayerCat.Human,     // 18 政体
     };
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "部落", "科技", "宗教", "势力范围" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "独立势力", "科技", "宗教", "势力范围", "政体" };
     private static readonly string[] CatNames = { "地理", "气候", "人文" };
     private LayerCat _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
     private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
@@ -262,10 +265,11 @@ public partial class MapViewer : Node3D
         11 => "月温度",
         12 => "人口",
         13 => "文化",
-        14 => "部落",
+        14 => "独立势力",
         15 => "科技",
         16 => "宗教",
         17 => "势力范围",
+        18 => "政体",
         _ => "风场",
     };
     public override void _Process(double delta)
@@ -467,6 +471,8 @@ public partial class MapViewer : Node3D
         _tileCultureGroup = new byte[n];
         _tileReligion = new int[n];
         _tileTribe = new int[n];
+        _tilePower = new int[n];     // 独立势力 id（2026-08-17；0=无）
+        _tilePolity = new byte[n];   // 政体类型（2026-08-17；0=band 1=部落 2=酋邦）
         _tileTechEpoch = new byte[n];
         _tileTerritory = new int[n];
         System.Array.Fill(_tileTribe, -1);
@@ -534,6 +540,11 @@ public partial class MapViewer : Node3D
                     _tileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
                     _tileTribe[i] = dom.Id;
                     _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
+                    // 独立势力（2026-08-17）：最高聚合层——酋邦 > 部落（领地≥2）> 独立 band。
+                    //   势力 id 高位域标记防跨域撞色（实体 Id/领地 Id/酋邦 Id 各自递增可能同值）
+                    if (dom.ChiefdomId >= 0) { _tilePower[i] = unchecked((int)0x80000000) | (dom.ChiefdomId & 0x3FFFFFFF); _tilePolity[i] = 2; }
+                    else if (dom.TerritorySize >= 2) { _tilePower[i] = unchecked((int)0x40000000) | (dom.TerritoryId & 0x3FFFFFFF); _tilePolity[i] = 1; }
+                    else { _tilePower[i] = dom.Id; _tilePolity[i] = 0; }
                     // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
                     //    与 byte 截断的 _tileCultureGroup 区分，防 8 位撞色）
                     _tileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
@@ -690,12 +701,13 @@ public partial class MapViewer : Node3D
     								    if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
     								    								    return HslToRgb(GoldenHue(cult), 0.55f, 0.62f);
     								}
-    								case 14: // 部落：谱系调色板
+    								case 14: // 独立势力（2026-08-17）：每势力独立色（黄金角 HSL）——
+    								    //   最高聚合层显示：酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band
     								    {
     								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
-    								        int tribeId = _tileTribe[id];
-    								        if (tribeId < 0) return new Color(0.25f, 0.25f, 0.28f);
-    								        return CulturePalette[tribeId % CulturePalette.Length];
+    								        int powerId = _tilePower[id];
+    								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
+    								        return HslToRgb(GoldenHue(powerId), 0.55f, 0.62f);
     								    }
     								case 15: // 科技：主导部落最高技术时代色带（石器棕→新石器绿→青铜橙→铁器蓝→古典紫）
     								    {
@@ -714,14 +726,30 @@ public partial class MapViewer : Node3D
     								    								    return HslToRgb(GoldenHue(rel), 0.55f, 0.62f);
     								}
     								case 17: // 势力范围：每领地独立色（语言群 key 完整哈希 → 黄金角 HSL；无领地/无人灰）
-									{
-									    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
-									    int terr = _tileTerritory[id];
-									    // ⚠️ 2026-08-17：领地按归属显示全领地（不能再用人口判"无人"——
-									    //   人口图层已改只在驻扎格显示，采集格人口=0）
-									    if (terr == 0) return new Color(0.30f, 0.32f, 0.36f);
-									    return HslToRgb(GoldenHue(terr), 0.55f, 0.85f);
-									}
+    								{
+    								    if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								    int terr = _tileTerritory[id];
+    								    // ⚠️ 2026-08-17：领地按归属显示全领地（不能再用人口判"无人"——
+    								    //   人口图层已改只在驻扎格显示，采集格人口=0）
+    								    if (terr == 0) return new Color(0.30f, 0.32f, 0.36f);
+    								    return HslToRgb(GoldenHue(terr), 0.55f, 0.85f);
+    								}
+    								case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色——
+    								    //   band=灰蓝系 部落=绿系 酋邦=红橙系；同类同色相 + 势力哈希微扰（势力轮廓可辨）
+    								    {
+    								        if (_tileElev[id] < _hSea) return new Color(0.45f, 0.55f, 0.70f);
+    								        int powerId = _tilePower[id];
+    								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
+    								        float hue = _tilePolity[id] switch
+    								        {
+    								            2 => 0.045f,   // 酋邦：红橙
+    								            1 => 0.35f,    // 部落：绿
+    								            _ => 0.60f,    // band：灰蓝
+    								        };
+    								        float perturb = (GoldenHue(powerId) - 0.5f) * 0.07f;   // 势力微扰（±0.035）
+    								        float sat = _tilePolity[id] switch { 0 => 0.30f, 1 => 0.50f, _ => 0.58f };
+    								        return HslToRgb(hue + perturb, sat, 0.55f);
+    								    }
 			default: // 海拔
     				{
     					float h = _tileElev[id];
@@ -1706,14 +1734,16 @@ public partial class MapViewer : Node3D
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='9' cy='7' r='3' fill='#fd8'/><circle cx='19' cy='7' r='3' fill='#fd8'/><circle cx='14' cy='15' r='3' fill='#fd8'/><path d='M9 13 L9 25 M19 13 L19 25 M14 21 L14 25' stroke='#fd8' stroke-width='2.5' stroke-linecap='round'/></svg>",
         // 13 文化：旗帜（旗杆+飘旗，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M12 3 L12 25 M12 6 L24 6 L21 11 L24 16 L12 16' fill='#fa6' stroke='#fa6' stroke-width='1.5' stroke-linejoin='miter'/></svg>",
-        // 14 部落：帐篷（三角形+地面线，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 24 L4 24 Z M8 24 L20 24 M11 13 L17 13' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
+        // 14 独立势力：王冠（三个尖顶+底座，直线）——势力最高聚合
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M6 20 L6 9 L11 14 L14 6 L17 14 L22 9 L22 20 Z M4 23 H24' stroke='#fd8' stroke-width='2' fill='none' stroke-linejoin='miter' stroke-linecap='round'/></svg>",
         // 15 科技：灯泡（灯丝+底座，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='14' cy='11' r='7' fill='none' stroke='#8f8' stroke-width='2'/><path d='M11 19 H17 M12.5 23 H15.5 M14 16 V19' stroke='#8f8' stroke-width='2' stroke-linecap='round'/></svg>",
         // 16 宗教：神庙（三角顶+立柱，直线）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 22 L4 22 Z M8 22 L8 26 M12 22 L12 26 M16 22 L16 26 M20 22 L20 26' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
         // 17 势力范围：领地边界（六边形 + 内部边界线，直线；每领地独立色）
         "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L24 9 L24 19 L14 25 L4 19 L4 9 Z' stroke='#fd8' stroke-width='2' fill='none' stroke-linejoin='miter'/><path d='M14 3 L14 25 M4 9 L24 19 M24 9 L4 19' stroke='#fd8' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>",
+        // 18 政体：上升阶梯（组织化程度递增——band→部落→酋邦）
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M4 24 H24 M4 24 V19 H13 V14 H20 V9 H24 V5' stroke='#f8a' stroke-width='2.5' fill='none' stroke-linejoin='miter' stroke-linecap='round'/><path d='M4 22 H24' stroke='#f8a' stroke-width='1' opacity='0.4'/></svg>",
     };
 
     private static Texture2D MakeLayerIcon(int idx)
@@ -1907,10 +1937,10 @@ public partial class MapViewer : Node3D
                 AddLegendText("每文化独立颜色（金色角散列）");
                 AddLegendDynamic(_tileCulture, c => HslToRgb(GoldenHue(c), 0.55f, 0.62f), "文化");
                 break;
-            case 14: // 部落：谱系调色板
-                for (int t = 0; t < CulturePalette.Length; t++)
-                    AddLegendRow(CulturePalette[t], $"部落谱系 {t + 1}");
-                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人");
+            case 14: // 独立势力（2026-08-17）：每势力独立色——最高聚合层（酋邦>部落>band）
+                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人 / 海洋");
+                AddLegendText("每独立势力一种颜色（黄金角散列）");
+                AddLegendText("酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band");
                 break;
             case 15: // 科技
                 for (int e = 0; e <= 4; e++)
@@ -1927,6 +1957,12 @@ public partial class MapViewer : Node3D
                 AddLegendRow(new Color(0.30f, 0.32f, 0.36f), "无领地");
                 AddLegendText("每领地独立颜色（语言群 key 完整哈希）");
                 AddLegendText("同领地必同语言群 → 同领地同色");
+                break;
+            case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色
+                AddLegendRow(HslToRgb(0.60f, 0.30f, 0.55f), "独立 band（无组织）");
+                AddLegendRow(HslToRgb(0.35f, 0.50f, 0.55f), "部落（领地凝聚）");
+                AddLegendRow(HslToRgb(0.045f, 0.58f, 0.55f), "酋邦（联盟+酋长）");
+                AddLegendText("同类政体同色系；势力间色相微扰可辨");
                 break;
         }
         // ⚠️ 2026-08-17 用户拍板：图例数量不足时面板高度自适应缩短（上限 250，贴底锚定）。
