@@ -194,6 +194,22 @@ public partial class MapViewer : Node3D
     };
 
     private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "独立势力", "科技", "宗教", "势力范围", "政体" };
+
+    /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
+    private static int PowerIdOf(World.CivSim.CivEntity e)
+    {
+        if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
+        if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
+        return e.Id;
+    }
+
+    /// <summary>实体 → 政体类型（0=独立 band 1=部落 2=酋邦）。</summary>
+    private static byte PolityOf(World.CivSim.CivEntity e)
+    {
+        if (e.ChiefdomId >= 0) return 2;
+        if (e.TerritorySize >= 2) return 1;
+        return 0;
+    }
     private static readonly string[] CatNames = { "地理", "气候", "人文" };
     private LayerCat _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
     private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
@@ -545,9 +561,8 @@ public partial class MapViewer : Node3D
                     _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
                     // 独立势力（2026-08-17）：最高聚合层——酋邦 > 部落（领地≥2）> 独立 band。
                     //   势力 id 高位域标记防跨域撞色（实体 Id/领地 Id/酋邦 Id 各自递增可能同值）
-                    if (dom.ChiefdomId >= 0) { _tilePower[i] = unchecked((int)0x80000000) | (dom.ChiefdomId & 0x3FFFFFFF); _tilePolity[i] = 2; }
-                    else if (dom.TerritorySize >= 2) { _tilePower[i] = unchecked((int)0x40000000) | (dom.TerritoryId & 0x3FFFFFFF); _tilePolity[i] = 1; }
-                    else { _tilePower[i] = dom.Id; _tilePolity[i] = 0; }
+                    _tilePower[i] = PowerIdOf(dom);
+                    _tilePolity[i] = PolityOf(dom);
                     // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
                     //    与 byte 截断的 _tileCultureGroup 区分，防 8 位撞色）
                     _tileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
@@ -564,11 +579,28 @@ public partial class MapViewer : Node3D
         //   同格共住合法（分裂/驱逐瞬态：模拟无格容量上限）→ 求和 = 该格真实总人口。
         if (hasCiv)
         {
+            // ⚠️ 2026-08-17 语义修正：驻扎格强制归入驻扎者势力（P 最大者）——
+            //   弱 band 驻扎格可能被强邻影响力覆盖（CellOwner≠自己）→ 其势力色块纯采集格
+            //   无人口点（43 个无人口势力）。家=势力核心：势力色块必含驻扎格（人口点）。
+            var bestByCell = new Dictionary<int, World.CivSim.CivEntity>();
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
                 var ce = _civCtx.Entities[e];
                 if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
-                if (elevArr[ce.Cell] < hSea) continue;   // 驻扎格必为陆地，防御（byte 量化边界格除外）
+                if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // ⚠️ 逻辑陆地判定（与模拟一致——
+                                                                               //   hSea 是显示量化，R>0 才可居）
+                if (!bestByCell.TryGetValue(ce.Cell, out var cur) || ce.P > cur.P) bestByCell[ce.Cell] = ce;
+            }
+            foreach (var kv in bestByCell)
+            {
+                _tilePower[kv.Key] = PowerIdOf(kv.Value);
+                _tilePolity[kv.Key] = PolityOf(kv.Value);
+            }
+            for (int e = 0; e < _civCtx.Entities.Count; e++)
+            {
+                var ce = _civCtx.Entities[e];
+                if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
+                if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地（与模拟一致）
                 _tilePop[ce.Cell] += ce.P;
             }
         }
@@ -579,8 +611,7 @@ public partial class MapViewer : Node3D
         _popMax = 0f;
         for (int i = 0; i < n; i++)
         {
-            if (_tileElev[i] < hSea) continue;   // 只统计陆地
-            if (_tilePop[i] <= 0f) continue;     // 无人格不入带
+            if (_tilePop[i] <= 0f) continue;     // 无人格不入带（人口只填逻辑陆地 R>0——byte 量化边界格无需 hSea 排除）
             popLog.Add(Mathf.Log(_tilePop[i] + 1f));
             if (_tilePop[i] > _popMax) _popMax = _tilePop[i];
         }
