@@ -200,7 +200,11 @@ public partial class MapViewer : Node3D
     {
         if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
         if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
-        return e.Id;
+        // ⚠️ 2026-08-18 修复：band 也进独立域（0x20000000）——实体 Id 从 0 分配（NextEntityId 起始 0），
+        //   Id=0 的起源 band 若返回原值 0，与 _tilePower==0 的"无势力"哨兵冲突 →
+        //   独立势力/政体图层把它显示成灰色（无势力），人口图层却正常 → 两层冲突。
+        //   域值非 0 保证与哨兵彻底隔离（部落 0x40000000 / 酋邦 0x80000000 之上再分一层）。
+        return unchecked((int)0x20000000) | (e.Id & 0x3FFFFFFF);
     }
 
     /// <summary>实体 → 政体类型（0=独立 band 1=部落 2=酋邦）。</summary>
