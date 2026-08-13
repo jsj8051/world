@@ -350,6 +350,13 @@ public partial class CivSimDiag : Node
         // 场景 B：φ=0.3 Soil3 → 农业潜在=1.2y0 < 狩猎 1.455y0 → 最终狩猎
         var eb = AddEntity(ctx, 1, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[1, 0] = 0.3f;
+        // ⚠️ 2026-08-17 决策领地化：ModeModel 用 Σ 领地格潜在——测试补 1 格领地（=驻扎格，领地版退化为单格语义）
+        ctx.CellOwner[0] = 0;
+        ctx.TerritoryCells[0].Add(0);
+        ctx.TerritoryDists[0].Add(0);
+        ctx.CellOwner[1] = 1;
+        ctx.TerritoryCells[1].Add(1);
+        ctx.TerritoryDists[1].Add(1);
 
         // 手动跑能量/增长/模式循环（不含发明，只测选择动力学）
         var mode = new ModeModel();
@@ -381,11 +388,16 @@ public partial class CivSimDiag : Node
         var eh = AddEntity(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx2.Suit[0, 0] = 1.0f;
         eh.IsFarming = true;
-        float yH2 = ctx2.FHunt(eh);
-        float yF2 = ctx2.FFarmPotential(eh);
+        // ⚠️ 2026-08-17 决策领地化：滞回验证与 ModeModel 同口径（领地版）——补 1 格领地（1 格 = 单格语义）
+        ctx2.CellOwner[0] = 0;
+        ctx2.TerritoryCells[0].Add(0);
+        ctx2.TerritoryDists[0].Add(0);
+        CivEngine.RefreshCellState(ctx2);   // ⚠️ 2026-08-17：CarryMult 在 RefreshCellState 计算（工具加成进决策）——不跑则 m=0 → yH=0 假滞回
+        float yH2 = eh.CarryMult * ctx2.FHuntTerritory(eh);
+        float yF2 = ctx2.FFarmPotentialTerritory(eh);
         float diff2 = CivSimContext.EHunt(yH2, eh.P) - CivSimContext.EFarm(yF2, eh.P);
         bool inHyst = Mathf.Abs(diff2) < 0.02f;
-        mode.Execute(ctx2);   // 滞回带内 → 不切换
+        mode.Execute(ctx2);   // 滞回带内 → 不切换（领地非空 → 不会被强制清 IsFarming）
         bool hyst = inHyst && eh.IsFarming;
         Check("S2 滞回防抖", hyst, $"|e_猎−e_农|={Mathf.Abs(diff2):F3} < 0.02 且保持农");
     }
@@ -1147,14 +1159,19 @@ public partial class CivSimDiag : Node
             for (int s = 0; s < 5; s++)
                 if (e.TechKeys.Contains(TechTable.SeedKeys[s])) seedHolders[s]++;
             if (!e.IsFarming) continue;
-            float eh = CivSimContext.EHunt(c.FHunt(e), e.P);
-            float ef = CivSimContext.EFarm(c.FFarmPotential(e), e.P);
+            // ⚠️ 2026-08-17 决策领地化：与 ModeModel 同口径（领地潜在 × 工具加成）；差地跳过——
+            //   农业潜在 ≤ 0.2×P（eF ≤ 0）种地养不活 → 退农是物理正确，不罚
+            float yF = c.FFarmPotentialTerritory(e);
+            if (yF <= 0.2f * e.P) continue;
+            float yH = e.CarryMult * c.FHuntTerritory(e);
+            float eh = CivSimContext.EHunt(yH, e.P);
+            float ef = CivSimContext.EFarm(yF, e.P);
             if (ef < eh - CivSimContext.Hysteresis)   // 滞回带内（差<0.02）保持不算退农
             {
                 noRevert = false;
                 if (revertCount < 3)
                     GD.Print($"  [T08诊断] 退农倾向实体 cell={e.Cell} P={e.P:F0} Soil={c.Grid.SoilLevel[e.Cell]} " +
-                             $"F_农={c.FFarmPotential(e):F0} F_猎={c.FHunt(e):F0} e_农={ef:F3} e_猎={eh:F3} F_格={c.CellF[e.Cell]:F0} 持种子=[{string.Join(";", TechTable.HeldSeeds(e.TechKeys))}]");
+                             $"F_农={yF:F0} F_猎={yH:F0} e_农={ef:F3} e_猎={eh:F3} F_格={c.CellF[e.Cell]:F0} 持种子=[{string.Join(";", TechTable.HeldSeeds(e.TechKeys))}]");
                 revertCount++;
             }
         }

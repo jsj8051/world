@@ -225,7 +225,8 @@ public sealed class CivSimContext
         return yPot * Mathf.Min(1f, e.P / Mathf.Max(1f, plabor));
     }
 
-    /// <summary>农业潜在产出（劳动因子=1；生产方式选择用——防小部落开垦不足永不转农死锁）。</summary>
+    /// <summary>农业潜在产出（单格，驻扎点；生产方式选择用——防小部落开垦不足永不转农死锁）。
+    /// ⚠️ 2026-08-17 决策领地化：ModeModel 已改用 FFarmPotentialTerritory（领地版），本方法保留供测试/单格语义。</summary>
     public float FFarmPotential(CivEntity e)
     {
         float rAgri = R[e.Cell] * IrrigFactor(e.Cell) * AlluvFactor(Grid.SoilLevel[e.Cell]);
@@ -240,6 +241,49 @@ public sealed class CivSimContext
             best = Mathf.Max(best, def.AgriBase * phi * rAgri * area);
         }
         return best;
+    }
+
+    /// <summary>领地采集潜在（2026-08-17 决策领地化：ModeModel 转农判据与产出层同口径——
+    /// band 决定"种不种"看整个领地，不是驻扎点单格。不含开垦（决策时田还没开垦，
+    /// 比较"原始土地条件"值不值得种；猎物+浆果占比合计 1）。</summary>
+    public float FHuntTerritory(CivEntity e)
+    {
+        var terr = TerritoryCells[e.Id];
+        if (terr == null || terr.Count == 0) return 0f;
+        var dists = TerritoryDists[e.Id];
+        float A = Grid.CellAreaKm2, sum = 0f;
+        for (int k = 0; k < terr.Count; k++)
+        {
+            int c = terr[k];
+            if (R[c] <= 0f) continue;
+            sum += R[c] * A * InfluenceWeight(dists[k]);
+        }
+        return sum;
+    }
+
+    /// <summary>领地农业潜在（2026-08-17 决策领地化，劳动因子=1——防小部落开垦不足死锁；
+    /// Σ 领地格 max种子(AgriBase×φ)×R×A×Irrig×Alluv×w，不含开垦）。</summary>
+    public float FFarmPotentialTerritory(CivEntity e)
+    {
+        var terr = TerritoryCells[e.Id];
+        if (terr == null || terr.Count == 0) return 0f;
+        var dists = TerritoryDists[e.Id];
+        float A = Grid.CellAreaKm2, sum = 0f;
+        for (int k = 0; k < terr.Count; k++)
+        {
+            int c = terr[k];
+            float rAgri = R[c] * IrrigFactor(c) * AlluvFactor(Grid.SoilLevel[c]);
+            if (rAgri <= 0f) continue;
+            float best = 0f;
+            foreach (var s in TechTable.SeedKeys)
+            {
+                if (!e.TechKeys.Contains(s)) continue;
+                var def = TechTable.Get(s);
+                best = Mathf.Max(best, def.AgriBase * Phi(c, def.SeedIndex));
+            }
+            if (best > 0f) sum += best * rAgri * A * InfluenceWeight(dists[k]);
+        }
+        return sum;
     }
 
     /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限；

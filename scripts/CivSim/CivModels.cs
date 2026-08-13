@@ -308,8 +308,10 @@ public sealed class ModeModel : CivModelBase
             if (e.Dead) continue;
             bool hasSeed = CapabilityTable.Has(ctx, e, "seed");
             if (!hasSeed) { e.IsFarming = false; continue; }
-            float yH = ctx.FHunt(e);                 // 狩猎实际产出
-            float yF = ctx.FFarmPotential(e);        // 农业潜在产出（劳动因子=1，防小部落死锁）
+            // ⚠️ 2026-08-17 决策领地化：yH/yF 用 Σ 领地格潜在（与产出层同口径）——
+            //   旧版单格判定导致"领地有良田但驻扎格差 → 永不转农"（科技地图"好几块地只有一处新石器"的根因）
+            float yH = e.CarryMult * ctx.FHuntTerritory(e);        // 领地采集潜在 × 工具加成（工具提高狩猎 → 影响转农决策）
+            float yF = ctx.FFarmPotentialTerritory(e);             // 领地农业潜在（劳动因子=1，防小部落死锁）
             if (yF <= 0f) { e.IsFarming = false; continue; }
             float eH = CivSimContext.EHunt(yH, e.P);
             float eF = CivSimContext.EFarm(yF, e.P);
