@@ -597,17 +597,22 @@ public partial class CivSimDiag : Node
         Check("T27 存储缓冲", buffered && stillAlive, $"有存储 P={withS.P:F0} 无存储 P={noS.P:F0}（缺口×0.6 应更慢）");
     }
 
-    /// <summary>T28 畜牧涌现：草原格(WildLivestock=1)+livestock 科技 → 牧产出>0；无生态位/无科技 → 牧=0。</summary>
+    /// <summary>T28 畜牧涌现：草原格(WildLivestock=1)+livestock 科技 → 牧产出>0；无生态位/无科技 → 牧=0。
+    /// 2026-08-17 畜牧落地：走等边际分配器（牧场建筑并入采集档）。</summary>
     private void T28_LivestockEmergence()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        g.WildLivestock = new byte[] { 1, 0 };   // 格0 草原可牧；格1 无
+        g.WildLivestock = new byte[g.N];
+        g.WildLivestock[0] = 1;   // 格0 草原可牧；格1 无生态位
         var herd = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);
         var noHerd = AddEntity(ctx, 1, 10000f, TechTable.StoneCore);          // 无科技（格1 也无生态位）
+        ctx.CellOwner[0] = 0; ctx.CellOwner[1] = 1;
+        ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);
+        ctx.TerritoryCells[1].Add(1); ctx.TerritoryDists[1].Add(1);
         CivEngine.RefreshCellState(ctx);
-        bool herdActive = ctx.FOf(herd) > 0f && herd.FHerdLast > 0f;
-        bool herdOff = noHerd.FHerdLast == 0f;
+        bool herdActive = ctx.AllocateAndProduce(herd) > 0f && herd.FHerdLast > 0f;
+        bool herdOff = ctx.AllocateAndProduce(noHerd) > 0f && noHerd.FHerdLast == 0f;
         Check("T28 畜牧涌现", herdActive && herdOff,
             $"草原+科技 牧F={herd.FHerdLast:F0}(>0) 无生态位/无科技 牧F={noHerd.FHerdLast:F0}(=0)");
     }
@@ -618,41 +623,54 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        // ⚠️ 2026-08-17 凹化+等边际：P=500 才能激活农田（2 格网格农田需求 0.2×潜在 ≈ 1.5 万人——
-        //   段 B 激活条件 ΣPc < 24.3×N → N > 266；旧 P=100 农田永不激活秸秆恒 0）
-        var e = AddEntity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding);
+        // ⚠️ 2026-08-17 畜牧接入分配器后：采集档潜在 = 采集+牧场（3×）→ 农田激活需 N > ΣPc/24.3 ≈ 2110——P 改 4000
+        //   2026-08-17 牧场受开垦挤压（用户拍板）：田格（格0 开垦1）与牧格（格1 草场）分开，各产秸秆/羊毛
+        g.WildLivestock = new byte[g.N];
+        g.WildLivestock[0] = 1;   // 格0：livestock 能力解锁条件（驻扎格生态位）——开垦1 → 牧场贡献0
+        g.WildLivestock[1] = 1;   // 格1：草场牧场
+        var e = AddEntity(ctx, 0, 4000f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding, TechTable.Livestock);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
         ctx.Cultivation[0] = 1f;   // 农业产出 ×开垦率——不开垦秸秆恒 0（测试补开垦）
-        // 手造领地 1 格 → 采集+农田建筑（等边际分配）
+        // 手造领地 2 格：格0 农田（开垦1）、格1 牧场（草场，开垦0）——采集+农田+牧场建筑（等边际分配）
         ctx.CellOwner[0] = 0;
+        ctx.CellOwner[1] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
+        ctx.TerritoryCells[0].Add(1);
+        ctx.TerritoryDists[0].Add(1);
         CivEngine.RefreshCellState(ctx);   // 先算 CellFarmPop
         var harvest = new HarvestModel();
         harvest.Execute(ctx);
         CivEngine.RefreshCellState(ctx);   // 再聚合 Goods（FLast × 副产率）
         bool leather = e.Goods[CivSimContext.GoodsLeather] > 0f;
         bool straw = e.Goods[CivSimContext.GoodsStraw] > 0f;
-        Check("T29 货物累积", leather && straw,
-            $"皮革={e.Goods[CivSimContext.GoodsLeather]:F0} 秸秆={e.Goods[CivSimContext.GoodsStraw]:F0}（羊毛=畜牧暂缓）");
+        bool wool = e.Goods[CivSimContext.GoodsWool] > 0f;   // 2026-08-17 畜牧落地：草原+科技 → 羊毛
+        Check("T29 货物累积", leather && straw && wool,
+            $"皮革={e.Goods[CivSimContext.GoodsLeather]:F0} 秸秆={e.Goods[CivSimContext.GoodsStraw]:F0} 羊毛={e.Goods[CivSimContext.GoodsWool]:F0}");
     }
 
-    /// <summary>T30 收益权重土地分配（单元）：草原格 牧2×猎 → 产出 4:1（土地份额×单产：s_herd=2/3×2 倍率 vs s_hunt=1/3×1）；无农。</summary>
+    /// <summary>T30 等边际牧:猎分配：草原格牧场潜在 = 2×采集潜在（HerdMult=2）——同 LF 档（0.1）
+    /// 按潜在比例分配工人 → 凹产出比 = 2:1（2026-08-17 畜牧接入分配器；旧 4:1 是 FOf 份额公式口径）。</summary>
     private void T30_WeightAllocation()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);   // 草原
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // 草原
         var ctx = MakeCtx(g);
-        g.WildLivestock = new byte[] { 1, 0 };   // 格0 可牧
+        g.WildLivestock = new byte[g.N];
+        g.WildLivestock[0] = 1;   // 格0 可牧（采集+牧场同格：潜在 1:2）
         var e = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);   // P 大：劳动充足
         e.IsFarming = false;
+        ctx.CellOwner[0] = 0;
+        ctx.TerritoryCells[0].Add(0);
+        ctx.TerritoryDists[0].Add(0);
         CivEngine.RefreshCellState(ctx);
-        float f = ctx.FOf(e);
-        // 权重 pHerd = 2×pHunt → s_herd=2/3；产出 fHerd/fHunt = (2×2/3)/(1×1/3) = 4:1（劳动充足）
-        bool herdShare = Mathf.Abs(e.FHerdLast - 4f * e.FHuntLast) < e.FHuntLast * 0.1f;
+        new HarvestModel().Execute(ctx);   // ⚠️ 2026-08-17：AllocateAndProduce 不设 FHuntLast（分量缓存是 HarvestModel 的职责）
+        float f = e.FLast;
+        // 等边际同档：n_牧/n_猎 = 潜在比 2:1 → F_牧/F_猎 = 2:1（凹产出，劳动充足区）
+        bool herdShare = Mathf.Abs(e.FHerdLast - 2f * e.FHuntLast) < e.FHuntLast * 0.1f;
         bool huntActive = e.FHuntLast > 0f;   // 并行：猎仍产出
-        Check("T30 收益权重分配", herdShare && huntActive,
-            $"牧F={e.FHerdLast:F0} 猎F={e.FHuntLast:F0}（应 4:1）总={f:F0}");
+        Check("T30 等边际牧猎分配", herdShare && huntActive,
+            $"牧F={e.FHerdLast:F0} 猎F={e.FHuntLast:F0}（应 2:1）总={f:F0}");
     }
 
     /// <summary>T31 饥饿-迁移闭环（2026-08-10 定稿 T23-新，2026-08-17 语义更新：砍存量后压力源=土地饱和/超载）：
@@ -1163,7 +1181,7 @@ public partial class CivSimDiag : Node
             //   农业潜在 ≤ 0.2×P（eF ≤ 0）种地养不活 → 退农是物理正确，不罚
             float yF = c.FFarmPotentialTerritory(e);
             if (yF <= 0.2f * e.P) continue;
-            float yH = e.CarryMult * c.FHuntTerritory(e);
+            float yH = e.CarryMult * (c.FHuntTerritory(e) + c.FHerdTerritory(e));   // 含牧场（与 ModeModel 同口径）
             float eh = CivSimContext.EHunt(yH, e.P);
             float ef = CivSimContext.EFarm(yF, e.P);
             if (ef < eh - CivSimContext.Hysteresis)   // 滞回带内（差<0.02）保持不算退农

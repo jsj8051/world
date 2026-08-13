@@ -286,6 +286,26 @@ public sealed class CivSimContext
         return sum;
     }
 
+    /// <summary>领地牧场潜在（2026-08-17 畜牧落地：草原格 WildLivestock 位 + livestock 能力 →
+    /// 牧场潜在 = R×A×HerdMult×w（HerdMult=2：草原牧畜单位土地产出 2×采集）。
+    /// 决策用——草原畜牧抬高狩猎收益 → 抑制转农（史实：草原游牧不种地）。</summary>
+    public float FHerdTerritory(CivEntity e)
+    {
+        if (!CapabilityTable.Has(this, e, "livestock")) return 0f;
+        var wild = Grid.EnsureWildLivestock();
+        var terr = TerritoryCells[e.Id];
+        if (terr == null || terr.Count == 0) return 0f;
+        var dists = TerritoryDists[e.Id];
+        float A = Grid.CellAreaKm2, sum = 0f;
+        for (int k = 0; k < terr.Count; k++)
+        {
+            int c = terr[k];
+            if (R[c] <= 0f || wild[c] == 0) continue;
+            sum += R[c] * HerdMult * A * InfluenceWeight(dists[k]);
+        }
+        return sum;
+    }
+
     /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限；
     /// ×开垦率 Cultivation——2026-08-17 土地挂钩：田是逐步开垦的，0 开垦 0 农业产出，转农当 tick 靠领地采集兜底）。</summary>
     public float FFarmActual(CivEntity e)
@@ -528,17 +548,21 @@ public sealed class CivSimContext
         TerritoryDists = td;
     }
 
-    /// <summary>领地建筑分配产出（2026-08-17 用户拍板：凹化 + 等边际）。
-    /// 建筑产出 F_i(n) = P_i·n/(D_i+n)，D_i = LF_类型·P_i——需求与潜在成正比但类型参数不同
-    /// （采集 0.1 / 农田 0.2，Sahlins 劳动投入比）：非同构 → 等边际分配有区分度。
+    /// <summary>领地建筑分配产出（2026-08-17 用户拍板：凹化 + 等边际；2026-08-17 畜牧接入）。
+    /// 建筑产出 F_i(n) = P_i·n/(D_i+n)，D_i = LF_类型·P_i——需求与潜在成正比但类型参数不同：
+    /// 采集/牧场 LF=0.1（粗放，Sahlins ~15-20h/周）+ 农田 LF=0.2（劳动密集 ~40h+/周）。
+    /// 牧场 = 草原格（WildLivestock 位）的"高潜在采集"（HerdMult=2）——同 LF 档内按潜在比例
+    /// 自动多投（草原牧畜比采集划算 → 工人自然流向，无需 IsHerding 状态）。
     /// 等边际闭式解（LF 两档分段 water-filling，O(k) 无排序、无迭代）：
-    ///   段 A（仅采集激活，μ∈(5,10]）：√μ = √0.1·ΣPc / (N + 0.1·ΣPc)
+    ///   段 A（仅采集档激活，μ∈(5,10]）：√μ = √0.1·ΣPc / (N + 0.1·ΣPc)
     ///   段 B（采集+农田激活，μ≤5）：  √μ = (√0.1·ΣPc + √0.2·ΣPf) / (N + 0.1·ΣPc + 0.2·ΣPf)
-    /// 每格 n_i = √LF·P_i/√μ − LF·P_i（同档内比例分配，非负由 μ 分段保证）；
-    /// FBerryLast 按浆果占比拆分（猎物 = F_采集 − FBerryLast）。
+    /// 每格 n_i = √LF·P_i/√μ − LF·P_i（max(0,·) 截断——未激活建筑 0 工人）；
+    /// FBerryLast 按浆果占比拆分（仅采集部分）；FHerdLast 独立缓存（羊毛副产）。
     /// 每 tick 派生重算、不入档、无 Rng——读档续跑无分叉。
-    /// 采集潜在 = R·A·w·[(1−0.5·开垦)·猎物占比 + (1−开垦)·浆果占比]（栖息地破碎/地被替代）；
-    /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w（0 开垦无农田）。</summary>
+    /// 采集潜在 = R·A·w·[(1−0.5·开垦)·猎物占比 + (1−开垦)·浆果占比]；
+    /// 牧场潜在 = R·A·HerdMult·w·(1−开垦)（草原位——草场被农田直接替代，与浆果同敏感度；
+    ///   2026-08-17 用户拍板：畜牧也是占用土地的建筑，无"游牧与田不冲突"豁免）；
+    /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w。</summary>
     public float AllocateAndProduce(CivEntity e)
     {
         var terr = TerritoryCells[e.Id];
@@ -546,8 +570,10 @@ public sealed class CivSimContext
         var dists = TerritoryDists[e.Id];
         float A = Grid.CellAreaKm2;
         bool isFarm = e.IsFarming;
-        // 第一遍：Σ 采集/农田潜在 + 浆果潜在（分配只需总量，逐格 n 按潜在比例）
-        float sumPc = 0f, sumPf = 0f, sumBerry = 0f;
+        bool canHerd = CapabilityTable.Has(this, e, "livestock");
+        byte[] wild = canHerd ? Grid.EnsureWildLivestock() : null;
+        // 第一遍：Σ 采集/牧场/农田潜在 + 浆果潜在（分配只需总量，逐格 n 按潜在比例）
+        float sumPc = 0f, sumPh = 0f, sumPf = 0f, sumBerry = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
             int c = terr[k];
@@ -557,6 +583,7 @@ public sealed class CivSimContext
             float frac = PreyFrac((BiomeType)Grid.Biome[c]);
             float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
             if (pc > 0f) { sumPc += pc; sumBerry += R[c] * A * w * (1f - cult) * (1f - frac); }
+            if (canHerd && wild[c] != 0) sumPh += R[c] * HerdMult * A * w * (1f - cult);   // 草场被农田直接替代
             if (isFarm && cult > 0f)
             {
                 float rAgri = R[c] * IrrigFactor(c) * AlluvFactor(Grid.SoilLevel[c]);
@@ -573,20 +600,21 @@ public sealed class CivSimContext
                 }
             }
         }
-        float total = sumPc + sumPf;
+        float sumCollect = sumPc + sumPh;   // 采集档总量（采集+牧场，LF 均 0.1）
+        float total = sumCollect + sumPf;
         if (total <= 0f) return 0f;
         float N = e.P;
         // 等边际 μ（LF 两档分段闭式）
-        // 激活条件：建筑激活 ⟺ μ ≤ 1/LF_类型（采集 10 / 农田 5）；段 A 解 μA 若 ≥ 5 → 农田不激活
+        // 激活条件：建筑激活 ⟺ μ ≤ 1/LF_类型（采集/牧场 10 / 农田 5）；段 A 解 μA 若 ≥ 5 → 农田不激活
         float sqrtMu;
-        float sqrtMuA = Mathf.Sqrt(LaborFrac) * sumPc / (N + LaborFrac * sumPc);   // 段 A：仅采集
+        float sqrtMuA = Mathf.Sqrt(LaborFrac) * sumCollect / (N + LaborFrac * sumCollect);   // 段 A：仅采集档
         if (sqrtMuA >= Mathf.Sqrt(1f / LaborFracFarm))   // √μA ≥ √5（μ ≥ 5）→ 农田边际 5 不激活
             sqrtMu = sqrtMuA;
         else
-            sqrtMu = (Mathf.Sqrt(LaborFrac) * sumPc + Mathf.Sqrt(LaborFracFarm) * sumPf)
-                   / (N + LaborFrac * sumPc + LaborFracFarm * sumPf);               // 段 B：混合（√μB ≤ √5 自动保证，见推导）
+            sqrtMu = (Mathf.Sqrt(LaborFrac) * sumCollect + Mathf.Sqrt(LaborFracFarm) * sumPf)
+                   / (N + LaborFrac * sumCollect + LaborFracFarm * sumPf);               // 段 B：混合（√μB ≤ √5 自动保证）
         // 第二遍：逐格分配 n_i = √LF·P_i/√μ − LF·P_i，产出 F_i = P_i·n_i/(D_i+n_i)
-        float fHunt = 0f, fFarm = 0f;
+        float fHunt = 0f, fHerd = 0f, fFarm = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
             int c = terr[k];
@@ -597,8 +625,17 @@ public sealed class CivSimContext
             float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
             if (pc > 0f)
             {
-                float n = Mathf.Max(0f, Mathf.Sqrt(LaborFrac) * pc / sqrtMu - LaborFrac * pc);   // 未激活建筑 = 0 工人（段 A 农田负分配截断，2026-08-17）
+                float n = Mathf.Max(0f, Mathf.Sqrt(LaborFrac) * pc / sqrtMu - LaborFrac * pc);   // 未激活建筑 = 0 工人
                 fHunt += pc * n / (LaborFrac * pc + n);
+            }
+            if (canHerd && wild[c] != 0)
+            {
+                float ph = R[c] * HerdMult * A * w * (1f - cult);   // 草场被农田直接替代
+                if (ph > 0f)   // ⚠️ 2026-08-17：开垦 1 的格 ph=0 → 0×0/0 = NaN 污染 FLast（T03 分叉根因）
+                {
+                    float n = Mathf.Max(0f, Mathf.Sqrt(LaborFrac) * ph / sqrtMu - LaborFrac * ph);
+                    fHerd += ph * n / (LaborFrac * ph + n);
+                }
             }
             if (isFarm && cult > 0f)
             {
@@ -615,18 +652,24 @@ public sealed class CivSimContext
                     if (best > 0f)
                     {
                         float pf = best * rAgri * A * cult * w;
-                        float n = Mathf.Max(0f, Mathf.Sqrt(LaborFracFarm) * pf / sqrtMu - LaborFracFarm * pf);   // 未激活截断（同采集）
-                        fFarm += pf * n / (LaborFracFarm * pf + n);
+                        // ⚠️ 2026-08-17：w=0 边界格（影响圈边缘 d=R）→ pf=0 → 0×0/0 = NaN 污染 FLast（T03 分叉根因；采集 pc>0、牧场 ph>0 已有检查，农田漏了）
+                        if (pf > 0f)
+                        {
+                            float n = Mathf.Max(0f, Mathf.Sqrt(LaborFracFarm) * pf / sqrtMu - LaborFracFarm * pf);
+                            fFarm += pf * n / (LaborFracFarm * pf + n);
+                        }
                     }
                 }
             }
         }
-        e.FBerryLast = sumPc > 0f ? fHunt * (sumBerry / sumPc) : 0f;   // 浆果实际（按占比拆分）
+        e.FBerryLast = sumPc > 0f ? fHunt * (sumBerry / sumPc) : 0f;   // 浆果实际（仅采集部分，牧场无浆果）
+        e.FHerdLast = fHerd;
         e.FFarmLast = fFarm;
-        return fHunt + fFarm;
+        return fHunt;   // ⚠️ 2026-08-17 修双计：返回**采集分量**（fHerd/fFarm 已入实体缓存；
+                        //   旧版返回总产出 → HarvestModel 的 FLast = FHuntLast+FFarmLast+FHerdLast 双计农业/畜牧）
     }
 
-    /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。
+    /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。</summary>
     /// landOnly：只走 R>0 陆地可居格（影响圈/领地不进海洋——2026-08-10 修复：此前领地含 R=0 格致分裂驻海洋）。</summary>
     internal void BfsRadius(int start, int maxDepth, Action<int, int> visit, bool landOnly = false)
     {

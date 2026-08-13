@@ -108,8 +108,7 @@ public sealed class HarvestModel : CivModelBase
         {
             var e = ctx.Entities[i];
             if (e.Dead) continue;
-            e.FHuntLast = ctx.AllocateAndProduce(e);   // 采集（猎+果）+ 农业（分配后实际产出）
-            e.FHerdLast = 0f;                          // 畜牧暂缓（5 km² 领地畜牧后续）
+            e.FHuntLast = ctx.AllocateAndProduce(e);   // 采集（猎+果）+ 牧场 + 农业（等边际分配后实际产出）
             e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
         }
     }
@@ -309,9 +308,10 @@ public sealed class ModeModel : CivModelBase
             bool hasSeed = CapabilityTable.Has(ctx, e, "seed");
             if (!hasSeed) { e.IsFarming = false; continue; }
             // ⚠️ 2026-08-17 决策领地化：yH/yF 用 Σ 领地格潜在（与产出层同口径）——
-            //   旧版单格判定导致"领地有良田但驻扎格差 → 永不转农"（科技地图"好几块地只有一处新石器"的根因）
-            float yH = e.CarryMult * ctx.FHuntTerritory(e);        // 领地采集潜在 × 工具加成（工具提高狩猎 → 影响转农决策）
-            float yF = ctx.FFarmPotentialTerritory(e);             // 领地农业潜在（劳动因子=1，防小部落死锁）
+            //   旧版单格判定导致"领地有良田但驻扎格差 → 永不转农"（科技地图"好几块地只有一处新石器"的根因）；
+            //   2026-08-17 畜牧接入：草原牧场潜在并入 yH（草原游牧抬高狩猎收益 → 抑制转农，史实正确）
+            float yH = e.CarryMult * (ctx.FHuntTerritory(e) + ctx.FHerdTerritory(e));   // 领地采集+牧场潜在 × 工具加成
+            float yF = ctx.FFarmPotentialTerritory(e);                                   // 领地农业潜在（劳动因子=1，防小部落死锁）
             if (yF <= 0f) { e.IsFarming = false; continue; }
             float eH = CivSimContext.EHunt(yH, e.P);
             float eF = CivSimContext.EFarm(yF, e.P);
