@@ -360,6 +360,8 @@ public static class CivMapArchive
         ctx.EnsureTerritory();   // 惰性建领地索引（若长度不足 RebuildInfluence 内动态扩展）
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
         ctx.RebuildInfluence();       // 归属+领地重建（v8；旧档 Stock=0 → Harvest=0 → 饿死——旧档已拒，正常路径不达）
+        TerritoryModel.Rebuild(ctx);  // ⚠️ 2026-08-17 领地凝聚（TerritoryModel 已注册演化 Order 45——
+                                      //   读档路径同步重建 TerritoryId/Size，否则读档后全散兵）
         CivEngine.RefreshCellState(ctx);
 
         result = new CivSimResult { Context = ctx, FinalTick = finalTick };

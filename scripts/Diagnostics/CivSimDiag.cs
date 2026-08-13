@@ -1511,9 +1511,12 @@ public partial class CivSimDiag : Node
             {
                 var ctxMem = CivEngine.Run(_grid, seed, origins).Context;   // 内存态（存档 tick 时刻）——与写档同一演化
                 // ⚠️ 2026-08-17 审查修复：起点对齐——读档语义 = 状态 + 场重建（Read 结尾 RebuildInfluence 结算
-                //   最后 tick 分裂实体的影响力）；内存态是滞后场（tick 171 Order 8 后出生实体的影响力未结算）——
-                //   不对齐则"无主格集合"不同 → 分裂/迁移目标搜索不同 → Rng 消耗不同 → 假分叉（非存档缺陷）。
+                //   最后 tick 分裂实体影响力）——内存态也重建对齐；领地派生化（TerritoryModel 已注册 Order 45）
                 ctxMem.RebuildInfluence();
+                // ⚠️ 2026-08-17 领地/酋邦凝聚频率守卫对齐：守卫不入档——读档端 -1（首 tick 必凝聚），
+                //   内存端是演化末值（错位 N tick）→ 凝聚时刻错位 → 领地/酋邦状态不同 → 分叉
+                ctxMem.TerritoryLastRebuild = rBack.Context.TerritoryLastRebuild;
+                ctxMem.ChiefdomLastEval = rBack.Context.ChiefdomLastEval;
                 RunTicks(ctxMem, 20);                 // 内存态续跑 20
                 RunTicks(rBack.Context, 20);          // 读档态续跑 20（Rng 状态读档已恢复）
                 ctxMem.Entities.RemoveAll(e => e.Dead);

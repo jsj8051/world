@@ -52,6 +52,8 @@ public sealed class CivModelRegistry
             .Register(new SpreadModel())
             .Register(new CultureModel())
             .Register(new ReligionModel())
+            .Register(new TerritoryModel())     // 领地凝聚（Order 45，2026-08-17 注册修复：此前从未注册进演化——
+                                                //   TerritoryId/Size 全 -1 → 科技传播领地加成失效 + 酋邦永不凝聚）
             .Register(new ChiefdomModel())      // 酋邦凝聚（Order 46，2026-08-17 酋邦层）
             .Register(new ConflictModel())      // 边境冲突（Order 75，2026-08-10）：粘性僵局暴力出口
             .Register(new SplitMigrateModel());
