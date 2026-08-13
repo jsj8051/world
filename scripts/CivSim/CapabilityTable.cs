@@ -40,6 +40,10 @@ public static class CapabilityTable
         Register(new Capability { Id = "storage",   Unlocked = (e, c) => e.TechKeys.Contains(TechTable.Storage) });
         Register(new Capability { Id = "livestock", Unlocked = (e, c) => e.TechKeys.Contains(TechTable.Livestock)
             && c.Grid.EnsureWildLivestock()[e.Cell] != 0 });
+        Register(new Capability { Id = "pottery",   Unlocked = (e, c) => e.TechKeys.Contains(TechTable.Pottery) });
+        // 定居 = 农业派生（2026-08-17 用户拍板"定居+存储"：谷物农业需守田 → 定居，史实；非科技——
+        //   无"发明"事件，转农即定居；旧石器（无农）天然无定居）
+        Register(new Capability { Id = "settle",    Unlocked = (e, c) => e.IsFarming });
     }
 
     /// <summary>实体能力位掩码（RefreshCellState 每 tick 缓存；条件含环境——同 tick 内环境稳定）。</summary>

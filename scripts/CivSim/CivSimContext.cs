@@ -86,6 +86,9 @@ public sealed class CivSimContext
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
     public const float TerritoryDriftDiv = 0.5f;     // 领地内分裂漂变概率减半（凝聚自稳）
     public const float StorageFamineRelief = 0.6f;   // 存储饿死缓冲：缺口衰减系数（Testart 分水岭 2026-08-09）
+    public const float StorageReliefPottery = 0.4f;  // +陶器：密封储粮容器（2026-08-17 分层强化）
+    public const float StorageReliefSettle = 0.3f;   // +定居：粮仓（2026-08-17 分层强化）
+    public const float SettleGrowthMult = 1.5f;      // 定居生育跃迁：人口增长 r ×1.5（史实：定居密度 10-50× 游群；★ 标定）
 
     // ── 货物系统（2026-08-09：生产方式副产品，累积入档 v7；贸易期接物物交换）──
     public const int GoodsLeather = 0, GoodsWool = 1, GoodsStraw = 2;   // Goods[] 索引

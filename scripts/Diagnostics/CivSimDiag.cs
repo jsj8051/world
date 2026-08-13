@@ -144,6 +144,7 @@ public partial class CivSimDiag : Node
         if (Want("T36")) T36_LandCompetition();
         if (Want("T37")) T37_CultivationGrowth();
         if (Want("T38")) T38_EquiMarginal();
+        if (Want("T39")) T39_SettleStorage();
         if (Want("T23")) T23_TerritoryMult();
     }
 
@@ -500,19 +501,25 @@ public partial class CivSimDiag : Node
     /// <summary>S6：宗教锁——盈余+细石器 → 萨满；持种子但狩猎 → 不升祖先（不读时代）。</summary>
     private void S6_ReligionLock()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // ⚠️ 8 格：e3 需独立格（同格会触发传播段同化稀释份额）
         var ctx = MakeCtx(g);
         var e1 = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
         e1.Surplus = 0.5f;   // 盈余期
         var e2 = AddEntity(ctx, 1, 100f, TechTable.StoneCore, TechTable.Grinding, TechTable.SeedWheat);
-        e2.Surplus = -0.1f;  // 狩猎（IsFarming=false）
+        e2.Surplus = -0.1f;  // 狩猎（IsFarming=false）→ 无定居 → 祖先锁
+        // ⚠️ 2026-08-17 定居落地：农业 band（IsFarming → settle）→ 祖先解锁（萨满→祖先）
+        var e3 = AddEntity(ctx, 2, 100f, TechTable.StoneCore, TechTable.Microlith, TechTable.SeedWheat);   // 格2（独立格，无同化干扰）
+        e3.IsFarming = true;
+        e3.Surplus = 0.5f;   // 定居农业 + 盈余 → 先泛灵→萨满，再萨满→祖先
         var rel = new ReligionModel();
         rel.Execute(ctx);
+        rel.Execute(ctx);    // 两遍：e3 走完 泛灵→萨满→祖先 两跳
         bool shaman = ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman) > 0;          // 泛灵→萨满
         bool noAncestor = ShareField.RelFrac(e1.ReligionShare, ReligionStage.Ancestor) == 0
                        && ShareField.RelFrac(e2.ReligionShare, ReligionStage.Ancestor) == 0;   // 旧石器锁死
-        Check("S6 宗教锁", shaman && noAncestor,
-            $"萨满份额={ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman)} 祖先份额全0={noAncestor}");
+        bool ancestorUnlocked = ShareField.RelFrac(e3.ReligionShare, ReligionStage.Ancestor) > 0;  // 定居农业 → 祖先
+        Check("S6 宗教锁", shaman && noAncestor && ancestorUnlocked,
+            $"萨满份额={ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman)} 祖先份额全0={noAncestor} 定居农业祖先={ancestorUnlocked}");
     }
 
     /// <summary>T24 领地凝聚/断裂：同格同语言群 → 同领地；语言群分歧 → 领地分裂（确定性，无地图依赖）。</summary>
@@ -575,9 +582,9 @@ public partial class CivSimDiag : Node
         CivEngine.RefreshCellState(ctx);   // 算 CapMask
         bool canoeOk = CapabilityTable.Has(ctx, withCanoe, "canoe") && !CapabilityTable.Has(ctx, noCanoe, "canoe");
         bool seedOk = CapabilityTable.Has(ctx, withSeed, "seed") && !CapabilityTable.Has(ctx, noCanoe, "seed");
-        // 完整性：引用 id 全部注册（不漏不重）
+        // 完整性：引用 id 全部注册（不漏不重）——2026-08-17 +pottery/settle（定居+存储缺口）
         var ids = new HashSet<string>(CapabilityTable.AllIds());
-        bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage", "livestock" });
+        bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage", "livestock", "pottery", "settle" });
         Check("T26 能力开关", canoeOk && seedOk && complete,
             $"canoe开关={canoeOk} seed开关={seedOk} 能力集={string.Join(",", ids)}");
     }
@@ -888,6 +895,37 @@ public partial class CivSimDiag : Node
         bool noFarm = e.FFarmLast == 0f;
         Check("T38 凹化等边际性质", smallMarginal && monotonic && concave && saturated && noFarm,
             $"小N边际 F/N={fSmall / 0.1f:F1}(期望≈10) 单调={monotonic} 凹={concave}(Δ={fC - fB:F0}<{fB - fA:F0}) 饱和={fSat:F0}/{pot:F0} 段A无农={noFarm}");
+    }
+
+    /// <summary>T39 定居+存储（2026-08-17 用户拍板缺口之三）：
+    /// ① settle = IsFarming 派生（转农即定居，无发明事件）；
+    /// ② 饥荒缓冲分层：storage ×0.6 < +pottery ×0.4（陶器密封）——同饥荒下 pottery 存活更高；
+    /// ③ 定居生育跃迁：盈余下 settle 实体增长 r×1.5 更快。</summary>
+    private void T39_SettleStorage()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        var farm = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        farm.IsFarming = true;
+        var hunter = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var s1 = AddEntity(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋 ×0.6
+        var s2 = AddEntity(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封 ×0.4
+        var gA = AddEntity(ctx, 4, 100f, TechTable.StoneCore);                     // 游群（r 基础）
+        var gB = AddEntity(ctx, 5, 100f, TechTable.StoneCore);
+        gB.IsFarming = true;                                                       // 定居（r×1.5）
+        CivEngine.RefreshCellState(ctx);   // CapMask（settle/pottery/storage）
+        bool settleOk = CapabilityTable.Has(ctx, farm, "settle") && !CapabilityTable.Has(ctx, hunter, "settle");
+        // ② 饥荒单 tick：FLast=50（P=100 → 缺口）——P 收敛到 F（=50），多 tick 差异被抹平，单 tick 差异明显
+        s1.FLast = 50f; s2.FLast = 50f;
+        var growth = new GrowthModel();
+        growth.Execute(ctx);
+        bool layered = s2.P > s1.P * 1.05f;   // 陶器缓冲更强 → 饿得慢 → P 明显更高
+        // ③ 盈余单 tick：FLast=150（P=100 → 盈余）——定居 r×1.5 更快
+        gA.FLast = 150f; gB.FLast = 150f;
+        growth.Execute(ctx);
+        bool growthBoost = gB.P > gA.P * 1.05f;
+        Check("T39 定居+存储", settleOk && layered && growthBoost,
+            $"settle派生={settleOk} 缓冲分层(storage={s1.P:F1} < +陶器={s2.P:F1}) 定居增长(gA={gA.P:F1} < gB={gB.P:F1})");
     }
 
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
@@ -1224,14 +1262,14 @@ public partial class CivSimDiag : Node
         var cultSet = new System.Collections.Generic.HashSet<string>();
         foreach (var e in c.Entities)
         {
-            if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Ancestor) > 0
-             || ShareField.RelFrac(e.ReligionShare, ReligionStage.Polytheism) > 0
+            // ⚠️ 2026-08-17 定居落地：祖先不再全 0（农业 band 定居 → 祖先合理）——只锁多神/一神（后续阶段）
+            if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Polytheism) > 0
              || ShareField.RelFrac(e.ReligionShare, ReligionStage.Monotheism) > 0) relOk = false;
             if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Shaman) > 0) shamanEnts++;
             string ck = ShareField.DomKey(e.ReligionCultShare);
             if (ck != null) cultSet.Add(ck);
         }
-        Check("T13 宗教演进", relOk, $"萨满实体 {shamanEnts}（祖先/多神/一神全 0={relOk}）· 派别 {cultSet.Count} 种");
+        Check("T13 宗教演进", relOk, $"萨满实体 {shamanEnts}（多神/一神全 0={relOk}）· 派别 {cultSet.Count} 种");
     }
 
     /// <summary>T15 覆盖（参考指标）+ T16 时代分布金字塔（共享一次扫描；各自 Check 按 --only 独立开关）。</summary>

@@ -278,11 +278,20 @@ public sealed class GrowthModel : CivModelBase
             if (e.Dead) continue;
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
             if (f <= 0f) continue;
-            float factor = Mathf.Exp(r * (1f - e.P / f));
-            // 存储缓冲（Testart 分水岭，2026-08-09）：有 storage 的部落饿死缺口衰减 ×0.6
+            // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
+            float rEff = r;
+            if (CapabilityTable.Has(ctx, e, "settle")) rEff *= CivSimContext.SettleGrowthMult;   // 1.5
+            float factor = Mathf.Exp(rEff * (1f - e.P / f));
+            // 存储缓冲（Testart 分水岭，2026-08-09；2026-08-17 分层强化）：
+            //   storage（游群粮袋）缺口 ×0.6 → +pottery（陶器密封）×0.4 → +settle（定居粮仓）×0.3
             //   （无状态效果——不引盈余池入档，读档续跑无分叉；宏观等效饥荒缓冲）
             if (factor < 1f && CapabilityTable.Has(ctx, e, "storage"))
-                factor = 1f + (factor - 1f) * CivSimContext.StorageFamineRelief;
+            {
+                float relief = CivSimContext.StorageFamineRelief;
+                if (CapabilityTable.Has(ctx, e, "pottery")) relief = CivSimContext.StorageReliefPottery;
+                if (CapabilityTable.Has(ctx, e, "settle")) relief = CivSimContext.StorageReliefSettle;
+                factor = 1f + (factor - 1f) * relief;
+            }
             e.P *= factor;
             if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
         }
@@ -789,7 +798,13 @@ public sealed class ReligionModel : CivModelBase
                 int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionUpgradeRate);
                 ShareField.RelTransfer(e.ReligionShare, ReligionStage.Animism, ReligionStage.Shaman, amt);
             }
-            // 萨满 → 祖先：农业（种子）+ 定居（后续阶段能力）→ 旧石器无定居科技，天然锁死
+            // 萨满 → 祖先：定居（=农业派生能力，2026-08-17 落地"定居+存储"缺口——
+            //   谷物农业守田定居 → 祖先崇拜；旧石器无农 → settle 能力天然锁死）
+            if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, "settle"))
+            {
+                int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionUpgradeRate);
+                ShareField.RelTransfer(e.ReligionShare, ReligionStage.Shaman, ReligionStage.Ancestor, amt);
+            }
             // 祖先 → 多神 / 多神 → 一神：后续阶段
         }
 
