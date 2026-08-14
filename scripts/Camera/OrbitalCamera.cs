@@ -20,6 +20,8 @@ namespace World.Camera
 		private const float MouseSensitivity = 0.005f;
 
 		private Camera3D _camera;
+		/// <summary>公开相机（2026-08-17 点击诊断用——MapViewer 射线检测）。</summary>
+		public Camera3D Cam => _camera;
 
 		private float MinDistance => _planetRadius * 1.02f; // 贴地视角（球面距 ~2% R）
 		private float MaxDistance => _planetRadius * 5f;

@@ -1824,6 +1824,55 @@ public partial class MapViewer : Node3D
     private bool IsDisplaySea(int id)
         => _tileElev[id] < _hSea && (_civCtx?.R == null || _civCtx.R[id] <= 0f);
 
+    /// <summary>点击诊断（2026-08-17 用户要求）：左键点击地图格 → 日志打印位置/颜色/势力/人口等
+    /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
+    public override void _UnhandledInput(InputEvent e)
+    {
+        if (e is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left
+            && _map != null && _tiles != null)
+        {
+            var cam = GetNode<OrbitalCamera>("OrbitalCamera")?.Cam;
+            if (cam == null) return;
+            var from = cam.ProjectRayOrigin(mb.Position);
+            var dir = cam.ProjectRayNormal(mb.Position);
+            // 射线-球面求交（球心=原点）
+            float r = RadiusKm;
+            float a = dir.Dot(dir);
+            float b = 2f * from.Dot(dir);
+            float c = from.Dot(from) - r * r;
+            float disc = b * b - 4f * a * c;
+            if (disc < 0f) return;
+            float t = (-b - Mathf.Sqrt(disc)) / (2f * a);
+            if (t < 0f) t = (-b + Mathf.Sqrt(disc)) / (2f * a);
+            if (t < 0f) return;
+            var hit = from + dir * t;
+            // 最近格中心（O(n) 一次点击——40962 距离比较 ~1ms）
+            int best = -1;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < _tiles.Count; i++)
+            {
+                float d = (_tiles[i].Center - hit).LengthSquared();
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            if (best >= 0) ClickDebug(best);
+        }
+    }
+
+    /// <summary>格诊断打印（位置/颜色/势力/人口/实体——逐字段全量）。</summary>
+    private void ClickDebug(int i)
+    {
+        var col = MakeColorFn(_layer)(_tiles[i]);
+        GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
+        GD.Print($"  elev={_tileElev[i]:F3} pop={_tilePop[i]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
+        if (_civCtx != null)
+        {
+            GD.Print($"  CellOwner={(_civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1)} R={(_civCtx.R != null ? _civCtx.R[i] : -1f):F2} LockedUntil={(_civCtx.LockedUntil != null ? _civCtx.LockedUntil[i] : 0)}");
+            foreach (var ce in _civCtx.Entities)
+                if (!ce.Dead && ce.Cell == i)
+                    GD.Print($"  驻扎实体={ce.Id} P={ce.P:F1} CarryMult={ce.CarryMult:F2} TSize={ce.TerritorySize} TerrId={ce.TerritoryId} ChiefdomId={ce.ChiefdomId} Prestige={ce.Prestige:F2}");
+        }
+    }
+
     /// <summary>同步图层按钮的按下态与可见性（键盘/Inspector/分类切换时 UI 跟随）。
     /// 可见性 = 只显示当前分类的子按钮；按下态跟随 _layer；行位置按可见按钮数重算居中。
     /// ⚠️ 分类跟随：外部（Inspector/代码）直接改 Layer 时自动切到其所属分类，
