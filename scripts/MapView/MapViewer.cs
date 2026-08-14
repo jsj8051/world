@@ -1897,12 +1897,12 @@ public partial class MapViewer : Node3D
             World.CivSim.CivEntity owner = null;
             foreach (var ce in _civCtx.Entities)
                 if (!ce.Dead && ce.Id == ownerId) { owner = ce; break; }
-            if (owner != null && owner.Cell >= 0 && owner.Cell < n && _tiles != null)
+            if (owner != null && owner.Cell >= 0 && owner.Cell < _tiles.Count && _tiles != null)
             {
                 int dist = -1;
                 if (_civCtx.Grid?.Neighbors != null && _civCtx.R != null)
                 {
-                    var distArr = new int[n];
+                    var distArr = new int[_tiles.Count];
                     System.Array.Fill(distArr, -1);
                     var q = new System.Collections.Generic.Queue<int>();
                     distArr[i] = 0; q.Enqueue(i);
