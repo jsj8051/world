@@ -232,8 +232,8 @@ public partial class CivSimDiag : Node
         var ctx = new CivSimContext
         {
             Grid = g,
-            CellTribes = new List<CivEntity>[n],
-            Entities = new List<CivEntity>(),
+            CellTribes = new List<Tribe>[n],
+            Tribes = new List<Tribe>(),
             Seed = seed,
             OriginCount = origins,
             Rng = new DeterministicRandom(seed),
@@ -243,7 +243,7 @@ public partial class CivSimDiag : Node
             CellFarmPop = new float[n],
             BfsStamp = new int[n],
             BfsStampValue = 1,
-            NextEntityId = 0,   // 实体 Id 计数器（测试构造从 0 起）
+            NextTribeId = 0,   // 实体 Id 计数器（测试构造从 0 起）
             WildCrops = g.EnsureWildCrops(),
             Suit = WildCropsSystem.Suitability(g),
             FirstFarmTick = -1,
@@ -262,7 +262,7 @@ public partial class CivSimDiag : Node
             ctx.TerritoryCells[i] = new List<int>();
             ctx.TerritoryDists[i] = new List<byte>();
         }
-        for (int i = 0; i < n; i++) ctx.CellTribes[i] = new List<CivEntity>();
+        for (int i = 0; i < n; i++) ctx.CellTribes[i] = new List<Tribe>();
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（两层模型 2026-08-17）
         // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场已在构造建好（全 0）
         return ctx;
@@ -285,11 +285,11 @@ public partial class CivSimDiag : Node
         }
     }
 
-    private static CivEntity AddEntity(CivSimContext ctx, int cell, float pop, params string[] techs)
+    private static Tribe AddTribe(CivSimContext ctx, int cell, float pop, params string[] techs)
     {
-        var e = new CivEntity
+        var e = new Tribe
         {
-            Id = ctx.NextEntityId++,   // 独立计数器（与 Origin/分裂一致，2026-08-10）
+            Id = ctx.NextTribeId++,   // 独立计数器（与 Origin/分裂一致，2026-08-10）
             Cell = cell,
             P = pop,
             OriginCell = cell,
@@ -299,7 +299,7 @@ public partial class CivSimDiag : Node
             ReligionShare = ShareField.NewReligion(ReligionStage.Animism),
         };
         foreach (var t in techs) e.TechKeys.Add(t);
-        ctx.Entities.Add(e);
+        ctx.Tribes.Add(e);
         ctx.CellTribes[cell].Add(e);
         return e;
     }
@@ -311,7 +311,7 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var e = AddEntity(ctx, 0, 1f, TechTable.StoneCore);
+        var e = AddTribe(ctx, 0, 1f, TechTable.StoneCore);
         // 手造领地 1 格（驻扎点格）：新模型 F = R×A×w(0)×劳动力爬坡；平衡 P → R×A
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
@@ -358,10 +358,10 @@ public partial class CivSimDiag : Node
 
         // 场景 A：φ=1.0 Soil3 → 农业潜在=4y0 > 狩猎 1.455y0 → 稳态农业
         // P=3×y0（2026-08-10 调：0.5×y0 时 eF>eH 致 φ=0.3 也转农——P 大时 eH→1/0.3 上限、eF=yF/P 线性降 → 分得开）
-        var ea = AddEntity(ctx, 0, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        var ea = AddTribe(ctx, 0, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[0, 0] = 1.0f;   // 小麦 φ
         // 场景 B：φ=0.3 Soil3 → 农业潜在=1.2y0 < 狩猎 1.455y0 → 最终狩猎
-        var eb = AddEntity(ctx, 1, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        var eb = AddTribe(ctx, 1, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[1, 0] = 0.3f;
         // ⚠️ 2026-08-17 决策领地化：ModeModel 用 Σ 领地格潜在——测试补 1 格领地（=驻扎格，领地版退化为单格语义）
         ctx.CellOwner[0] = 0;
@@ -393,7 +393,7 @@ public partial class CivSimDiag : Node
         // 滞回：交叉点 P≈13.8y0 处 |e_猎−e_农|<0.02 → 保持当前方式（独立 ctx 防干扰；Soil3 下 yF=4y0 交叉点不变）
         var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx2 = MakeCtx(g2);
-        var eh = AddEntity(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        var eh = AddTribe(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx2.Suit[0, 0] = 1.0f;
         eh.IsFarming = true;
         // ⚠️ 2026-08-17 决策领地化：滞回验证与 ModeModel 同口径（领地版）——补 1 格领地（1 格 = 单格语义）
@@ -415,12 +415,12 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        ctx.Entities[0].CultureShare = ShareField.NewCulture("cult_a");
-        ctx.Entities[1].CultureShare = ShareField.NewCulture("cult_b");
-        ctx.Entities[2].CultureShare = ShareField.NewCulture("cult_c");
+        AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        ctx.Tribes[0].CultureShare = ShareField.NewCulture("cult_a");
+        ctx.Tribes[1].CultureShare = ShareField.NewCulture("cult_b");
+        ctx.Tribes[2].CultureShare = ShareField.NewCulture("cult_c");
         var culture = new CultureModel();
         var energy = new EnergyModel();
         bool conserved = true;
@@ -431,17 +431,17 @@ public partial class CivSimDiag : Node
             ctx.Tick = tick;
             energy.Execute(ctx);
             culture.Execute(ctx);
-            string dom = ShareField.DomKey(ctx.Entities[0].CultureShare);
+            string dom = ShareField.DomKey(ctx.Tribes[0].CultureShare);
             if (prevDom != null && dom != prevDom) domMonotonic = false;   // 主导 key 稳定（不跳变）
             prevDom = dom;
-            foreach (var e in ctx.Entities)
+            foreach (var e in ctx.Tribes)
             {
                 int sum = 0;
                 for (int k = 0; k < e.CultureShare.Length; k++) sum += e.CultureShare[k].Frac;   // ⚠️ 2026-08-17 审查：循环统计全段（硬编码 2 段会在文化特征扩展后漏检）
                 if (sum != 255) conserved = false;
             }
         }
-        int domFrac = ShareField.DomFrac(ctx.Entities[0].CultureShare);
+        int domFrac = ShareField.DomFrac(ctx.Tribes[0].CultureShare);
         Check("S3 份额守恒+主导同化", conserved && domMonotonic && domFrac > 150,
             $"Σ恒等={conserved} 主导单调={domMonotonic} 30tick后主导份额={domFrac}/255");
     }
@@ -454,20 +454,20 @@ public partial class CivSimDiag : Node
         // 格 0 领地主 band，格 1 无主 → 殖民目标
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddEntity(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
+        var e = AddTribe(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
         e.CultureShare = new[] { new ShareEntry { Key = "cult_7", Frac = 200 }, new ShareEntry { Key = "cult_9", Frac = 55 } };
         e.CultureGroupShare = new[] { new ShareEntry { Key = "cult_3", Frac = 250 }, new ShareEntry { Key = "cult_0", Frac = 5 } };
         e.ReligionShare = ShareField.NewReligion(ReligionStage.Shaman);
         e.IsFarming = false;
-        ctx.CellTribes[0] = new List<CivEntity> { e };
+        ctx.CellTribes[0] = new List<Tribe> { e };
         // 领地 1 格（驻扎点格 0 归属 e）；格 1 无主 → 殖民目标
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
         var sm = new SplitMigrateModel();
         sm.Execute(ctx);
-        bool ok = ctx.Entities.Count == 2;
-        var nt = ctx.Entities[1];
+        bool ok = ctx.Tribes.Count == 2;
+        var nt = ctx.Tribes[1];
         ok &= Mathf.Abs(nt.P - 225f) < 0.01f && Mathf.Abs(e.P - 275f) < 0.01f;   // 45% 带走
         ok &= nt.Cell != 0 && ctx.CellOwner[nt.Cell] == -1;   // 殖民到任一无主格（tie-break 由遍历顺序定）
         ok &= ctx.CellOwner[0] == 0;   // 母领地不动
@@ -484,8 +484,8 @@ public partial class CivSimDiag : Node
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         // a 无 handaxe：bow/microlith 的前置链在 b 侧缺失 → 不传（防中间科技先传）
-        var a = AddEntity(ctx, 0, 300f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);
-        var b = AddEntity(ctx, 0, 100f, TechTable.StoneCore);   // 同格；缺 microlith/handaxe
+        var a = AddTribe(ctx, 0, 300f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);
+        var b = AddTribe(ctx, 0, 100f, TechTable.StoneCore);   // 同格；缺 microlith/handaxe
         var spread = new SpreadModel();
         bool blocked = true;
         for (int tick = 0; tick < 60; tick++)
@@ -511,12 +511,12 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // ⚠️ 8 格：e3 需独立格（同格会触发传播段同化稀释份额）
         var ctx = MakeCtx(g);
-        var e1 = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
+        var e1 = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
         e1.Surplus = 0.5f;   // 盈余期
-        var e2 = AddEntity(ctx, 1, 100f, TechTable.StoneCore, TechTable.Grinding, TechTable.SeedWheat);
+        var e2 = AddTribe(ctx, 1, 100f, TechTable.StoneCore, TechTable.Grinding, TechTable.SeedWheat);
         e2.Surplus = -0.1f;  // 狩猎（IsFarming=false）→ 无定居 → 祖先锁
         // ⚠️ 2026-08-17 定居落地：农业 band（IsFarming → settle）→ 祖先解锁（萨满→祖先）
-        var e3 = AddEntity(ctx, 2, 100f, TechTable.StoneCore, TechTable.Microlith, TechTable.SeedWheat);   // 格2（独立格，无同化干扰）
+        var e3 = AddTribe(ctx, 2, 100f, TechTable.StoneCore, TechTable.Microlith, TechTable.SeedWheat);   // 格2（独立格，无同化干扰）
         e3.IsFarming = true;
         e3.Surplus = 0.5f;   // 定居农业 + 盈余 → 先泛灵→萨满，再萨满→祖先
         var rel = new ReligionModel();
@@ -535,8 +535,8 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var a = AddEntity(ctx, 0, 200f, TechTable.StoneCore);
-        var b = AddEntity(ctx, 0, 200f, TechTable.StoneCore);   // 同格；AddEntity 默认同语言群 test_grp
+        var a = AddTribe(ctx, 0, 200f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 0, 200f, TechTable.StoneCore);   // 同格；AddTribe 默认同语言群 test_grp
         ctx.TerritoryLastRebuild = -10;   // 越过频率守卫（Tick=0，0-(-10)=10 ≥ 10）
         new TerritoryModel().Execute(ctx);
         bool united = a.TerritoryId == b.TerritoryId && a.TerritorySize == 2;
@@ -558,7 +558,7 @@ public partial class CivSimDiag : Node
         // ctxA：饥荒 P=10(<SplitPop12), FLast=2.5（压力 0.75）→ P_eff=17.5>12 → 裂变（纯饥荒驱动，张力=0）
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var famine = AddEntity(ctxA, 0, 10f, TechTable.StoneCore);
+        var famine = AddTribe(ctxA, 0, 10f, TechTable.StoneCore);
         famine.FLast = 2.5f;          // 产出 1/4（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
         ctxA.CellOwner[0] = 0;        // 领地 1 格；其余格无主 → 殖民目标
         ctxA.TerritoryCells[0].Add(0);
@@ -569,7 +569,7 @@ public partial class CivSimDiag : Node
         // ctxB：盈余 P=10（<SplitPop12）, FLast=20 → 无压力无张力 → P_eff=10 不裂（2026-08-17 量级跟随承载：旧 P=50 现必裂）
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var fed = AddEntity(ctxB, 0, 10f, TechTable.StoneCore);
+        var fed = AddTribe(ctxB, 0, 10f, TechTable.StoneCore);
         fed.FLast = 20f;
         ctxB.CellOwner[0] = 0;
         ctxB.TerritoryCells[0].Add(0);
@@ -585,9 +585,9 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var withCanoe = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
-        var noCanoe = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
-        var withSeed = AddEntity(ctx, 0, 100f, TechTable.Grinding, TechTable.SeedWheat);
+        var withCanoe = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
+        var noCanoe = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
+        var withSeed = AddTribe(ctx, 0, 100f, TechTable.Grinding, TechTable.SeedWheat);
         CivEngine.RefreshCellState(ctx);   // 算 CapMask
         bool canoeOk = CapabilityTable.Has(ctx, withCanoe, "canoe") && !CapabilityTable.Has(ctx, noCanoe, "canoe");
         bool seedOk = CapabilityTable.Has(ctx, withSeed, "seed") && !CapabilityTable.Has(ctx, noCanoe, "seed");
@@ -603,8 +603,8 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var withS = AddEntity(ctx, 0, 1000f, TechTable.Storage, TechTable.Fire);     // 有存储
-        var noS = AddEntity(ctx, 1, 1000f, TechTable.Fire);                          // 无存储
+        var withS = AddTribe(ctx, 0, 1000f, TechTable.Storage, TechTable.Fire);     // 有存储
+        var noS = AddTribe(ctx, 1, 1000f, TechTable.Fire);                          // 无存储
         withS.FLast = 500f; noS.FLast = 500f;   // 缺口 50%（D/F = 2 → 负增长）
         var growth = new GrowthModel();
         for (int t = 0; t < 3; t++) { ctx.Tick = t; growth.Execute(ctx); }
@@ -621,8 +621,8 @@ public partial class CivSimDiag : Node
         var ctx = MakeCtx(g);
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0 草原可牧；格1 无生态位
-        var herd = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);
-        var noHerd = AddEntity(ctx, 1, 10000f, TechTable.StoneCore);          // 无科技（格1 也无生态位）
+        var herd = AddTribe(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);
+        var noHerd = AddTribe(ctx, 1, 10000f, TechTable.StoneCore);          // 无科技（格1 也无生态位）
         ctx.CellOwner[0] = 0; ctx.CellOwner[1] = 1;
         ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);
         ctx.TerritoryCells[1].Add(1); ctx.TerritoryDists[1].Add(1);
@@ -644,7 +644,7 @@ public partial class CivSimDiag : Node
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0：livestock 能力解锁条件（驻扎格生态位）——开垦1 → 牧场贡献0
         g.WildLivestock[1] = 1;   // 格1：草场牧场
-        var e = AddEntity(ctx, 0, 4000f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding, TechTable.Livestock);
+        var e = AddTribe(ctx, 0, 4000f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding, TechTable.Livestock);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
         ctx.Cultivation[0] = 1f;   // 农业产出 ×开垦率——不开垦秸秆恒 0（测试补开垦）
@@ -674,7 +674,7 @@ public partial class CivSimDiag : Node
         var ctx = MakeCtx(g);
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0 可牧（采集+牧场同格：潜在 1:2）
-        var e = AddEntity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);   // P 大：劳动充足
+        var e = AddTribe(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);   // P 大：劳动充足
         e.IsFarming = false;
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
@@ -696,7 +696,7 @@ public partial class CivSimDiag : Node
         // ctxA：饿（FLast=0.5 < P=1）→ 迁移
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var eA = AddEntity(ctxA, 0, 1f, TechTable.StoneCore);
+        var eA = AddTribe(ctxA, 0, 1f, TechTable.StoneCore);
         eA.FLast = 0.5f;   // 饿（F<D；砍存量后由土地饱和/超载产生）
         int cellOld = eA.Cell;   // ⚠️ 2026-08-17 审查修复：打印迁移前后对比需记旧格
         ctxA.CellOwner[0] = 0;
@@ -707,7 +707,7 @@ public partial class CivSimDiag : Node
         // ctxB：不饿（FLast=2 > P=1）→ 不迁移
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var eB = AddEntity(ctxB, 0, 1f, TechTable.StoneCore);
+        var eB = AddTribe(ctxB, 0, 1f, TechTable.StoneCore);
         eB.FLast = 2f;
         ctxB.CellOwner[0] = 0;
         ctxB.TerritoryCells[0].Add(0);
@@ -727,8 +727,8 @@ public partial class CivSimDiag : Node
         // 场景 A：强覆盖——A P=200 → I_A=220×0.79=173.8 > I_B×1.15=43.5×1.15 → 易主
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
-        var aA = AddEntity(ctxA, 0, 200f, TechTable.StoneCore);
-        var bA = AddEntity(ctxA, 11, 50f, TechTable.StoneCore);
+        var aA = AddTribe(ctxA, 0, 200f, TechTable.StoneCore);
+        var bA = AddTribe(ctxA, 11, 50f, TechTable.StoneCore);
         ctxA.CellOwner[0] = 0;
         ctxA.CellOwner[11] = 1;
         ctxA.CellOwner[1] = 1;   // 边界格归 B（弱）
@@ -737,8 +737,8 @@ public partial class CivSimDiag : Node
         // 场景 B：势均力敌——A P=50 → I_A=43.5 = I_B → 粘性保住 B
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxB = MakeCtx(gB);
-        var aB = AddEntity(ctxB, 0, 50f, TechTable.StoneCore);
-        var bB = AddEntity(ctxB, 11, 50f, TechTable.StoneCore);
+        var aB = AddTribe(ctxB, 0, 50f, TechTable.StoneCore);
+        var bB = AddTribe(ctxB, 11, 50f, TechTable.StoneCore);
         ctxB.CellOwner[0] = 0;
         ctxB.CellOwner[11] = 1;
         ctxB.CellOwner[1] = 1;
@@ -755,8 +755,8 @@ public partial class CivSimDiag : Node
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 10;
-        var ch = AddEntity(ctx, 0, 130f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);   // 军事 2.7
-        var ow = AddEntity(ctx, 1, 50f, TechTable.StoneCore);
+        var ch = AddTribe(ctx, 0, 130f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);   // 军事 2.7
+        var ow = AddTribe(ctx, 1, 50f, TechTable.StoneCore);
         ctx.CellOwner[0] = 0;
         ctx.CellOwner[1] = 1;
         ctx.CellOwner[2] = 1;   // 争议格归 owner
@@ -777,16 +777,16 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var withBow = AddEntity(ctx, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
-        var plain = AddEntity(ctx, 1, 50f, TechTable.StoneCore);
+        var withBow = AddTribe(ctx, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
+        var plain = AddTribe(ctx, 1, 50f, TechTable.StoneCore);
         float milBow = TechTable.MilitaryMult(withBow.TechKeys);
         float milPlain = TechTable.MilitaryMult(plain.TechKeys);
         bool decoupled = milBow > 1f && milPlain == 1f;   // 解耦：武器进军事、无武器=1
         // 采样：同 P 一有弓一无——胜率 = 50×m / (50×m + 50)；固定 seed 确定性统计
         int bowWins = 0, plainWins = 0;
         var ctxS = MakeCtx(g, seed: 7);
-        var cb = AddEntity(ctxS, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
-        var cp = AddEntity(ctxS, 1, 50f, TechTable.StoneCore);
+        var cb = AddTribe(ctxS, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
+        var cp = AddTribe(ctxS, 1, 50f, TechTable.StoneCore);
         for (int k = 0; k < 60; k++)
         {
             cb.P = 50f; cp.P = 50f;   // 每次重置（损耗累积会衰减到 1 失真）
@@ -806,8 +806,8 @@ public partial class CivSimDiag : Node
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
         ctxA.Tick = 10;
-        var aA = AddEntity(ctxA, 0, 200f, TechTable.StoneCore);
-        var bA = AddEntity(ctxA, 11, 50f, TechTable.StoneCore);
+        var aA = AddTribe(ctxA, 0, 200f, TechTable.StoneCore);
+        var bA = AddTribe(ctxA, 11, 50f, TechTable.StoneCore);
         ctxA.CellOwner[0] = 0;
         ctxA.CellOwner[11] = 1;
         ctxA.CellOwner[1] = 0;              // 武力夺取：格 1 归 A
@@ -818,8 +818,8 @@ public partial class CivSimDiag : Node
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxB = MakeCtx(gB);
         ctxB.Tick = 10;
-        var aB = AddEntity(ctxB, 0, 50f, TechTable.StoneCore);
-        var bB = AddEntity(ctxB, 11, 200f, TechTable.StoneCore);
+        var aB = AddTribe(ctxB, 0, 50f, TechTable.StoneCore);
+        var bB = AddTribe(ctxB, 11, 200f, TechTable.StoneCore);
         ctxB.CellOwner[0] = 0;
         ctxB.CellOwner[11] = 1;
         ctxB.CellOwner[1] = 0;              // A 曾武力夺取
@@ -836,7 +836,7 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddEntity(ctx, 0, 1000f, TechTable.StoneCore);   // P=1000 ≫ 0.1×pot → 劳动力充足（土地受限区，开垦减产可见）
+        var e = AddTribe(ctx, 0, 1000f, TechTable.StoneCore);   // P=1000 ≫ 0.1×pot → 劳动力充足（土地受限区，开垦减产可见）
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
@@ -853,9 +853,9 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var fa = AddEntity(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
+        var fa = AddTribe(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
         fa.IsFarming = true;
-        var hu = AddEntity(ctx, 1, 50f, TechTable.StoneCore);   // 非农对照
+        var hu = AddTribe(ctx, 1, 50f, TechTable.StoneCore);   // 非农对照
         ctx.CellOwner[0] = 0;   // ⚠️ 2026-08-17 领地农业：开垦走领地格——测试需设领地（否则 terr 空不开垦）
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
@@ -876,7 +876,7 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddEntity(ctx, 0, 0f, TechTable.StoneCore, TechTable.SeedWheat);
+        var e = AddTribe(ctx, 0, 0f, TechTable.StoneCore, TechTable.SeedWheat);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
         ctx.CellOwner[0] = 0;
@@ -916,13 +916,13 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var farm = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var farm = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
-        var hunter = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
-        var s1 = AddEntity(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋 ×0.6
-        var s2 = AddEntity(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封 ×0.4
-        var gA = AddEntity(ctx, 4, 100f, TechTable.StoneCore);                     // 游群（r 基础）
-        var gB = AddEntity(ctx, 5, 100f, TechTable.StoneCore);
+        var hunter = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
+        var s1 = AddTribe(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋 ×0.6
+        var s2 = AddTribe(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封 ×0.4
+        var gA = AddTribe(ctx, 4, 100f, TechTable.StoneCore);                     // 游群（r 基础）
+        var gB = AddTribe(ctx, 5, 100f, TechTable.StoneCore);
         gB.IsFarming = true;                                                       // 定居（r×1.5）
         CivEngine.RefreshCellState(ctx);   // CapMask（settle/pottery/storage）
         bool settleOk = CapabilityTable.Has(ctx, farm, "settle") && !CapabilityTable.Has(ctx, hunter, "settle");
@@ -1042,8 +1042,8 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         a.FLast = 100.5f;   // 绝对盈余 0.5 人（小宴席能力）
         b.FLast = 90f;    // 缺口 10 人
         var p = new PrestigeModel();
@@ -1061,8 +1061,8 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         a.FLast = 105f;   // 绝对盈余 5 人（宴席能力）
         b.FLast = 90f;
         var p = new PrestigeModel();
@@ -1079,11 +1079,11 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsFarming = true;   // settle → 祖先宗教可达
         ShareField.RelTransfer(a.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         a.Prestige = 1.2f;
-        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         b.Prestige = 1.2f;    // 泛灵（默认）——无谱系
         new PrestigeModel().Execute(ctx);
         bool aChief = a.IsChief;
@@ -1099,21 +1099,21 @@ public partial class CivSimDiag : Node
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         // 部落 A：格 0/1（领地相邻），a1 是酋长（祖先宗教+高声望）
-        var a1 = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a1 = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         a1.IsFarming = true;
         ShareField.RelTransfer(a1.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         a1.Prestige = 1.2f;
         a1.IsChief = true;   // 手动置位（PrestigeModel 派生——测试直接构造酋长状态）
         a1.TerritoryId = 10; a1.TerritorySize = 2;
-        var a2 = AddEntity(ctx, 1, 80f, TechTable.StoneCore);
+        var a2 = AddTribe(ctx, 1, 80f, TechTable.StoneCore);
         a2.TerritoryId = 10; a2.TerritorySize = 2;
         a1.FHuntLast = 120f; a2.FHuntLast = 80f;   // A 主导猎
         // 部落 B：格 3（领地 2/3 与 A 相邻），产出主导农
-        var b1 = AddEntity(ctx, 3, 90f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b1 = AddTribe(ctx, 3, 90f, TechTable.StoneCore, TechTable.SeedWheat);
         b1.TerritoryId = 20; b1.TerritorySize = 1;
         b1.FFarmLast = 100f;                        // B 主导农（互补 ✓）
         // 领地格（手造——Rebuild 会覆盖，但 TribesTouch 直接用 TerritoryCells）
-        foreach (var e in ctx.Entities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        foreach (var e in ctx.Tribes) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
         // 部落 A 领地含格 1（邻格 2 属 B）
         ctx.TerritoryCells[a1.Id].Add(1); ctx.TerritoryDists[a1.Id].Add(1);
         ctx.TerritoryCells[b1.Id].Add(2); ctx.TerritoryDists[b1.Id].Add(1);
@@ -1121,7 +1121,7 @@ public partial class CivSimDiag : Node
         new ChiefdomModel().Execute(ctx);
         bool merged = a1.ChiefdomId >= 0 && a1.ChiefdomId == b1.ChiefdomId && a1.ChiefdomSize == 2;
         // 反例 1：c1（格 4）无酋长、产出猎（与 A 同质）——不合并
-        var c1 = AddEntity(ctx, 4, 70f, TechTable.StoneCore);
+        var c1 = AddTribe(ctx, 4, 70f, TechTable.StoneCore);
         c1.TerritoryId = 30; c1.TerritorySize = 1;
         c1.FHuntLast = 60f;
         ctx.TerritoryCells[c1.Id].Add(4); ctx.TerritoryDists[c1.Id].Add(0);
@@ -1139,8 +1139,8 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         a.TerritoryId = 5; b.TerritoryId = 6;   // 两个部落
         a.ChiefdomId = 5; b.ChiefdomId = 5; a.ChiefdomSize = 2; b.ChiefdomSize = 2;   // 同一酋邦
         a.IsChief = true;   // ⚠️ 2026-08-17：酋邦须有酋长（凝聚条件②）——无酋长会触发继承危机续命（T50 语义）
@@ -1161,14 +1161,14 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var chief = AddEntity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var chief = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         chief.IsFarming = true;
         ShareField.RelTransfer(chief.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         chief.Prestige = 1.2f;
         chief.ChiefdomId = 9; chief.ChiefdomSize = 3; chief.Contributed = 50f;
-        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         b.ChiefdomId = 9; b.ChiefdomSize = 3; b.Contributed = 20f;   // 贡献过 → 受赈
-        var c = AddEntity(ctx, 2, 100f, TechTable.StoneCore);
+        var c = AddTribe(ctx, 2, 100f, TechTable.StoneCore);
         c.ChiefdomId = 9; c.ChiefdomSize = 3; c.Contributed = 0f;    // 未贡献 → 不受赈
         new PrestigeModel().Execute(ctx);   // 更新 IsChief（chief 需确认）+ 精英供养
         b.FLast = 50f; c.FLast = 50f;   // 坏年景（P=100 缺口 50%）
@@ -1186,24 +1186,24 @@ public partial class CivSimDiag : Node
         // 场景 A：贡赋充足
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var ca = AddEntity(ctxA, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var ca = AddTribe(ctxA, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         ca.IsFarming = true;
         ShareField.RelTransfer(ca.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         ca.Prestige = 1.2f;
         ca.ChiefdomId = 7; ca.ChiefdomSize = 2; ca.Contributed = 100f;   // 池 100 ≥ 精英 10
-        var ma = AddEntity(ctxA, 1, 50f, TechTable.StoneCore);
+        var ma = AddTribe(ctxA, 1, 50f, TechTable.StoneCore);
         ma.ChiefdomId = 7; ma.ChiefdomSize = 2; ma.Contributed = 0f;
         new PrestigeModel().Execute(ctxA);
         bool fed = ca.P == 100f;   // 精英被供养 → P 不变
         // 场景 B：贡赋不足
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var cb = AddEntity(ctxB, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var cb = AddTribe(ctxB, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         cb.IsFarming = true;
         ShareField.RelTransfer(cb.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         cb.Prestige = 1.2f;
         cb.ChiefdomId = 8; cb.ChiefdomSize = 2; cb.Contributed = 2f;    // 池 2 < 精英 10
-        var mb = AddEntity(ctxB, 1, 50f, TechTable.StoneCore);
+        var mb = AddTribe(ctxB, 1, 50f, TechTable.StoneCore);
         mb.ChiefdomId = 8; mb.ChiefdomSize = 2; mb.Contributed = 0f;
         new PrestigeModel().Execute(ctxB);
         bool starved = cb.P < 100f;   // 贡赋不足 → 精英饿死
@@ -1220,17 +1220,17 @@ public partial class CivSimDiag : Node
         //   （不等 P 时 challenger 输了 P 仍高——判定恒真）；联盟 ow=100+70=170 → winChance 0.37 vs 0.5
         // 场景 A：单部落 owner P=100 vs 入侵 100
         var ctxA = MakeCtx(g, seed: 7);
-        var owA = AddEntity(ctxA, 0, 100f, TechTable.StoneCore);
-        var inA = AddEntity(ctxA, 1, 100f, TechTable.StoneCore);
+        var owA = AddTribe(ctxA, 0, 100f, TechTable.StoneCore);
+        var inA = AddTribe(ctxA, 1, 100f, TechTable.StoneCore);
         ctxA.CellOwner[2] = 0;
         int loneWins = 0;
         for (int k = 0; k < 60; k++) { inA.P = 100f; owA.P = 100f; ConflictModel.ResolveConflict(ctxA, inA, owA, 2); if (inA.P > owA.P) loneWins++; }
         // 场景 B：酋邦 owner（100+70）vs 入侵 100
         var ctxB = MakeCtx(g, seed: 7);
-        var owB = AddEntity(ctxB, 0, 100f, TechTable.StoneCore);
-        var ally = AddEntity(ctxB, 1, 70f, TechTable.StoneCore);
+        var owB = AddTribe(ctxB, 0, 100f, TechTable.StoneCore);
+        var ally = AddTribe(ctxB, 1, 70f, TechTable.StoneCore);
         owB.ChiefdomId = 3; ally.ChiefdomId = 3;
-        var inB = AddEntity(ctxB, 2, 100f, TechTable.StoneCore);
+        var inB = AddTribe(ctxB, 2, 100f, TechTable.StoneCore);
         ctxB.CellOwner[3] = 0;
         int chiefWins = 0;
         for (int k = 0; k < 60; k++) { inB.P = 100f; owB.P = 100f; ConflictModel.ResolveConflict(ctxB, inB, owB, 3); if (inB.P > owB.P) chiefWins++; }
@@ -1245,13 +1245,13 @@ public partial class CivSimDiag : Node
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddEntity(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddEntity(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddTribe(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         a.TerritoryId = 4; b.TerritoryId = 5;
         a.Prestige = 0.8f; b.Prestige = 0.5f;
         a.IsChief = true;   // 第一步：a 是酋长 → 凝聚
         a.FHuntLast = 100f; b.FFarmLast = 100f; // 产出互补（凝聚可发生）
-        foreach (var e in ctx.Entities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        foreach (var e in ctx.Tribes) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
         ctx.TerritoryCells[a.Id].Add(2); ctx.TerritoryDists[a.Id].Add(1);
         ctx.TerritoryCells[b.Id].Add(3); ctx.TerritoryDists[b.Id].Add(1);
         ctx.ChiefdomLastEval = -100;
@@ -1270,11 +1270,11 @@ public partial class CivSimDiag : Node
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
     private void T23_TerritoryMult()
     {
-        var a = new CivEntity { TerritoryId = 7, TerritorySize = 2 };
-        var b = new CivEntity { TerritoryId = 7, TerritorySize = 2 };
-        var c = new CivEntity { TerritoryId = 9, TerritorySize = 2 };
-        var d = new CivEntity { TerritoryId = -1, TerritorySize = 1 };
-        var e = new CivEntity { TerritoryId = -1, TerritorySize = 1 };
+        var a = new Tribe { TerritoryId = 7, TerritorySize = 2 };
+        var b = new Tribe { TerritoryId = 7, TerritorySize = 2 };
+        var c = new Tribe { TerritoryId = 9, TerritorySize = 2 };
+        var d = new Tribe { TerritoryId = -1, TerritorySize = 1 };
+        var e = new Tribe { TerritoryId = -1, TerritorySize = 1 };
         float same = SpreadModel.TerritoryMult(a, b);
         float cross = SpreadModel.TerritoryMult(a, c);
         float lone = SpreadModel.TerritoryMult(d, e);
@@ -1331,7 +1331,7 @@ public partial class CivSimDiag : Node
         // [临时调试] 文化空间分布（起源 key + 各文化实体数）
         var cultCount = new Dictionary<string, int>();
         var originCults = new System.Text.StringBuilder();
-        foreach (var e in r1.Context.Entities)
+        foreach (var e in r1.Context.Tribes)
         {
             string ck = World.CivSim.ShareField.DomKey(e.CultureShare);
             if (ck != null) cultCount[ck] = cultCount.TryGetValue(ck, out var v) ? v + 1 : 1;
@@ -1345,7 +1345,7 @@ public partial class CivSimDiag : Node
         GD.Print($"[文化调试] 起源={originCults} | 文化实体数: {cultStr}");
         // [调试] 起源格当前主导文化（是否被外文化吞并）——2026-08-17 审查修复：改动态起源格（旧硬编码 {7597,7106,58} 是特定 n128 图的残留）
         var originCells = new List<int>();
-        foreach (var e in r1.Context.Entities) if (e.BornTick == 0 && !originCells.Contains(e.Cell)) originCells.Add(e.Cell);
+        foreach (var e in r1.Context.Tribes) if (e.BornTick == 0 && !originCells.Contains(e.Cell)) originCells.Add(e.Cell);
         originCells.Sort();
         var ocStr = new System.Text.StringBuilder();
         foreach (int oc in originCells)
@@ -1395,7 +1395,7 @@ public partial class CivSimDiag : Node
         // [临时调试] 文化群/宗教派别多样性（产生 vs 存活）
         var grpCount = new Dictionary<string, int>();
         var relCount = new Dictionary<string, int>();
-        foreach (var e in r1.Context.Entities)
+        foreach (var e in r1.Context.Tribes)
         {
             string gk = World.CivSim.ShareField.DomKey(e.CultureGroupShare);
             if (gk != null) grpCount[gk] = grpCount.TryGetValue(gk, out var v) ? v + 1 : 1;
@@ -1403,7 +1403,7 @@ public partial class CivSimDiag : Node
             if (rk != null) relCount[rk] = relCount.TryGetValue(rk, out var v2) ? v2 + 1 : 1;
         }
         GD.Print($"[文化调试] 文化群存活={grpCount.Count} 宗教派别存活={relCount.Count} (CultureKeyCount={r1.Context.CultureKeyCount} ReligionKeyCount={r1.Context.ReligionKeyCount})");
-        GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Entities.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms");
+        GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Tribes.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms");
         return r1;
     }
 
@@ -1413,7 +1413,7 @@ public partial class CivSimDiag : Node
     {
         var r2 = CivEngine.Run(_grid, seed, origins);
         bool repro = EntitiesEqual(c, r2.Context);
-        Check("T03 复现性（同 seed 两次一致）", repro, $"实体 {c.Entities.Count}");
+        Check("T03 复现性（同 seed 两次一致）", repro, $"实体 {c.Tribes.Count}");
         return repro;
     }
 
@@ -1474,8 +1474,8 @@ public partial class CivSimDiag : Node
                                        out ushort aVer, out var aSt))
                 {
                     bool pkOk = pSeed == rBack.Context.Seed && pTick == rBack.Context.Tick
-                        && pPop == rBack.Context.TotalPopulation() && pEnt == rBack.Context.Entities.Count;
-                    GD.Print($"[Peek验证] seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Entities.Count}) 一致={pkOk}");
+                        && pPop == rBack.Context.TotalPopulation() && pEnt == rBack.Context.Tribes.Count;
+                    GD.Print($"[Peek验证] seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Tribes.Count}) 一致={pkOk}");
                 }
                 else GD.Print("[Peek验证] FAIL 无法 Peek");
             }
@@ -1489,7 +1489,7 @@ public partial class CivSimDiag : Node
             biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
         }
         if (Want("T01")) Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
-        if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Entities.Count}");
+        if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Tribes.Count}");
         if (Want("T19")) Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
             $"ver>7 拒绝={verRejected} v6/v5/v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
         return rtOk;
@@ -1521,8 +1521,8 @@ public partial class CivSimDiag : Node
                 ctxMem.AbsorptionLastEval = rBack.Context.AbsorptionLastEval;
                 RunTicks(ctxMem, 20);                 // 内存态续跑 20
                 RunTicks(rBack.Context, 20);          // 读档态续跑 20（Rng 状态读档已恢复）
-                ctxMem.Entities.RemoveAll(e => e.Dead);
-                rBack.Context.Entities.RemoveAll(e => e.Dead);
+                ctxMem.Tribes.RemoveAll(e => e.Dead);
+                rBack.Context.Tribes.RemoveAll(e => e.Dead);
                 TerritoryModel.Rebuild(rBack.Context);
                 TerritoryModel.Rebuild(ctxMem);
                 contOk = EntitiesEqual(rBack.Context, ctxMem);
@@ -1537,30 +1537,30 @@ public partial class CivSimDiag : Node
         bool t05 = false;
         var ctx0 = MakeCtx(_grid, seed, origins);
         new OriginModel().Execute(ctx0);
-        if (ctx0.Entities.Count == origins)
+        if (ctx0.Tribes.Count == origins)
         {
             bool distOk = true, richOk = true, cultOk = true;
             var richSet = RichZone(_grid);
             float minKm = CivSimContext.OriginDistMin * Mathf.Sqrt(_grid.CellAreaKm2);
-            for (int i = 0; i < ctx0.Entities.Count; i++)
+            for (int i = 0; i < ctx0.Tribes.Count; i++)
             {
-                var e = ctx0.Entities[i];
+                var e = ctx0.Tribes[i];
                 if (e.P != CivSimContext.OriginPop || !e.TechKeys.Contains(TechTable.StoneCore)) cultOk = false;
                 if (ShareField.DomReligion(e.ReligionShare) != ReligionStage.Animism) cultOk = false;
                 if (!richSet.Contains(e.Cell)) richOk = false;
-                for (int j = i + 1; j < ctx0.Entities.Count; j++)
-                    if (_grid.DistKm(e.Cell, ctx0.Entities[j].Cell) < minKm) distOk = false;
+                for (int j = i + 1; j < ctx0.Tribes.Count; j++)
+                    if (_grid.DistKm(e.Cell, ctx0.Tribes[j].Cell) < minKm) distOk = false;
             }
             t05 = distOk && richOk && cultOk;
         }
-        Check("T05 起源播种", t05, $"N={ctx0.Entities.Count} 格距≥12格 富饶区 泛灵 独立文化");
+        Check("T05 起源播种", t05, $"N={ctx0.Tribes.Count} 格距≥12格 富饶区 泛灵 独立文化");
     }
 
     /// <summary>T09 依赖链不变量（bow→microlith→handaxe→stone_core）。</summary>
     private void T09_DependencyChain(CivSimContext c)
     {
         bool depOk = true;
-        foreach (var e in c.Entities)
+        foreach (var e in c.Tribes)
         {
             if (e.TechKeys.Contains(TechTable.Bow) && !e.TechKeys.Contains(TechTable.Microlith)) depOk = false;
             if (e.TechKeys.Contains(TechTable.Microlith) && !e.TechKeys.Contains(TechTable.Handaxe)) depOk = false;
@@ -1579,7 +1579,7 @@ public partial class CivSimDiag : Node
         bool noRevert = true;   // 终态农业实体 e_农 > e_猎（稳态站稳）
         int revertCount = 0;
         int[] seedHolders = new int[5];
-        foreach (var e in c.Entities)
+        foreach (var e in c.Tribes)
         {
             for (int s = 0; s < 5; s++)
                 if (e.TechKeys.Contains(TechTable.SeedKeys[s])) seedHolders[s]++;
@@ -1610,7 +1610,7 @@ public partial class CivSimDiag : Node
     {
         int farmCount = CountFarming(c);
         int toolTechHolders = 0;
-        foreach (var e in c.Entities)
+        foreach (var e in c.Tribes)
             if (e.TechKeys.Contains(TechTable.Bow)) toolTechHolders++;
         bool spreadOk = toolTechHolders > 0;   // 软指标：工具类科技扩散存在性（量级随地形漂移——2026-08-18 放宽）
         Check("T10 传播扩散", spreadOk, $"弓箭持有 {toolTechHolders} ≥ 农业实体 {farmCount}");
@@ -1629,7 +1629,7 @@ public partial class CivSimDiag : Node
         bool relOk = true;
         int shamanEnts = 0;
         var cultSet = new System.Collections.Generic.HashSet<string>();
-        foreach (var e in c.Entities)
+        foreach (var e in c.Tribes)
         {
             // ⚠️ 2026-08-17 定居落地：祖先不再全 0（农业 band 定居 → 祖先合理）——只锁多神/一神（后续阶段）
             if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Polytheism) > 0
@@ -1652,14 +1652,14 @@ public partial class CivSimDiag : Node
             if (c.CellTribes[i].Count > 0) cellsWithEnts++;
             if (c.CellTribes[i].Count > maxCellEnts) maxCellEnts = c.CellTribes[i].Count;
         }
-        GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Entities.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
+        GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Tribes.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
         float cover = land > 0 ? occupied * 100f / land : 0f;
         if (Want("T15")) Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（⚠️ 数据展示型：恒 PASS 参考指标，不硬卡——改阈值需先讨论）");
         if (Want("T16"))
         {
             int farmCount = CountFarming(c);
-            bool pyramid = farmCount < c.Entities.Count / 2;
-            Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Entities.Count - farmCount}");
+            bool pyramid = farmCount < c.Tribes.Count / 2;
+            Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Tribes.Count - farmCount}");
         }
     }
 
@@ -1697,7 +1697,7 @@ public partial class CivSimDiag : Node
     {
         var ids = new HashSet<int>();
         int inTribe = 0;
-        foreach (var e in c.Entities)
+        foreach (var e in c.Tribes)
             if (e.TerritorySize >= 2) { ids.Add(e.TerritoryId); inTribe++; }
         bool emerged = ids.Count >= 1;
         Check("T22 领地涌现", emerged, $"领地 {ids.Count} 个（≥2 band），成员 band {inTribe} 个");
@@ -1709,7 +1709,7 @@ public partial class CivSimDiag : Node
     {
         int prestigeEnts = 0, bigMen = 0, chiefs = 0;
         var chiefdomIds = new HashSet<int>();
-        foreach (var e in c.Entities)
+        foreach (var e in c.Tribes)
         {
             if (e.Prestige > 0f) prestigeEnts++;
             if (e.IsBigMan) bigMen++;
@@ -1735,7 +1735,7 @@ public partial class CivSimDiag : Node
     private static int CountFarming(CivSimContext c)
     {
         int n = 0;
-        foreach (var e in c.Entities) if (e.IsFarming) n++;
+        foreach (var e in c.Tribes) if (e.IsFarming) n++;
         return n;
     }
 
@@ -1755,9 +1755,9 @@ public partial class CivSimDiag : Node
 
     private static bool EntitiesEqual(CivSimContext a, CivSimContext b, string tag = "")
     {
-        if (a.Entities.Count != b.Entities.Count)
+        if (a.Tribes.Count != b.Tribes.Count)
         {
-            GD.Print($"  [往返诊断{tag}] 实体数 {a.Entities.Count} vs {b.Entities.Count}");
+            GD.Print($"  [往返诊断{tag}] 实体数 {a.Tribes.Count} vs {b.Tribes.Count}");
             return false;
         }
         // ⚠️ 2026-08-17 审查修复：场层对比（Cultivation/CellOwner/LockedUntil/Rng 状态）——
@@ -1783,9 +1783,9 @@ public partial class CivSimDiag : Node
             GD.Print($"  [往返诊断{tag}] Rng 状态不一致 {RngStateOf(a)} vs {RngStateOf(b)}");
             return false;
         }
-        for (int k = 0; k < a.Entities.Count; k++)
+        for (int k = 0; k < a.Tribes.Count; k++)
         {
-            var x = a.Entities[k]; var y = b.Entities[k];
+            var x = a.Tribes[k]; var y = b.Tribes[k];
             if (x.Id != y.Id || x.Cell != y.Cell || x.P != y.P || x.IsFarming != y.IsFarming
                 || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick
                 || x.TerritoryId != y.TerritoryId || x.TerritorySize != y.TerritorySize
