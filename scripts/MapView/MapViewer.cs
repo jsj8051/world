@@ -124,7 +124,7 @@ public partial class MapViewer : Node3D
     private byte[] _tileMonsoon;  // 每格季风强度 0-255（v3.7；0=无/海洋）
     private byte[] _tileMonthPrecip; // 每格当月降水比例 0-255（v3.8 月降水图层；月份切换时刷新）
     private byte[] _tileMonthTemp;   // 每格当月温度 −60~60°C→0-255（v3.8 月温度图层；月份切换时刷新）
-    private int[] _tileVerts;      // 每格最近模拟顶点 id（月降水/月温度刷新用）
+    private TileIndex _tileIndex;   // ⚠️ 2026-08-19：显示格↔逻辑格映射收敛（原散落 _tileVerts 数组；63km 错位案根治）
     // 文明图层（.cmp 游玩地图；v2 部落模型：人口/文化/部落/科技）
     private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
     private float[] _tilePop;       // 每格总人口（Σ 部落，0=无人/海洋）
@@ -489,7 +489,6 @@ public partial class MapViewer : Node3D
         _tileMonsoon = new byte[n];
         _tileMonthPrecip = new byte[n];
         _tileMonthTemp = new byte[n];
-        _tileVerts = new int[n];
         _tilePop = new float[n];
         _tileCulture = new int[n];
         _tileCultureGroup = new byte[n];
@@ -524,6 +523,8 @@ public partial class MapViewer : Node3D
         bool hasMineral = map.MineralLevel != null;
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
+        // ⚠️ 2026-08-19：映射收敛——TileIndex 主线程预构建（面→顶点 + 顶点→面反查；63km 错位案根治）
+        _tileIndex = new TileIndex(map, centers);
 
         // 盛行风图层：用存档自转方向/速度（旧存档默认顺转 1.0）
         World.Biome.WindField.Prograde = map.ProgradeRotation;
@@ -536,8 +537,7 @@ public partial class MapViewer : Node3D
             // ⚠️ 2026-08-02 修复：最近顶点直读（无插值）——原 SampleElevation 是 Shepard
             //   插值（多顶点加权平均）→ 相邻格颜色渐变 → 观感"一团团/有插值/不是等格子"。
             //   每格 = 最近模拟顶点的真实值（crisp flat per-tile，符合用户偏好）。
-            int vid = map.NearestVertex(c);
-            _tileVerts[i] = vid;   // 缓存（月降水刷新用）
+            int vid = _tileIndex.FaceToVertex(i);   // 显示格→逻辑顶点（映射收敛，2026-08-19）
             elevArr[i] = map.NormalizedElev(map.Elev[vid]);
             tempArr[i] = hasTemp ? map.Temp[vid] : 0f;
             precipArr[i] = hasPrecip ? map.Precip[vid] : 0f;
@@ -556,7 +556,7 @@ public partial class MapViewer : Node3D
                 //   实测：逻辑 Verts[6376]↔[8393] DistKm=4.0（2 跳正确）但显示 Center 差 63.4km。
                 //   修复：所有逻辑数据按 vid（_tileVerts[i]——面 i 的最近顶点=该面的逻辑格）查——
                 //   显示位置与逻辑位置一致（旧版 CellOwner[i] 用面编号查顶点数组→63km 错位）。
-                int vid2 = _tileVerts[i];
+                int vid2 = _tileIndex.FaceToVertex(i);
                 int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid2] : -1;
                 if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
@@ -598,13 +598,7 @@ public partial class MapViewer : Node3D
             //   保留 v2 修复：驻扎格归势力（弱 band 驻扎格被强邻覆盖时显示自己势力——人口格必有势力色）。
             // ⚠️ 2026-08-18 索引修复：顶点→显示面反查表（_tileVerts[j] 是面 j 的逻辑格——
             //   bestByCell 的 ce.Cell 是顶点编号——写显示格必须经反查）
-            var facesOf = new System.Collections.Generic.List<int>[n];
-            for (int j = 0; j < n; j++)
-            {
-                int vj = _tileVerts[j];
-                if (facesOf[vj] == null) facesOf[vj] = new System.Collections.Generic.List<int>(2);
-                facesOf[vj].Add(j);
-            }
+            // ⚠️ 2026-08-19：反查收敛到 TileIndex.FacesOf（映射唯一入口）
             var bestByCell = new Dictionary<int, World.CivSim.CivEntity>();
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
@@ -618,10 +612,10 @@ public partial class MapViewer : Node3D
                 // ⚠️ 2026-08-18 索引修复：ce.Cell 是逻辑格（顶点）编号——显示格是面编号（不同序）！
                 //   _tilePower[kv.Key]（顶点编号当显示格索引）→ 显示错位 63km（3177 显示别处顶点的势力）。
                 //   通过顶点→面反查表写全部映射面（驻扎格显示在正确位置）。
-                if (facesOf[kv.Key] == null) continue;
+                if (_tileIndex.FacesOf(kv.Key).Count == 0) continue;
                 int powB = PowerIdOf(kv.Value);
                 byte polB = PolityOf(kv.Value);
-                foreach (var f in facesOf[kv.Key]) { _tilePower[f] = powB; _tilePolity[f] = polB; }
+                foreach (var f in _tileIndex.FacesOf(kv.Key)) { _tilePower[f] = powB; _tilePolity[f] = polB; }
             }
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
@@ -638,9 +632,9 @@ public partial class MapViewer : Node3D
         _popMax = 0f;
         for (int i = 0; i < n; i++)
         {
-            if (_tilePop[_tileVerts[i]] <= 0f) continue;     // 无人格不入带（人口按顶点写——显示格 i 读其顶点）
-            popLog.Add(Mathf.Log(_tilePop[_tileVerts[i]] + 1f));
-            if (_tilePop[_tileVerts[i]] > _popMax) _popMax = _tilePop[_tileVerts[i]];
+            if (_tilePop[_tileIndex.FaceToVertex(i)] <= 0f) continue;     // 无人格不入带（人口按顶点写——显示格 i 读其顶点）
+            popLog.Add(Mathf.Log(_tilePop[_tileIndex.FaceToVertex(i)] + 1f));
+            if (_tilePop[_tileIndex.FaceToVertex(i)] > _popMax) _popMax = _tilePop[_tileIndex.FaceToVertex(i)];
         }
         if (popLog.Count >= 2)
         {
@@ -733,7 +727,7 @@ public partial class MapViewer : Node3D
     																							? SeaColor
     																							: new Color(0.72f, 0.70f, 0.58f);
     																					if (IsDisplaySea(id)) return SeaColor;
-    																					float mm = _tileMonthPrecip[id] / 255f * _tilePrecip[id] * 12f;   // 等效年尺度
+    																					float mm = FieldCodec.ByteMonthPrecipToMm(_tileMonthPrecip[id], _tilePrecip[id]) * 12f;   // 等效年尺度（比例×年降水×12）
     																					float x = Mathf.Clamp((mm - _monthPrecipMin) / (_monthPrecipMax - _monthPrecipMin), 0f, 1f);
     																					return new Color(0.90f, 0.80f, 0.40f).Lerp(new Color(0.10f, 0.30f, 0.70f), x);
     																				}
@@ -743,13 +737,13 @@ public partial class MapViewer : Node3D
     									return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
     										? SeaColor
     										: new Color(0.72f, 0.70f, 0.58f);
-    								float tC = _tileMonthTemp[id] / 255f * 120f - 60f;   // byte → °C
+    								float tC = FieldCodec.ByteToTemp(_tileMonthTemp[id]);   // byte → °C
     								return BiomeColors.TemperatureToColor(tC);
     								}
     								case 12: // 人口：log 压缩 + P1/P99 分位自适应色带（无人=暗灰；黄→橙红）
     								{
-    								    if (IsDisplaySea(id) && _tilePop[_tileVerts[id]] <= 0f) return SeaColor;   // ⚠️ 显示海（真海）；近海逻辑陆地=陆地底
-    								    float p = _tilePop[_tileVerts[id]];
+    								    if (IsDisplaySea(id) && _tilePop[_tileIndex.FaceToVertex(id)] <= 0f) return SeaColor;   // ⚠️ 显示海（真海）；近海逻辑陆地=陆地底
+    								    float p = _tilePop[_tileIndex.FaceToVertex(id)];
     								    if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
     								    float x = Mathf.Clamp((Mathf.Log(p + 1f) - _popLogMin) / (_popLogMax - _popLogMin), 0f, 1f);
     								    return new Color(0.95f, 0.75f, 0.25f).Lerp(new Color(0.80f, 0.15f, 0.05f), x);
@@ -814,7 +808,7 @@ public partial class MapViewer : Node3D
     								            //   陆：连续色带（0m→最高——沙→绿→棕→白——无分段）
     								        {
     								        	float h = _tileElev[id];
-    								        	int vidE = _tileVerts != null ? _tileVerts[id] : id;
+    								        	int vidE = _tileIndex != null ? _tileIndex.FaceToVertex(id) : id;
     								        	float elevM = _map.Elev != null ? _map.Elev[vidE] : (h - _hSea) * (_map.MaxElev - _map.MinElev);   // 米（0=海平面）
     								        	if (IsDisplaySea(id))
     								        	{
@@ -1116,7 +1110,7 @@ public partial class MapViewer : Node3D
         int n = _tileMonthTemp.Length;
         var arr = _map.MonthTemp[_month];
         for (int i = 0; i < n; i++)
-            _tileMonthTemp[i] = arr != null ? arr[_tileVerts[i]] : (byte)0;
+            _tileMonthTemp[i] = arr != null ? arr[_tileIndex.FaceToVertex(i)] : (byte)0;
     }
 
     /// <summary>刷新当月降水缓存（月降水图层用；月份滑块变化时调用）。</summary>
@@ -1126,14 +1120,14 @@ public partial class MapViewer : Node3D
         int n = _tileMonthPrecip.Length;
         var arr = _map.MonthPrecip[_month];
         for (int i = 0; i < n; i++)
-            _tileMonthPrecip[i] = arr != null ? arr[_tileVerts[i]] : (byte)0;
+            _tileMonthPrecip[i] = arr != null ? arr[_tileIndex.FaceToVertex(i)] : (byte)0;
         // ⚠️ 2026-08-16：自适应色带——当月陆地月降水 min/max（用户拍板：最低到最高归一化）
         _monthPrecipMin = float.MaxValue;
         _monthPrecipMax = float.MinValue;
         for (int i = 0; i < n; i++)
         {
             if (IsDisplaySea(i)) continue;   // ⚠️ 2026-08-17：统一海陆判定（只统计陆地格）
-            float mm = _tileMonthPrecip[i] / 255f * _tilePrecip[i] * 12f;   // 等效年尺度
+            float mm = FieldCodec.ByteMonthPrecipToMm(_tileMonthPrecip[i], _tilePrecip[i]) * 12f;   // 等效年尺度（比例×年降水×12）
             _monthPrecipMin = Mathf.Min(_monthPrecipMin, mm);
             _monthPrecipMax = Mathf.Max(_monthPrecipMax, mm);
         }
@@ -1864,7 +1858,7 @@ public partial class MapViewer : Node3D
     /// 人口点不落在"视觉海水"上（byte 量化误差——R>0 是模拟权威）。
     /// ⚠️ 2026-08-18：R 是逻辑格（顶点）数组——id 是显示格——按 _tileVerts[id] 查。</summary>
     private bool IsDisplaySea(int id)
-        => _tileElev[id] < _hSea && (_civCtx?.R == null || _civCtx.R[_tileVerts[id]] <= 0f);
+        => _tileElev[id] < _hSea && (_civCtx?.R == null || _civCtx.R[_tileIndex.FaceToVertex(id)] <= 0f);
 
     /// <summary>点击诊断（2026-08-17 用户要求）：左键点击地图格 → 日志打印位置/颜色/势力/人口等
     /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
@@ -1905,7 +1899,7 @@ public partial class MapViewer : Node3D
     {
         var col = MakeColorFn(_layer)(_tiles[i]);
         GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
-        int vid = _tileVerts != null ? _tileVerts[i] : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射
+        int vid = _tileIndex != null ? _tileIndex.FaceToVertex(i) : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射（2026-08-19 收敛 TileIndex）
         float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_tileElev[i] - _hSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
         GD.Print($"  elev={_tileElev[i]:F3} 海拔={elevM2:F0}m pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
@@ -1913,7 +1907,7 @@ public partial class MapViewer : Node3D
         {
             int pow = _tilePower[i], pCells = 0, pPop = 0;
             for (int j = 0; j < _tiles.Count; j++)
-                if (_tilePower[j] == pow) { pCells++; if (_tilePop[_tileVerts[j]] > 0f) pPop++; }
+                if (_tilePower[j] == pow) { pCells++; if (_tilePop[_tileIndex.FaceToVertex(j)] > 0f) pPop++; }
             GD.Print($"  势力{pow}: 共{pCells}格 / 有人口{pPop}格（pPop=0 ⇒ 无人口势力=异常；pPop>0 ⇒ 本格是采集格=设计）");
         }
         if (_civCtx != null)

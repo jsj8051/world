@@ -60,31 +60,31 @@ public partial class LogicGridDiag : Node
             return;
         }
         bool pass = true;
-        pass &= CheckEq("GridN/N", g1.GridN, g2.GridN, g1.N, g2.N);
-        pass &= CheckEq("Seed", g1.Seed, g2.Seed);
-        pass &= CheckFloat("RadiusKm", g1.RadiusKm, g2.RadiusKm);
-        pass &= CheckBool("Prograde", g1.ProgradeRotation, g2.ProgradeRotation);
-        pass &= CheckFloat("RotationSpeed", g1.RotationSpeed, g2.RotationSpeed);
-        pass &= CheckFloat("AxialTilt", g1.AxialTilt, g2.AxialTilt);
-        pass &= CheckFloat("Insolation", g1.Insolation, g2.Insolation);
-        pass &= MaxDiff("elev", g1.Elev, g2.Elev, out double dElev) < 1e-3f;
-        pass &= MaxDiff("temp", g1.Temp, g2.Temp, out double dTemp) < 1e-3f;
-        pass &= MaxDiff("precip", g1.Precip, g2.Precip, out double dPrecip) < 1e-3f;
-        pass &= ByteDiff("biome", g1.Biome, g2.Biome, out int dBio) == 0;
-        pass &= ByteDiff("riverLevel", g1.RiverLevel, g2.RiverLevel, out int dRiv) == 0;
-        pass &= IntDiff("riverFlow", g1.RiverFlow, g2.RiverFlow, out int dFlow) == 0;
-        pass &= MaxDiff("riverVolume", g1.RiverVolume, g2.RiverVolume, out double dVol) < 1e-3f;
-        pass &= ByteDiff("lake", g1.LakeLevel, g2.LakeLevel, out int dLake) == 0;
-        pass &= ByteDiff("mineral", g1.MineralLevel, g2.MineralLevel, out int dMin) == 0;
-        pass &= ByteDiff("soil", g1.SoilLevel, g2.SoilLevel, out int dSoil) == 0;
-        pass &= ByteDiff("monsoon", g1.MonsoonLevel, g2.MonsoonLevel, out int dMon) == 0;
-        pass &= Bytes2DDiff("monthPrecip", g1.MonthPrecip, g2.MonthPrecip, out int dMP) == 0;
-        pass &= Bytes2DDiff("monthTemp", g1.MonthTemp, g2.MonthTemp, out int dMT) == 0;
-        pass &= MaxDiff3("currentDirs", g1.CurrentDirs, g2.CurrentDirs, out double dCur) < 1e-3f;
-        pass &= MaxDiff("currentWarmth", g1.CurrentWarmth, g2.CurrentWarmth, out double dWarm) < 1e-3f;
-        pass &= MaxDiff("currentStrength", g1.CurrentStrength, g2.CurrentStrength, out double dStr) < 1e-3f;
-        pass &= IntDiff("province(初始0)", g1.Province, g2.Province, out int dProv) == 0;
-        pass &= IntDiff("country(初始0)", g1.Country, g2.Country, out int dCtry) == 0;
+        pass &= FieldCompare.Eq("GridN/N", g1.GridN, g2.GridN, g1.N, g2.N);
+        pass &= FieldCompare.Eq("Seed", g1.Seed, g2.Seed);
+        pass &= FieldCompare.Eq("RadiusKm", g1.RadiusKm, g2.RadiusKm);
+        pass &= FieldCompare.Eq("Prograde", g1.ProgradeRotation, g2.ProgradeRotation);
+        pass &= FieldCompare.Eq("RotationSpeed", g1.RotationSpeed, g2.RotationSpeed);
+        pass &= FieldCompare.Eq("AxialTilt", g1.AxialTilt, g2.AxialTilt);
+        pass &= FieldCompare.Eq("Insolation", g1.Insolation, g2.Insolation);
+        pass &= FieldCompare.MaxDiff("elev", g1.Elev, g2.Elev, out double dElev) < 1e-3f;
+        pass &= FieldCompare.MaxDiff("temp", g1.Temp, g2.Temp, out double dTemp) < 1e-3f;
+        pass &= FieldCompare.MaxDiff("precip", g1.Precip, g2.Precip, out double dPrecip) < 1e-3f;
+        pass &= FieldCompare.ByteDiff("biome", g1.Biome, g2.Biome, out int dBio) == 0;
+        pass &= FieldCompare.ByteDiff("riverLevel", g1.RiverLevel, g2.RiverLevel, out int dRiv) == 0;
+        pass &= FieldCompare.IntDiff("riverFlow", g1.RiverFlow, g2.RiverFlow, out int dFlow) == 0;
+        pass &= FieldCompare.MaxDiff("riverVolume", g1.RiverVolume, g2.RiverVolume, out double dVol) < 1e-3f;
+        pass &= FieldCompare.ByteDiff("lake", g1.LakeLevel, g2.LakeLevel, out int dLake) == 0;
+        pass &= FieldCompare.ByteDiff("mineral", g1.MineralLevel, g2.MineralLevel, out int dMin) == 0;
+        pass &= FieldCompare.ByteDiff("soil", g1.SoilLevel, g2.SoilLevel, out int dSoil) == 0;
+        pass &= FieldCompare.ByteDiff("monsoon", g1.MonsoonLevel, g2.MonsoonLevel, out int dMon) == 0;
+        pass &= FieldCompare.Bytes2DDiff("monthPrecip", g1.MonthPrecip, g2.MonthPrecip, out int dMP) == 0;
+        pass &= FieldCompare.Bytes2DDiff("monthTemp", g1.MonthTemp, g2.MonthTemp, out int dMT) == 0;
+        pass &= FieldCompare.MaxDiff3("currentDirs", g1.CurrentDirs, g2.CurrentDirs, out double dCur) < 1e-3f;
+        pass &= FieldCompare.MaxDiff("currentWarmth", g1.CurrentWarmth, g2.CurrentWarmth, out double dWarm) < 1e-3f;
+        pass &= FieldCompare.MaxDiff("currentStrength", g1.CurrentStrength, g2.CurrentStrength, out double dStr) < 1e-3f;
+        pass &= FieldCompare.IntDiff("province(初始0)", g1.Province, g2.Province, out int dProv) == 0;
+        pass &= FieldCompare.IntDiff("country(初始0)", g1.Country, g2.Country, out int dCtry) == 0;
 
         // ── 3. 逻辑网格统计（读回实例）──
         var nb = g2.Neighbors;          // 确定性重建
@@ -112,61 +112,5 @@ public partial class LogicGridDiag : Node
         GD.Print($"[LogicGridDiag] 胞面积≈{g2.CellAreaKm2:F0} km²/格 | 人文层 province/country 全 0={dProv + dCtry == 0}");
         GD.Print($"[LogicGridDiag] 导出 {(ok ? "成功" : "失败")} → {outPath}（{(pass ? "全部校验通过" : "有字段不一致!")}）");
         GetTree().Quit(pass ? 0 : 1);
-    }
-
-    private static bool CheckEq(string name, int a, int b) { if (a == b) return true; GD.PrintErr($"[LogicGridDiag] {name} 不一致: {a} vs {b}"); return false; }
-    private static bool CheckEq(string name, int a, int b, int c, int d) { if (a == b && c == d) return true; GD.PrintErr($"[LogicGridDiag] {name} 不一致: {a}/{b} vs {c}/{d}"); return false; }
-    private static bool CheckFloat(string name, float a, float b) { if (Mathf.Abs(a - b) < 1e-6f) return true; GD.PrintErr($"[LogicGridDiag] {name} 不一致: {a} vs {b}"); return false; }
-    private static bool CheckBool(string name, bool a, bool b) { if (a == b) return true; GD.PrintErr($"[LogicGridDiag] {name} 不一致: {a} vs {b}"); return false; }
-
-    private static double MaxDiff(string name, float[] a, float[] b, out double diff)
-    {
-        diff = 0;
-        for (int i = 0; i < a.Length; i++)
-        {
-            double da = a[i], db = b[i];
-            if (double.IsNaN(da) && double.IsNaN(db)) continue;   // NaN 往返位级一致（存档里可能天然含 NaN）
-            diff = Math.Max(diff, Math.Abs(da - db));
-        }
-        return diff;
-    }
-
-    private static double MaxDiff3(string name, Vector3[] a, Vector3[] b, out double diff)
-    {
-        diff = 0;
-        for (int i = 0; i < a.Length; i++)
-        {
-            double ax = a[i].X, ay = a[i].Y, az = a[i].Z;
-            double bx = b[i].X, by = b[i].Y, bz = b[i].Z;
-            if (double.IsNaN(ax) && double.IsNaN(bx)) { } else diff = Math.Max(diff, Math.Abs(ax - bx));
-            if (double.IsNaN(ay) && double.IsNaN(by)) { } else diff = Math.Max(diff, Math.Abs(ay - by));
-            if (double.IsNaN(az) && double.IsNaN(bz)) { } else diff = Math.Max(diff, Math.Abs(az - bz));
-        }
-        return diff;
-    }
-
-    private static int ByteDiff(string name, byte[] a, byte[] b, out int diff)
-    {
-        diff = 0;
-        for (int i = 0; i < a.Length; i++)
-            if (a[i] != b[i]) diff++;
-        return diff;
-    }
-
-    private static int Bytes2DDiff(string name, byte[][] a, byte[][] b, out int diff)
-    {
-        diff = 0;
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
-            for (int i = 0; i < a[m].Length; i++)
-                if (a[m][i] != b[m][i]) diff++;
-        return diff;
-    }
-
-    private static int IntDiff(string name, int[] a, int[] b, out int diff)
-    {
-        diff = 0;
-        for (int i = 0; i < a.Length; i++)
-            if (a[i] != b[i]) diff++;
-        return diff;
     }
 }

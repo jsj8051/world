@@ -79,7 +79,7 @@ public partial class OceanCurrentDiag : Node
                 midLat++;
                 for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
-                    float r = map.MonthPrecip[m][i] / 255f;
+                    float r = FieldCodec.ByteToRatio(map.MonthPrecip[m][i]);
                     total += r;
                     if (m >= 5 && m <= 7) summer += r;   // 6-8月(索引5,6,7)
                 }
@@ -97,10 +97,10 @@ public partial class OceanCurrentDiag : Node
                 float tHot = -1e9f, tCold = 1e9f;
                 for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
-                    float p = map.MonthPrecip[m][i] / 255f * map.Precip[i];   // 比例→mm
+                    float p = FieldCodec.ByteMonthPrecipToMm(map.MonthPrecip[m][i], map.Precip[i]);   // 比例→mm
                     if (p < dryMm) { dryMm = p; dryIdx = m; }
                     if (p > wetMm) wetMm = p;
-                    float tc = map.MonthTemp[m][i] / 255f * 120f - 60f;
+                    float tc = FieldCodec.ByteToTemp(map.MonthTemp[m][i]);
                     if (tc > tHot) tHot = tc;
                     if (tc < tCold) tCold = tc;
                 }

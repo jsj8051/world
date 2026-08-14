@@ -82,6 +82,7 @@ namespace World.Tectonics
             if (InitOnly) { RunInitOnly(); return; }
             if (Compare) { RunCompare(); return; }
             RunSingle(true, "user://tectonics_elev.png", "user://tectonics_plates.png");
+            GetTree().Quit();   // ⚠️ 2026-08-19：默认路径此前漏 Quit——headless 下挂到 timeout（verify.sh 回归发现）
         }
 
         // ── 模式 1：只看初始地壳 ──

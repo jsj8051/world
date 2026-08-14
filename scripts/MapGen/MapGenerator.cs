@@ -224,7 +224,7 @@ public partial class MapGenerator : Node
 		// 季风/月降水/月温度 byte 化（v3.7/v3.8 存档）
 		var monsoonLevel = new byte[vn];
 		for (int i = 0; i < vn; i++)
-			monsoonLevel[i] = (byte)(Mathf.Clamp(pipe.MonsoonStrength[i], 0f, 1f) * 255f);
+			monsoonLevel[i] = FieldCodec.RatioToByte(pipe.MonsoonStrength[i]);
 		var monthPrecip = new byte[MonsoonSystem.MonthCount][];
 		for (int m = 0; m < MonsoonSystem.MonthCount; m++)
 		{
@@ -232,7 +232,7 @@ public partial class MapGenerator : Node
 			for (int i = 0; i < vn; i++)
 			{
 				float ratio = pipe.MonthPrecip[m][i];   // ⚠️ 2026-08-05 修：月→年改造后已是比例(Σ=1)，勿再除年降水（双重归一化→byte≈0→图层全黄）
-				monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
+				monthPrecip[m][i] = FieldCodec.RatioToByte(ratio);
 			}
 		}
 		// 月温度（−60~60°C → 0-255；温度系统月度化 v3.8）
@@ -242,8 +242,11 @@ public partial class MapGenerator : Node
 			{
 				monthTemp[m] = new byte[vn];
 				for (int i = 0; i < vn; i++)
-					monthTemp[m][i] = (byte)(Mathf.Clamp((pipe.MonthTemp[m][i] + 60f) / 120f, 0f, 1f) * 255f);
+					monthTemp[m][i] = FieldCodec.TempToByte(pipe.MonthTemp[m][i]);
 			}
+
+		// 写档前卫生检查（2026-08-19：NaN/全 0 异常场在写档前暴露，防静默写坏档）
+		pipe.HealthCheck();
 
 		MapArchive.WriteSpherical(OutputPath, Seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
 			pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,
@@ -349,7 +352,7 @@ public partial class MapGenerator : Node
 			// 季风/月降水/月温度 byte 化（v3.7/v3.8 存档；后台线程禁止 GD.Print 但可算）
 			var monsoonLevel = new byte[vn];
 			for (int i = 0; i < vn; i++)
-				monsoonLevel[i] = (byte)(Mathf.Clamp(pipe.MonsoonStrength[i], 0f, 1f) * 255f);
+				monsoonLevel[i] = FieldCodec.RatioToByte(pipe.MonsoonStrength[i]);
 			var monthPrecip = new byte[MonsoonSystem.MonthCount][];
 			for (int m = 0; m < MonsoonSystem.MonthCount; m++)
 			{
@@ -357,7 +360,7 @@ public partial class MapGenerator : Node
 				for (int i = 0; i < vn; i++)
 				{
 					float ratio = pipe.MonthPrecip[m][i];   // ⚠️ 2026-08-05 修：月→年改造后已是比例(Σ=1)，勿再除年降水（双重归一化→byte≈0→图层全黄）
-					monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
+					monthPrecip[m][i] = FieldCodec.RatioToByte(ratio);
 				}
 			}
 			// 月温度（−60~60°C → 0-255）
@@ -367,8 +370,10 @@ public partial class MapGenerator : Node
 				{
 					monthTemp[m] = new byte[vn];
 					for (int i = 0; i < vn; i++)
-						monthTemp[m][i] = (byte)(Mathf.Clamp((pipe.MonthTemp[m][i] + 60f) / 120f, 0f, 1f) * 255f);
+						monthTemp[m][i] = FieldCodec.TempToByte(pipe.MonthTemp[m][i]);
 				}
+
+			// 后台线程不调 pipe.HealthCheck()（含 GD.Print 禁止后台调用；同步路径已覆盖卫生检查）
 
 			bool ok = MapArchive.WriteSpherical(outPath, seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
 			    pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,

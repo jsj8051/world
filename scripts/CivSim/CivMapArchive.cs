@@ -390,7 +390,7 @@ public static class CivMapArchive
 
     /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：只读头部（seed/tick）+ 跳过自然段 + 统计实体段（人口/数量）。
     /// 不加载任何自然数组、不重建 WildCrops/R/RefreshCellState——n=64 档从全量 Read 的 ~1-2s 降到 ~50ms。
-    /// 布局：CivMapArchive 头 38B + 自然段（WriteBody 直连，无 GMP1 magic，长度 = 53 + 94n） + 实体段（count + 每实体 130 + 16×keyCount B）。
+    /// 布局：CivMapArchive 头 38B + 自然段（WriteBody 直连，无 GMP1 magic，长度 = ArchiveLayout.BodyLength 单源） + 实体段（count + 每实体 130 + 16×keyCount B）。
     /// 版本不符/损坏 → false，但输出版本号+状态（菜单区分"旧版本存档"与"损坏"）；结构失败 → false 状态 Unknown。</summary>
     public static bool Peek(string path, out int seed, out int tick, out float pop, out int entities,
                             out ushort archiveVersion, out ArchiveVersionStatus status)
@@ -414,7 +414,7 @@ public static class CivMapArchive
         int n = (int)f.Get32();
         long expectN = Icosahedron.VertexCountForLong(gridN);
         if (gridN < 8 || gridN > 512 || expectN != n) return false;   // 与 ReadBody 同语义（N=顶点数=10n²+2）
-        long naturalLen = 53L + 94L * n;              // WriteBody 固定 53B（GridN 起→Verts 前）+ 每格 94B
+        long naturalLen = ArchiveLayout.BodyLength(n, 2);   // WriteBody 布局单源（2026-08-19：原硬编码 53+94n 与 WriteBody 断链）
         f.Seek((ulong)(42 + naturalLen));             // 实体段起点（CivMapArchive 头 42B：v8 含 NextEntityId 4B + 自然段）
         // 实体段：count + 每实体只取 P，其余 Seek 跳过
         long count = f.Get32();

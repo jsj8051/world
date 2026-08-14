@@ -92,18 +92,71 @@ public class PlanetPipeline
         onProgress?.Invoke(1f);
     }
 
-    /// <summary>NaN → 0 消毒（写档前最后防线；河流侵蚀等浮点链路偶发 0/0）。</summary>
+    /// <summary>NaN → 0 消毒（写档前最后防线；河流侵蚀等浮点链路偶发 0/0）。
+    /// ⚠️ 2026-08-19 扩展：全字段扫描（原只查 Elev/Temp/Precip 3 个主字段——月场/洋流场
+    /// 的 NaN 会静默写档，下游显示全错）。消毒后调用 HealthCheck 统计残留异常。</summary>
     private void SanitizeNaNs()
     {
         int nan = 0;
-        for (int i = 0; i < Elev.Length; i++)
+        void Scan(float[] arr, string name)
         {
-            if (float.IsNaN(Elev[i])) { Elev[i] = 0f; nan++; }
-            if (Temp != null && float.IsNaN(Temp[i])) Temp[i] = 0f;
-            if (Precip != null && float.IsNaN(Precip[i])) Precip[i] = 0f;
+            if (arr == null) return;
+            for (int i = 0; i < arr.Length; i++)
+                if (float.IsNaN(arr[i])) { arr[i] = 0f; nan++; }
         }
+        void Scan2D(float[][] arr, string name)
+        {
+            if (arr == null) return;
+            foreach (var row in arr) Scan(row, name);
+        }
+
+        Scan(Elev, "海拔"); Scan(Temp, "温度"); Scan(Precip, "降水");
+        Scan(TempBase, "基准温度"); Scan(MonsoonStrength, "季风");
+        Scan2D(MonthTemp, "月温度"); Scan2D(MonthPrecip, "月降水");
+        Scan(RiverVolume, "河流流量");
+        Scan(CurrentWarmth, "洋流冷暖"); Scan(CurrentStrength, "洋流强度"); Scan(Psi, "流函数");
+        Scan(ErosionNet, "侵蚀堆积");
+        ScanV3(WindYear, "年风场");
         if (nan > 0)
-            GD.Print($"[PlanetPipeline] ⚠️ NaN 消毒：海拔 {nan} 顶点 → 0");
+            GD.Print($"[PlanetPipeline] ⚠️ NaN 消毒：{nan} 顶点 → 0");
+    }
+
+    private void ScanV3(Vector3[] arr, string name)
+    {
+        if (arr == null) return;
+        for (int i = 0; i < arr.Length; i++)
+        {
+            if (float.IsNaN(arr[i].X)) { arr[i] = new Vector3(0, arr[i].Y, arr[i].Z); }
+            if (float.IsNaN(arr[i].Y)) { arr[i] = new Vector3(arr[i].X, 0, arr[i].Z); }
+            if (float.IsNaN(arr[i].Z)) { arr[i] = new Vector3(arr[i].X, arr[i].Y, 0); }
+        }
+    }
+
+    /// <summary>写档前卫生检查：统计残留 NaN/全 0 异常场（防\"全 0 = 语义变更 bug\"静默写档）。</summary>
+    public void HealthCheck()
+    {
+        int vn = Verts.Length;
+        void Report(string name, float[] arr, bool zeroOk = false)
+        {
+            if (arr == null) return;
+            int nan = 0, zero = 0; float mn = float.MaxValue, mx = float.MinValue;
+            foreach (var v in arr)
+            {
+                if (float.IsNaN(v)) nan++;
+                else if (v == 0f) zero++;
+                if (v < mn) mn = v;
+                if (v > mx) mx = v;
+            }
+            string flag = "";
+            if (nan > 0) flag += $"⚠️NaN{nan} ";
+            if (!zeroOk && zero > vn * 0.99) flag += $"⚠️全0({zero}) ";
+            if (flag.Length > 0)
+                GD.Print($"[PlanetPipeline] 卫生: {name} [{mn:F2},{mx:F2}] {flag}");
+        }
+        Report("海拔", Elev); Report("温度", Temp); Report("降水", Precip);
+        Report("季风", MonsoonStrength, zeroOk: true);   // 无季风区可以全 0
+        Report("河流流量", RiverVolume, zeroOk: true);   // 干星球可以无河
+        Report("洋流强度", CurrentStrength, zeroOk: true);
     }
 
     // ── Stage6 统计：存档范围 ──

@@ -196,7 +196,7 @@ public partial class CivSimDiag : Node
             for (int c = 0; c < m; c++)
             {
                 g.MonthPrecip[mm][c] = (byte)(255 / 12);
-                g.MonthTemp[mm][c] = (byte)((temp + 60) / 120f * 255f);
+                g.MonthTemp[mm][c] = FieldCodec.TempToByte(temp);
             }
         }
         g.CurrentDirs = new Vector3[m];

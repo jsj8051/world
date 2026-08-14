@@ -72,7 +72,7 @@ public partial class MonsoonDiag : Node
         // ── byte 化 ──
         var monsoonLevel = new byte[n];
         for (int i = 0; i < n; i++)
-            monsoonLevel[i] = (byte)(Mathf.Clamp(monsoon[i], 0f, 1f) * 255f);
+            monsoonLevel[i] = FieldCodec.RatioToByte(monsoon[i]);
         var monthPrecip = new byte[MonsoonSystem.MonthCount][];
         for (int m = 0; m < MonsoonSystem.MonthCount; m++)
         {
@@ -80,7 +80,7 @@ public partial class MonsoonDiag : Node
             for (int i = 0; i < n; i++)
             {
                 float ratio = monthP[m][i];   // ⚠️ 2026-08-05 修：MonsoonSystem 输出已是比例(Σ=1)，勿再除年降水（双重归一化→byte≈0→图层全黄）
-                monthPrecip[m][i] = (byte)(Mathf.Clamp(ratio, 0f, 1f) * 255f);
+                monthPrecip[m][i] = FieldCodec.RatioToByte(ratio);
             }
         }
 
@@ -89,7 +89,7 @@ public partial class MonsoonDiag : Node
         {
             monthTempB[m] = new byte[n];
             for (int i = 0; i < n; i++)
-                monthTempB[m][i] = (byte)(Mathf.Clamp((monthTemp[m][i] + 60f) / 120f, 0f, 1f) * 255f);
+                monthTempB[m][i] = FieldCodec.TempToByte(monthTemp[m][i]);
         }
 
         // ── 全量写回（保留全部旧字段 + 新 ext8/ext9/ext10）──

@@ -39,8 +39,8 @@ public static class WildCropsSystem
             if (!g.IsLandCell(i)) continue;
             for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             {
-                mt[m] = g.MonthTemp[m][i] / 255f * 120f - 60f;
-                mp[m] = g.MonthPrecip[m][i] / 255f;
+                mt[m] = FieldCodec.ByteToTemp(g.MonthTemp[m][i]);
+                mp[m] = FieldCodec.ByteToRatio(g.MonthPrecip[m][i]);
             }
             suit[i, Wheat]  = WheatSuit(g, i, mt, mp);
             suit[i, Millet] = MilletSuit(g, i, mt, mp);
@@ -131,8 +131,8 @@ public static class WildCropsSystem
         var mp = new float[MonsoonSystem.MonthCount];
         for (int m = 0; m < MonsoonSystem.MonthCount; m++)
         {
-            mt[m] = g.MonthTemp[m][cell] / 255f * 120f - 60f;
-            mp[m] = g.MonthPrecip[m][cell] / 255f;
+            mt[m] = FieldCodec.ByteToTemp(g.MonthTemp[m][cell]);
+            mp[m] = FieldCodec.ByteToRatio(g.MonthPrecip[m][cell]);
         }
         return seedIdx switch
         {

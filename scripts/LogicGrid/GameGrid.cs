@@ -240,10 +240,20 @@ public class GameGrid
     private int BucketsLat;
     private int BucketsLon;
     private List<int>[,] _buckets;
+    private int _bucketsBuildThread = -1;   // 首次构建线程（2026-08-19：后台首触检测）
 
     private void EnsureBuckets()
     {
         if (_buckets != null) return;
+        // ⚠️ 2026-08-19：首次构建若在后台线程 → 调用方漏了主线程预构建（FromMapData/Read 已调），
+        //   打印警告暴露而非静默（并发修改集合崩溃前兆）。
+        int tid = System.Environment.CurrentManagedThreadId;
+        if (_bucketsBuildThread == -1)
+        {
+            _bucketsBuildThread = tid;
+            if (tid != (int)OS.GetMainThreadId())
+                GD.PrintErr($"[GameGrid] ⚠️ 桶索引在后台线程(tid={tid})首次构建——调用方漏了主线程 EnsureBuckets()（FromMapData/Read 返回前必须预构建）");
+        }
         int targetPerBucket = 30;
         int totalBuckets = Mathf.Max(2, N / targetPerBucket);
         BucketsLat = Mathf.Clamp((int)Mathf.Round(Mathf.Sqrt(totalBuckets / 2f)), 4, 512);

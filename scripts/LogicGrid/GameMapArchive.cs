@@ -128,9 +128,12 @@ public static class GameMapArchive
     /// <summary>主体反序列化（magic/version 之后；与 WriteBody 严格对应）。
     /// ver ≥ 2 读流函数 psi（v1 旧档无 psi）。
     /// ⚠️ 返回 false = 结构损坏（GridN/N 不满足 10n²+2 不变量——魔数/版本被伪造或旧中间态写入器
-    ///   产物，正文错位会让 N 读到垃圾值 → 直接 new Vector3[N] 可分配 14GB 卡死，必须在任何分配前拦截）。</summary>
+    ///   产物，正文错位会让 N 读到垃圾值 → 直接 new Vector3[N] 可分配 14GB 卡死，必须在任何分配前拦截）。
+    /// ⚠️ 2026-08-19：读完后断言文件长度 == 布局长度（ArchiveLayout.BodyLength 单源）——
+    ///   布局新增/漏读字段会立刻暴露（错位类 bug 的最后防线）。</summary>
     public static bool ReadBody(FileAccess f, GameGrid grid, int ver = 2)
     {
+        ulong startPos = f.GetPosition();
         grid.GridN = (int)f.Get32();
         grid.N = (int)f.Get32();
         // ⚠️ 2026-08-07：任何分配前先验结构不变量（球面 Goldberg：顶点数 ≡ 10n²+2，n∈[8,512]）。
@@ -180,6 +183,15 @@ public static class GameMapArchive
         if (ver >= 2) grid.Psi = ReadFloats(f, n);   // v2：流函数（环流圈显示）
         grid.Province = ReadInts(f, n);
         grid.Country = ReadInts(f, n);
+        // ⚠️ 布局长度断言（单源 ArchiveLayout.BodyLength）：读后位置必须 == 布局长度
+        //   （.gmp 文件 = magic 4B + version 2B + body；.cmp 头 38B + body，用相对偏移断言）
+        long bodyLen = ArchiveLayout.BodyLength(n, ver);
+        if ((long)(f.GetPosition() - startPos) != bodyLen)
+        {
+            GD.PrintErr($"[GameMapArchive] 布局长度断言失败：读 {f.GetPosition() - startPos}B ≠ 布局 {bodyLen}B（n={n} ver={ver}）——" +
+                        $"写入器与布局表不同步，请检查 ArchiveLayout 字段表与 WriteBody 一致性");
+            return false;
+        }
         return true;
     }
 

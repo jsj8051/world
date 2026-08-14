@@ -372,9 +372,21 @@ public class MapData
 
     /// <summary>构建球面桶索引。⚠️ 必须在主线程调用一次（Read 后），
     /// 惰性构建 + 并行采样会并发修改集合（Collection was modified 崩溃）。</summary>
+    private int _bucketsBuildThread = -1;   // 首次构建线程（2026-08-19：后台首触检测——防"忘预构建"静默崩溃）
+
     public void EnsureBuckets()
     {
         if (_buckets != null) return;
+        // ⚠️ 2026-08-19：惰性构建必须发生在主线程预构建之后（Read/ToMapData 已调）——
+        //   若首次构建在后台线程触发，说明调用方漏了主线程预构建（并发修改集合崩溃的前兆），
+        //   打印警告暴露而非静默构建（历史：Collection modified 崩溃难定位）。
+        int tid = System.Environment.CurrentManagedThreadId;
+        if (_bucketsBuildThread == -1)
+        {
+            _bucketsBuildThread = tid;
+            if (tid != (int)OS.GetMainThreadId())
+                GD.PrintErr($"[MapArchive] ⚠️ 桶索引在后台线程(tid={tid})首次构建——调用方漏了主线程 EnsureBuckets()（Read/ToMapData 返回前必须预构建）");
+        }
         // 目标每桶 ~30 顶点 → 总桶数 ≈ V/30；保持 lat:lon = 1:2（球面面积均匀分）。
         // 极区单桶逻辑（BucketOf）在 lat=0/末桶时 bx=0，缩放后仍成立。
         int targetPerBucket = 30;
