@@ -33,6 +33,7 @@ namespace World.Tectonics
         public float[] TopPlateMap;              // 每全局顶点 → 顶层板块 id
         public int[] PlateCount;                 // 每全局顶点 → 覆盖的板块数（M3-2）
         public byte[] SubductionMask;            // 1=俯冲带（2026-08-18：板块汇聚边界——邻板负浮力——主动边缘）
+        private byte[] _continentalRiftMask;     // 大陆裂谷带（2026-08-18：低频结构——地堑盆地——东非裂谷型）
         private byte[] _mergeGlobalMask;         // Merge 复用缓冲区（GC 优化 C）
         private float[] _erodeSurface;           // 侵蚀复用（GC 优化：每步 1.3MB × 300 步）
         private Crust _erodeDeltaReusable;       // 侵蚀 delta 复用（8 数组 × n）
@@ -299,6 +300,24 @@ namespace World.Tectonics
         /// <summary>跑 N 百万年。每步：老化 → 移动 → 合并 → 计算位移 → 按体积重解海平面。</summary>
         public void Run(float megayears, float stepMy) => RunWithProgress(megayears, stepMy, null);
 
+        /// <summary>大陆裂谷带初始化（2026-08-18 B：地堑盆地——低频结构，大陆尺度波长）。
+        /// 球面低频噪声带（freq = NumContinents/2π × 2.5——裂谷带尺度），noise > 0.7 为裂谷带。
+        /// UpdateRifting 内对大陆格 felsic 减薄（张裂地堑沉降）——不填洋壳（东非裂谷型）。</summary>
+        public void InitContinentalRiftMask()
+        {
+            int n = GlobalGrid.VertexCount;
+            _continentalRiftMask = new byte[n];
+            var noise = new FastNoiseLite();
+            noise.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
+            noise.Frequency = NumContinents / (2f * Mathf.Pi) * 2.5f;
+            noise.Seed = Seed + 777;
+            for (int i = 0; i < n; i++)
+            {
+                var p = GlobalGrid.Vertices[i];
+                if (noise.GetNoise3D(p.X, p.Y, p.Z) > 0.7f) _continentalRiftMask[i] = 1;
+            }
+        }
+
         /// <summary>俯冲带检测（2026-08-18 用户拍板 A：主动边缘无大陆架——自然涌现）。
         /// 边界格（邻居板不同）且邻板该处浮力负（BuoyancyVec 与径向反向 = 下沉俯冲板片）→ 俯冲带。
         /// 大陆架场跳过俯冲带海岸（智利/日本型——无大陆架）。</summary>
@@ -332,6 +351,7 @@ namespace World.Tectonics
         /// </summary>
         public void RunWithProgress(float megayears, float stepMy, Action<float> onProgress)
         {
+            if (_continentalRiftMask == null) InitContinentalRiftMask();   // 大陆裂谷带（2026-08-18）
             ComputeDisplacement();         // 先算初始位移场
             InitializeOceanVolume(2000f * OceanScale);  // M3-5：水量守恒常量（原版 average_ocean_depth；用户可调水量）
             int steps = (int)(megayears / stepMy);
@@ -610,6 +630,21 @@ namespace World.Tectonics
                     plate.Crust.FelsicPlutonic[i] = 0;
                     plate.Crust.FelsicVolcanic[i] = 0;
                     plate.Crust.Age[i] = 0;   // 新洋壳年轻
+                }
+                // ⚠️ 2026-08-18 大陆裂谷（用户拍板 C：B 地堑盆地——东非裂谷型）：
+                //   大陆内部张裂带（低频结构——大陆尺度波长）→ felsic 减薄（地堑沉降）
+                //   不填洋壳（大陆裂谷不转海洋——死海/东非型：裂谷湖）
+                if (_continentalRiftMask != null)
+                {
+                    for (int i = 0; i < LocalGridCount; i++)
+                    {
+                        if (plate.Mask[i] == 0) continue;
+                        int gi2 = plate.GlobalIdsOfLocalCells[i];
+                        if (gi2 < 0 || gi2 >= n || _continentalRiftMask[gi2] != 1) continue;
+                        plate.Crust.FelsicPlutonic[i] *= 0.985f;    // 张裂减薄（地堑沉降）
+                        plate.Crust.FelsicVolcanic[i] *= 0.985f;
+                        plate.Crust.Sedimentary[i] += 5f;            // 裂谷沉积（盆地充填）
+                    }
                 }
             }
         }
@@ -1078,7 +1113,41 @@ namespace World.Tectonics
             var mass = WorldCrust.GetTotalMass();
             var density = WorldCrust.GetDensity(mass, thickness, Material.MaficVolcanicMin);
             Displacement = WorldCrust.GetIsostaticDisplacement(thickness, density, Material);
+            ApplyFlexure();   // ⚠️ 2026-08-18 岩石圈挠曲（前陆盆地）
             return Displacement;
+        }
+
+        /// <summary>岩石圈挠曲（2026-08-18 用户拍板 C：盆地自然涌现——A 前陆盆地）。
+        /// 山脉负载 → 邻域地壳挠曲下沉（薄板挠曲的迭代松弛近似——波长由轮数控制）。
+        /// flex 初始 = 正位移负载，8 轮邻域平滑扩散；Displacement -= flex×flexK。
+        /// flexK = 挠曲系数（一阶标定：山脉负载 35% 由邻域挠曲支撑，其余均衡支撑）。</summary>
+        public void ApplyFlexure()
+        {
+            int n = GlobalGrid.VertexCount;
+            var neighbors = GlobalGrid.Neighbors;
+            var load = new float[n];
+            var flex = new float[n];
+            for (int i = 0; i < n; i++)
+            {
+                load[i] = Displacement[i] > 0f ? Displacement[i] : 0f;   // 山体负载（正位移）
+                flex[i] = load[i];
+            }
+            const int rounds = 8;
+            var tmp = new float[n];
+            for (int r = 0; r < rounds; r++)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    var nbs = neighbors[i];
+                    float sum = flex[i];
+                    for (int j = 0; j < nbs.Length; j++) sum += flex[nbs[j]];
+                    tmp[i] = sum / (nbs.Length + 1);
+                }
+                var t = tmp; tmp = flex; flex = t;
+            }
+            const float flexK = 0.35f;
+            for (int i = 0; i < n; i++)
+                Displacement[i] -= flex[i] * flexK;
         }
 
         /// <summary>陆地占比（displacement > 0，相对基准面；海平面校准后更准）。</summary>
