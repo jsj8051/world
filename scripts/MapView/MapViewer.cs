@@ -1864,6 +1864,14 @@ public partial class MapViewer : Node3D
         var col = MakeColorFn(_layer)(_tiles[i]);
         GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
         GD.Print($"  elev={_tileElev[i]:F3} pop={_tilePop[i]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
+        // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
+        if (_tilePower[i] != 0)
+        {
+            int pow = _tilePower[i], pCells = 0, pPop = 0;
+            for (int j = 0; j < _tiles.Count; j++)
+                if (_tilePower[j] == pow) { pCells++; if (_tilePop[j] > 0f) pPop++; }
+            GD.Print($"  势力{pow}: 共{pCells}格 / 有人口{pPop}格（pPop=0 ⇒ 无人口势力=异常；pPop>0 ⇒ 本格是采集格=设计）");
+        }
         if (_civCtx != null)
         {
             GD.Print($"  CellOwner={(_civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1)} R={(_civCtx.R != null ? _civCtx.R[i] : -1f):F2} LockedUntil={(_civCtx.LockedUntil != null ? _civCtx.LockedUntil[i] : 0)}");
