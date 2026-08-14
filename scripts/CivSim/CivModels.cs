@@ -77,7 +77,7 @@ public sealed class CultivateModel : CivModelBase
         {
             var e = ctx.Entities[i];
             if (e.Dead || !e.IsFarming) continue;
-            var terr = ctx.TerritoryCells[e.Id];
+            var terr = ctx.TerritoryOf(e);
             if (terr == null || terr.Count == 0) continue;
             foreach (int c in terr)
             {
@@ -1134,7 +1134,7 @@ public sealed class AbsorptionModel : CivModelBase
     /// <summary>迁走目标：领地格内无主格（CellOwner=-1 且 R>0）最高富饶者——留在自己影响圈内。</summary>
     private static int FindExileCell(CivSimContext ctx, CivEntity e)
     {
-        var terr = e.Id < (ctx.TerritoryCells?.Length ?? 0) ? ctx.TerritoryCells[e.Id] : null;
+        var terr = e.Id < (ctx.TerritoryCells?.Length ?? 0) ? ctx.TerritoryOf(e) : null;
         if (terr == null) return -1;
         int best = -1;
         float bestR = 0f;
@@ -1341,13 +1341,25 @@ public sealed class ChiefdomModel : CivModelBase
         }
 
         // ── ChiefdomCells 成员表（按酋邦 id；再分配/联盟/供养查询用）──
-        if (ctx.ChiefdomCells == null || ctx.ChiefdomCells.Length < 4096) ctx.ChiefdomCells = new List<int>[4096];
-        for (int i = 0; i < ctx.ChiefdomCells.Length; i++) { if (ctx.ChiefdomCells[i] == null) ctx.ChiefdomCells[i] = new List<int>(); else ctx.ChiefdomCells[i].Clear(); }
+        // ⚠️ 2026-08-17 索引体系修复：动态扩容（旧版固定 4096——ChiefdomId 超限直接 continue 丢成员）
+        if (ctx.ChiefdomCells == null || ctx.ChiefdomCells.Length < 4096)
+        {
+            ctx.ChiefdomCells = new List<int>[4096];
+            for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i] = new List<int>();
+        }
+        for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i].Clear();   // 重建前清空
         for (int i = 0; i < ctx.Entities.Count; i++)
         {
             var e = ctx.Entities[i];
             if (e.Dead || e.ChiefdomId < 0) continue;
-            if (e.ChiefdomId >= ctx.ChiefdomCells.Length) continue;
+            if (e.ChiefdomId >= ctx.ChiefdomCells.Length)
+            {
+                int newCap = e.ChiefdomId + 256;
+                var grown = new List<int>[newCap];
+                Array.Copy(ctx.ChiefdomCells, grown, ctx.ChiefdomCells.Length);
+                for (int g = ctx.ChiefdomCells.Length; g < newCap; g++) grown[g] = new List<int>();
+                ctx.ChiefdomCells = grown;
+            }
             ctx.ChiefdomCells[e.ChiefdomId].Add(e.Id);
         }
     }
@@ -1367,14 +1379,14 @@ public sealed class ChiefdomModel : CivModelBase
         var cellSetA = new HashSet<int>();
         foreach (var m in a.Members)
         {
-            var terr = ctx.TerritoryCells[m.Id];
+            var terr = ctx.TerritoryOf(m);
             if (terr == null) continue;
             foreach (var c in terr) cellSetA.Add(c);
         }
         var cellSetB = new HashSet<int>();
         foreach (var m in b.Members)
         {
-            var terr = ctx.TerritoryCells[m.Id];
+            var terr = ctx.TerritoryOf(m);
             if (terr == null) continue;
             foreach (var c in terr) cellSetB.Add(c);
         }

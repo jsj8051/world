@@ -273,9 +273,9 @@ public sealed class CivSimContext
     /// 比较"原始土地条件"值不值得种；猎物+浆果占比合计 1）。</summary>
     public float FHuntTerritory(CivEntity e)
     {
-        var terr = TerritoryCells[e.Id];
+        var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
-        var dists = TerritoryDists[e.Id];
+        var dists = TerritoryDistsOf(e);
         float A = Grid.CellAreaKm2, sum = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
@@ -290,9 +290,9 @@ public sealed class CivSimContext
     /// Σ 领地格 max种子(AgriBase×φ)×R×A×Irrig×Alluv×w，不含开垦）。</summary>
     public float FFarmPotentialTerritory(CivEntity e)
     {
-        var terr = TerritoryCells[e.Id];
+        var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
-        var dists = TerritoryDists[e.Id];
+        var dists = TerritoryDistsOf(e);
         float A = Grid.CellAreaKm2, sum = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
@@ -318,9 +318,9 @@ public sealed class CivSimContext
     {
         if (!CapabilityTable.Has(this, e, "livestock")) return 0f;
         var wild = Grid.EnsureWildLivestock();
-        var terr = TerritoryCells[e.Id];
+        var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
-        var dists = TerritoryDists[e.Id];
+        var dists = TerritoryDistsOf(e);
         float A = Grid.CellAreaKm2, sum = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
@@ -527,6 +527,23 @@ public sealed class CivSimContext
         RebuildTerritory();
     }
 
+    /// <summary>领地格数组安全访问（Id 索引——按 MaxId 动态扩容；2026-08-17 索引体系修复：
+    /// 读档/分裂后实体 Id 递增有空洞——固定 4096 容量在 Id 超限时越界，统一走安全访问）。</summary>
+    public List<int> TerritoryOf(CivEntity e)
+    {
+        if (TerritoryCells == null) EnsureTerritory();
+        if (e.Id >= TerritoryCells.Length) EnsureTerritoryCapacity(e.Id + 256);
+        return TerritoryCells[e.Id];
+    }
+
+    /// <summary>领地距离数组安全访问（同 TerritoryOf 扩容语义）。</summary>
+    public List<byte> TerritoryDistsOf(CivEntity e)
+    {
+        if (TerritoryDists == null) EnsureTerritory();
+        if (e.Id >= TerritoryDists.Length) EnsureTerritoryCapacity(e.Id + 256);
+        return TerritoryDists[e.Id];
+    }
+
     /// <summary>惰性确保领地索引数组存在（构造场景/读档路径可能未初始化）。</summary>
     public void EnsureTerritory()
     {
@@ -560,8 +577,8 @@ public sealed class CivSimContext
         {
             var e = Entities[i];
             if (e.Dead) continue;
-            var terr = TerritoryCells[e.Id];
-            var dists = TerritoryDists[e.Id];
+            var terr = TerritoryOf(e);
+            var dists = TerritoryDistsOf(e);
             BfsRadius(e.Cell, InfluenceRadius, (c, d) =>
             {
                 if (CellOwner[c] == e.Id)
@@ -607,9 +624,9 @@ public sealed class CivSimContext
     /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w。</summary>
     public float AllocateAndProduce(CivEntity e)
     {
-        var terr = TerritoryCells[e.Id];
+        var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
-        var dists = TerritoryDists[e.Id];
+        var dists = TerritoryDistsOf(e);
         float A = Grid.CellAreaKm2;
         bool isFarm = e.IsFarming;
         bool canHerd = CapabilityTable.Has(this, e, "livestock");
