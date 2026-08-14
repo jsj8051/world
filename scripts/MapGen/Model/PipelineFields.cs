@@ -118,3 +118,53 @@ public sealed class SoilField : ModelBase, IFieldRole
         return false;
     }
 }
+
+/// <summary>大陆架平台场（2026-08-18 用户拍板：沿海深海不科学——被动大陆边缘形态）。
+/// 近岸 ≤4 跳海格 → -150m（大陆架平台——标准深度）；4~6 跳过渡（大陆坡——插值到真实深度）；
+/// &gt;6 跳真实深海盆。陆地不变（Elev&gt;0 判定不变）——海陆比/模拟不变；浅海带变宽（显示）。
+/// 注册在侵蚀后、温度前——浅海暖海岸（海温调节）物理链完整。</summary>
+public sealed class ContinentalShelfField : ModelBase, IFieldRole
+{
+    private readonly PlanetPipeline _pipe;
+    public ContinentalShelfField(PlanetPipeline pipe) => _pipe = pipe;
+    public override string Name => "大陆架";
+    public string Domain => "海洋";
+    public override float Magnitude => 1f;
+    public string Stage => "Stage2";
+    public override string[] DependsOn() => new[] { "侵蚀堆积", "海拔" };
+
+    public void Compute()
+    {
+        var pipe = _pipe;
+        int n = pipe.Elev.Length;
+        // 海岸距离 BFS（从陆地展开——海格距海岸跳数；只走海格）
+        var shoreDist = new int[n];
+        System.Array.Fill(shoreDist, int.MaxValue);
+        var q = new System.Collections.Generic.Queue<int>();
+        for (int i = 0; i < n; i++)
+            if (pipe.Elev[i] > 0f) { shoreDist[i] = 0; q.Enqueue(i); }
+        while (q.Count > 0)
+        {
+            int c = q.Dequeue();
+            if (shoreDist[c] >= 6) continue;
+            foreach (var nb in pipe.Neighbors[c])
+                if (shoreDist[nb] == int.MaxValue && pipe.Elev[nb] <= 0f)   // 只走海格
+                { shoreDist[nb] = shoreDist[c] + 1; q.Enqueue(nb); }
+        }
+        // 大陆架调整：≤4 跳 → -150m 平台；4~6 跳 → 大陆坡（-150 → 真实深度插值）
+        const float shelfDepth = -150f;
+        for (int i = 0; i < n; i++)
+        {
+            if (pipe.Elev[i] >= 0f || shoreDist[i] == int.MaxValue) continue;   // 陆地 / 深海盆（>6 跳）
+            if (shoreDist[i] <= 4)
+                pipe.Elev[i] = shelfDepth;
+            else
+                pipe.Elev[i] = Mathf.Lerp(shelfDepth, pipe.Elev[i], (shoreDist[i] - 4) / 2f);
+        }
+        // 更新范围（存档用）
+        pipe.MinElev = float.MaxValue; pipe.MaxElev = float.MinValue;
+        foreach (var e in pipe.Elev) { if (e < pipe.MinElev) pipe.MinElev = e; if (e > pipe.MaxElev) pipe.MaxElev = e; }
+    }
+
+    public override bool Verify() => _pipe.Elev != null;
+}
