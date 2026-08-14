@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.HexPlanet;
 using World.MapGen;
 using World.Tectonics;
 
@@ -118,7 +119,7 @@ public static class ArchiveDiag
             return false;
         }
         // 存档 n 反推：顶点数 = 10n²+2（10242→32, 40962→64, 2562→16）
-        int n = (int)Mathf.Round(Mathf.Sqrt((map.Verts.Length - 2) / 10f));
+        int n = Icosahedron.GridNFromVertexCount(map.Verts.Length);
         var sim = new TectonicsSimulation(n);
         ctx = new DiagContext(map, sim.GlobalGrid);
         GD.Print($"[ArchiveDiag] 直读 {path} n={n} verts={map.Verts.Length}（跳板块模拟）");

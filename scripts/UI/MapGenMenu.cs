@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.HexPlanet;
 using World.MapGen;
 
 namespace World.UI;
@@ -343,16 +344,19 @@ public partial class MapGenMenu : Control
 
     // ── 星球大小 ↔ 网格分辨率（2026-08-10 口径定案：每格固定 5 km²，用户选半径，n 派生）──
 
+    /// <summary>口径：每格面积（km²，2026-08-10 用户拍板 5km²/格；Goldberg 格数 ≈ 10n²）。</summary>
+    private const double CellAreaKm2 = 5.0;
+
     /// <summary>半径(km) → 网格 n（四舍五入到最近细分档；顶点 = 10n²+2）。
     /// 推导：4πR² = (10n²)·5 → n = √(4πR²/50)。</summary>
     private static int RadiusToGridN(float radiusKm)
     {
         double areaKm2 = 4.0 * Math.PI * radiusKm * radiusKm;
-        return (int)Math.Round(Math.Sqrt(areaKm2 / 50.0), MidpointRounding.AwayFromZero);
+        return (int)Math.Round(Math.Sqrt(areaKm2 / (10.0 * CellAreaKm2)), MidpointRounding.AwayFromZero);
     }
 
     /// <summary>网格 n → 实际半径(km)（反算；保证 4πR²/(10n²) ≈ 5 km²/格，口径自洽）。</summary>
-    private static float GridNToRadius(int n) => (float)Math.Sqrt(50.0 * n * n / (4.0 * Math.PI));
+    private static float GridNToRadius(int n) => (float)Math.Sqrt(10.0 * CellAreaKm2 * n * n / (4.0 * Math.PI));
 
     /// <summary>耗时预估（板块模拟实测基线：n=16 秒级 / 32≈30s / 64≈3min / 128≈12min，×4 关系）。</summary>
     private static string EstimateTime(int n)
@@ -372,12 +376,12 @@ public partial class MapGenMenu : Control
         {
             _derivedLabel.Text = n < 4
                 ? "⚠️ 半径过小：细分下限 n≥4（≈8 km），请加大半径"
-                : $"⚠️ 半径过大：n={n}（顶点 {10L * n * n + 2:N0}）超性能红线，请 ≤ 511 km（n=256）";
+                : $"⚠️ 半径过大：n={n}（顶点 {Icosahedron.VertexCountFor(n):N0}）超性能红线，请 ≤ 511 km（n=256）";
             _derivedLabel.AddThemeColorOverride("font_color", new Color(1f, 0.6f, 0.5f));
             return;
         }
         float r = GridNToRadius(n);
-        long verts = 10L * n * n + 2;
+        long verts = Icosahedron.VertexCountFor(n);
         float cellArea = 4f * Mathf.Pi * r * r / verts;
         _derivedLabel.AddThemeColorOverride("font_color", new Color(0.72f, 0.85f, 0.72f));
         _derivedLabel.Text = $"→ 网格 n={n}（{verts:N0} 格）｜实际半径 {r:F1} km｜每格 ≈{cellArea:F2} km²｜{EstimateTime(n)}";
@@ -395,7 +399,7 @@ public partial class MapGenMenu : Control
         int plates = (int)_platesBox.Value;
         if (n > 256)
         {
-            _status.Text = $"❌ 半径 {_radiusSpin.Value:F0} km 过大 → 网格 n={n}（顶点 {10L * n * n + 2:N0}）——内存/时间不可行，请 ≤ 511 km";
+            _status.Text = $"❌ 半径 {_radiusSpin.Value:F0} km 过大 → 网格 n={n}（顶点 {Icosahedron.VertexCountFor(n):N0}）——内存/时间不可行，请 ≤ 511 km";
             return;
         }
         if (n < 4)
@@ -454,7 +458,7 @@ public partial class MapGenMenu : Control
             NumContinents = continents,    // 大陆块数（构造格局）
             NumPlates = plates,
             SimMegayears = my,
-            SimStepMy = 2f,
+            // SimStepMy 不显式传：跟随 MapGenerator 默认 4f（2026-08-03 已验证 2→4 质量一致；UI 曾硬编码 2f 导致与 headless 默认不一致）
             ProgradeRotation = prograde,   // 自转方向 → 盛行风
             AxialTilt = tilt,              // 轴向倾角 → 季节/温度带
             Insolation = insolation,       // 距太阳距离 → 全球温度

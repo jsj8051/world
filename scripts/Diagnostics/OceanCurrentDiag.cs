@@ -77,7 +77,7 @@ public partial class OceanCurrentDiag : Node
                 float lat = Mathf.Asin(Mathf.Clamp(map.Verts[i].Y, -1f, 1f)) * 180f / Mathf.Pi;
                 if (Mathf.Abs(lat) < 30f || Mathf.Abs(lat) > 60f) continue;
                 midLat++;
-                for (int m = 0; m < 12; m++)
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     float r = map.MonthPrecip[m][i] / 255f;
                     total += r;
@@ -95,7 +95,7 @@ public partial class OceanCurrentDiag : Node
                 float latDeg = Mathf.RadToDeg(Mathf.Asin(Mathf.Clamp(map.Verts[i].Y, -1f, 1f)));
                 float dryMm = 1e9f, wetMm = -1e9f; int dryIdx = 0;
                 float tHot = -1e9f, tCold = 1e9f;
-                for (int m = 0; m < 12; m++)
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     float p = map.MonthPrecip[m][i] / 255f * map.Precip[i];   // 比例→mm
                     if (p < dryMm) { dryMm = p; dryIdx = m; }

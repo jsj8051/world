@@ -17,6 +17,18 @@ namespace World.HexPlanet
     /// </summary>
     public static class Icosahedron
     {
+        /// <summary>球面细分顶点数（Goldberg 多边形数）= 10n²+2。全项目唯一公式源
+        /// （存档校验/UI 派生/诊断反推统一引用，2026-08-19 收编散落魔数）。</summary>
+        public static int VertexCountFor(int n) => 10 * n * n + 2;
+
+        /// <summary>long 安全版（存档结构校验用：伪造 GridN 超大时 int 乘会溢出回绕——校验必须先转 long，
+        /// 防伪造 N 让偏移爆炸，2026-08-07 内存炸弹防御）。</summary>
+        public static long VertexCountForLong(int n) => 10L * n * n + 2;
+
+        /// <summary>顶点数 → 网格参数 n（反推；与 VertexCountFor 互逆，四舍五入）。</summary>
+        public static int GridNFromVertexCount(int vertexCount)
+            => (int)Math.Round(Math.Sqrt((vertexCount - 2) / 10.0));
+
         /// <summary>
         /// Subdivide an icosahedron by dividing each edge into `n` segments.
         /// Generates a triangular grid within each face, deduplicated at edges/corners.
@@ -95,7 +107,7 @@ namespace World.HexPlanet
                 }
             }
 
-            GD.Print($"[Icosahedron] n={n} verts={verts.Count} tris={indices.Count / 3}  (expect verts≈{10 * n * n + 2}, tris={20 * n * n})");
+            GD.Print($"[Icosahedron] n={n} verts={verts.Count} tris={indices.Count / 3}  (expect verts≈{VertexCountFor(n)}, tris={20 * n * n})");
         }
 
         /// <summary>

@@ -1,4 +1,6 @@
 using Godot;
+using World.Biome;
+using World.HexPlanet;
 
 namespace World.LogicGrid;
 
@@ -78,9 +80,9 @@ public static class GameMapArchive
         foreach (var v in g.MineralLevel) f.Store8(v);
         foreach (var v in g.SoilLevel) f.Store8(v);
         foreach (var v in g.MonsoonLevel) f.Store8(v);
-        for (int m = 0; m < 12; m++)
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             foreach (var v in g.MonthPrecip[m]) f.Store8(v);
-        for (int m = 0; m < 12; m++)
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             foreach (var v in g.MonthTemp[m]) f.Store8(v);
         foreach (var v in g.CurrentDirs) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
         foreach (var v in g.CurrentWarmth) f.StoreFloat(v);
@@ -135,7 +137,7 @@ public static class GameMapArchive
         //   旧中间态 v4 文件（t7/t8/t20260806/n16 等，写于 v4 定稿前）魔数已是 CMP1+v4 但正文错位，
         //   N 读到 11.7 亿 → new Vector3[N] = 14GB / new byte[N] = 1.2GB → 8GB 飙升 + 卡死（用户实证）。
         //   用 long 防 10×n² 溢出回绕（n=2^31 时 int 乘会恰好"合法"）。
-        long expectN = (long)grid.GridN * grid.GridN * 10 + 2;
+        long expectN = Icosahedron.VertexCountForLong(grid.GridN);
         if (grid.GridN < 8 || grid.GridN > 512 || (long)grid.N != expectN)
         {
             GD.PrintErr($"[GameMapArchive] 结构校验失败：GridN={grid.GridN} N={grid.N}（期望 10n²+2={expectN}）。" +
@@ -166,10 +168,10 @@ public static class GameMapArchive
         grid.MineralLevel = ReadBytes(f, n);
         grid.SoilLevel = ReadBytes(f, n);
         grid.MonsoonLevel = ReadBytes(f, n);
-        grid.MonthPrecip = new byte[12][];
-        for (int m = 0; m < 12; m++) grid.MonthPrecip[m] = ReadBytes(f, n);
-        grid.MonthTemp = new byte[12][];
-        for (int m = 0; m < 12; m++) grid.MonthTemp[m] = ReadBytes(f, n);
+        grid.MonthPrecip = new byte[MonsoonSystem.MonthCount][];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++) grid.MonthPrecip[m] = ReadBytes(f, n);
+        grid.MonthTemp = new byte[MonsoonSystem.MonthCount][];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++) grid.MonthTemp[m] = ReadBytes(f, n);
         grid.CurrentDirs = new Vector3[n];
         for (int i = 0; i < n; i++)
             grid.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());

@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.MapGen;
 
 namespace World.Tectonics
 {
@@ -83,14 +84,14 @@ namespace World.Tectonics
         /// （相邻格完全无关，无大陆块）。tectonics.js 的 height_ranks 来自低频
         /// 噪声场（空间连续），这里用 3D Simplex 低频（波长 ~5000km）还原。
         /// </summary>
-        public void GenerateInitialCrust(int seed, float oceanFraction = 0.6f, float radiusKm = 6371f)
+        public void GenerateInitialCrust(int seed, float oceanFraction = 0.6f, float radiusKm = MapArchive.DefaultRadiusKm)
         {
             int n = GlobalGrid.VertexCount;
             Seed = seed;
             // ⚠️ 2026-08-18 行星标度（用户拍板 A：初始地壳按 R——自然涌现非固定缩放）：
             //   hypsography 模板是地球标定（大陆 +797±1169m）——小星球地壳薄/分异弱，
             //   均衡山高按 sqrt(R/R⊕) 一阶标度（行星冷却/分异尺度律）——R=128km → ×0.142
-            float hypsoscale = Mathf.Sqrt(radiusKm / 6371f);
+            float hypsoscale = Mathf.Sqrt(radiusKm / MapArchive.DefaultRadiusKm);
 
             // 1. 每格高度排名：球面低频噪声（多路独立求和，块形完整）
             //    对应 JS World 初始化的 height_ranks（噪声驱动，非逐格随机）

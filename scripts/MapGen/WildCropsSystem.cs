@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.Biome;
 using World.LogicGrid;
 
 namespace World.MapGen;
@@ -31,12 +32,12 @@ public static class WildCropsSystem
     {
         int n = g.N;
         var suit = new float[n, SeedCount];
-        var mt = new float[12];
-        var mp = new float[12];
+        var mt = new float[MonsoonSystem.MonthCount];
+        var mp = new float[MonsoonSystem.MonthCount];
         for (int i = 0; i < n; i++)
         {
             if (!g.IsLandCell(i)) continue;
-            for (int m = 0; m < 12; m++)
+            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             {
                 mt[m] = g.MonthTemp[m][i] / 255f * 120f - 60f;
                 mp[m] = g.MonthPrecip[m][i] / 255f;
@@ -126,9 +127,9 @@ public static class WildCropsSystem
     {
         if (!g.IsLandCell(cell)) return 0f;
         if (suit != null) return Mathf.Clamp(suit[cell, seedIdx], 0f, 1f);
-        var mt = new float[12];
-        var mp = new float[12];
-        for (int m = 0; m < 12; m++)
+        var mt = new float[MonsoonSystem.MonthCount];
+        var mp = new float[MonsoonSystem.MonthCount];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
         {
             mt[m] = g.MonthTemp[m][cell] / 255f * 120f - 60f;
             mp[m] = g.MonthPrecip[m][cell] / 255f;
@@ -148,8 +149,8 @@ public static class WildCropsSystem
     /// <summary>最冷 6 个月（按月温排序）降水比例和 ∈[0,1]（冬半年降水占比）。</summary>
     private static float WinterShare(GameGrid g, int i, float[] monthT, float[] monthP)
     {
-        var order = new int[12];
-        for (int m = 0; m < 12; m++) order[m] = m;
+        var order = new int[MonsoonSystem.MonthCount];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++) order[m] = m;
         for (int a = 0; a < 12; a++)          // 选择排序（12 元素，确定性）
             for (int b = a + 1; b < 12; b++)
                 if (monthT[order[b]] < monthT[order[a]]) (order[a], order[b]) = (order[b], order[a]);

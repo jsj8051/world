@@ -24,6 +24,26 @@ public static class BiomeClassifier
     /// <summary>高于此归一化海拔（-1..1）→ 山地（Alpine 或冰雪）。0.5 ≈ 5km。</summary>
     public const float AlpineLevel = 0.5f;
 
+    // ── 柯本-盖格温度/降水判据阈值（Kottek et al. 2006 学理常数；命名统一供各模块引用，2026-08-19）──
+    /// <summary>海冰温度阈值（°C；海水冰点 -1.8°C 取整）。</summary>
+    public const float SeaIceTempC = -2f;
+    /// <summary>A 带（热带）判据：最冷月 ≥ 18°C。</summary>
+    public const float TropicalMinTempC = 18f;
+    /// <summary>E 带（极地）判据：最热月 &lt; 10°C。</summary>
+    public const float PolarMaxTempC = 10f;
+    /// <summary>D 带（大陆性）判据：最冷月 ≤ -3°C。</summary>
+    public const float ContinentalMaxTempC = -3f;
+    /// <summary>Dfc（亚寒带）判据：最冷月 ≤ -15°C。</summary>
+    public const float SubarcticMaxTempC = -15f;
+    /// <summary>热夏判据：最热月 ≥ 22°C（Dfa/Csa/Cfa 等）。</summary>
+    public const float HotSummerMinTempC = 22f;
+    /// <summary>干季月降水阈值（mm）：≥30 = 无明显干季（B 带均匀型/Cf/Df），&lt;30 = 干季存在。</summary>
+    public const float DryMonthThresholdMm = 30f;
+    /// <summary>A 带湿润判据：最干月 ≥ 60mm（Af）。</summary>
+    public const float AfDryMonthMinMm = 60f;
+    /// <summary>Am 判据年降水基数（mm；Kottek：P ≥ 100cm − 最干月/25，100cm=1000mm）。</summary>
+    public const float AmAnnualBaseMm = 1000f;
+
     public static BiomeType Classify(float elevNorm, float tempC, float precipMm,
         float tHot, float tCold, float dryMonth, int dryMonthIndex = 3, float latDeg = 0f, float wetMonth = 120f)
     {
@@ -32,8 +52,8 @@ public static class BiomeClassifier
             return BiomeType.DeepOcean;
         if (elevNorm < OceanLevel)
         {
-            if (tempC < -2f) return BiomeType.FrigidOcean;   // 海冰带（海水冰点 -1.8°C）
-            if (tempC >= 18f) return BiomeType.TropicalOcean;
+            if (tempC < SeaIceTempC) return BiomeType.FrigidOcean;   // 海冰带（海水冰点 -1.8°C）
+            if (tempC >= TropicalMinTempC) return BiomeType.TropicalOcean;
             return BiomeType.Ocean;                          // 温带海洋
         }
 
@@ -48,38 +68,38 @@ public static class BiomeClassifier
 
         // ── B 带（干旱，覆盖一切；阈值随季节型修正，Kottek 2006）──
         float pThr;
-        if (dryMonth >= 30f) pThr = 2f * (tempC + 7f);        // 无明显干季 → 均匀型
+        if (dryMonth >= DryMonthThresholdMm) pThr = 2f * (tempC + 7f);        // 无明显干季 → 均匀型
         else pThr = dryInWinter ? 2f * (tempC + 14f)          // 夏雨型（冬干）
                                 : 2f * tempC;                 // 冬雨型（夏干，地中海）
         if (precipMm < 5f * pThr)         // BW：沙漠
-            return tempC >= 18f ? BiomeType.HotDesert : BiomeType.ColdDesertKoppen;
+            return tempC >= TropicalMinTempC ? BiomeType.HotDesert : BiomeType.ColdDesertKoppen;
         if (precipMm < 10f * pThr)        // BS：半干旱草原
-            return tempC >= 18f ? BiomeType.HotSteppe : BiomeType.ColdSteppe;
+            return tempC >= TropicalMinTempC ? BiomeType.HotSteppe : BiomeType.ColdSteppe;
 
-        if (tCold >= 18f)                 // A 带：热带（真实最冷月 ≥18°C）
+        if (tCold >= TropicalMinTempC)    // A 带：热带（真实最冷月 ≥18°C）
         {
-            if (dryMonth >= 60f) return BiomeType.TropicalRainforest;   // Af
+            if (dryMonth >= AfDryMonthMinMm) return BiomeType.TropicalRainforest;   // Af
             // Am/Aw 分界：P ≥ 100cm − 最干月/25（100 是 cm → 1000mm；最干月 cm/25 = mm/2.5）
-            if (precipMm >= 1000f - dryMonth / 2.5f) return BiomeType.TropicalMonsoon;  // Am
+            if (precipMm >= AmAnnualBaseMm - dryMonth / 2.5f) return BiomeType.TropicalMonsoon;  // Am
             return BiomeType.TropicalSavanna;                            // Aw
         }
 
-        if (tHot < 10f)                   // E 带：极地（真实最热月 <10°C）
+        if (tHot < PolarMaxTempC)         // E 带：极地（真实最热月 <10°C）
             return tHot >= 0f ? BiomeType.Tundra : BiomeType.IceCap;    // ET / EF
 
-        if (tCold <= -3f)                 // D 带：大陆性（f 判据 30mm，非 A 带 60mm）
+        if (tCold <= ContinentalMaxTempC) // D 带：大陆性（f 判据 30mm，非 A 带 60mm）
         {
             // ⚠️ 2026-08-06：Dwa 需"冬干"（干季在冬季）——夏季干旱的中纬区不判冬干（Kottek w 判据）
-            if (dryMonth < 30f && dryInWinter) return BiomeType.ContinentalDry;         // Dwa（冬干）
-            if (tHot >= 22f) return BiomeType.ContinentalHot;            // Dfa
-            if (tCold <= -15f) return BiomeType.Subarctic;               // Dfc（更冷 → 针叶林）
+            if (dryMonth < DryMonthThresholdMm && dryInWinter) return BiomeType.ContinentalDry;         // Dwa（冬干）
+            if (tHot >= HotSummerMinTempC) return BiomeType.ContinentalHot;            // Dfa
+            if (tCold <= SubarcticMaxTempC) return BiomeType.Subarctic;               // Dfc（更冷 → 针叶林）
             return BiomeType.ContinentalWarm;                            // Dfb
         }
         // C 带：温带（f 判据 30mm）
-        if (dryMonth < 30f)               // 冬干 w / 夏干 s
+        if (dryMonth < DryMonthThresholdMm)               // 冬干 w / 夏干 s
             return dryInWinter
-                ? (tHot >= 22f ? BiomeType.MonsoonSubtropical : BiomeType.Oceanic)       // Cwa / Cwb→Oceanic
-                : (tHot >= 22f ? BiomeType.MediterraneanHot : BiomeType.MediterraneanCool); // Csa / Csb
-        return tHot >= 22f ? BiomeType.HumidSubtropical : BiomeType.Oceanic;  // Cfa / Cfb
+                ? (tHot >= HotSummerMinTempC ? BiomeType.MonsoonSubtropical : BiomeType.Oceanic)       // Cwa / Cwb→Oceanic
+                : (tHot >= HotSummerMinTempC ? BiomeType.MediterraneanHot : BiomeType.MediterraneanCool); // Csa / Csb
+        return tHot >= HotSummerMinTempC ? BiomeType.HumidSubtropical : BiomeType.Oceanic;  // Cfa / Cfb
     }
 }

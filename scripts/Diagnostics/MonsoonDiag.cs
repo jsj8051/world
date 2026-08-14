@@ -56,7 +56,7 @@ public partial class MonsoonDiag : Node
         var climate = new ClimateGenerator(map.Seed, tilt, 1f);
         MonsoonSystem.Compute(ctx.Verts, ctx.Neighbors, ctx.ElevNorm, ctx.ElevM, ctx.Temp, ctx.Precip, tilt, map.RotationSpeed, climate,
             out var monsoon, out var tHotM, out var tColdM, out var dryP, out var dryIdx, out var monthP,
-            out var monthWind, out var monthTemp, out var precipAnnAbs);
+            out var monthWind, out var monthTemp, out var precipAnnAbs, radiusKm: map.RadiusKm);
         // 年降水 = Σ 月（月→年；诊断用聚合值重算 biome）
         var precipAnn = precipAnnAbs;
 
@@ -73,8 +73,8 @@ public partial class MonsoonDiag : Node
         var monsoonLevel = new byte[n];
         for (int i = 0; i < n; i++)
             monsoonLevel[i] = (byte)(Mathf.Clamp(monsoon[i], 0f, 1f) * 255f);
-        var monthPrecip = new byte[12][];
-        for (int m = 0; m < 12; m++)
+        var monthPrecip = new byte[MonsoonSystem.MonthCount][];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
         {
             monthPrecip[m] = new byte[n];
             for (int i = 0; i < n; i++)
@@ -84,8 +84,8 @@ public partial class MonsoonDiag : Node
             }
         }
 
-        var monthTempB = new byte[12][];
-        for (int m = 0; m < 12; m++)
+        var monthTempB = new byte[MonsoonSystem.MonthCount][];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
         {
             monthTempB[m] = new byte[n];
             for (int i = 0; i < n; i++)
@@ -149,15 +149,15 @@ public partial class MonsoonDiag : Node
                     //   ⚠️ v2：真正的同纬度对照——B 带内大陆偏中纬、海洋偏热带（基础差 -5.4°C
                     //   是纬度分布，非海陆热力）。按 5° 带内比较海陆，再对各带温差平均。
                     //   高山雪原（elevNorm>0.5，反照率 0.45）排除——它冷是真实物理（C 断言验证）。
-                    if (ctx.ElevNorm[i] >= 0.5f) { continue; }
-                    float t7sl = t7 + (ctx.ElevNorm[i] >= 0.02f && ctx.ElevM[i] > 0f ? 0.006f * ctx.ElevM[i] : 0f);
+                    if (ctx.ElevNorm[i] >= BiomeClassifier.AlpineLevel) { continue; }
+                    float t7sl = t7 + (ctx.ElevNorm[i] >= BiomeClassifier.OceanLevel && ctx.ElevM[i] > 0f ? MonsoonSystem.ElevLapseRatePerM * ctx.ElevM[i] : 0f);
                     int band = Mathf.Clamp((int)((latDeg - 15f) / 5f), 0, 4);
-                    if (ctx.ElevNorm[i] >= 0.02f) { landB[band] += t7sl; landC[band]++; }
+                    if (ctx.ElevNorm[i] >= BiomeClassifier.OceanLevel) { landB[band] += t7sl; landC[band]++; }
                     else { oceanB[band] += t7sl; oceanC[band]++; }
                 }
-                if (ctx.ElevNorm[i] >= 0.02f && latDeg >= 15f && latDeg <= 40f)
+                if (ctx.ElevNorm[i] >= BiomeClassifier.OceanLevel && latDeg >= 15f && latDeg <= 40f)
                 {
-                    if (ctx.ElevNorm[i] > 0.5f) { cHigh += t7; cHighN++; }
+                    if (ctx.ElevNorm[i] > BiomeClassifier.AlpineLevel) { cHigh += t7; cHighN++; }
                     else if (ctx.ElevNorm[i] < 0.3f) { cLow += t7; cLowN++; }
                 }
             }
@@ -204,7 +204,7 @@ public partial class MonsoonDiag : Node
                 if (monsoon[i] < 0.25f) continue;
                 float wMax = 0f; int wIdx = 0;
                 float dMin2 = float.MaxValue; int dIdx2 = 0;
-                for (int m = 0; m < 12; m++)
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     if (monthP[m][i] > wMax) { wMax = monthP[m][i]; wIdx = m; }
                     if (monthP[m][i] < dMin2) { dMin2 = monthP[m][i]; dIdx2 = m; }

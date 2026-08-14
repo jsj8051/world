@@ -63,8 +63,9 @@ public partial class RiverDiag : Node
 		var eNormWork = (float[])eNorm.Clone();
 		var elevWork = (float[])disp.Clone();
 		RiverSystem.ComputeIterative(verts, neighbors, eNormWork, elevWork,
-			precip, temp, waterThreshold: 5000f, lakeThreshold: 200f,
-			seaLevelM: 0f, elevSpan: span, rounds: 4,
+			precip, temp,
+			waterThreshold: RiverSystem.DefaultWaterThreshold, lakeThreshold: RiverSystem.DefaultLakeThreshold,
+			seaLevelM: 0f, elevSpan: span, rounds: RiverSystem.DefaultRounds,   // 与生产管线同参（诊断复现）
 			out var flow, out var area, out var riverLevel, out var lakeLevel, out var paths);
 
 		// 侵蚀/沉积统计（对比原海拔）
@@ -101,8 +102,9 @@ public partial class RiverDiag : Node
 		var eNormWork = (float[])eNorm.Clone();
 		var elevWork = (float[])elevM.Clone();
 		RiverSystem.ComputeIterative(verts, neighbors, eNormWork, elevWork,
-			precip, temp, waterThreshold: 5000f, lakeThreshold: 200f,
-			seaLevelM: 0f, elevSpan: span, rounds: 4,
+			precip, temp,
+			waterThreshold: RiverSystem.DefaultWaterThreshold, lakeThreshold: RiverSystem.DefaultLakeThreshold,
+			seaLevelM: 0f, elevSpan: span, rounds: RiverSystem.DefaultRounds,   // 与生产管线同参（诊断复现）
 			out var flow, out var area, out var riverLevel, out var lakeLevel, out var paths);
 		sw.Stop();
 

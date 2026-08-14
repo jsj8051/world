@@ -136,7 +136,7 @@ public partial class MapGenerator : Node
 		sim.SplitIntoPlates(NumPlates, Seed);
 		sim.OceanScale = OceanScale;              // 海洋水量（海陆比）
 		sim.SupercontinentCycleMy = SupercontinentCycleMy;  // 超级大陆周期
-		sim.ErosionScale = ErosionScale * Mathf.Sqrt(6371f / RadiusKm);   // ⚠️ 2026-08-18 行星侵蚀标度（B：小星球格距小/搬运快——侵蚀相对效率高——平衡海拔低）
+		sim.ErosionScale = ErosionScale * Mathf.Sqrt(MapArchive.DefaultRadiusKm / RadiusKm);   // ⚠️ 2026-08-18 行星侵蚀标度（B：小星球格距小/搬运快——侵蚀相对效率高——平衡海拔低）
 		sim.Run(SimMegayears, SimStepMy);
 		sim.ComputeSubductionZones();   // 俯冲带检测（2026-08-18：主动边缘——大陆架场跳过）
 		{ int subCnt = 0; if (sim.SubductionMask != null) foreach (var b in sim.SubductionMask) if (b == 1) subCnt++;
@@ -225,8 +225,8 @@ public partial class MapGenerator : Node
 		var monsoonLevel = new byte[vn];
 		for (int i = 0; i < vn; i++)
 			monsoonLevel[i] = (byte)(Mathf.Clamp(pipe.MonsoonStrength[i], 0f, 1f) * 255f);
-		var monthPrecip = new byte[12][];
-		for (int m = 0; m < 12; m++)
+		var monthPrecip = new byte[MonsoonSystem.MonthCount][];
+		for (int m = 0; m < MonsoonSystem.MonthCount; m++)
 		{
 			monthPrecip[m] = new byte[vn];
 			for (int i = 0; i < vn; i++)
@@ -236,9 +236,9 @@ public partial class MapGenerator : Node
 			}
 		}
 		// 月温度（−60~60°C → 0-255；温度系统月度化 v3.8）
-		var monthTemp = new byte[12][];
+		var monthTemp = new byte[MonsoonSystem.MonthCount][];
 		if (pipe.MonthTemp != null)
-			for (int m = 0; m < 12; m++)
+			for (int m = 0; m < MonsoonSystem.MonthCount; m++)
 			{
 				monthTemp[m] = new byte[vn];
 				for (int i = 0; i < vn; i++)
@@ -350,8 +350,8 @@ public partial class MapGenerator : Node
 			var monsoonLevel = new byte[vn];
 			for (int i = 0; i < vn; i++)
 				monsoonLevel[i] = (byte)(Mathf.Clamp(pipe.MonsoonStrength[i], 0f, 1f) * 255f);
-			var monthPrecip = new byte[12][];
-			for (int m = 0; m < 12; m++)
+			var monthPrecip = new byte[MonsoonSystem.MonthCount][];
+			for (int m = 0; m < MonsoonSystem.MonthCount; m++)
 			{
 				monthPrecip[m] = new byte[vn];
 				for (int i = 0; i < vn; i++)
@@ -361,9 +361,9 @@ public partial class MapGenerator : Node
 				}
 			}
 			// 月温度（−60~60°C → 0-255）
-			var monthTemp = new byte[12][];
+			var monthTemp = new byte[MonsoonSystem.MonthCount][];
 			if (pipe.MonthTemp != null)
-				for (int m = 0; m < 12; m++)
+				for (int m = 0; m < MonsoonSystem.MonthCount; m++)
 				{
 					monthTemp[m] = new byte[vn];
 					for (int i = 0; i < vn; i++)

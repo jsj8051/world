@@ -18,6 +18,13 @@ namespace World.MapGen;
 /// </summary>
 public static class RiverSystem
 {
+    /// <summary>水量版河流阈值（mm 净水量；标定：5000 为生产管线实测标定值，RiverDiag 曾辅助分位数标定）。</summary>
+    public const float DefaultWaterThreshold = 5000f;
+    /// <summary>湖泊阈值（mm 净水量；盆地蓄水 ≥ 此值 → 湖）。</summary>
+    public const float DefaultLakeThreshold = 200f;
+    /// <summary>迭代轮数上限（2026-08-18 4→8：河流下切增强 V 谷；收敛检测可提前停）。</summary>
+    public const int DefaultRounds = 8;
+
     /// <summary>
     /// 计算河流。
     /// </summary>
@@ -32,14 +39,14 @@ public static class RiverSystem
     /// <param name="areaThreshold">河流阈值（格数，n=64 默认 12）</param>
     /// <param name="precip">可选：每格年降水 mm。提供时用水量版（累积降水-蒸发）</param>
     /// <param name="temp">可选：每格年均温 °C（计算蒸发，需与 precip 同时提供）</param>
-    /// <param name="waterThreshold">水量版阈值（mm 净水量，默认 400）</param>
+    /// <param name="waterThreshold">水量版阈值（mm 净水量，默认 RiverSystem.DefaultWaterThreshold）</param>
     public static void Compute(
         Vector3[] verts, int[][] neighbors, float[] elevNorm,
         out int[] flow, out float[] area, out byte[] riverLevel,
         out List<int[]> riverPaths, out List<int> lakeIds, out byte[] lakeLevel,
         float areaThreshold = 12f,
-        float[] precip = null, float[] temp = null, float waterThreshold = 400f,
-        float lakeThreshold = 200f)
+        float[] precip = null, float[] temp = null,
+        float waterThreshold = DefaultWaterThreshold, float lakeThreshold = DefaultLakeThreshold)
     {
         int n = verts.Length;
         flow = new int[n];

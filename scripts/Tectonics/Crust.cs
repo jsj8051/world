@@ -25,6 +25,11 @@ namespace World.Tectonics
     /// </summary>
     public class Crust
     {
+        /// <summary>全球陆地平均降水（m/s；1.05m/年）。ModelErosion/ModelWeathering 共用。</summary>
+        public const float PrecipMS = 1.05f / 365.25f / 24f / 3600f;
+        /// <summary>侵蚀/风化效率系数（JS 原版 1.8e-7；两方法同源同值，2026-08-19 合并）。</summary>
+        public const float ErosiveFactor = 1.8e-7f;
+
         public SphereGrid Grid;
         public float[] Sediment;
         public float[] Sedimentary;
@@ -216,8 +221,6 @@ namespace World.Tectonics
             MaterialDensity materialDensity, Crust topCrust, Crust crustDelta,
             float erosionScale = 1f)   // 侵蚀强度倍率（2026-08-16 用户可调：0.5 温和 ~ 2 剧烈）
         {
-            const float Precip = 1.05f / 365.25f / 24f / 3600f;  // m/s（1.05m/年）
-            const float ErosiveFactor = 1.8e-7f;
             const float Rho = 2600f;   // material_density.felsic_plutonic
 
             int n = grid.VertexCount;
@@ -234,7 +237,7 @@ namespace World.Tectonics
                     int j = neighbors[i][k];
                     float diff = hi - surfaceHeight[j];
                     if (diff > 0)
-                        outbound[i] += diff * Precip * seconds * ErosiveFactor * erosionScale * Rho;
+                        outbound[i] += diff * PrecipMS * seconds * ErosiveFactor * erosionScale * Rho;
                 }
             }
 
@@ -265,7 +268,7 @@ namespace World.Tectonics
                     int j = neighbors[i][k];
                     float diff = hi - surfaceHeight[j];
                     if (diff <= 0) continue;
-                    float transfer = diff * Precip * seconds * ErosiveFactor * erosionScale * Rho;
+                    float transfer = diff * PrecipMS * seconds * ErosiveFactor * erosionScale * Rho;
                     for (int p = 0; p < 5; p++)
                     {
                         float t = transfer * frac[p][i];
@@ -288,8 +291,6 @@ namespace World.Tectonics
             MaterialDensity materialDensity, Crust topCrust, Crust crustDelta,
             float erosionScale = 1f)   // 侵蚀强度倍率（与 ModelErosion 联动，2026-08-16）
         {
-            const float Precip = 1.05f / 365.25f / 24f / 3600f;  // m/s
-            const float WeatheringFactor = 1.8e-7f;
             const float CriticalSedimentThickness = 1f;  // m
 
             int n = grid.VertexCount;
@@ -313,7 +314,7 @@ namespace World.Tectonics
                 exposure = Mathf.Clamp(exposure, 0f, 1f);
                 if (exposure <= 0) continue;
 
-                float weathering = avgDiff * WeatheringFactor * erosionScale * Precip * seconds
+                float weathering = avgDiff * ErosiveFactor * erosionScale * PrecipMS * seconds
                     * materialDensity.FelsicPlutonic
                     * (materialDensity.Mantle > 0 ? 1f : 1f)   // 重力修正占位（原版 surface_gravity/earth_g）
                     * exposure;

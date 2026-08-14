@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.Biome;
 using World.LogicGrid;
 using World.MapGen;
 
@@ -155,7 +156,7 @@ public partial class LogicGridDiag : Node
     private static int Bytes2DDiff(string name, byte[][] a, byte[][] b, out int diff)
     {
         diff = 0;
-        for (int m = 0; m < 12; m++)
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             for (int i = 0; i < a[m].Length; i++)
                 if (a[m][i] != b[m][i]) diff++;
         return diff;

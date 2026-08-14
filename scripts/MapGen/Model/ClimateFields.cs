@@ -1,4 +1,5 @@
 using Godot;
+using World.Biome;
 
 namespace World.MapGen.Model;
 
@@ -121,7 +122,7 @@ public sealed class ErosionDepositionField : ModelBase, IFieldRole
         var visited = new bool[n];     // 防环（next 表可能成环——风场环流）
         for (int i = 0; i < n; i++)
         {
-            if (e[i] < 0.02f) continue;          // 只陆地风蚀（海洋无地表物质）
+            if (e[i] < BiomeClassifier.OceanLevel) continue;          // 只陆地风蚀（海洋无地表物质）
             var w = windYear[i];
             float wMag = w.Length();
             if (wMag < 1e-6f) continue;
@@ -261,7 +262,7 @@ public sealed class AnnualTempField : ModelBase, IFieldRole
         for (int i = 0; i < vn; i++)
         {
             float sum = 0f;
-            for (int m = 0; m < 12; m++) sum += pipe.MonthTemp[m][i];
+            for (int m = 0; m < MonsoonSystem.MonthCount; m++) sum += pipe.MonthTemp[m][i];
             pipe.Temp[i] = sum / 12f;   // 年均温 = mean(月温度)
         }
     }
@@ -317,7 +318,7 @@ public sealed class MonthTempField : ModelBase, IFieldRole
         World.Biome.MonsoonSystem.Compute(pipe.Verts, pipe.Neighbors, pipe.ENorm, pipe.Elev,
             pipe.TempBase, pipe.Precip, pipe.P.AxialTilt, pipe.P.RotationSpeed, pipe.Climate,
             out var monsoon, out var tHotM, out var tColdM, out var dryP, out var dryIdx, out var monthP,
-            out var monthWind, out var monthTemp, out var precipAnnAbs);
+            out var monthWind, out var monthTemp, out var precipAnnAbs, radiusKm: pipe.P.RadiusKm);
         pipe.MonsoonStrength = monsoon;
         pipe.MonthPrecip = monthP;
         pipe.MonthTemp = monthTemp;
@@ -327,7 +328,7 @@ public sealed class MonthTempField : ModelBase, IFieldRole
         pipe.HotM = tHotM; pipe.ColdM = tColdM; pipe.DryP = dryP; pipe.DryIdx = dryIdx;
         // 年合成风场（P1 优化：洋流第二遍 + 侵蚀堆积风蚀项共享，避免两场各算一遍）
         pipe.WindYear = new Vector3[pipe.Verts.Length];
-        for (int m = 0; m < 12; m++)
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             for (int i = 0; i < pipe.Verts.Length; i++)
                 pipe.WindYear[i] += pipe.MonthWind[m][i] / 12f;
     }
@@ -445,7 +446,7 @@ public sealed class BiomeField : ModelBase, IFieldRole
             if (pipe.MonthPrecip != null && pipe.MonthPrecip.Length == 12)
             {
                 float wetP = 0f;
-                for (int m = 0; m < 12; m++)
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                     if (pipe.MonthPrecip[m][i] > wetP) wetP = pipe.MonthPrecip[m][i];
                 wetMm = wetP * pipe.Precip[i];
             }

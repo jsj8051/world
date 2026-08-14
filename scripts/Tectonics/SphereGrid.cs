@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.HexPlanet;
+using World.MapGen;
 
 namespace World.Tectonics
 {
@@ -24,8 +25,10 @@ namespace World.Tectonics
         public List<(int a, int b, int c)> Faces;
 
         // ── 球面 hash 桶（最近邻加速）──
-        private const int BucketsLat = 16;   // 纬度分桶（-90..90）
-        private const int BucketsLon = 32;   // 经度分桶（环形）
+        // ⚠️ 2026-08-19：桶数按 n 缩放（对齐 MapArchive/GameGrid 同款修复）——固定 16×32 时
+        //   n≥128 每桶 ~320 顶点 → NearestId O(V²) 卡死；目标每桶 ~30 顶点，lat:lon=1:2。
+        private int _bucketsLat;
+        private int _bucketsLon;
         private List<int>[,] _buckets;
 
         public SphereGrid(int n)
@@ -35,13 +38,19 @@ namespace World.Tectonics
             //    传 1 会让全部顶点合并（实测 verts=26）。2026-08-02 修复。
             // ⚠️ 板块模拟内部标度固定 6371km（与存档默认一致；板块输出是 rad 角度格局，
             //    与星球实际半径无关——2026-08-10 统一标度决策）。
-            Icosahedron.Subdivide(n, 6371f, out var verts, out var indices);
+            Icosahedron.Subdivide(n, MapArchive.DefaultRadiusKm, out var verts, out var indices);
             Vertices = new Vector3[verts.Count];
             for (int i = 0; i < verts.Count; i++)
                 Vertices[i] = verts[i].Normalized();
             Faces = new List<(int, int, int)>();
             for (int i = 0; i < indices.Count; i += 3)
                 Faces.Add((indices[i], indices[i + 1], indices[i + 2]));
+
+            // 桶数按顶点数缩放（目标每桶 ~30，lat:lon ≈ 1:2）——n=16→16×32 与原相同，n≥64 自动加密
+            int targetPerBucket = 30;
+            int totalBuckets = Math.Max(2, Vertices.Length / targetPerBucket);
+            _bucketsLat = Mathf.Clamp((int)Mathf.Round(Mathf.Sqrt(totalBuckets / 2f)), 4, 512);
+            _bucketsLon = _bucketsLat * 2;
 
             BuildNeighbors();
             BuildBuckets();
@@ -65,9 +74,9 @@ namespace World.Tectonics
 
         private void BuildBuckets()
         {
-            _buckets = new List<int>[BucketsLat, BucketsLon];
-            for (int y = 0; y < BucketsLat; y++)
-                for (int x = 0; x < BucketsLon; x++)
+            _buckets = new List<int>[_bucketsLat, _bucketsLon];
+            for (int y = 0; y < _bucketsLat; y++)
+                for (int x = 0; x < _bucketsLon; x++)
                     _buckets[y, x] = new List<int>();
 
             for (int i = 0; i < Vertices.Length; i++)
@@ -77,12 +86,12 @@ namespace World.Tectonics
             }
         }
 
-        private static (int, int) BucketOf(Vector3 v)
+        private (int, int) BucketOf(Vector3 v)
         {
             float lat = Mathf.Asin(Mathf.Clamp(v.Y, -1f, 1f));         // -π/2..π/2
             float lon = Mathf.Atan2(v.Z, v.X);                          // -π..π
-            int by = (int)Mathf.Clamp((lat / Mathf.Pi + 0.5f) * BucketsLat, 0, BucketsLat - 1);
-            int bx = (int)(((lon / Mathf.Pi + 1f) * 0.5f * BucketsLon) % BucketsLon);
+            int by = (int)Mathf.Clamp((lat / Mathf.Pi + 0.5f) * _bucketsLat, 0, _bucketsLat - 1);
+            int bx = (int)(((lon / Mathf.Pi + 1f) * 0.5f * _bucketsLon) % _bucketsLon);
             return (by, bx);
         }
 
@@ -98,10 +107,10 @@ namespace World.Tectonics
             float bestD = float.MaxValue;
             for (int dy = -1; dy <= 1; dy++)
             {
-                int y = (by + dy + BucketsLat) % BucketsLat;
+                int y = (by + dy + _bucketsLat) % _bucketsLat;
                 for (int dx = -1; dx <= 1; dx++)
                 {
-                    int x = (bx + dx + BucketsLon) % BucketsLon;
+                    int x = (bx + dx + _bucketsLon) % _bucketsLon;
                     foreach (int id in _buckets[y, x])
                     {
                         float d = (Vertices[id] - p).LengthSquared();

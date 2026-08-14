@@ -46,6 +46,10 @@ public partial class MapViewer : Node3D
 
     [Export] public float RadiusKm = MapArchive.DefaultRadiusKm;   // 星球半径（默认地球 6371；读档后按存档口径覆盖）
 
+    /// <summary>覆盖层（箭头/河流等线状几何）球面浮高系数：RadiusKm×此值，防 z-fighting。
+    /// 曾散落 1.01f/1.012f 四处（2026-08-19 统一——差异 0.2% 无视觉意义）。</summary>
+    public const float OverlayLiftFactor = 1.01f;
+
     // 改 GridN → 自动重建星球。IsInsideTree() 保证编辑器和运行时都实时响应
     // （编辑器视口不跑 _Ready，但改属性时节点已在树内，照样触发重建）。
     [Export]
@@ -347,7 +351,7 @@ public partial class MapViewer : Node3D
             //   Goldberg hex 格数 = 10×GridN²+2 → GridN=n 时两者恰好相等（10242 格/10242 顶点）。
             if (_map.IsSpherical && _map.Verts != null)
             {
-                int simN = (int)Mathf.Round(Mathf.Sqrt((_map.Verts.Length - 2) / 10f));
+                int simN = Icosahedron.GridNFromVertexCount(_map.Verts.Length);
                 if (simN >= 8 && simN <= 512 && simN != _gridN)
                 {
                     GD.Print($"[MapViewer] 存档模拟 n={simN}（{_map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
@@ -814,7 +818,8 @@ public partial class MapViewer : Node3D
     								        	float elevM = _map.Elev != null ? _map.Elev[vidE] : (h - _hSea) * (_map.MaxElev - _map.MinElev);   // 米（0=海平面）
     								        	if (IsDisplaySea(id))
     								        	{
-    								        		// ⚠️ 2026-08-18 海冰（用户：两极应该冰盖不是海洋）：温度 ≤-5°C 的海 = 海冰（极地冰盖——白）
+    								        		// ⚠️ 2026-08-18 海冰（用户：两极应该冰盖不是海洋）：温度 ≤-5°C 的海 = 海冰（极地冰盖——白）。
+    								        		//   注意：此为【显示层】海冰判据（-5°C，地形定案 08-18），不同于 BiomeClassifier.SeaIceTempC（-2°C，柯本 FrigidOcean 分类）——两者语义不同，勿合并。
     								        		float seaTemp = _map.Temp != null ? _map.Temp[vidE] : 15f;
     								        		if (seaTemp <= -5f) return new Color(0.92f, 0.95f, 1.00f);   // 海冰（白——极地冰盖）
     								        		if (elevM < -200f) return new Color(0.01f, 0.05f, 0.18f);   // 深海 <-200m
@@ -1007,7 +1012,8 @@ public partial class MapViewer : Node3D
                 eNorm[i] = span > 1e-6f ? map.Elev[i] / span : 0f;
             MonsoonSystem.Compute(map.Verts, nb, eNorm, map.Elev, map.Temp, map.Precip, map.AxialTilt, map.RotationSpeed,
                 new ClimateGenerator(map.Seed, map.AxialTilt, 1f),
-                out var mons, out _, out _, out _, out _, out _, out var mw, out var mt, out _);
+                out var mons, out _, out _, out _, out _, out _, out var mw, out var mt, out _,
+                radiusKm: map.RadiusKm);
             _monthWindPending = mw;   // 后台线程写字段，主线程 CallDeferred 后读
         }).ContinueWith(t =>
         {
@@ -1044,7 +1050,7 @@ public partial class MapViewer : Node3D
 
         const float arrowLen = 0.045f;    // 小箭头（0.07 原值；只标方向，不随强度缩放）
         const float tailW = 0.016f;
-        float radius = RadiusKm * 1.01f;   // 浮在球面上方防 z-fighting
+        float radius = RadiusKm * OverlayLiftFactor;   // 浮在球面上方防 z-fighting
 
         var verts = new System.Collections.Generic.List<Vector3>();
         var indices = new System.Collections.Generic.List<int>();
@@ -1161,7 +1167,7 @@ public partial class MapViewer : Node3D
             return;
         }
 
-        float radius = RadiusKm * 1.01f;
+        float radius = RadiusKm * OverlayLiftFactor;
 
         var verts = new System.Collections.Generic.List<Vector3>();
         var colors = new System.Collections.Generic.List<Color>();
@@ -1247,7 +1253,7 @@ public partial class MapViewer : Node3D
     //    区域扩张到贴大陆前最后一层边界 = 该环流圈最外圈。画边界格箭头（方向=CurrentDirs）。
     private void BuildCurrentRingsFromPsi()
     {
-        float radius = RadiusKm * 1.01f;
+        float radius = RadiusKm * OverlayLiftFactor;
         var verts = new System.Collections.Generic.List<Vector3>();
         var colors = new System.Collections.Generic.List<Color>();
         var indices = new System.Collections.Generic.List<int>();
@@ -1430,7 +1436,7 @@ public partial class MapViewer : Node3D
             return;
         }
 
-        float radius = RadiusKm * 1.012f;   // 略高于球面，避免 z-fighting
+        float radius = RadiusKm * OverlayLiftFactor;   // 略高于球面，避免 z-fighting
         var vertList = new System.Collections.Generic.List<Vector3>();
         var colorList = new System.Collections.Generic.List<Color>();
         var indexList = new System.Collections.Generic.List<int>();
@@ -1440,7 +1446,7 @@ public partial class MapViewer : Node3D
         paths.Sort((a, b) => b.Length.CompareTo(a.Length));
         // ⚠️ 2026-08-06：河宽按分辨率缩放——固定 halfW 在 n=128 格距减半时相对粗 2 倍。
         //   统一按格距比例：halfW = 格距 × 0.13（n=64 时即原 0.004）
-        int simN = (int)Mathf.Round(Mathf.Sqrt((n - 2) / 10f));
+        int simN = Icosahedron.GridNFromVertexCount(n);
         float gridArc = Mathf.Tau / (Mathf.Sqrt(10f) * Mathf.Max(8, simN));
         float halfW = gridArc * 0.13f;   // 河宽 ≈ 0.26 格距（观感统一，随分辨率缩放）
         int riverCount = 0;

@@ -20,8 +20,9 @@ public sealed class RiverField : ModelBase, IFieldRole
     {
         var pipe = _pipe;
         RiverSystem.ComputeIterative(pipe.Verts, pipe.Neighbors, pipe.ENorm, pipe.Elev,
-            pipe.Precip, pipe.Temp, waterThreshold: 5000f, lakeThreshold: 200f,
-            seaLevelM: 0f, elevSpan: pipe.ElevSpan, rounds: 8,   // ⚠️ 2026-08-18 4→8：河流下切增强（V 谷——山脉山谷）
+            pipe.Precip, pipe.Temp,
+            waterThreshold: RiverSystem.DefaultWaterThreshold, lakeThreshold: RiverSystem.DefaultLakeThreshold,
+            seaLevelM: 0f, elevSpan: pipe.ElevSpan, rounds: RiverSystem.DefaultRounds,   // 2026-08-18 4→8：河流下切增强（V 谷——山脉山谷）
             out pipe.RiverFlow, out pipe.RiverVolume, out pipe.RiverLevel, out pipe.LakeLevel, out _);
         // 侵蚀后更新范围（存档用；Elev 含河谷/三角洲）
         pipe.MinElev = float.MaxValue; pipe.MaxElev = float.MinValue;

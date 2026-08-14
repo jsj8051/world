@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
+using World.Biome;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
@@ -186,9 +187,9 @@ public partial class CivSimDiag : Node
             g.RiverFlow[c] = -1;
             g.SoilLevel[c] = soil;
         }
-        g.MonthPrecip = new byte[12][];
-        g.MonthTemp = new byte[12][];
-        for (int mm = 0; mm < 12; mm++)
+        g.MonthPrecip = new byte[MonsoonSystem.MonthCount][];
+        g.MonthTemp = new byte[MonsoonSystem.MonthCount][];
+        for (int mm = 0; mm < MonsoonSystem.MonthCount; mm++)
         {
             g.MonthPrecip[mm] = new byte[m];
             g.MonthTemp[mm] = new byte[m];
@@ -1878,7 +1879,7 @@ public partial class CivSimDiag : Node
             if (a.MonsoonLevel[i] != b.MonsoonLevel[i]) return false;
             if (!FloatEq(a.CurrentWarmth[i], b.CurrentWarmth[i]) || !FloatEq(a.CurrentStrength[i], b.CurrentStrength[i])) return false;
             if (a.CurrentDirs[i] != b.CurrentDirs[i]) return false;
-            for (int m = 0; m < 12; m++)
+            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
             {
                 if (a.MonthPrecip[m][i] != b.MonthPrecip[m][i]) return false;
                 if (a.MonthTemp[m][i] != b.MonthTemp[m][i]) return false;
@@ -1937,7 +1938,7 @@ public partial class CivSimDiag : Node
         f.Store32(0);   // cultureKeyCount（v4 头部字段）
         f.Store32(0);   // religionKeyCount（v4 头部字段）
         // 最小自然段：GridN=1, N=2, seed, radius, 标志, 各字段 2 格
-        f.Store32(1); f.Store32(2); f.Store32(42); f.StoreFloat(6371f);
+        f.Store32(1); f.Store32(2); f.Store32(42); f.StoreFloat(MapArchive.DefaultRadiusKm);
         f.Store8(1); f.StoreFloat(1f); f.StoreFloat(23.4f); f.StoreFloat(1f);
         for (int i = 0; i < 6; i++) f.StoreFloat(0f);   // min/max
         for (int i = 0; i < 2; i++) { f.StoreFloat(0); f.StoreFloat(1); f.StoreFloat(0); }   // verts
@@ -1952,8 +1953,8 @@ public partial class CivSimDiag : Node
         for (int i = 0; i < 2; i++) f.Store8(0);          // mineral
         for (int i = 0; i < 2; i++) f.Store8(3);          // soil
         for (int i = 0; i < 2; i++) f.Store8(0);          // monsoon
-        for (int m = 0; m < 12; m++) for (int i = 0; i < 2; i++) f.Store8(21);   // monthPrecip
-        for (int m = 0; m < 12; m++) for (int i = 0; i < 2; i++) f.Store8(170);  // monthTemp
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++) for (int i = 0; i < 2; i++) f.Store8(21);   // monthPrecip
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++) for (int i = 0; i < 2; i++) f.Store8(170);  // monthTemp
         for (int i = 0; i < 2; i++) { f.StoreFloat(0); f.StoreFloat(0); f.StoreFloat(0); }   // currentDirs
         for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // warmth
         for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // strength

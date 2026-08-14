@@ -2,6 +2,8 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using World.HexPlanet;
+using World.MapGen;
 
 namespace World.Biome;
 
@@ -26,6 +28,9 @@ namespace World.Biome;
 public static class MonsoonSystem
 {
     public const int MonthCount = 12;
+
+    /// <summary>海拔温度递减率（°C/m，6°/km 标准大气直减率）。热压场海平面等效温度修正用。</summary>
+    public const float ElevLapseRatePerM = 0.006f;
 
     /// <summary>
     /// 计算季风环流诊断场。
@@ -52,7 +57,8 @@ public static class MonsoonSystem
         ClimateGenerator climate,
         out float[] monsoon, out float[] tHotMonth, out float[] tColdMonth,
         out float[] dryMonthPrecip, out int[] dryMonthIndex, out float[][] monthPrecip,
-        out Vector3[][] monthWind, out float[][] monthTemp, out float[] precipAnnAbs)
+        out Vector3[][] monthWind, out float[][] monthTemp, out float[] precipAnnAbs,
+        float radiusKm = MapArchive.DefaultRadiusKm)   // 星球半径（km）：大陆性距离格距换算用
     {
         int n = verts.Length;
         monsoon = new float[n];
@@ -77,7 +83,7 @@ public static class MonsoonSystem
         bool anyOcean = false;
         for (int i = 0; i < n; i++)
         {
-            if (elevNorm[i] < 0.02f) { distCoast[i] = 0; anyOcean = true; q.Enqueue(i); }
+            if (elevNorm[i] < BiomeClassifier.OceanLevel) { distCoast[i] = 0; anyOcean = true; q.Enqueue(i); }
             else distCoast[i] = int.MaxValue;
         }
         while (q.Count > 0)
@@ -97,13 +103,18 @@ public static class MonsoonSystem
         //   continent = sqrt(d/(d+Dc))：d=0→0，d=4→0.58，d=8→0.71，d=16→0.82，d→∞→1（渐近永不超 1）。
         //   真实：北京(~400km 内陆)年较差 30°C vs 西伯利亚(~2000km) 60°C——深内陆更强；
         //   硬饱和(Dc=8→1.0)丢失"深内陆更强"的区分。sqrt 渐近早期快升后期缓增。
-        const int Dc = 8;
+        // ⚠️ 2026-08-19：Dc 改物理距离定义（大陆性特征尺度 1000km ≈ 原 Dc=8 格 @n=32 地球）——
+        //   按当前网格格距换算格数（格距 ≈ 2πR/(10n)），换 n/星球半径时物理含义不变。
+        const float DcKm = 1000f;
+        int simN = Icosahedron.GridNFromVertexCount(verts.Length);
+        float spacingKm = 2f * Mathf.Pi * radiusKm / (10f * Mathf.Max(8, simN));
+        int dc = Mathf.Max(1, (int)Mathf.Round(DcKm / spacingKm));
         var continent = new float[n];
         for (int i = 0; i < n; i++)
         {
             if (!anyOcean) { continent[i] = 1f; continue; }
             int d = distCoast[i];
-            continent[i] = d >= int.MaxValue - 1 ? 1f : Mathf.Sqrt(d / (float)(d + Dc));
+            continent[i] = d >= int.MaxValue - 1 ? 1f : Mathf.Sqrt(d / (float)(d + dc));
         }
 
         // ── 2. 12 个月循环 ──
@@ -153,10 +164,10 @@ public static class MonsoonSystem
                 // 反照率（Plan C 补充因素）：冰/雪反射强 → 额外降温；海洋低反射（吸收多）
                 //   反射损失 = 反照率 × 月辐射 × 标定 10°C（全反射 −10°C；真实沙漠 0.3 vs
                 //   海洋 0.06 → 表面温差 ~2.4°C）
-                float albedo = elevNorm[i] < 0.02f ? 0.06f : 0.15f;   // 海洋 6%、陆地默认 15%
+                float albedo = elevNorm[i] < BiomeClassifier.OceanLevel ? 0.06f : 0.15f;   // 海洋 6%、陆地默认 15%
                 float latAbsDeg = Mathf.Abs(Mathf.RadToDeg(lat));
                 if (latAbsDeg > 60f) albedo = 0.65f;                  // 极地冰盖
-                else if (elevNorm[i] > 0.5f) albedo = 0.45f;          // 高海拔雪
+                else if (elevNorm[i] > BiomeClassifier.AlpineLevel) albedo = 0.45f;   // 高海拔雪
                 t -= albedo * rad * 10f;
                 monthT[m][i] = t;
                 monthTemp[m][i] = t;   // 月温度正式输出（温度系统月度化）
@@ -195,7 +206,7 @@ public static class MonsoonSystem
                 float lat = Mathf.Asin(Mathf.Clamp(verts[i].Y, -1f, 1f));
                 int b = Mathf.Clamp((int)((lat * 180f / Mathf.Pi + 90f) / 5f), 0, LatBuckets - 1);
                 float tSl = monthT[m][i]
-                    + (elevNorm[i] >= 0.02f && elevM != null && elevM[i] > 0f ? 0.006f * elevM[i] : 0f);
+                    + (elevNorm[i] >= BiomeClassifier.OceanLevel && elevM != null && elevM[i] > 0f ? MonsoonSystem.ElevLapseRatePerM * elevM[i] : 0f);
                 latSum[b] += tSl;
                 latCnt[b]++;
             }
@@ -206,7 +217,7 @@ public static class MonsoonSystem
                 int b = Mathf.Clamp((int)((lat * 180f / Mathf.Pi + 90f) / 5f), 0, LatBuckets - 1);
                 float latBase = latCnt[b] > 0 ? (float)(latSum[b] / latCnt[b]) : monthT[m][i];
                 float tSl = monthT[m][i]
-                    + (elevNorm[i] >= 0.02f && elevM != null && elevM[i] > 0f ? 0.006f * elevM[i] : 0f);
+                    + (elevNorm[i] >= BiomeClassifier.OceanLevel && elevM != null && elevM[i] > 0f ? MonsoonSystem.ElevLapseRatePerM * elevM[i] : 0f);
                 pAnom[i] = -Beta * (tSl - latBase);   // 热 → 负异常（低压）
             }
             // 2. 气压场平滑传播（热低压水平扩散入海洋；仅异常部分——纬度气候气压不平滑）
@@ -264,7 +275,7 @@ public static class MonsoonSystem
             //   衰减放缓；强度 = 风强度 × 距离衰减（大板块热低压强 → 水汽输送更强）。
             for (int i = 0; i < n; i++)
             {
-                if (elevNorm[i] < 0.02f) continue;   // 只追踪陆地格
+                if (elevNorm[i] < BiomeClassifier.OceanLevel) continue;   // 只追踪陆地格
                 float wMag = monthWind[m][i].Length();
                 if (wMag < 1e-6f) continue;
                 int steps = TraceUpstream(i, verts, neighbors, elevNorm, monthWind[m][i]);
@@ -283,7 +294,7 @@ public static class MonsoonSystem
             float deltaDeg = axialTilt * Mathf.Sin(2f * Mathf.Pi * (m - 3f) / 12f);
             for (int i = 0; i < n; i++)
             {
-                if (elevNorm[i] < 0.02f) { monthP[m][i] = 0f; continue; }   // 海洋格降水 0
+                if (elevNorm[i] < BiomeClassifier.OceanLevel) { monthP[m][i] = 0f; continue; }   // 海洋格降水 0
                 float p = climate.ComputePrecipitationMonthBase(verts[i], elevNorm[i], deltaDeg);
                 float wMonsoon = monthMoist[m][i] * monthRad[m][i];
                 p *= 1f + 1.2f * wMonsoon;   // 季风增强（水汽×辐射）
@@ -303,7 +314,7 @@ public static class MonsoonSystem
         // ── 4. 年降水聚合（Σ月）+ 月比例 + 输出极值/季风强度 ──
         for (int i = 0; i < n; i++)
         {
-            if (elevNorm[i] < 0.02f) continue;   // 海洋格降水 0（保持）
+            if (elevNorm[i] < BiomeClassifier.OceanLevel) continue;   // 海洋格降水 0（保持）
             float yearAbs = 0f;
             for (int m = 0; m < MonthCount; m++) yearAbs += monthP[m][i];
             precipAnnAbs[i] = yearAbs;           // 年降水 = Σ 12 月（月→年涌现）
@@ -360,7 +371,7 @@ public static class MonsoonSystem
             }
             if (best < 0) return -1;
             cur = best;
-            if (elevNorm[cur] < 0.02f) return k + 1;   // 到达海洋
+            if (elevNorm[cur] < BiomeClassifier.OceanLevel) return k + 1;   // 到达海洋
         }
         return -1;   // 25 步内无海洋 → 非季风区
     }

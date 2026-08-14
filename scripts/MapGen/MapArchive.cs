@@ -124,11 +124,11 @@ public static class MapArchive
         // 尾部扩展9（2026-08-16）：月降水比例（12×n bytes；MonsoonSystem；旧存档无=null）
         //   每顶点 12 个月比例 0-255（×年降水 = 月降水 mm）；海洋格 0
         if (monthPrecip != null)
-            for (int m = 0; m < 12; m++)
+            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 foreach (var v in monthPrecip[m]) f.Store8(v);
         // 尾部扩展10（2026-08-16）：月温度（12×n bytes，−60~60°C → 0-255；温度系统月度化）
         if (monthTemp != null)
-            for (int m = 0; m < 12; m++)
+            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 foreach (var v in monthTemp[m]) f.Store8(v);
         if (log)
             GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
@@ -256,8 +256,8 @@ public static class MapArchive
             // 月降水段（v3.8 加；12×n bytes）
             if (f.GetPosition() + (ulong)(12 * n) <= f.GetLength())
             {
-                map.MonthPrecip = new byte[12][];
-                for (int m = 0; m < 12; m++)
+                map.MonthPrecip = new byte[MonsoonSystem.MonthCount][];
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     map.MonthPrecip[m] = new byte[n];
                     for (int i = 0; i < n; i++) map.MonthPrecip[m][i] = f.Get8();
@@ -266,8 +266,8 @@ public static class MapArchive
             // 月温度段（v3.8 加；12×n bytes，−60~60°C → 0-255）
             if (f.GetPosition() + (ulong)(12 * n) <= f.GetLength())
             {
-                map.MonthTemp = new byte[12][];
-                for (int m = 0; m < 12; m++)
+                map.MonthTemp = new byte[MonsoonSystem.MonthCount][];
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     map.MonthTemp[m] = new byte[n];
                     for (int i = 0; i < n; i++) map.MonthTemp[m][i] = f.Get8();

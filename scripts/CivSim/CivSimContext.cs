@@ -85,7 +85,7 @@ public sealed class CivSimContext
     public const float SplitPop = 12f;               // 分裂阈值（2026-08-17 土地挂钩：承载=静态丰度×格面积×领地 ≈ 14 人/band——旧 50 是存量深度放大口径，新模型到承载即分裂殖民）
     public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
-    public const float FissionTensionStart = 12f;   // 规模张力起算点（= SplitPop；band 量级，2026-08-17 跟随承载）
+    public const float FissionTensionStart = SplitPop;   // 规模张力起算点（跟随 SplitPop——band 量级，2026-08-17 土地挂钩；原硬编码 12 与 SplitPop 断链）
     public const float FissionTensionSpan = 8f;    // 张力封顶跨度（12+8=20 → 张力 1.0）
     public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
@@ -103,7 +103,7 @@ public sealed class CivSimContext
                                                        //   增长闭合前 ~10-25 tick → 1.6-4.0 声望 → BigMan）
     public const float PrestigeDecay = 0.001f;         // 无盈余衰减/tick（声望可逆——Big Man 个人化，Sahlins）
     public const float BigManPrestigeThreshold = 1.0f; // 声望阈值 → BigMan
-    public const int ChiefdomEvalEvery = 10;           // 凝聚评估频率（与领地重建同频）
+    public const int ChiefdomEvalEvery = TerritoryRebuildEvery;   // 凝聚评估频率（跟随领地重建同频；原硬编码 10 与 TerritoryRebuildEvery 断链）
     public const int ChiefdomMinTribes = 2;            // 酋邦最小部落数（<2 → 解散）
     public const float TributeRate = 0.1f;             // 盈余贡赋率（实物税——夏威夷 ahupua'a 土地分区，Earle）
     public const float TributeRelief = 0.5f;           // 灾年开仓缓冲（互惠：贡献过才受赈，Halstead-O'Shea）

@@ -1,5 +1,6 @@
 using Godot;
 using System.Collections.Generic;
+using World.Biome;
 using World.MapGen;
 
 namespace World.LogicGrid;
@@ -117,8 +118,8 @@ public class GameGrid
 
     private static byte[][] Empty2D(int n)
     {
-        var a = new byte[12][];
-        for (int m = 0; m < 12; m++) a[m] = new byte[n];
+        var a = new byte[MonsoonSystem.MonthCount][];
+        for (int m = 0; m < MonsoonSystem.MonthCount; m++) a[m] = new byte[n];
         return a;
     }
 

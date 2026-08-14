@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using World.Biome;
+using World.HexPlanet;
 using World.LogicGrid;
 using World.MapGen;
 
@@ -411,7 +412,7 @@ public static class CivMapArchive
         // 直接 GridN + N，验结构不变量（10n²+2，防伪造 N 让偏移爆炸）后整体跳过
         int gridN = (int)f.Get32();
         int n = (int)f.Get32();
-        long expectN = (long)gridN * gridN * 10 + 2;
+        long expectN = Icosahedron.VertexCountForLong(gridN);
         if (gridN < 8 || gridN > 512 || expectN != n) return false;   // 与 ReadBody 同语义（N=顶点数=10n²+2）
         long naturalLen = 53L + 94L * n;              // WriteBody 固定 53B（GridN 起→Verts 前）+ 每格 94B
         f.Seek((ulong)(42 + naturalLen));             // 实体段起点（CivMapArchive 头 42B：v8 含 NextEntityId 4B + 自然段）
