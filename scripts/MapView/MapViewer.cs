@@ -592,6 +592,15 @@ public partial class MapViewer : Node3D
             //   采集者活动范围≠定居点）。不做活动人口分散（v3 被否：所有领地格造淡人口不真实）。
             //   势力色块 = CellOwner 影响力场（v4——用户确认：按影响力算难出飞地、中立只在圈外）。
             //   保留 v2 修复：驻扎格归势力（弱 band 驻扎格被强邻覆盖时显示自己势力——人口格必有势力色）。
+            // ⚠️ 2026-08-18 索引修复：顶点→显示面反查表（_tileVerts[j] 是面 j 的逻辑格——
+            //   bestByCell 的 ce.Cell 是顶点编号——写显示格必须经反查）
+            var facesOf = new System.Collections.Generic.List<int>[n];
+            for (int j = 0; j < n; j++)
+            {
+                int vj = _tileVerts[j];
+                if (facesOf[vj] == null) facesOf[vj] = new System.Collections.Generic.List<int>(2);
+                facesOf[vj].Add(j);
+            }
             var bestByCell = new Dictionary<int, World.CivSim.CivEntity>();
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
@@ -602,8 +611,13 @@ public partial class MapViewer : Node3D
             }
             foreach (var kv in bestByCell)
             {
-                _tilePower[kv.Key] = PowerIdOf(kv.Value);
-                _tilePolity[kv.Key] = PolityOf(kv.Value);
+                // ⚠️ 2026-08-18 索引修复：ce.Cell 是逻辑格（顶点）编号——显示格是面编号（不同序）！
+                //   _tilePower[kv.Key]（顶点编号当显示格索引）→ 显示错位 63km（3177 显示别处顶点的势力）。
+                //   通过顶点→面反查表写全部映射面（驻扎格显示在正确位置）。
+                if (facesOf[kv.Key] == null) continue;
+                int powB = PowerIdOf(kv.Value);
+                byte polB = PolityOf(kv.Value);
+                foreach (var f in facesOf[kv.Key]) { _tilePower[f] = powB; _tilePolity[f] = polB; }
             }
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
