@@ -32,6 +32,7 @@ namespace World.Tectonics
 
         public float[] TopPlateMap;              // 每全局顶点 → 顶层板块 id
         public int[] PlateCount;                 // 每全局顶点 → 覆盖的板块数（M3-2）
+        public byte[] SubductionMask;            // 1=俯冲带（2026-08-18：板块汇聚边界——邻板负浮力——主动边缘）
         private byte[] _mergeGlobalMask;         // Merge 复用缓冲区（GC 优化 C）
         private float[] _erodeSurface;           // 侵蚀复用（GC 优化：每步 1.3MB × 300 步）
         private Crust _erodeDeltaReusable;       // 侵蚀 delta 复用（8 数组 × n）
@@ -297,6 +298,33 @@ namespace World.Tectonics
 
         /// <summary>跑 N 百万年。每步：老化 → 移动 → 合并 → 计算位移 → 按体积重解海平面。</summary>
         public void Run(float megayears, float stepMy) => RunWithProgress(megayears, stepMy, null);
+
+        /// <summary>俯冲带检测（2026-08-18 用户拍板 A：主动边缘无大陆架——自然涌现）。
+        /// 边界格（邻居板不同）且邻板该处浮力负（BuoyancyVec 与径向反向 = 下沉俯冲板片）→ 俯冲带。
+        /// 大陆架场跳过俯冲带海岸（智利/日本型——无大陆架）。</summary>
+        public void ComputeSubductionZones()
+        {
+            int n = GlobalGrid.VertexCount;
+            SubductionMask = new byte[n];
+            // ⚠️ TopPlateMap 非重叠格默认 0（只合并重叠时更新）——不可靠。
+            // 改用板 Mask 边界（BoundaryNormal≠0）+ 该处负浮力（下沉俯冲板片）→ 俯冲带。
+            int boundaryCells = 0, negBuoy = 0;
+            for (int p = 0; p < Plates.Count; p++)
+            {
+                var plate = Plates[p];
+                for (int local = 0; local < plate.Mask.Length; local++)
+                {
+                    if (plate.BoundaryNormal[local].LengthSquared() <= 1e-12f) continue;   // 非边界格
+                    boundaryCells++;
+                    if (plate.BuoyancyVec[local].Dot(plate.LocalGrid.Vertices[local]) < 0f)
+                    {
+                        int g = plate.GlobalIdsOfLocalCells[local];
+                        if (g >= 0 && g < n) { SubductionMask[g] = 1; negBuoy++; }
+                    }
+                }
+            }
+            GD.Print($"[Tectonics] 俯冲检测: 板边界格={boundaryCells} 负浮力命中={negBuoy} Plates.Count={Plates.Count}");
+        }
 
         /// <summary>
         /// 跑 N 百万年（带进度回调）。onProgress 在【调用线程】被调用（模拟是纯数据，

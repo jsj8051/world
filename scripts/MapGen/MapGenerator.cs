@@ -138,6 +138,9 @@ public partial class MapGenerator : Node
 		sim.SupercontinentCycleMy = SupercontinentCycleMy;  // 超级大陆周期
 		sim.ErosionScale = ErosionScale * Mathf.Sqrt(6371f / RadiusKm);   // ⚠️ 2026-08-18 行星侵蚀标度（B：小星球格距小/搬运快——侵蚀相对效率高——平衡海拔低）
 		sim.Run(SimMegayears, SimStepMy);
+		sim.ComputeSubductionZones();   // 俯冲带检测（2026-08-18：主动边缘——大陆架场跳过）
+		{ int subCnt = 0; if (sim.SubductionMask != null) foreach (var b in sim.SubductionMask) if (b == 1) subCnt++;
+		  GD.Print($"[MapGenerator] 俯冲带（主动边缘）={subCnt} 格"); }
 		var disp = sim.Displacement;
 		float sea = sim.SeaLevel;
 		float minD = float.MaxValue, maxD = float.MinValue;
@@ -316,6 +319,7 @@ public partial class MapGenerator : Node
 			sim.SplitIntoPlates(plates, seed);
 			int totalSteps = (int)(my / step);
 			sim.RunWithProgress(my, step, frac => onProgress(frac * 0.7f));
+			sim.ComputeSubductionZones();   // 俯冲带检测（2026-08-18）
 			var disp = sim.Displacement;
 			float sea = sim.SeaLevel;
 

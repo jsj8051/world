@@ -152,10 +152,13 @@ public sealed class ContinentalShelfField : ModelBase, IFieldRole
                 { shoreDist[nb] = shoreDist[c] + 1; q.Enqueue(nb); }
         }
         // 大陆架调整：≤4 跳 → -150m 平台；4~6 跳 → 大陆坡（-150 → 真实深度插值）
+        // ⚠️ 2026-08-18 主动边缘（俯冲带）：跳过平台化——保持原始深度（智利/日本型海岸无大陆架）
+        byte[] subd = pipe.Sim?.SubductionMask;
         const float shelfDepth = -150f;
         for (int i = 0; i < n; i++)
         {
             if (pipe.Elev[i] >= 0f || shoreDist[i] == int.MaxValue) continue;   // 陆地 / 深海盆（>6 跳）
+            if (subd != null && subd[i] == 1 && shoreDist[i] <= 6) continue;    // 俯冲带（主动边缘——无大陆架）
             if (shoreDist[i] <= 4)
                 pipe.Elev[i] = shelfDepth;
             else
