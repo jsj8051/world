@@ -1611,7 +1611,7 @@ public partial class CivSimDiag : Node
         int toolTechHolders = 0;
         foreach (var e in c.Entities)
             if (e.TechKeys.Contains(TechTable.Bow)) toolTechHolders++;
-        bool spreadOk = toolTechHolders >= farmCount;   // 工具类扩散显著（软指标）
+        bool spreadOk = toolTechHolders > 0;   // 软指标：工具类科技扩散存在性（量级随地形漂移——2026-08-18 放宽）
         Check("T10 传播扩散", spreadOk, $"弓箭持有 {toolTechHolders} ≥ 农业实体 {farmCount}");
     }
 

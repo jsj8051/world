@@ -168,3 +168,35 @@ public sealed class ContinentalShelfField : ModelBase, IFieldRole
 
     public override bool Verify() => _pipe.Elev != null;
 }
+
+/// <summary>冰盖场（2026-08-18 用户拍板：冰盖了就应该变成陆地——生成阶段）。
+/// 温度 ≤-5°C（海水冰点）的海 → Elev=5m（冰盖陆地——基岩上冰）。
+/// 模拟影响（读档 R 场重建）：冰盖格 Elev&gt;0 判陆地（影响圈 BFS 可穿越）+ R=0
+/// （CivEngine.BuildLayer1 温度 ≤-5 强制无生产力——冰盖不能采集/驻扎）。
+/// 依赖大陆架（冰盖覆盖大陆架——最后抬）。</summary>
+public sealed class IceSheetField : ModelBase, IFieldRole
+{
+    private readonly PlanetPipeline _pipe;
+    public IceSheetField(PlanetPipeline pipe) => _pipe = pipe;
+    public override string Name => "冰盖";
+    public string Domain => "极地";
+    public override float Magnitude => 1f;
+    public string Stage => "Stage2";
+    public override string[] DependsOn() => new[] { "气候基准", "大陆架" };
+
+    public void Compute()
+    {
+        var pipe = _pipe;
+        int n = pipe.Elev.Length;
+        for (int i = 0; i < n; i++)
+        {
+            if (pipe.Elev[i] > 0f) continue;      // 已是陆地
+            if (pipe.Temp[i] > -5f) continue;     // 海冰阈值（海水冰点——海冰形成）
+            pipe.Elev[i] = 5f;                    // 冰盖陆地（基岩上冰——抬到海平面以上）
+        }
+        pipe.MinElev = float.MaxValue; pipe.MaxElev = float.MinValue;
+        foreach (var e in pipe.Elev) { if (e < pipe.MinElev) pipe.MinElev = e; if (e > pipe.MaxElev) pipe.MaxElev = e; }
+    }
+
+    public override bool Verify() => _pipe.Elev != null;
+}

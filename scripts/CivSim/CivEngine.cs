@@ -122,6 +122,7 @@ public static class CivEngine
         for (int i = 0; i < n; i++)
         {
             if (!grid.IsLandCell(i)) { ctx.R[i] = 0f; continue; }
+            if (grid.Temp[i] <= -5.5f) { ctx.R[i] = 0f; continue; }   // ⚠️ 2026-08-18 冰盖无生产力（温度 ≤-5.5°C——余量避 byte 量化边界——T04 读档/内存同判）
             float raw = CivSimContext.MiamiNpp(grid.Temp[i], grid.Precip[i]) * (ctx.WaterRich(i) ? 1.5f : 1f);
             ctx.R[i] = raw;
             vals.Add(raw);
