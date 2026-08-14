@@ -132,11 +132,11 @@ public partial class MapGenerator : Node
 		GD.Print($"[MapGenerator] 板块模拟开始 seed={Seed} n={TectonicsGridN} {SimMegayears}My ...");
 		var sim = new TectonicsSimulation(TectonicsGridN);
 		sim.NumContinents = NumContinents;    // 大陆块数（构造格局；2=超大陆/20=碎陆）
-		sim.GenerateInitialCrust(Seed);
+		sim.GenerateInitialCrust(Seed, 0.6f, RadiusKm);   // ⚠️ 2026-08-18 行星标度（A：hypsography 按 sqrt(R/R⊕)——小星球地壳薄、均衡山低）
 		sim.SplitIntoPlates(NumPlates, Seed);
 		sim.OceanScale = OceanScale;              // 海洋水量（海陆比）
 		sim.SupercontinentCycleMy = SupercontinentCycleMy;  // 超级大陆周期
-		sim.ErosionScale = ErosionScale;          // 侵蚀强度
+		sim.ErosionScale = ErosionScale * Mathf.Sqrt(6371f / RadiusKm);   // ⚠️ 2026-08-18 行星侵蚀标度（B：小星球格距小/搬运快——侵蚀相对效率高——平衡海拔低）
 		sim.Run(SimMegayears, SimStepMy);
 		var disp = sim.Displacement;
 		float sea = sim.SeaLevel;
@@ -312,7 +312,7 @@ public partial class MapGenerator : Node
 			// ── 板块模拟（纯数据）──
 			var sim = new TectonicsSimulation(n);
 			sim.NumContinents = NumContinents;    // 大陆块数（构造格局；2=超大陆/20=碎陆）
-			sim.GenerateInitialCrust(seed);
+			sim.GenerateInitialCrust(seed, 0.6f, radius);
 			sim.SplitIntoPlates(plates, seed);
 			int totalSteps = (int)(my / step);
 			sim.RunWithProgress(my, step, frac => onProgress(frac * 0.7f));

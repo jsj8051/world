@@ -81,10 +81,14 @@ namespace World.Tectonics
         /// （相邻格完全无关，无大陆块）。tectonics.js 的 height_ranks 来自低频
         /// 噪声场（空间连续），这里用 3D Simplex 低频（波长 ~5000km）还原。
         /// </summary>
-        public void GenerateInitialCrust(int seed, float oceanFraction = 0.6f)
+        public void GenerateInitialCrust(int seed, float oceanFraction = 0.6f, float radiusKm = 6371f)
         {
             int n = GlobalGrid.VertexCount;
             Seed = seed;
+            // ⚠️ 2026-08-18 行星标度（用户拍板 A：初始地壳按 R——自然涌现非固定缩放）：
+            //   hypsography 模板是地球标定（大陆 +797±1169m）——小星球地壳薄/分异弱，
+            //   均衡山高按 sqrt(R/R⊕) 一阶标度（行星冷却/分异尺度律）——R=128km → ×0.142
+            float hypsoscale = Mathf.Sqrt(radiusKm / 6371f);
 
             // 1. 每格高度排名：球面低频噪声（多路独立求和，块形完整）
             //    对应 JS World 初始化的 height_ranks（噪声驱动，非逐格随机）
@@ -125,9 +129,11 @@ namespace World.Tectonics
             for (int i = 0; i < n; i++)
             {
                 bool ocean = rng.NextDouble() < oceanFraction;
+                // ⚠️ 2026-08-18：海洋采样不缩（物质厚度映射阈值 -1500/-950/840 是地球标定——
+                //   海洋采样缩到 -571m 会落入陆壳映射区间 → 全陆）；只缩大陆（薄陆壳→均衡山低）
                 elevations[i] = ocean
                     ? (float)Normal(rng, -4019, 1113)
-                    : (float)Normal(rng, 797, 1169);
+                    : (float)Normal(rng, 797 * hypsoscale, 1169 * hypsoscale);
             }
             Array.Sort(elevations);
             // 排名低的格 → 低海拔
