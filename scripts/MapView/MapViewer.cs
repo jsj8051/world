@@ -672,14 +672,14 @@ public partial class MapViewer : Node3D
     						return new Color(0.25f, 0.45f, 0.75f);   // 湖蓝（单色）
     					float h = _tileElev[id];
     					bool ocean = IsDisplaySea(id);   // ⚠️ 2026-08-17：统一海陆判定（近海逻辑陆地=陆地）
-    					return ocean ? new Color(0.45f, 0.55f, 0.70f) : new Color(0.72f, 0.68f, 0.55f);
+    					return ocean ? SeaColor : new Color(0.72f, 0.68f, 0.55f);
     				}
     			case 7: // 流域：每流域独立颜色（黄金角）；海洋浅蓝、边缘排水区灰绿
     				{
     					int ws = _tileWatershed[id];
     					if (ws < 0)
     						return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
-    							? new Color(0.45f, 0.55f, 0.70f)   // 海洋
+    							? SeaColor   // 海洋
     							: new Color(0.60f, 0.58f, 0.50f);  // 边缘排水区（直接入海，非河）
     										return HslToRgb(GoldenHue(ws), 0.55f, 0.62f);
     				}
@@ -689,7 +689,7 @@ public partial class MapViewer : Node3D
     					if (m == 0)
     					{
     						return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
-    							? new Color(0.45f, 0.55f, 0.70f)
+    							? SeaColor
     							: new Color(0.55f, 0.52f, 0.42f);
     					}
     					var baseC = MineralColors[MineralSystem.TypeOf(m) % MineralColors.Length];
@@ -700,7 +700,7 @@ public partial class MapViewer : Node3D
     			{
     			byte s = _tileSoil[id];
     			if (s == 0)
-    			return new Color(0.45f, 0.55f, 0.70f);   // 海洋
+    			return SeaColor;   // 海洋
     			return SoilColors[Mathf.Clamp(s, 1, 5)];
     			}
     																			case 10: // 月降水：和总降水同一自适应色带（当月陆地 min-max 归一化；月份滑块切换）
@@ -708,9 +708,9 @@ public partial class MapViewer : Node3D
     																					//   → 非季风区≈年降水色，季风区 7 月深蓝 / 1 月枯黄；min-max 自适应当月分布
     																					if (_tileMonthPrecip == null || _map == null || _map.MonthPrecip == null)
     																						return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
-    																							? new Color(0.45f, 0.55f, 0.70f)
+    																							? SeaColor
     																							: new Color(0.72f, 0.70f, 0.58f);
-    																					if (IsDisplaySea(id)) return new Color(0.45f, 0.55f, 0.70f);
+    																					if (IsDisplaySea(id)) return SeaColor;
     																					float mm = _tileMonthPrecip[id] / 255f * _tilePrecip[id] * 12f;   // 等效年尺度
     																					float x = Mathf.Clamp((mm - _monthPrecipMin) / (_monthPrecipMax - _monthPrecipMin), 0f, 1f);
     																					return new Color(0.90f, 0.80f, 0.40f).Lerp(new Color(0.10f, 0.30f, 0.70f), x);
@@ -719,14 +719,14 @@ public partial class MapViewer : Node3D
     							{
     								if (_tileMonthTemp == null || _map == null || _map.MonthTemp == null)
     									return IsDisplaySea(id)   // ⚠️ 2026-08-17：统一海陆判定
-    										? new Color(0.45f, 0.55f, 0.70f)
+    										? SeaColor
     										: new Color(0.72f, 0.70f, 0.58f);
     								float tC = _tileMonthTemp[id] / 255f * 120f - 60f;   // byte → °C
     								return BiomeColors.TemperatureToColor(tC);
     								}
     								case 12: // 人口：log 压缩 + P1/P99 分位自适应色带（无人=暗灰；黄→橙红）
     								{
-    								    if (IsDisplaySea(id) && _tilePop[id] <= 0f) return new Color(0.45f, 0.55f, 0.70f);   // ⚠️ 显示海（真海）；近海逻辑陆地=陆地底
+    								    if (IsDisplaySea(id) && _tilePop[id] <= 0f) return SeaColor;   // ⚠️ 显示海（真海）；近海逻辑陆地=陆地底
     								    float p = _tilePop[id];
     								    if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
     								    float x = Mathf.Clamp((Mathf.Log(p + 1f) - _popLogMin) / (_popLogMax - _popLogMin), 0f, 1f);
@@ -734,7 +734,7 @@ public partial class MapViewer : Node3D
     								}
     								case 13: // 文化：每文化独立颜色（key FNV 哈希 → 黄金角 HSL；无 8 色取模上限）
     								{
-    								    if (IsDisplaySea(id) && _tileCulture[id] == 0) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (IsDisplaySea(id) && _tileCulture[id] == 0) return SeaColor;
     								    int cult = _tileCulture[id];
     								    if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
     								    							    return HslToRgb(GoldenHue(cult), 0.55f, 0.62f);
@@ -742,14 +742,14 @@ public partial class MapViewer : Node3D
     								case 14: // 独立势力（2026-08-17）：每势力独立色（黄金角 HSL）——
     								    //   最高聚合层显示：酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band
     								    {
-    								        if (IsDisplaySea(id) && _tilePower[id] == 0) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (IsDisplaySea(id) && _tilePower[id] == 0) return SeaColor;
     								        int powerId = _tilePower[id];
     								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								        return HslToRgb(GoldenHue(powerId), 0.55f, 0.62f);
+    								        return HslToRgb(AvoidSeaHue(GoldenHue(powerId)), 0.55f, 0.62f);   // ⚠️ 避开海蓝（用户要求区分）
     								    }
     								    case 15: // 科技：主导部落最高技术时代色带（石器棕→新石器绿→青铜橙→铁器蓝→古典紫）
     								    {
-    								        if (IsDisplaySea(id) && _tileTribe[id] < 0) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (IsDisplaySea(id) && _tileTribe[id] < 0) return SeaColor;
     								        if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								        byte ep = _tileTechEpoch[id];
     								        if (ep == 0) return new Color(0.55f, 0.42f, 0.28f);   // 石器：棕（有基础技术，非"无"）
@@ -757,7 +757,7 @@ public partial class MapViewer : Node3D
     								    }
     								case 16: // 宗教：每宗教派别独立颜色（relig_N key 哈希 → 黄金角 HSL；不再按 5 阶段色带）
     								{
-    								    if (IsDisplaySea(id) && _tileTribe[id] < 0) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (IsDisplaySea(id) && _tileTribe[id] < 0) return SeaColor;
     								    if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								    int rel = _tileReligion[id];
     								    if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
@@ -765,7 +765,7 @@ public partial class MapViewer : Node3D
     								}
     								case 17: // 势力范围：每领地独立色（语言群 key 完整哈希 → 黄金角 HSL；无领地/无人灰）
     								{
-    								    if (IsDisplaySea(id) && _tileTerritory[id] == 0) return new Color(0.45f, 0.55f, 0.70f);
+    								    if (IsDisplaySea(id) && _tileTerritory[id] == 0) return SeaColor;
     								    int terr = _tileTerritory[id];
     								    // ⚠️ 2026-08-17：领地按归属显示全领地（不能再用人口判"无人"——
     								    //   人口图层已改只在驻扎格显示，采集格人口=0）
@@ -775,7 +775,7 @@ public partial class MapViewer : Node3D
     								case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色——
     								    //   band=灰蓝系 部落=绿系 酋邦=红橙系；同类同色相 + 势力哈希微扰（势力轮廓可辨）
     								    {
-    								        if (IsDisplaySea(id) && _tilePower[id] == 0) return new Color(0.45f, 0.55f, 0.70f);
+    								        if (IsDisplaySea(id) && _tilePower[id] == 0) return SeaColor;
     								        int powerId = _tilePower[id];
     								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
     								        float hue = _tilePolity[id] switch
@@ -1502,6 +1502,19 @@ public partial class MapViewer : Node3D
             return p;
         }
         return new Color(H2R(h + 1f / 3f), H2R(h), H2R(h - 1f / 3f));
+    }
+
+    /// <summary>海洋统一色（2026-08-18 用户要求与势力色区分）：深蓝——明确海，
+    /// 与势力色（亮色/避开蓝相）一眼可分。各图层判海返回统一用此色。</summary>
+    private static readonly Color SeaColor = new Color(0.10f, 0.22f, 0.48f);
+
+    /// <summary>势力色避开海洋蓝（2026-08-18 用户要求）：蓝-青相区间（0.48-0.72）映射到
+    /// 暖色/绿黄——势力色块与海色不撞（黄金角散列原可能出亮蓝——7401 #69a6d3 与海混淆）。</summary>
+    static float AvoidSeaHue(float hue)
+    {
+        if (hue >= 0.48f && hue <= 0.72f)
+            return hue < 0.60f ? hue + 0.35f : hue - 0.35f;   // 0.48-0.60→0.83-0.95（紫红）; 0.60-0.72→0.25-0.37（绿黄）
+        return hue;
     }
 
     /// <summary>整数 key/流域 id → 黄金角色相（double 计算防 float 精度坍缩——int 32 位 × float 在 2^31 量级
