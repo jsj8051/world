@@ -104,7 +104,7 @@ namespace World.Tectonics
             noise1.Seed = seed;
             var noise2 = new FastNoiseLite();
             noise2.NoiseType = FastNoiseLite.NoiseTypeEnum.Simplex;
-            noise2.Frequency = freq1 * 1.625f;              // 次尺度：保持 6250/3850 波长比例（细碎纹理）
+            noise2.Frequency = freq1 * 3.5f;                 // 次尺度：山脊/山谷尺度中频细节（×5→×3.5 折中——碎渣 191 块→回 6 块级）
             noise2.Seed = seed + 100;
 
             var ranks = new float[n];
@@ -112,8 +112,8 @@ namespace World.Tectonics
             for (int i = 0; i < n; i++)
             {
                 Vector3 p = GlobalGrid.Vertices[i];   // 单位球坐标（频率已按 N/2π 标定，2026-08-10）
-                float v = 0.53f * noise1.GetNoise3D(p.X, p.Y, p.Z)
-                        + 0.47f * noise2.GetNoise3D(p.X, p.Y, p.Z);
+                float v = 0.65f * noise1.GetNoise3D(p.X, p.Y, p.Z)
+                        + 0.35f * noise2.GetNoise3D(p.X, p.Y, p.Z);   // ⚠️ 2026-08-18 0.47→0.35：中频细节保留但大陆块不碎
                 ranks[i] = v;
                 if (v < minR) minR = v;
                 if (v > maxR) maxR = v;
@@ -1132,7 +1132,7 @@ namespace World.Tectonics
                 load[i] = Displacement[i] > 0f ? Displacement[i] : 0f;   // 山体负载（正位移）
                 flex[i] = load[i];
             }
-            const int rounds = 8;
+            const int rounds = 4;   // ⚠️ 2026-08-18 8→4：少抹一层细节（挠曲是负载扩散不是地形平滑——山谷保留）
             var tmp = new float[n];
             for (int r = 0; r < rounds; r++)
             {

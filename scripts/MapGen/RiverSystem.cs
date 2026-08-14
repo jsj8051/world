@@ -391,12 +391,13 @@ public static class RiverSystem
             MarkRiversLakes(water, flow, elevNorm, waterThreshold, lakeThreshold, riverLevel, lakeLevel, lakeIds);
 
             // 收敛检测：流向变化 <0.5% 即停（自适应，不依赖手动轮数；n=32 粗网格防振荡过度）
+            // ⚠️ 2026-08-18 n/200→n/2000：更严格——多轮下切（河谷深——山脉山谷）
             if (r > 0)
             {
                 int changed = 0;
                 for (int i = 0; i < n; i++)
                     if (flow[i] != prevFlow[i]) changed++;
-                if (changed <= n / 200)
+                if (changed <= n / 2000)
                     break;
             }
             System.Array.Copy(flow, prevFlow, n);
