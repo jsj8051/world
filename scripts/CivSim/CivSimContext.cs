@@ -43,6 +43,7 @@ public sealed class CivSimContext
     public List<int>[] ChiefdomCells;    // 酋邦 id → 成员 band Id（ChiefdomModel.Rebuild 填充）
     public int ChiefdomLastEval = -100;  // 凝聚评估频率守卫（与领地同频）
     public int AbsorptionLastEval = -100; // 吞并评估频率守卫（2026-08-17；10 tick 同频，不入档）
+    private HashSet<int> _liveIdSet;      // 活实体 Id 集（RebuildInfluence 死残留清理——2026-08-17）
     private Queue<int> _bfsQ;            // BFS 复用队列（GC 优化）
     private Queue<int> _bfsDQ;
 
@@ -480,6 +481,13 @@ public sealed class CivSimContext
         Array.Fill(CellBestOwner, -1);
         Array.Clear(CellBestInf, 0, n);
         Array.Clear(CellOwnerInf, 0, n);
+        // ⚠️ 2026-08-17 修复：活实体 Id 集（死残留清理的正确映射——旧版 Entities[CellOwner[c]]
+        //   用 Id 当索引——读档后 Id 有空洞（Entities 只含存活）→ 错位访问 → 死 band 的影响力
+        //   残留 → 幽灵势力色块（用户怀疑成立：band 消失但影响力没清）
+        _liveIdSet ??= new HashSet<int>();
+        _liveIdSet.Clear();
+        for (int i = 0; i < Entities.Count; i++)
+            if (!Entities[i].Dead) _liveIdSet.Add(Entities[i].Id);
         for (int i = 0; i < Entities.Count; i++)
         {
             var e = Entities[i];
@@ -498,12 +506,17 @@ public sealed class CivSimContext
         }
         for (int c = 0; c < n; c++)
         {
+            // ⚠️ 2026-08-17：死残留清理前置（含锁定格——锁定格不重算，但归属已死仍要清——
+            //   幽灵势力 = 归属不存在的 band）
+            if (CellOwner[c] >= 0 && !_liveIdSet.Contains(CellOwner[c]))
+            {
+                CellOwner[c] = -1;
+                continue;
+            }
             if (LockedUntil != null && LockedUntil[c] > Tick) continue;   // 实控锁定格：武力既成事实，场不重算（2026-08-10 冲突机制）
             int best = CellBestOwner[c];
             if (best < 0)
             {
-                if (CellOwner[c] >= 0 && CellOwner[c] < Entities.Count && Entities[CellOwner[c]].Dead)
-                    CellOwner[c] = -1;   // 现 owner 已死且无新覆盖 → 归无主
                 continue;
             }
             int cur = CellOwner[c];
