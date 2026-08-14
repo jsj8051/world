@@ -14,3 +14,10 @@ obj/
 
 # 本地启动脚本（不入库）
 /启动deepseek-harness.bat
+
+# 运行日志（按分类落 logs/ 各子目录；不入库）
+/logs/
+
+# Godot 运行期 user:// 重定向目录（APPDATA→runs/appdata；运行产物不入库）
+# 测试用 v5 存档也属运行资源，不入库
+/runs/

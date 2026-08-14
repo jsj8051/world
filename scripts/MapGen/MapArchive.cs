@@ -370,22 +370,26 @@ public class MapData
         return range > 1e-6f ? (raw - MinElev) / range : 0.5f;
     }
 
-    /// <summary>构建球面桶索引。⚠️ 必须在主线程调用一次（Read 后），
-    /// 惰性构建 + 并行采样会并发修改集合（Collection was modified 崩溃）。</summary>
-    private int _bucketsBuildThread = -1;   // 首次构建线程（2026-08-19：后台首触检测——防"忘预构建"静默崩溃）
+    /// <summary>构建球面桶索引。⚠️ 惰性构建 + 并行采样会并发修改集合（Collection was modified 崩溃），
+    /// 用锁固持单线程首建（2026-08 修正：不再以"非主线程首建"误报——Godot mono _Ready 托管线程 id≠引擎主线程）。</summary>
+    private readonly object _bucketLock = new();
+    private int _bucketsBuildThread = -1;   // 首次构建线程（并发检测：被另一线程闯入时告警）
 
     public void EnsureBuckets()
     {
         if (_buckets != null) return;
-        // ⚠️ 2026-08-19：惰性构建必须发生在主线程预构建之后（Read/ToMapData 已调）——
-        //   若首次构建在后台线程触发，说明调用方漏了主线程预构建（并发修改集合崩溃的前兆），
-        //   打印警告暴露而非静默构建（历史：Collection modified 崩溃难定位）。
-        int tid = System.Environment.CurrentManagedThreadId;
-        if (_bucketsBuildThread == -1)
+        // ⚠️ 桶构建：惰性 + 首次构建固持单线程（防"忘预构建 / 并发首建改 List 集合"崩溃）。
+        // 2026-08 修正误报：Godot mono 节点 _Ready 的托管线程 id(=2) ≠ OS.GetMainThreadId()(=1)，
+        //   旧守卫"非主线程首建即告警"会误报主线程同步读档。故改为并发检测：
+        //   同一实例若被**另一线程**在首建线程仍持锁期间再次闯入 → 真并发首建（崩溃前兆），才告警；
+        //   否则（仅单一线程首建）不告警——覆盖 Godot mono 托管线程 id 与引擎主线程判定差异。
+        lock (_bucketLock)
         {
+            if (_buckets != null) return;      // 双检锁：锁内再查一次
+            int tid = System.Environment.CurrentManagedThreadId;
+            if (_bucketsBuildThread != -1 && tid != _bucketsBuildThread)
+                GD.PrintErr($"[MapArchive] ⚠️ 桶索引并发首建：线程(tid={tid}) 与首建线程(tid={_bucketsBuildThread}) 同时构建——并发修改集合崩溃前兆");
             _bucketsBuildThread = tid;
-            if (tid != (int)OS.GetMainThreadId())
-                GD.PrintErr($"[MapArchive] ⚠️ 桶索引在后台线程(tid={tid})首次构建——调用方漏了主线程 EnsureBuckets()（Read/ToMapData 返回前必须预构建）");
         }
         // 目标每桶 ~30 顶点 → 总桶数 ≈ V/30；保持 lat:lon = 1:2（球面面积均匀分）。
         // 极区单桶逻辑（BucketOf）在 lat=0/末桶时 bx=0，缩放后仍成立。

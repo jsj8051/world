@@ -240,19 +240,22 @@ public class GameGrid
     private int BucketsLat;
     private int BucketsLon;
     private List<int>[,] _buckets;
-    private int _bucketsBuildThread = -1;   // 首次构建线程（2026-08-19：后台首触检测）
+    private readonly object _bucketLock = new();
+    private int _bucketsBuildThread = -1;   // 首次构建线程（并发检测，2026-08 修正误报）
 
     private void EnsureBuckets()
     {
         if (_buckets != null) return;
-        // ⚠️ 2026-08-19：首次构建若在后台线程 → 调用方漏了主线程预构建（FromMapData/Read 已调），
-        //   打印警告暴露而非静默（并发修改集合崩溃前兆）。
-        int tid = System.Environment.CurrentManagedThreadId;
-        if (_bucketsBuildThread == -1)
+        // ⚠️ 桶构建：惰性 + 锁固持单线程首建（防并发改 List 崩溃）。
+        // 2026-08 修正误报：Godot mono _Ready 托管线程 id(=2)≠OS.GetMainThreadId()(=1)，旧"非主线程首建即告警"误报；
+        // 改为并发检测：锁内若被**另一线程**闯入首建段 → 真并发（崩溃前兆）才告警。
+        lock (_bucketLock)
         {
+            if (_buckets != null) return;
+            int tid = System.Environment.CurrentManagedThreadId;
+            if (_bucketsBuildThread != -1 && tid != _bucketsBuildThread)
+                GD.PrintErr($"[GameGrid] ⚠️ 桶索引并发首建：线程(tid={tid}) 与首建线程(tid={_bucketsBuildThread}) 同时构建——并发修改集合崩溃前兆");
             _bucketsBuildThread = tid;
-            if (tid != (int)OS.GetMainThreadId())
-                GD.PrintErr($"[GameGrid] ⚠️ 桶索引在后台线程(tid={tid})首次构建——调用方漏了主线程 EnsureBuckets()（FromMapData/Read 返回前必须预构建）");
         }
         int targetPerBucket = 30;
         int totalBuckets = Mathf.Max(2, N / targetPerBucket);
