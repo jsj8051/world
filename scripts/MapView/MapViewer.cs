@@ -524,50 +524,6 @@ public partial class MapViewer : Node3D
         // 盛行风图层：用存档自转方向/速度（旧存档默认顺转 1.0）
         World.Biome.WindField.Prograde = map.ProgradeRotation;
         World.Biome.WindField.RotationSpeed = map.RotationSpeed;
-        // ⚠️ 2026-08-18 v3（用户拍板"实际控制区域"）：势力/政体色块 = 驻扎格聚落圈
-        //   （多源 BFS 2 跳）——替代 CellOwner Voronoi 竞争（飞地 256/257→消除）：
-        //   每势力色块 = 其成员驻扎格周围 2 跳连片圈（实际控制——营地+活动圈）。
-        //   归属 = 距离最近驻扎势力（BFS 层序先到先得——确定性）；圈外（>2 跳）= 无势力灰。
-        //   文化/宗教/科技/势力范围图层保持 CellOwner 归属（语义不变）。
-        var settlePower = new int[n];
-        var settlePolity = new byte[n];
-        var settleDist = new int[n];
-        System.Array.Fill(settleDist, 99);
-        var bq = new System.Collections.Generic.Queue<int>();
-        var bqd = new System.Collections.Generic.Queue<int>();
-        if (hasCiv)
-        {
-            for (int e = 0; e < _civCtx.Entities.Count; e++)
-            {
-                var ce = _civCtx.Entities[e];
-                if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
-                if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地
-                if (settleDist[ce.Cell] > 0)   // 同格多实体：第一个（实体序）为圈主
-                {
-                    settleDist[ce.Cell] = 0;
-                    settlePower[ce.Cell] = PowerIdOf(ce);
-                    settlePolity[ce.Cell] = PolityOf(ce);
-                    bq.Enqueue(ce.Cell); bqd.Enqueue(0);
-                }
-            }
-            while (bq.Count > 0)
-            {
-                int c = bq.Dequeue();
-                int d = bqd.Dequeue();
-                if (d >= 2) continue;
-                var nb = _civCtx.Grid?.Neighbors;
-                if (nb == null) break;
-                foreach (var nn in nb[c])
-                {
-                    if (_civCtx.R != null && _civCtx.R[nn] <= 0f) continue;   // 只走逻辑陆地
-                    if (settleDist[nn] <= d + 1) continue;   // 已有更近/同距归属——跳过（先到先得确定性）
-                    settleDist[nn] = d + 1;
-                    settlePower[nn] = settlePower[c];
-                    settlePolity[nn] = settlePolity[c];
-                    bq.Enqueue(nn); bqd.Enqueue(d + 1);
-                }
-            }
-        }
         int done = 0;
         System.Threading.Tasks.Parallel.For(0, n, i =>
         {
@@ -607,9 +563,11 @@ public partial class MapViewer : Node3D
                     _tileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
                     _tileTribe[i] = dom.Id;
                     _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
-                    // 独立势力（2026-08-18 v3 聚落圈）：settlePower（驻扎格 2 跳圈——连片实际控制）
-                    _tilePower[i] = settlePower[i];
-                    _tilePolity[i] = settlePolity[i];
+                    // 独立势力（2026-08-18 v4 回影响力场——用户确认：按影响力算难出飞地、
+                    //   且不可能被中立隔离（中立只在圈外——同势力格都在圈内）。v3 的 BFS 2 跳
+                    //   人为切圈是魔法数字——废弃。飞地=强邻切通道的少数构型——统计验证）
+                    _tilePower[i] = PowerIdOf(dom);
+                    _tilePolity[i] = PolityOf(dom);
                     // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
                     //    与 byte 截断的 _tileCultureGroup 区分，防 8 位撞色）
                     _tileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
@@ -629,7 +587,21 @@ public partial class MapViewer : Node3D
             // ⚠️ 2026-08-17 语义修正 v4（用户拍板）：人口格子就显示有人口的格子——
             //   人口 = 驻扎格 P（营地实有人口）；领地格（采集格）无人即无人（物理正确——
             //   采集者活动范围≠定居点）。不做活动人口分散（v3 被否：所有领地格造淡人口不真实）。
-            //   势力色块 = settlePower 聚落圈（v3——驻扎格必在圈内，无需 bestByCell 后处理）。
+            //   势力色块 = CellOwner 影响力场（v4——用户确认：按影响力算难出飞地、中立只在圈外）。
+            //   保留 v2 修复：驻扎格归势力（弱 band 驻扎格被强邻覆盖时显示自己势力——人口格必有势力色）。
+            var bestByCell = new Dictionary<int, World.CivSim.CivEntity>();
+            for (int e = 0; e < _civCtx.Entities.Count; e++)
+            {
+                var ce = _civCtx.Entities[e];
+                if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
+                if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地
+                if (!bestByCell.TryGetValue(ce.Cell, out var cur) || ce.P > cur.P) bestByCell[ce.Cell] = ce;
+            }
+            foreach (var kv in bestByCell)
+            {
+                _tilePower[kv.Key] = PowerIdOf(kv.Value);
+                _tilePolity[kv.Key] = PolityOf(kv.Value);
+            }
             for (int e = 0; e < _civCtx.Entities.Count; e++)
             {
                 var ce = _civCtx.Entities[e];
