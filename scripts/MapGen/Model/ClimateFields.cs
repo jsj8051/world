@@ -429,7 +429,7 @@ public sealed class BiomeField : ModelBase, IFieldRole
     public string Domain => "陆地";
     public override float Magnitude => 32f;
     public string Stage => "Stage1";
-    public override string[] DependsOn() => new[] { "年均温", "年降水", "月温度", "月降水" };   // ⚠️ 月降水:最湿月比例换算 mm
+    public override string[] DependsOn() => new[] { "年均温", "年降水", "月温度", "月降水", "大陆架", "冰盖" };   // ⚠️ 2026-08-18 加大陆架/冰盖：biome 用最终 Elev（冰盖/浅海区不再旧 Elev 判 DeepOcean）
 
     public void Compute()
     {

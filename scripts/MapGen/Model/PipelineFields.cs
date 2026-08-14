@@ -102,7 +102,7 @@ public sealed class SoilField : ModelBase, IFieldRole
     public string Domain => "陆地";
     public override float Magnitude => 5f;
     public string Stage => "Stage5";
-    public override string[] DependsOn() => new[] { "柯本biome", "海拔" };
+    public override string[] DependsOn() => new[] { "柯本biome", "海拔", "大陆架", "冰盖" };   // ⚠️ 2026-08-18 加大陆架/冰盖：土壤用最终 Elev（冰盖/浅海区不再土壤 0）
 
     public void Compute()
     {
@@ -131,7 +131,7 @@ public sealed class ContinentalShelfField : ModelBase, IFieldRole
     public string Domain => "海洋";
     public override float Magnitude => 1f;
     public string Stage => "Stage2";
-    public override string[] DependsOn() => new[] { "侵蚀堆积", "海拔" };
+    public override string[] DependsOn() => new[] { "海拔" };   // ⚠️ 2026-08-18 去掉"侵蚀堆积"：打破 biome→大陆架→侵蚀→biome 循环依赖（大陆架提前——海陆符号侵蚀不变）
 
     public void Compute()
     {
@@ -167,6 +167,10 @@ public sealed class ContinentalShelfField : ModelBase, IFieldRole
         // 更新范围（存档用）
         pipe.MinElev = float.MaxValue; pipe.MaxElev = float.MinValue;
         foreach (var e in pipe.Elev) { if (e < pipe.MinElev) pipe.MinElev = e; if (e > pipe.MaxElev) pipe.MaxElev = e; }
+        // ⚠️ 2026-08-18 ENorm 重算（biome/河流用最终 Elev 判海陆——否则浅海/冰盖区旧 ENorm 判 DeepOcean）
+        if (pipe.ENorm != null)
+            for (int i = 0; i < pipe.ENorm.Length; i++)
+                pipe.ENorm[i] = pipe.ElevSpan > 1e-6f ? pipe.Elev[i] / pipe.ElevSpan : 0f;
     }
 
     public override bool Verify() => _pipe.Elev != null;
@@ -199,6 +203,10 @@ public sealed class IceSheetField : ModelBase, IFieldRole
         }
         pipe.MinElev = float.MaxValue; pipe.MaxElev = float.MinValue;
         foreach (var e in pipe.Elev) { if (e < pipe.MinElev) pipe.MinElev = e; if (e > pipe.MaxElev) pipe.MaxElev = e; }
+        // ⚠️ 2026-08-18 ENorm 重算（biome/河流用最终 Elev 判海陆——否则浅海/冰盖区旧 ENorm 判 DeepOcean）
+        if (pipe.ENorm != null)
+            for (int i = 0; i < pipe.ENorm.Length; i++)
+                pipe.ENorm[i] = pipe.ElevSpan > 1e-6f ? pipe.Elev[i] / pipe.ElevSpan : 0f;
     }
 
     public override bool Verify() => _pipe.Elev != null;

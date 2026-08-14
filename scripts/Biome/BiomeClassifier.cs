@@ -20,7 +20,7 @@ public static class BiomeClassifier
     /// <summary>海拔归一化值 &lt; 此值 → 深海。</summary>
     public const float DeepOceanLevel = -0.1f;
     /// <summary>海拔归一化值 &lt; 此值 → 海洋。</summary>
-    public const float OceanLevel = 0.02f;
+    public const float OceanLevel = 0.0f;   // ⚠️ 2026-08-18 0.02→0：ENorm=Elev/ElevSpan（0=海平面）——0.02 地球标定在新星球 span 下把低地误判海洋
     /// <summary>高于此归一化海拔（-1..1）→ 山地（Alpine 或冰雪）。0.5 ≈ 5km。</summary>
     public const float AlpineLevel = 0.5f;
 
