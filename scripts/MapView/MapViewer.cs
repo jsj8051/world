@@ -805,32 +805,28 @@ public partial class MapViewer : Node3D
     								        };
     								        return HslToRgb(hue, 0.45f, 0.55f);   // 无微扰——同类纯色
     								        }
-    								        default: // 海拔——分段色带（2026-08-17 用户拍板：近海/深海等显示清楚——分段非线性）
+    								        default: // 海拔（2026-08-18 用户拍板）：按实际米分色——
+    								            //   海：<-200m 深海（深蓝）/ -200~0m 浅海（亮蓝——大陆架 200m 等深线）
+    								            //   陆：连续色带（0m→最高——沙→绿→棕→白——无分段）
     								        {
-    								        float h = _tileElev[id];
-    				if (IsDisplaySea(id))
-    				{
-    					// 海洋：按深度分段（depth 0=海面 1=最深——相对 hSea 比例）
-    					float depth = (_hSea - h) / Mathf.Max(0.001f, _hSea);
-    					if (depth > 0.66f) return new Color(0.01f, 0.05f, 0.18f);   // 深海（深蓝）
-    					if (depth > 0.33f) return new Color(0.08f, 0.20f, 0.45f);   // 浅海（中蓝）
-    					return new Color(0.20f, 0.45f, 0.68f);                      // 近海/大陆架（亮蓝）
-    				}
-    				// 陆地：按高度分段（h 是 0..1 归一化，海平面位置 = -MinElev/range（≠0.5）。
-    				//   转成以海平面为 0 的 -1..1；逻辑陆地近海格（byte 量化 h<hSea 但 R>0）强制海滩起）
-    				float e1 = (h - _hSea) / (_hSea > 0.5f ? _hSea : 1f - _hSea);
-    				if (e1 < 0f) e1 = 0f;
-    				if (e1 < 0.10f) return new Color(0.70f, 0.65f, 0.40f);   // 海滩/低地（沙黄）
-    				if (e1 < 0.35f) return new Color(0.30f, 0.65f, 0.10f);   // 低地（绿）
-    				if (e1 < 0.60f) return new Color(0.50f, 0.55f, 0.20f);   // 丘陵（黄绿）
-    				if (e1 < 0.85f) return new Color(0.60f, 0.50f, 0.35f);   // 高地（棕）
-    				return new Color(0.95f, 0.97f, 1.00f);                   // 雪顶（白）
+    								        	float h = _tileElev[id];
+    								        	int vidE = _tileVerts != null ? _tileVerts[id] : id;
+    								        	float elevM = _map.Elev != null ? _map.Elev[vidE] : (h - _hSea) * (_map.MaxElev - _map.MinElev);   // 米（0=海平面）
+    								        	if (IsDisplaySea(id))
+    								        	{
+    								        		if (elevM < -200f) return new Color(0.01f, 0.05f, 0.18f);   // 深海 <-200m
+    								        		return new Color(0.20f, 0.45f, 0.68f);                      // 浅海 -200~0m（大陆架）
+    								        	}
+    								        	// 陆地：连续色带（0=海平面 → 1=最高海拔）
+    								        	float e1 = elevM / Mathf.Max(1f, Mathf.Max(-_map.MinElev, _map.MaxElev));
+    								        	if (e1 < 0f) e1 = 0f;   // 近海量化格——海滩起
+    								        	return PlanetColors.ElevationToColor(e1);
+    								        }
     			}
-    		}
-    	};
-    }
+    			};
+    			}
 
-    /// <summary>切图层：几何缓存命中 → 只重算颜色（查表，秒级）；无缓存（首次/GridN 刚变）→ 全量。
+    			/// <summary>切图层：几何缓存命中 → 只重算颜色（查表，秒级）；无缓存（首次/GridN 刚变）→ 全量。
     /// ⚠️ 2026-08-02：几何未就绪时【禁止】调用 Generate()——构建中切图层会取消当前构建并重启，
     ///   快速连点=无限取消重启，几何永远构建不完 → 图层不切换。改为设置 _pendingRecolor，
     ///   等当前构建完成（FinishGenerate）后自动应用最新图层。</summary>
@@ -2024,13 +2020,13 @@ public partial class MapViewer : Node3D
 
         switch (_layer)
         {
-            case 0: // 海拔：分段色带（深海→浅海→近海→海滩→低地→丘陵→高地→雪顶）
+            case 0: // 海拔（2026-08-18）：海 <-200m 深海 / -200~0m 浅海；陆地连续色带
                 AddLegendGradient(
-                    new[] { new Color(0.01f, 0.05f, 0.18f), new Color(0.08f, 0.20f, 0.45f), new Color(0.20f, 0.45f, 0.68f),
-                            new Color(0.70f, 0.65f, 0.40f), new Color(0.30f, 0.65f, 0.10f), new Color(0.50f, 0.55f, 0.20f),
+                    new[] { new Color(0.01f, 0.05f, 0.18f), new Color(0.20f, 0.45f, 0.68f),
+                            new Color(0.70f, 0.65f, 0.40f), new Color(0.30f, 0.65f, 0.10f),
                             new Color(0.60f, 0.50f, 0.35f), new Color(0.95f, 0.97f, 1.00f) },
-                    "深海", "雪顶");
-                AddLegendText($"海平面 ≈ {_hSea * 100f:F0}% 海拔 · 海分深海/浅海/近海 · 陆分海滩/低地/丘陵/高地/雪顶");
+                    "深海<-200m", "最高");
+                AddLegendText("海：<-200m 深海 / -200~0m 浅海（大陆架）；陆：连续色带（实际米）");
                 break;
             case 1: // 温度：分段色带
                 AddLegendGradient(
