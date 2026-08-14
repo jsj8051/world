@@ -791,7 +791,8 @@ public partial class MapViewer : Node3D
     								    return HslToRgb(GoldenHue(terr), 0.55f, 0.85f);
     								}
     								case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色——
-    								    //   band=灰蓝系 部落=绿系 酋邦=红橙系；同类同色相 + 势力哈希微扰（势力轮廓可辨）
+    								    //   band=灰蓝 部落=绿 酋邦=红橙——纯政体色（2026-08-18 用户：部落为何多色——
+    								    //   去掉势力微扰——政体地图=政体类型色，势力区分看独立势力图层 14）
     								    {
     								        if (IsDisplaySea(id) && _tilePower[id] == 0) return SeaColor;
     								        int powerId = _tilePower[id];
@@ -802,13 +803,11 @@ public partial class MapViewer : Node3D
     								            1 => 0.35f,    // 部落：绿
     								            _ => 0.60f,    // band：灰蓝
     								        };
-    								        float perturb = (GoldenHue(powerId) - 0.5f) * 0.07f;   // 势力微扰（±0.035）
-    								        float sat = _tilePolity[id] switch { 0 => 0.30f, 1 => 0.50f, _ => 0.58f };
-    								        return HslToRgb(hue + perturb, sat, 0.55f);
-    								    }
-			default: // 海拔——分段色带（2026-08-17 用户拍板：近海/深海等显示清楚——分段非线性）
-    			{
-    				float h = _tileElev[id];
+    								        return HslToRgb(hue, 0.45f, 0.55f);   // 无微扰——同类纯色
+    								        }
+    								        default: // 海拔——分段色带（2026-08-17 用户拍板：近海/深海等显示清楚——分段非线性）
+    								        {
+    								        float h = _tileElev[id];
     				if (IsDisplaySea(id))
     				{
     					// 海洋：按深度分段（depth 0=海面 1=最深——相对 hSea 比例）
