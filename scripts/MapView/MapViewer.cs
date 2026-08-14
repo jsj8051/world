@@ -1895,7 +1895,8 @@ public partial class MapViewer : Node3D
         var col = MakeColorFn(_layer)(_tiles[i]);
         GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
         int vid = _tileVerts != null ? _tileVerts[i] : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射
-        GD.Print($"  elev={_tileElev[i]:F3} pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
+        float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_tileElev[i] - _hSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
+        GD.Print($"  elev={_tileElev[i]:F3}（{elevM2:F0}m）pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
         if (_tilePower[i] != 0)
         {
