@@ -814,6 +814,9 @@ public partial class MapViewer : Node3D
     								        	float elevM = _map.Elev != null ? _map.Elev[vidE] : (h - _hSea) * (_map.MaxElev - _map.MinElev);   // 米（0=海平面）
     								        	if (IsDisplaySea(id))
     								        	{
+    								        		// ⚠️ 2026-08-18 海冰（用户：两极应该冰盖不是海洋）：温度 ≤-5°C 的海 = 海冰（极地冰盖——白）
+    								        		float seaTemp = _map.Temp != null ? _map.Temp[vidE] : 15f;
+    								        		if (seaTemp <= -5f) return new Color(0.92f, 0.95f, 1.00f);   // 海冰（白——极地冰盖）
     								        		if (elevM < -200f) return new Color(0.01f, 0.05f, 0.18f);   // 深海 <-200m
     								        		return new Color(0.20f, 0.45f, 0.68f);                      // 浅海 -200~0m（大陆架）
     								        	}
