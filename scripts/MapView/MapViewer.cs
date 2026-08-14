@@ -819,8 +819,12 @@ public partial class MapViewer : Node3D
     								        	}
     								        	// 陆地：连续色带（0=海平面 → 1=最高海拔）
     								        	float e1 = elevM / Mathf.Max(1f, Mathf.Max(-_map.MinElev, _map.MaxElev));
-    								        	if (e1 < 0f) e1 = 0f;   // 近海量化格——海滩起
-    								        	return PlanetColors.ElevationToColor(e1);
+    								        	if (e1 < 0f) e1 = 0f;   // 近海低地格（R>0 逻辑陆地）——海滩起
+    								        									        	// ⚠️ 2026-08-18 用户：陆地不要有蓝色——ElevationToColor 潮间带 0~0.05 是浅蓝→沙过渡
+								        	//   （低海拔陆地发蓝）——自定义无蓝连续色带：沙→绿→棕→白
+								        	if (e1 < 0.30f) return new Color(0.76f, 0.70f, 0.50f).Lerp(new Color(0.30f, 0.65f, 0.10f), e1 / 0.30f);
+								        	if (e1 < 0.70f) return new Color(0.30f, 0.65f, 0.10f).Lerp(new Color(0.60f, 0.50f, 0.35f), (e1 - 0.30f) / 0.40f);
+								        	return new Color(0.60f, 0.50f, 0.35f).Lerp(new Color(0.95f, 0.97f, 1.00f), (e1 - 0.70f) / 0.30f);
     								        }
     			}
     			};
