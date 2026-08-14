@@ -23,8 +23,8 @@ public static class CivEngine
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new List<CivEntity>[n],
-            Entities = new List<CivEntity>(),
+            CellTribes = new List<Tribe>[n],
+            Tribes = new List<Tribe>(),
             Seed = seed,
             OriginCount = originCount,
             Rng = new DeterministicRandom(seed),   // 可序列化状态：读档续跑无分叉
@@ -52,7 +52,7 @@ public static class CivEngine
             ctx.TerritoryDists[i] = new List<byte>();
         }
         for (int i = 0; i < n; i++)
-            ctx.CellTribes[i] = new List<CivEntity>();
+            ctx.CellTribes[i] = new List<Tribe>();
         BuildLayer1(ctx);   // 层1 空间生产力 R（Miami NPP × 水因子，k 相对标定 → 陆地中位数 0.3 人/km²）
         // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场构造时已建（全 0，随农田增长）
 
@@ -80,12 +80,12 @@ public static class CivEngine
         }
         swRun.Stop();
 
-        ctx.Entities.RemoveAll(e => e.Dead);
+        ctx.Tribes.RemoveAll(e => e.Dead);
         RefreshCellState(ctx);
         // ⚠️ 2026-08-17 监督机制：CivSim 逐模型耗时入历史（对比/告警；--arch 全量测试时也自动记录）
         modelMs["总"] = swRun.ElapsedMilliseconds;
         var (hisAvg, _, hisCnt) = World.Diagnostics.PerfLog.Stats("civsim", "总");
-        World.Diagnostics.PerfLog.Append("civsim", $"{ctx.Tick}t/{ctx.Entities.Count}e", modelMs);
+        World.Diagnostics.PerfLog.Append("civsim", $"{ctx.Tick}t/{ctx.Tribes.Count}e", modelMs);
         if (hisCnt > 0)
         {
             if (swRun.ElapsedMilliseconds > hisAvg * 1.5)
@@ -106,7 +106,7 @@ public static class CivEngine
             registry.ExecuteAll(ctx);
             onProgress?.Invoke((k + 1f) / Mathf.Max(1, extraTicks));
         }
-        ctx.Entities.RemoveAll(e => e.Dead);
+        ctx.Tribes.RemoveAll(e => e.Dead);
         RefreshCellState(ctx);
         return new CivSimResult { Context = ctx, FinalTick = ctx.Tick };
     }
@@ -144,31 +144,31 @@ public static class CivEngine
     {
         int n = ctx.Grid.N;
         // ⚠️ 2026-08-17 审查修复：每 tick 按实体列表顺序重建 CellTribes——统一"格内顺序"语义。
-        //   旧版靠演化中 AddEntity/分裂/迁移的"加入顺序"，读档恢复按实体段顺序——两端格内对序不同 →
+        //   旧版靠演化中 AddTribe/分裂/迁移的"加入顺序"，读档恢复按实体段顺序——两端格内对序不同 →
         //   SpreadTech(from,to) 方向不同 → Rng 消耗不同 → T04 读档续跑分叉。重建后两端均为
         //   确定性"实体列表顺序"（分裂 Append 保持，读档恢复同序——T02 已验证）。
         for (int i = 0; i < n; i++) ctx.CellTribes[i].Clear();
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
             ctx.CellTribes[e.Cell].Add(e);
         }
         Array.Clear(ctx.CellPop, 0, n);
         Array.Clear(ctx.CellF, 0, n);
         Array.Clear(ctx.CellFarmPop, 0, n);
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             e.CarryMult = TechTable.HuntingCarry(e.TechKeys);
             e.CapMask = CapabilityTable.MaskOf(ctx, e);
             ctx.CellPop[e.Cell] += e.P;
             if (e.IsFarming) ctx.CellFarmPop[e.Cell] += e.P;
         }
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             // 货物累积（副产品 = 各方式 F × 副产率；2026-08-09）
             e.Goods[CivSimContext.GoodsLeather] += e.FHuntLast * CivSimContext.LeatherRate;

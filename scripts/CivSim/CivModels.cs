@@ -73,9 +73,9 @@ public sealed class CultivateModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         if (ctx.Cultivation == null) return;
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead || !e.IsFarming) continue;
             var terr = ctx.TerritoryOf(e);
             if (terr == null || terr.Count == 0) continue;
@@ -115,9 +115,9 @@ public sealed class HarvestModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             e.FHuntLast = ctx.AllocateAndProduce(e);   // 采集（猎+果）+ 牧场 + 农业（等边际分配后实际产出）
             e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
@@ -193,9 +193,9 @@ public sealed class OriginModel : CivModelBase
         {
             string key = ctx.NextCultureKey();   // 每摇篮独立文化/文化群 key（互不同源）
             string relKey = ctx.NextReligionKey();   // 每摇篮独立宗教派别（图腾体系互不同源）
-            var e = new CivEntity
+            var e = new Tribe
             {
-                Id = ctx.NextEntityId++,   // 独立计数器（2026-08-10：Entities.Count 读档后分叉）
+                Id = ctx.NextTribeId++,   // 独立计数器（2026-08-10：Tribes.Count 读档后分叉）
                 Cell = pick,
                 P = CivSimContext.OriginPop,
                 OriginCell = pick,
@@ -206,7 +206,7 @@ public sealed class OriginModel : CivModelBase
                 ReligionCultShare = ShareField.NewCulture(relKey),
             };
             e.TechKeys.Add(TechTable.StoneCore);
-            ctx.Entities.Add(e);
+            ctx.Tribes.Add(e);
             ctx.CellTribes[pick].Add(e);
         }
         ctx.FirstFarmTick = -1;
@@ -253,15 +253,15 @@ public sealed class EnergyModel : CivModelBase
     {
         // 刷新格人口（本 tick 起始快照：增长/压力共用）
         Array.Clear(ctx.CellPop, 0, ctx.CellPop.Length);
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             ctx.CellPop[e.Cell] += e.P;
         }
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，含劳动因子/冷下限）
             e.EPerCap = f / Mathf.Max(0.001f, e.P);
@@ -283,9 +283,9 @@ public sealed class GrowthModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         float r = ctx.TickFactor;   // 0.5/tick
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
             if (f <= 0f) continue;
@@ -325,9 +325,9 @@ public sealed class ModeModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             bool hasSeed = CapabilityTable.Has(ctx, e, "seed");
             if (!hasSeed) { e.IsFarming = false; continue; }
@@ -362,9 +362,9 @@ public sealed class InventionModel : CivModelBase
     {
         CivEngine.RefreshCellState(ctx);   // 生产方式已更新（Order 30）→ 刷新 F_格 供压力判定
 
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             // ── 通用发明（Kremer）──
             foreach (var t in TechTable.All)
@@ -430,7 +430,7 @@ public sealed class TerritoryModel : CivModelBase
         int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
         void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) parent[ra] = rb; }
 
-        foreach (var e in ctx.Entities)
+        foreach (var e in ctx.Tribes)
             if (!e.Dead) parent[e.Id] = e.Id;
         // 同格凝聚边：格内 band 两两，同语言群 → 凝聚
         for (int i = 0; i < ctx.Grid.N; i++)
@@ -469,14 +469,14 @@ public sealed class TerritoryModel : CivModelBase
         // 填分量：标号 = 分量最小实体 Id（确定性）；size = 分量实体数
         var sizes = new Dictionary<int, int>();
         var mins = new Dictionary<int, int>();
-        foreach (var e in ctx.Entities)
+        foreach (var e in ctx.Tribes)
         {
             if (e.Dead) continue;
             int root = Find(e.Id);
             sizes[root] = sizes.TryGetValue(root, out var v) ? v + 1 : 1;
             if (!mins.TryGetValue(root, out var m) || e.Id < m) mins[root] = e.Id;
         }
-        foreach (var e in ctx.Entities)
+        foreach (var e in ctx.Tribes)
         {
             if (e.Dead) continue;
             int root = Find(e.Id);
@@ -485,9 +485,9 @@ public sealed class TerritoryModel : CivModelBase
         }
     }
 
-    private static CivEntity MaxPop(List<CivEntity> list)
+    private static Tribe MaxPop(List<Tribe> list)
     {
-        CivEntity best = null;
+        Tribe best = null;
         for (int k = 0; k < list.Count; k++)
             if (!list[k].Dead && (best == null || list[k].P > best.P)) best = list[k];
         return best;
@@ -541,7 +541,7 @@ public sealed class SpreadModel : CivModelBase
         }
     }
 
-    private static CivEntity MaxPop(List<CivEntity> list)
+    private static Tribe MaxPop(List<Tribe> list)
     {
         var best = list[0];
         for (int k = 1; k < list.Count; k++)
@@ -550,7 +550,7 @@ public sealed class SpreadModel : CivModelBase
     }
 
     /// <summary>领地传播乘数：同领地 ×1.5（整合加成）；至少一方是正式领地（≥2 band）→ ×0.5（跨边界软冲突）；散兵部落间 ×1（BorderCost 已有）。</summary>
-    internal static float TerritoryMult(CivEntity a, CivEntity b)
+    internal static float TerritoryMult(Tribe a, Tribe b)
     {
         if (a.TerritoryId >= 0 && a.TerritoryId == b.TerritoryId) return CivSimContext.TerritorySpreadMult;
         if (a.TerritorySize >= 2 || b.TerritorySize >= 2) return CivSimContext.CrossBorderSpreadMult;
@@ -560,7 +560,7 @@ public sealed class SpreadModel : CivModelBase
     /// <summary>技术传播 from → to（to 缺 from 的技术且依赖满足 → 按概率获得）。
     /// ⚠️ 2026-08-10 确定性修复：HashSet 遍历顺序依赖构建历史（读档重建 Add 顺序 ≠ 演化布局）→
     ///    同 Rng 数对应不同 key → 读档续跑分叉。改为**排序遍历**（与布局无关，ctx 缓冲无分配）。</summary>
-    private void SpreadTech(CivSimContext ctx, CivEntity from, CivEntity to, float border = 1f)
+    private void SpreadTech(CivSimContext ctx, Tribe from, Tribe to, float border = 1f)
     {
         float terr = TerritoryMult(from, to);   // 领地乘数（同领地×1.5 / 跨领地×0.5 / 散兵×1）
         int nKeys = from.TechKeys.Count;
@@ -607,7 +607,7 @@ public sealed class ConflictModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        if (ctx.LockedUntil == null || ctx.Entities.Count < 2) return;
+        if (ctx.LockedUntil == null || ctx.Tribes.Count < 2) return;
         int n = ctx.Grid.N;
         // ⚠️ 2026-08-17 审查修复（真 bug）：防护计数器误用总计数 ctx.Conflicts（演化累计到 3 后
         //   本模型永久 return——冲突机制实际只生效前 3 场）；且总计数不入档 → 读档端 0 vs 内存端累计
@@ -623,8 +623,8 @@ public sealed class ConflictModel : CivModelBase
             float iCh = ctx.CellBestInf[c];
             float iOwn = ctx.CellOwnerInf[c];
             if (iCh <= iOwn || iCh > iOwn * CivSimContext.Stickiness) continue;   // 必须粘性僵持窗口
-            var eo = FindEntity(ctx, owner);
-            var ec = FindEntity(ctx, ch);
+            var eo = FindTribe(ctx, owner);
+            var ec = FindTribe(ctx, ch);
             if (eo == null || ec == null || eo.Dead || ec.Dead) continue;
             if (ec.LastConflictTick >= 0 && ctx.Tick - ec.LastConflictTick < CivSimContext.ConflictCooldown) continue;
             if (eo.LastConflictTick >= 0 && ctx.Tick - eo.LastConflictTick < CivSimContext.ConflictCooldown) continue;
@@ -646,7 +646,7 @@ public sealed class ConflictModel : CivModelBase
         }
     }
 
-    internal static void ResolveConflict(CivSimContext ctx, CivEntity challenger, CivEntity owner, int cell)
+    internal static void ResolveConflict(CivSimContext ctx, Tribe challenger, Tribe owner, int cell)
     {
         // 胜率：P×MilitMult 对比（武器科技加成；随机——弱 band 可爆冷）
         float pC = challenger.P * TechTable.MilitaryMult(challenger.TechKeys);
@@ -654,9 +654,9 @@ public sealed class ConflictModel : CivModelBase
         // ⚠️ 2026-08-17 联盟合力（Kirch：防御方是酋邦时，入侵者面对酋邦总力量——人多势众，非加成系数）
         if (owner.ChiefdomId >= 0)
         {
-            for (int i = 0; i < ctx.Entities.Count; i++)
+            for (int i = 0; i < ctx.Tribes.Count; i++)
             {
-                var m = ctx.Entities[i];
+                var m = ctx.Tribes[i];
                 if (m.Dead || m == owner || m.ChiefdomId != owner.ChiefdomId) continue;
                 pO += m.P * TechTable.MilitaryMult(m.TechKeys);
             }
@@ -708,10 +708,10 @@ public sealed class ConflictModel : CivModelBase
         ctx.Conflicts++;
     }
 
-    private static CivEntity FindEntity(CivSimContext ctx, int id)
+    private static Tribe FindTribe(CivSimContext ctx, int id)
     {
-        for (int i = 0; i < ctx.Entities.Count; i++)
-            if (ctx.Entities[i].Id == id && !ctx.Entities[i].Dead) return ctx.Entities[i];
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+            if (ctx.Tribes[i].Id == id && !ctx.Tribes[i].Dead) return ctx.Tribes[i];
         return null;
     }
 }
@@ -803,7 +803,7 @@ public sealed class CultureModel : CivModelBase
         if (g[0].Frac == 255) g[1] = new ShareEntry();   // 全占 → 清第二位
     }
 
-    private static CivEntity MaxPop(List<CivEntity> list)
+    private static Tribe MaxPop(List<Tribe> list)
     {
         var best = list[0];
         for (int k = 1; k < list.Count; k++)
@@ -825,9 +825,9 @@ public sealed class ReligionModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         // ── 升级（实体，份额转移 0.05/tick）──
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             // 泛灵 → 萨满：盈余 s>0 + 细石器
             if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, "microlith"))
@@ -905,7 +905,7 @@ public sealed class ReligionModel : CivModelBase
     }
 
     /// <summary>宗教传播：高阶实体主导宗教份额流向低阶实体（只向更高阶段）。</summary>
-    private static void SpreadReligion(CivSimContext ctx, CivEntity from, CivEntity to, float border = 1f)
+    private static void SpreadReligion(CivSimContext ctx, Tribe from, Tribe to, float border = 1f)
     {
         string domFrom = ShareField.DomReligion(from.ReligionShare);
         string domTo = ShareField.DomReligion(to.ReligionShare);
@@ -916,7 +916,7 @@ public sealed class ReligionModel : CivModelBase
         ShareField.RelTransfer(to.ReligionShare, domTo, domFrom, amt);
     }
 
-    private static CivEntity MaxPop(List<CivEntity> list)
+    private static Tribe MaxPop(List<Tribe> list)
     {
         var best = list[0];
         for (int k = 1; k < list.Count; k++)
@@ -943,7 +943,7 @@ public sealed class SplitMigrateModel : CivModelBase
         //    母 band 人口超载（裂变压力）→ 45% 分群**殖民**影响圈外 1-3 跳最高富饶无主地；
         //    母领地完全不动（承载不变 → P 减半 → 盈余再长 → 周期分裂）；扩散=殖民推进。
         //    无目标（无主地耗尽）→ 不分裂（饱和态：P 继续涨 → 竞争/饿死路径）。
-        var snapshot = ctx.Entities.ToArray();
+        var snapshot = ctx.Tribes.ToArray();
         foreach (var t in snapshot)
         {
             if (t.Dead) continue;
@@ -957,9 +957,9 @@ public sealed class SplitMigrateModel : CivModelBase
             float newPop = t.P * CivSimContext.SplitShare;
             t.P -= newPop;
             t.LastSplitTick = ctx.Tick;
-            var nt = new CivEntity
+            var nt = new Tribe
             {
-                Id = ctx.NextEntityId++,   // 独立计数器（2026-08-10）
+                Id = ctx.NextTribeId++,   // 独立计数器（2026-08-10）
                 Cell = target,
                 P = newPop,
                 IsFarming = t.IsFarming,
@@ -982,7 +982,7 @@ public sealed class SplitMigrateModel : CivModelBase
             // 宗教派别分化：2% 新 key（图腾漂变）
             if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
-            ctx.Entities.Add(nt);
+            ctx.Tribes.Add(nt);
             ctx.CellTribes[target].Add(nt);
             ctx.Fissions++;
         }
@@ -990,7 +990,7 @@ public sealed class SplitMigrateModel : CivModelBase
         // ── 饥饿迁移（2026-08-10 影响力场模型）：饿（F<D）→ 驻扎点搬家到 1-3 跳内最高富饶度无主格。
         //    落脚必须无主（CellOwner==-1——有主格禁入，冲突未实现）；旧领地格下 tick 场重算自动废弃。
         //    冷却 MigrateCooldown tick 防抖动（连续饿会再次触发——游走 band 觅食迁徙）。
-        var snap2 = ctx.Entities.ToArray();
+        var snap2 = ctx.Tribes.ToArray();
         foreach (var t in snap2)
         {
             if (t.Dead) continue;
@@ -1008,7 +1008,7 @@ public sealed class SplitMigrateModel : CivModelBase
 
     /// <summary>迁移目标：1-3 跳 BFS 内最高富饶度（R × 路径 BorderCost 乘积）的**无主格**（CellOwner==-1）。
     /// 确定性：时间戳标记 + 固定遍历顺序；无主 = 落脚不侵犯（冲突未实现）。</summary>
-    internal static int PickMigrateTarget(CivSimContext ctx, CivEntity mover)
+    internal static int PickMigrateTarget(CivSimContext ctx, Tribe mover)
     {
         var grid = ctx.Grid;
         var keys = mover.TechKeys;
@@ -1091,7 +1091,7 @@ public sealed class AbsorptionModel : CivModelBase
     {
         if (ctx.Tick - ctx.AbsorptionLastEval < 10) return;
         ctx.AbsorptionLastEval = ctx.Tick;
-        var snapshot = ctx.Entities.ToArray();
+        var snapshot = ctx.Tribes.ToArray();
         foreach (var e in snapshot)
         {
             if (e.Dead || e.Cell < 0 || e.Cell >= ctx.Grid.N) continue;
@@ -1124,15 +1124,15 @@ public sealed class AbsorptionModel : CivModelBase
         }
     }
 
-    private static CivEntity FindById(CivSimContext ctx, int id)
+    private static Tribe FindById(CivSimContext ctx, int id)
     {
-        for (int i = 0; i < ctx.Entities.Count; i++)
-            if (ctx.Entities[i].Id == id) return ctx.Entities[i];
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+            if (ctx.Tribes[i].Id == id) return ctx.Tribes[i];
         return null;
     }
 
     /// <summary>迁走目标：领地格内无主格（CellOwner=-1 且 R>0）最高富饶者——留在自己影响圈内。</summary>
-    private static int FindExileCell(CivSimContext ctx, CivEntity e)
+    private static int FindExileCell(CivSimContext ctx, Tribe e)
     {
         var terr = e.Id < (ctx.TerritoryCells?.Length ?? 0) ? ctx.TerritoryOf(e) : null;
         if (terr == null) return -1;
@@ -1161,9 +1161,9 @@ public sealed class PrestigeModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead) continue;
             float surplus = e.FLast - e.P;   // 实际盈余（人当量；FLast 由 Harvest/RefreshCellState 已算）
             if (surplus > 0f && e.P > 0f)
@@ -1190,25 +1190,25 @@ public sealed class PrestigeModel : CivModelBase
     }
 
     /// <summary>酋邦贡赋池 = Σ成员 Contributed（按 ChiefdomId；滞后酋邦状态可接受——派生同 Territory 模式）。</summary>
-    private static float TributePool(CivSimContext ctx, CivEntity chief)
+    private static float TributePool(CivSimContext ctx, Tribe chief)
     {
         if (chief.ChiefdomId < 0) return 0f;
         float sum = 0f;
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var m = ctx.Entities[i];
+            var m = ctx.Tribes[i];
             if (!m.Dead && m.ChiefdomId == chief.ChiefdomId) sum += m.Contributed;
         }
         return sum;
     }
 
     /// <summary>消耗贡赋（按成员贡献比例扣减——实物税从贡献者处收取）。</summary>
-    private static void ConsumeTribute(CivSimContext ctx, CivEntity chief, float amount)
+    private static void ConsumeTribute(CivSimContext ctx, Tribe chief, float amount)
     {
         float remaining = amount;
-        for (int i = 0; i < ctx.Entities.Count && remaining > 0f; i++)
+        for (int i = 0; i < ctx.Tribes.Count && remaining > 0f; i++)
         {
-            var m = ctx.Entities[i];
+            var m = ctx.Tribes[i];
             if (m.Dead || m.ChiefdomId != chief.ChiefdomId || m.Contributed <= 0f) continue;
             float take = Mathf.Min(remaining, m.Contributed);
             m.Contributed -= take;
@@ -1245,12 +1245,12 @@ public sealed class ChiefdomModel : CivModelBase
     public static void Rebuild(CivSimContext ctx)
     {
         // ── ① 继承危机检测（旧酋邦快照——不依赖本次凝聚）──
-        var oldChiefdoms = new Dictionary<int, List<CivEntity>>();
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        var oldChiefdoms = new Dictionary<int, List<Tribe>>();
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead || e.ChiefdomId < 0) continue;
-            if (!oldChiefdoms.TryGetValue(e.ChiefdomId, out var l)) oldChiefdoms[e.ChiefdomId] = l = new List<CivEntity>();
+            if (!oldChiefdoms.TryGetValue(e.ChiefdomId, out var l)) oldChiefdoms[e.ChiefdomId] = l = new List<Tribe>();
             l.Add(e);
         }
         foreach (var kv in oldChiefdoms)
@@ -1265,7 +1265,7 @@ public sealed class ChiefdomModel : CivModelBase
             if (!hasChief && !inCrisis)
             {
                 // 酋长死亡（且未在危机中）→ 继承窗口：Prestige 最高者成为继位竞争中心
-                CivEntity top = null;
+                Tribe top = null;
                 foreach (var m in kv.Value) if (top == null || m.Prestige > top.Prestige) top = m;
                 if (top != null) top.SuccessionUntil = ctx.Tick + CivSimContext.SuccessionWindowTicks;
             }
@@ -1273,9 +1273,9 @@ public sealed class ChiefdomModel : CivModelBase
 
         // ── 部落级聚合 ──
         var tribes = new Dictionary<int, TribeAgg>();   // TerritoryId → 聚合
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead || e.TerritoryId < 0) continue;
             if (!tribes.TryGetValue(e.TerritoryId, out var agg)) agg = tribes[e.TerritoryId] = new TribeAgg();
             agg.Members.Add(e);
@@ -1348,9 +1348,9 @@ public sealed class ChiefdomModel : CivModelBase
             for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i] = new List<int>();
         }
         for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i].Clear();   // 重建前清空
-        for (int i = 0; i < ctx.Entities.Count; i++)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var e = ctx.Entities[i];
+            var e = ctx.Tribes[i];
             if (e.Dead || e.ChiefdomId < 0) continue;
             if (e.ChiefdomId >= ctx.ChiefdomCells.Length)
             {
@@ -1366,7 +1366,7 @@ public sealed class ChiefdomModel : CivModelBase
 
     private sealed class TribeAgg
     {
-        public readonly List<CivEntity> Members = new();
+        public readonly List<Tribe> Members = new();
         public int DomOutput;      // 0=猎 1=农 2=牧（主导产出类型）
         public bool HasChief;
         public bool InCrisis;      // 继承危机中（SuccessionUntil > Tick——联盟存续豁免）

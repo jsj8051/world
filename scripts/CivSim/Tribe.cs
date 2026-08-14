@@ -27,12 +27,12 @@ public static class ReligionStage
 }
 
 /// <summary>
-/// 社会单元实体（CivEntity，v4 纯实体模型）。
+/// 社会单元实体（Tribe，v4 纯实体模型）。
 /// 身份 = 人口份额，不是实体标签：文化/文化群/宗教都是人口上的分布场（top-2 存储，Σ=1）。
 /// 文化/文化群用字符串 key 标识（与科技一致：存档/诊断可读，如 "cult_3"）；宗教为固定 5 段份额。
 /// 分裂时份额等比例继承（人口分走，身份随人口走）；合并按人口加权融合。
 /// </summary>
-public class CivEntity
+public class Tribe
 {
     public int Id;
     public int Cell;                  // 所在格（部落领地 = 1 格）
@@ -172,7 +172,7 @@ public static class ShareField
     public static ShareEntry[] CloneShare(ShareEntry[] s) => new[] { s[0], s[1] };
 
     /// <summary>格级聚合：各实体份额按人口加权合并（其余并入第 2 位，保 Σ=255）。</summary>
-    public static ShareEntry[] PopMerge(IReadOnlyList<CivEntity> entities, Func<CivEntity, ShareEntry[]> getShare)
+    public static ShareEntry[] PopMerge(IReadOnlyList<Tribe> entities, Func<Tribe, ShareEntry[]> getShare)
     {
         float total = 0f;
         var frac = new Dictionary<string, float>();
@@ -265,7 +265,7 @@ public static class ShareField
     }
 
     /// <summary>宗教格级聚合（按人口加权，Σ 归一 255；key 固定不变）。</summary>
-    public static ShareEntry[] RelPopMerge(IReadOnlyList<CivEntity> entities)
+    public static ShareEntry[] RelPopMerge(IReadOnlyList<Tribe> entities)
     {
         float total = 0f;
         var sum = new float[ReligionStage.Count];

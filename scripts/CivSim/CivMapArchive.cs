@@ -83,13 +83,13 @@ public static class CivMapArchive
         f.Store32((uint)ctx.CultureKeyCount);   // 文化 key 计数（分裂分化接续 key 空间；推导不可靠——被同化掉的 key 不在份额场）
         f.Store32((uint)ctx.CultureGroupKeyCount);   // 文化群 key 计数（v6 独立入档：读档续跑群漂变无分叉——v5 只存合并值致 key 错位）
         f.Store32((uint)ctx.ReligionKeyCount);  // 宗教派别 key 计数
-        f.Store32((uint)ctx.NextEntityId);      // 实体 Id 计数器（v8：存档只存活实体，Count 读档分叉）
+        f.Store32((uint)ctx.NextTribeId);      // 实体 Id 计数器（v8：存档只存活实体，Count 读档分叉）
         GameMapArchive.WriteBody(f, grid);      // 自然层（只读源，原样快照）
 
         int alive = 0;
-        for (int k = 0; k < ctx.Entities.Count; k++) if (!ctx.Entities[k].Dead) alive++;
+        for (int k = 0; k < ctx.Tribes.Count; k++) if (!ctx.Tribes[k].Dead) alive++;
         f.Store32((uint)alive);
-        foreach (var e in ctx.Entities)
+        foreach (var e in ctx.Tribes)
         {
             if (e.Dead) continue;
             f.Store32((uint)e.Id);
@@ -181,8 +181,8 @@ public static class CivMapArchive
     private static int CountFarming(CivSimContext ctx)
     {
         int c = 0;
-        for (int i = 0; i < ctx.Entities.Count; i++)
-            if (!ctx.Entities[i].Dead && ctx.Entities[i].IsFarming) c++;
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+            if (!ctx.Tribes[i].Dead && ctx.Tribes[i].IsFarming) c++;
         return c;
     }
 
@@ -242,7 +242,7 @@ public static class CivMapArchive
 
         int count = (int)f.Get32();
         // ⚠️ 2026-08-07：实体表长度分配前校验——count 是正文错位后最易读爆的字段
-        //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<CivEntity>(count) ≈ 9.4GB）。
+        //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<Tribe>(count) ≈ 9.4GB）。
         //   单实体最小 ~79B（Id+P+IsFarm+keyCnt+2×(16+1)×3+relig5+Cell×3），用 64B 保守下界；
         //   剩余文件字节数都不够 → 必为错位垃圾。
         ulong remaining = f.GetLength() - f.GetPosition();
@@ -251,12 +251,12 @@ public static class CivMapArchive
             GD.PrintErr($"[CivMapArchive] {path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
             return false;
         }
-        var entities = new List<CivEntity>(count);
-        var cellTribes = new List<CivEntity>[n];
-        for (int i = 0; i < n; i++) cellTribes[i] = new List<CivEntity>();
+        var entities = new List<Tribe>(count);
+        var cellTribes = new List<Tribe>[n];
+        for (int i = 0; i < n; i++) cellTribes[i] = new List<Tribe>();
         for (int k = 0; k < count; k++)
         {
-            var e = new CivEntity
+            var e = new Tribe
             {
                 Id = (int)f.Get32(),
                 P = f.GetFloat(),
@@ -332,7 +332,7 @@ public static class CivMapArchive
         {
             Grid = g,
             CellTribes = cellTribes,
-            Entities = entities,
+            Tribes = entities,
             Seed = seed,
             OriginCount = 3,
             Tick = finalTick,          // 读档续跑从存档 tick 继续（T04 验证）
@@ -349,7 +349,7 @@ public static class CivMapArchive
             CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，标签份额推导兜底
             CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数：v6 头部独立值优先（续跑无分叉）；场推导兜底
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
-            NextEntityId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
+            NextTribeId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
             // 土地挂钩（v9）：Cultivation 从存档恢复；暂存/领地索引重建
             Cultivation = cultivation ?? new float[n],
             CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
@@ -415,7 +415,7 @@ public static class CivMapArchive
         long expectN = Icosahedron.VertexCountForLong(gridN);
         if (gridN < 8 || gridN > 512 || expectN != n) return false;   // 与 ReadBody 同语义（N=顶点数=10n²+2）
         long naturalLen = ArchiveLayout.BodyLength(n, 2);   // WriteBody 布局单源（2026-08-19：原硬编码 53+94n 与 WriteBody 断链）
-        f.Seek((ulong)(42 + naturalLen));             // 实体段起点（CivMapArchive 头 42B：v8 含 NextEntityId 4B + 自然段）
+        f.Seek((ulong)(42 + naturalLen));             // 实体段起点（CivMapArchive 头 42B：v8 含 NextTribeId 4B + 自然段）
         // 实体段：count + 每实体只取 P，其余 Seek 跳过
         long count = f.Get32();
         if (count < 0 || count > 2000000) return false;

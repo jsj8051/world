@@ -11,7 +11,7 @@ public static class CapabilityTable
     public sealed class Capability
     {
         public string Id;
-        public Func<CivEntity, CivSimContext, bool> Unlocked;
+        public Func<Tribe, CivSimContext, bool> Unlocked;
     }
 
     private static readonly List<Capability> _caps = new();
@@ -47,7 +47,7 @@ public static class CapabilityTable
     }
 
     /// <summary>实体能力位掩码（RefreshCellState 每 tick 缓存；条件含环境——同 tick 内环境稳定）。</summary>
-    public static uint MaskOf(CivSimContext ctx, CivEntity e)
+    public static uint MaskOf(CivSimContext ctx, Tribe e)
     {
         EnsureInited();
         uint mask = 0;
@@ -56,7 +56,7 @@ public static class CapabilityTable
         return mask;
     }
 
-    public static bool Has(CivSimContext ctx, CivEntity e, string id)
+    public static bool Has(CivSimContext ctx, Tribe e, string id)
     {
         EnsureInited();
         // 惰性兜底：CapMask 未缓存（手动构造场景/未跑 RefreshCellState）时即时算一次并回填——

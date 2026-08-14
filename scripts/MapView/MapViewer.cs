@@ -200,11 +200,11 @@ public partial class MapViewer : Node3D
     private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "独立势力", "科技", "宗教", "势力范围", "政体" };
 
     /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
-    private static int PowerIdOf(World.CivSim.CivEntity e)
+    private static int PowerIdOf(World.CivSim.Tribe e)
     {
         if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
         if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
-        // ⚠️ 2026-08-18 修复：band 也进独立域（0x20000000）——实体 Id 从 0 分配（NextEntityId 起始 0），
+        // ⚠️ 2026-08-18 修复：band 也进独立域（0x20000000）——实体 Id 从 0 分配（NextTribeId 起始 0），
         //   Id=0 的起源 band 若返回原值 0，与 _tilePower==0 的"无势力"哨兵冲突 →
         //   独立势力/政体图层把它显示成灰色（无势力），人口图层却正常 → 两层冲突。
         //   域值非 0 保证与哨兵彻底隔离（部落 0x40000000 / 酋邦 0x80000000 之上再分一层）。
@@ -212,7 +212,7 @@ public partial class MapViewer : Node3D
     }
 
     /// <summary>实体 → 政体类型（0=独立 band 1=部落 2=酋邦）。</summary>
-    private static byte PolityOf(World.CivSim.CivEntity e)
+    private static byte PolityOf(World.CivSim.Tribe e)
     {
         if (e.ChiefdomId >= 0) return 2;
         if (e.TerritorySize >= 2) return 1;
@@ -331,7 +331,7 @@ public partial class MapViewer : Node3D
                 _civCtx = civResult.Context;
                 _mapLoaded = true;
                 GD.Print($"[MapViewer] loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
-                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Entities.Count})");
+                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Tribes.Count})");
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -502,9 +502,9 @@ public partial class MapViewer : Node3D
         bool hasCiv = _civCtx != null;
         // 2026-08-10 影响力场模型（v8）：band 实体只在驻扎点格，领地=归属格——文明图层改为
         // **归属格主导**（每格查 CellOwner → 该 band 的文化/宗教/部落/科技；人口=领地均摊，5 km² 量级）
-        var civIdMap = new System.Collections.Generic.Dictionary<int, World.CivSim.CivEntity>();
+        var civIdMap = new System.Collections.Generic.Dictionary<int, World.CivSim.Tribe>();
         if (hasCiv)
-            foreach (var ce in _civCtx.Entities)
+            foreach (var ce in _civCtx.Tribes)
                 if (!ce.Dead) civIdMap[ce.Id] = ce;
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
@@ -561,7 +561,7 @@ public partial class MapViewer : Node3D
                 if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
                     // ⚠️ 2026-08-17：人口图层不在这里写——领地格 = 采集格（无常住人口），
-                    //   人口只在驻扎格（CivEntity.Cell）显示该 band 的 P（并行循环后实体表直写）。
+                    //   人口只在驻扎格（Tribe.Cell）显示该 band 的 P（并行循环后实体表直写）。
                     //   旧"领地均摊 P/领地格数"让每个归属格都有人口，与"大部分是采集格"矛盾（用户反馈）。
                     _tileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
                     _tileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
@@ -599,10 +599,10 @@ public partial class MapViewer : Node3D
             // ⚠️ 2026-08-18 索引修复：顶点→显示面反查表（_tileVerts[j] 是面 j 的逻辑格——
             //   bestByCell 的 ce.Cell 是顶点编号——写显示格必须经反查）
             // ⚠️ 2026-08-19：反查收敛到 TileIndex.FacesOf（映射唯一入口）
-            var bestByCell = new Dictionary<int, World.CivSim.CivEntity>();
-            for (int e = 0; e < _civCtx.Entities.Count; e++)
+            var bestByCell = new Dictionary<int, World.CivSim.Tribe>();
+            for (int e = 0; e < _civCtx.Tribes.Count; e++)
             {
-                var ce = _civCtx.Entities[e];
+                var ce = _civCtx.Tribes[e];
                 if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
                 if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地
                 if (!bestByCell.TryGetValue(ce.Cell, out var cur) || ce.P > cur.P) bestByCell[ce.Cell] = ce;
@@ -617,9 +617,9 @@ public partial class MapViewer : Node3D
                 byte polB = PolityOf(kv.Value);
                 foreach (var f in _tileIndex.FacesOf(kv.Key)) { _tilePower[f] = powB; _tilePolity[f] = polB; }
             }
-            for (int e = 0; e < _civCtx.Entities.Count; e++)
+            for (int e = 0; e < _civCtx.Tribes.Count; e++)
             {
-                var ce = _civCtx.Entities[e];
+                var ce = _civCtx.Tribes[e];
                 if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
                 if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地（与模拟一致）
                 _tilePop[ce.Cell] += ce.P;   // 驻扎格实有人口（营地）——只有人的格显示人
@@ -1913,13 +1913,13 @@ public partial class MapViewer : Node3D
         if (_civCtx != null)
         {
             GD.Print($"  CellOwner={(_civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1)} R={(_civCtx.R != null ? _civCtx.R[vid] : -1f):F2} LockedUntil={(_civCtx.LockedUntil != null ? _civCtx.LockedUntil[vid] : 0)}");
-            foreach (var ce in _civCtx.Entities)
+            foreach (var ce in _civCtx.Tribes)
                 if (!ce.Dead && ce.Cell == vid)
                     GD.Print($"  驻扎实体={ce.Id} P={ce.P:F1} CarryMult={ce.CarryMult:F2} TSize={ce.TerritorySize} TerrId={ce.TerritoryId} ChiefdomId={ce.ChiefdomId} Prestige={ce.Prestige:F2}");
             // ⚠️ 2026-08-18：该格所属势力（CellOwner）的驻扎格 + 位置 + 可达距离（BFS 走逻辑陆地）
             int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1;
-            World.CivSim.CivEntity owner = null;
-            foreach (var ce in _civCtx.Entities)
+            World.CivSim.Tribe owner = null;
+            foreach (var ce in _civCtx.Tribes)
                 if (!ce.Dead && ce.Id == ownerId) { owner = ce; break; }
             if (owner != null && owner.Cell >= 0 && owner.Cell < _tiles.Count && _tiles != null)
             {
