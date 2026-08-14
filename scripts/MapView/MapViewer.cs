@@ -547,10 +547,13 @@ public partial class MapViewer : Node3D
             // 文明图层（.cmp v8 影响力场模型：归属格主导——每格查 CellOwner，领地全显示）
             if (hasCiv)
             {
-                // ⚠️ 2026-08-17 修复：文明场按**逻辑格索引 i**（CellOwner 是逻辑格数组）——
-                //   旧版用 vid（显示顶点编号）——显示网格顶点排序 ≠ 逻辑格排序（实测错位 4）→
-                //   驻扎格查邻居归属（多为 -1）→ 人口格无势力。自然层（海拔等）仍用 vid（显示顶点）。
-                int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1;
+                // ⚠️ 2026-08-18 最底层索引修复（用户点击验证：可达距离 2 跳 vs pos 差 63km）：
+                //   显示格（Goldberg 面）编号 ≠ 逻辑格（Icosahedron 顶点）编号——两套排序不同！
+                //   实测：逻辑 Verts[6376]↔[8393] DistKm=4.0（2 跳正确）但显示 Center 差 63.4km。
+                //   修复：所有逻辑数据按 vid（_tileVerts[i]——面 i 的最近顶点=该面的逻辑格）查——
+                //   显示位置与逻辑位置一致（旧版 CellOwner[i] 用面编号查顶点数组→63km 错位）。
+                int vid2 = _tileVerts[i];
+                int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid2] : -1;
                 if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
                     // ⚠️ 2026-08-17：人口图层不在这里写——领地格 = 采集格（无常住人口），
@@ -617,9 +620,9 @@ public partial class MapViewer : Node3D
         _popMax = 0f;
         for (int i = 0; i < n; i++)
         {
-            if (_tilePop[i] <= 0f) continue;     // 无人格不入带（人口只填逻辑陆地 R>0——byte 量化边界格无需 hSea 排除）
-            popLog.Add(Mathf.Log(_tilePop[i] + 1f));
-            if (_tilePop[i] > _popMax) _popMax = _tilePop[i];
+            if (_tilePop[_tileVerts[i]] <= 0f) continue;     // 无人格不入带（人口按顶点写——显示格 i 读其顶点）
+            popLog.Add(Mathf.Log(_tilePop[_tileVerts[i]] + 1f));
+            if (_tilePop[_tileVerts[i]] > _popMax) _popMax = _tilePop[_tileVerts[i]];
         }
         if (popLog.Count >= 2)
         {
@@ -727,8 +730,8 @@ public partial class MapViewer : Node3D
     								}
     								case 12: // 人口：log 压缩 + P1/P99 分位自适应色带（无人=暗灰；黄→橙红）
     								{
-    								    if (IsDisplaySea(id) && _tilePop[id] <= 0f) return SeaColor;   // ⚠️ 显示海（真海）；近海逻辑陆地=陆地底
-    								    float p = _tilePop[id];
+    								    if (IsDisplaySea(id) && _tilePop[_tileVerts[id]] <= 0f) return SeaColor;   // ⚠️ 显示海（真海）；近海逻辑陆地=陆地底
+    								    float p = _tilePop[_tileVerts[id]];
     								    if (p <= 0f) return new Color(0.25f, 0.25f, 0.28f);   // 无人陆地
     								    float x = Mathf.Clamp((Mathf.Log(p + 1f) - _popLogMin) / (_popLogMax - _popLogMin), 0f, 1f);
     								    return new Color(0.95f, 0.75f, 0.25f).Lerp(new Color(0.80f, 0.15f, 0.05f), x);
@@ -1834,9 +1837,10 @@ public partial class MapViewer : Node3D
 
     /// <summary>显示海陆判定（2026-08-17）：视觉海（byte 量化 elev<hSea）且逻辑非陆地
     /// （R≤0 或无 civ）才判海；近海格（elev<hSea 但 R>0 逻辑可居）显示陆地/数据色——
-    /// 人口点不落在"视觉海水"上（byte 量化误差——R>0 是模拟权威）。</summary>
+    /// 人口点不落在"视觉海水"上（byte 量化误差——R>0 是模拟权威）。
+    /// ⚠️ 2026-08-18：R 是逻辑格（顶点）数组——id 是显示格——按 _tileVerts[id] 查。</summary>
     private bool IsDisplaySea(int id)
-        => _tileElev[id] < _hSea && (_civCtx?.R == null || _civCtx.R[id] <= 0f);
+        => _tileElev[id] < _hSea && (_civCtx?.R == null || _civCtx.R[_tileVerts[id]] <= 0f);
 
     /// <summary>点击诊断（2026-08-17 用户要求）：左键点击地图格 → 日志打印位置/颜色/势力/人口等
     /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
@@ -1877,23 +1881,24 @@ public partial class MapViewer : Node3D
     {
         var col = MakeColorFn(_layer)(_tiles[i]);
         GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
-        GD.Print($"  elev={_tileElev[i]:F3} pop={_tilePop[i]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
+        int vid = _tileVerts != null ? _tileVerts[i] : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射
+        GD.Print($"  elev={_tileElev[i]:F3} pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
         if (_tilePower[i] != 0)
         {
             int pow = _tilePower[i], pCells = 0, pPop = 0;
             for (int j = 0; j < _tiles.Count; j++)
-                if (_tilePower[j] == pow) { pCells++; if (_tilePop[j] > 0f) pPop++; }
+                if (_tilePower[j] == pow) { pCells++; if (_tilePop[_tileVerts[j]] > 0f) pPop++; }
             GD.Print($"  势力{pow}: 共{pCells}格 / 有人口{pPop}格（pPop=0 ⇒ 无人口势力=异常；pPop>0 ⇒ 本格是采集格=设计）");
         }
         if (_civCtx != null)
         {
-            GD.Print($"  CellOwner={(_civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1)} R={(_civCtx.R != null ? _civCtx.R[i] : -1f):F2} LockedUntil={(_civCtx.LockedUntil != null ? _civCtx.LockedUntil[i] : 0)}");
+            GD.Print($"  CellOwner={(_civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1)} R={(_civCtx.R != null ? _civCtx.R[vid] : -1f):F2} LockedUntil={(_civCtx.LockedUntil != null ? _civCtx.LockedUntil[vid] : 0)}");
             foreach (var ce in _civCtx.Entities)
-                if (!ce.Dead && ce.Cell == i)
+                if (!ce.Dead && ce.Cell == vid)
                     GD.Print($"  驻扎实体={ce.Id} P={ce.P:F1} CarryMult={ce.CarryMult:F2} TSize={ce.TerritorySize} TerrId={ce.TerritoryId} ChiefdomId={ce.ChiefdomId} Prestige={ce.Prestige:F2}");
             // ⚠️ 2026-08-18：该格所属势力（CellOwner）的驻扎格 + 位置 + 可达距离（BFS 走逻辑陆地）
-            int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1;
+            int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1;
             World.CivSim.CivEntity owner = null;
             foreach (var ce in _civCtx.Entities)
                 if (!ce.Dead && ce.Id == ownerId) { owner = ce; break; }
@@ -1905,7 +1910,7 @@ public partial class MapViewer : Node3D
                     var distArr = new int[_tiles.Count];
                     System.Array.Fill(distArr, -1);
                     var q = new System.Collections.Generic.Queue<int>();
-                    distArr[i] = 0; q.Enqueue(i);
+                    distArr[vid] = 0; q.Enqueue(vid);
                     while (q.Count > 0)
                     {
                         int c = q.Dequeue();
@@ -1917,7 +1922,9 @@ public partial class MapViewer : Node3D
                         }
                     }
                 }
-                var pc = _tiles[owner.Cell].Center;
+                var pc = _civCtx.Grid != null && owner.Cell < _civCtx.Grid.Verts.Length
+                    ? _civCtx.Grid.Verts[owner.Cell] * RadiusKm   // ⚠️ 逻辑格位置（顶点×R）——面编号错位
+                    : _tiles[owner.Cell].Center;
                 GD.Print($"  该势力驻扎格={owner.Cell}（P={owner.P:F1}）可达距离={dist}跳 pos=({pc.X:F2},{pc.Y:F2},{pc.Z:F2})");
             }
             else if (owner == null && ownerId >= 0)
