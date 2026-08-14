@@ -817,12 +817,16 @@ public partial class MapViewer : Node3D
     								        		if (elevM < -200f) return new Color(0.01f, 0.05f, 0.18f);   // 深海 <-200m
     								        		return new Color(0.20f, 0.45f, 0.68f);                      // 浅海 -200~0m（大陆架）
     								        	}
-    								        	// 陆地：连续色带按实际米固定映射（2026-08-18 用户：不用归一化——原始值）
-								        	//   0~100m 沙→绿 / 100~800m 绿→棕 / 800m+ 棕→白（3300m 全白——雪线）
-								        	if (elevM <= 0f) return new Color(0.76f, 0.70f, 0.50f);
-								        	if (elevM < 100f) return new Color(0.76f, 0.70f, 0.50f).Lerp(new Color(0.30f, 0.65f, 0.10f), elevM / 100f);
-								        	if (elevM < 800f) return new Color(0.30f, 0.65f, 0.10f).Lerp(new Color(0.60f, 0.50f, 0.35f), (elevM - 100f) / 700f);
-								        	return new Color(0.60f, 0.50f, 0.35f).Lerp(new Color(0.95f, 0.97f, 1.00f), Mathf.Clamp((elevM - 800f) / 2500f, 0f, 1f));
+    								        	// 陆地：海拔色带（沙/绿/棕按米）——雪（白）由实际温度驱动（2026-08-18 用户：雪线按实际温度）
+								        	//   0°C 以下全白（雪线=0°C 等温线——纬度/气候决定——非固定 3300m）；0~2°C 渐变
+								        	float tempC = _map.Temp != null ? _map.Temp[vidE] : 15f;
+								        	Color baseC;
+								        	if (elevM <= 0f) baseC = new Color(0.76f, 0.70f, 0.50f);
+								        	else if (elevM < 100f) baseC = new Color(0.76f, 0.70f, 0.50f).Lerp(new Color(0.30f, 0.65f, 0.10f), elevM / 100f);
+								        	else if (elevM < 800f) baseC = new Color(0.30f, 0.65f, 0.10f).Lerp(new Color(0.60f, 0.50f, 0.35f), (elevM - 100f) / 700f);
+								        	else baseC = new Color(0.60f, 0.50f, 0.35f);
+								        	float snowT = Mathf.Clamp(1f - tempC / 2f, 0f, 1f);   // ≤0°C 全白；0~2°C 渐变；>2°C 无雪
+								        	return baseC.Lerp(new Color(0.95f, 0.97f, 1.00f), snowT);
     								        }
     			}
     			};
@@ -1894,7 +1898,7 @@ public partial class MapViewer : Node3D
         GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
         int vid = _tileVerts != null ? _tileVerts[i] : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射
         float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_tileElev[i] - _hSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
-        GD.Print($"  elev={_tileElev[i]:F3}（{elevM2:F0}m）pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
+        GD.Print($"  elev={_tileElev[i]:F3} 海拔={elevM2:F0}m pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
         if (_tilePower[i] != 0)
         {
