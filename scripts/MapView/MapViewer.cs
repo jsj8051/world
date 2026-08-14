@@ -1892,6 +1892,36 @@ public partial class MapViewer : Node3D
             foreach (var ce in _civCtx.Entities)
                 if (!ce.Dead && ce.Cell == i)
                     GD.Print($"  驻扎实体={ce.Id} P={ce.P:F1} CarryMult={ce.CarryMult:F2} TSize={ce.TerritorySize} TerrId={ce.TerritoryId} ChiefdomId={ce.ChiefdomId} Prestige={ce.Prestige:F2}");
+            // ⚠️ 2026-08-18：该格所属势力（CellOwner）的驻扎格 + 位置 + 可达距离（BFS 走逻辑陆地）
+            int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[i] : -1;
+            World.CivSim.CivEntity owner = null;
+            foreach (var ce in _civCtx.Entities)
+                if (!ce.Dead && ce.Id == ownerId) { owner = ce; break; }
+            if (owner != null && owner.Cell >= 0 && owner.Cell < n && _tiles != null)
+            {
+                int dist = -1;
+                if (_civCtx.Grid?.Neighbors != null && _civCtx.R != null)
+                {
+                    var distArr = new int[n];
+                    System.Array.Fill(distArr, -1);
+                    var q = new System.Collections.Generic.Queue<int>();
+                    distArr[i] = 0; q.Enqueue(i);
+                    while (q.Count > 0)
+                    {
+                        int c = q.Dequeue();
+                        if (c == owner.Cell) { dist = distArr[c]; break; }
+                        foreach (var nn in _civCtx.Grid.Neighbors[c])
+                        {
+                            if (_civCtx.R[nn] <= 0f) continue;   // 只走逻辑陆地（与影响圈一致）
+                            if (distArr[nn] < 0) { distArr[nn] = distArr[c] + 1; q.Enqueue(nn); }
+                        }
+                    }
+                }
+                var pc = _tiles[owner.Cell].Center;
+                GD.Print($"  该势力驻扎格={owner.Cell}（P={owner.P:F1}）可达距离={dist}跳 pos=({pc.X:F2},{pc.Y:F2},{pc.Z:F2})");
+            }
+            else if (owner == null && ownerId >= 0)
+                GD.Print($"  CellOwner={ownerId} 无存活实体（残留）");
         }
     }
 
