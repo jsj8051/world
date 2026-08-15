@@ -14,7 +14,7 @@ namespace World.CivSim;
 public sealed class CivSimContext
 {
     public GameGrid Grid;
-    public List<Tribe>[] CellTribes;   // 每格实体列表（格=地理容器，一格多实体）
+    public Tribe[] CellTribes;   // 每格唯一驻留部落（一格一实体；null=空格；阶段2 由 List<Tribe>[] 简化而来）
     public List<Tribe> Tribes;       // 全部存活实体
     public int Tick;
     public int Seed;
@@ -82,11 +82,12 @@ public sealed class CivSimContext
     public const float W = 0.2f;                      // 耕作劳动成本差（Sahlins；稳态论证 0.8 > 0.77）
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
     public const float Hysteresis = 0.02f;            // 滞回带（必须 < 农业稳态差 0.03，否则锁死切换）
-    public const float SplitPop = 12f;               // 分裂阈值（2026-08-17 土地挂钩：承载=静态丰度×格面积×领地 ≈ 14 人/band——旧 50 是存量深度放大口径，新模型到承载即分裂殖民）
-    public const int MaxTribesPerCell = 8;            // 格内实体上限（超限不分裂，迁徙优先）
+    public const float SplitPop = 25f;               // 分裂阈值（2026-08 史实标定：band 25-50 人[考古群规模]→长到史实下限才分裂殖民；原 12 偏早致部落过小）
+    public const int MaxTribesPerCell = 8;            // 格内实体上限（遗留：一格一实体后恒 1，保留兼容诊断显示）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
     public const float FissionTensionStart = SplitPop;   // 规模张力起算点（跟随 SplitPop——band 量级，2026-08-17 土地挂钩；原硬编码 12 与 SplitPop 断链）
     public const float FissionTensionSpan = 8f;    // 张力封顶跨度（12+8=20 → 张力 1.0）
+    public const int ColonizeRadius = 6;             // 殖民/迁移搜索最大跳数（阶段2 扩大：原 3 跳致部落扩张停滞，改 6 跳 BFS）
     public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
@@ -127,7 +128,7 @@ public sealed class CivSimContext
     public const float IrrigMult = 5f;                // 灌溉因子：近水格农业 ×5（河谷尖峰来源；★ 待校准）
     public const float LaborFrac = 0.1f;              // 采集劳动力需求（P_劳动 = LF×潜在：粗放经济，Sahlins 每周 ~15-20h）
     public const float LaborFracFarm = 0.2f;          // 农田劳动力需求（2026-08-17 凹化+等边际：农业劳动密集 ~2×采集——Sahlins 每周 40h+；非同构参数使等边际分配有区分度）
-    public const float TargetMedianDensity = 0.3f;    // k 标定锚：陆地 R 中位数 ≈ 0.3 人/km²（Binford 量级）
+    public const float TargetMedianDensity = 0.1f;    // k 标定锚：陆地 R 中位数 ≈ 0.1 人/km²（2026-08 史实标定：前农业时代狩猎采集密度 0.1人/km²；原 0.3 为史实3倍→领地受压挤、部落聚居）
     public const float AssimilateRate = 0.03f;        // 格级同化速率（文化/宗教；2026-08-07 0.3→0.1→0.03：同化放缓 → 弱文化/新派别有存活窗口）
     public const float ReligionSpreadRate = 0.02f;    // 宗教传播速率/tick/接触（只向高阶）
     public const float ReligionUpgradeRate = 0.05f;   // 泛灵→萨满升级速率/tick
@@ -136,11 +137,11 @@ public sealed class CivSimContext
     public const float SeedInvProb = 0.005f;          // 种子基础发明概率/tick（起源区少数）
     public const float EnvMismatchFactor = 0.3f;      // 发明 env_i：环境不匹配但非硬门槛
     public const int OriginDistMin = 12;              // 起源两两最小球面格距（≈1300 km）
-    public const float OriginPop = 15f;   // 起源 band 人口（2026-08-17 跟随承载：5km² 格承载 R×A≈1.5 人/格、领地 ~14 人——旧 50 超载饿死；物理：起源小群体）
+    public const float OriginPop = 10f;   // 起源 band 人口（2026-08 史实标定：密度降 0.1 后起源小群随之调小，防起源即超载饿死——原 15 匹配 0.3 密度）
     public const int TerminateAfterAgri = 100;        // 首转农 +100 ticks 结束
     public const int MaxTicksNoAgri = 500;            // 兜底：无农 500 ticks 停止（天然灭绝星球）
     // ── 影响力场模型常量（2026-08-10 定稿）──
-    public const int InfluenceRadius = 3;        // 影响范围（格步数；物理标定 foraging 单程 15 km / 5 km² 格）
+    public const int InfluenceRadius = 6;        // 影响范围（格步数；2026-08 史实标定：密度0.1下养25人band需~300km²=~60格，3步仅24格不足→扩到6步~110格对应5km+利用半径）
     public const float Stickiness = 1.15f;       // 归属粘性：非 owner 需超现 owner 影响力 ×1.15 才易主
     // ── 土地挂钩（2026-08-17 用户拍板：砍存量再生——采集=建筑×可用土地×劳动力；农田占用土地）──
     public const float CultivateRate = 0.05f;    // 开垦速率/tick（农田占用增长：20 tick=2000 年满开垦；★ 待校准）
@@ -239,12 +240,8 @@ public sealed class CivSimContext
     public float FHunt(Tribe e)
     {
         float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
-        int nTribes = 0;
-        var tl = CellTribes != null ? CellTribes[e.Cell] : null;
-        if (tl != null)
-            foreach (var o in tl)
-                if (!o.Dead) nTribes++;
-        float yPot = R[e.Cell] * Grid.CellAreaKm2 / Mathf.Max(1, nTribes) * m;
+        // 一格一实体：格产出归其唯一驻留部落独占（不再按同格部落数均分）
+        float yPot = R[e.Cell] * Grid.CellAreaKm2 * m;
         if (yPot <= 0f) return 0f;
         float plabor = LaborFrac * yPot;
         return yPot * Mathf.Min(1f, e.P / Mathf.Max(1f, plabor));
@@ -281,7 +278,7 @@ public sealed class CivSimContext
         {
             int c = terr[k];
             if (R[c] <= 0f) continue;
-            sum += R[c] * A * InfluenceWeight(dists[k]);
+            sum += R[c] * A * ProductionWeight(dists[k]);
         }
         return sum;
     }
@@ -306,7 +303,7 @@ public sealed class CivSimContext
                 var def = TechTable.Get(s);
                 best = Mathf.Max(best, def.AgriBase * Phi(c, def.SeedIndex));
             }
-            if (best > 0f) sum += best * rAgri * A * InfluenceWeight(dists[k]);
+            if (best > 0f) sum += best * rAgri * A * ProductionWeight(dists[k]);
         }
         return sum;
     }
@@ -326,7 +323,7 @@ public sealed class CivSimContext
         {
             int c = terr[k];
             if (R[c] <= 0f || wild[c] == 0) continue;
-            sum += R[c] * HerdMult * A * InfluenceWeight(dists[k]);
+            sum += R[c] * HerdMult * A * ProductionWeight(dists[k]);
         }
         return sum;
     }
@@ -365,16 +362,8 @@ public sealed class CivSimContext
         return floor;
     }
 
-    /// <summary>格内活部落数（土地份额分母；0 → 1 防除零）。</summary>
-    private int NTribes(int cell)
-    {
-        int n = 0;
-        var tl = CellTribes != null ? CellTribes[cell] : null;
-        if (tl != null)
-            foreach (var o in tl)
-                if (!o.Dead) n++;
-        return Mathf.Max(1, n);
-    }
+    /// <summary>格内独驻部落数（一格一实体恒 1：格产出归唯一驻留部落独占，无均分）。</summary>
+    private int NTribes(int cell) => 1;
 
     /// <summary>生产方式并行产出（2026-08-09 用户拍板：混合经济 + 收益权重土地分配，Vic3/EU5 PM 参考）：
     /// 部落方式集 M = {hunt} ∪ {herd if livestock能力+生态位} ∪ {farm if IsFarming}；
@@ -461,6 +450,20 @@ public sealed class CivSimContext
         //   d=2 不过度削弱（远格仍贡献——世界密度不塌）。d≥R 严格 0（紧支撑不变）。
         int di = (int)d;
         return di >= 0 && di < InfluenceWeightLUT.Length ? InfluenceWeightLUT[di] : 0f;
+    }
+
+    /// <summary>领地**产出**距离权重（2026-08-18 用户拍板方案 B：环形面积加权）。
+    /// ⚠️ 与 ownership 用的 InfluenceWeight（距离衰减）**分离**——根因：旧产出层复用
+    /// 归属用的紧支撑核 (1−d/3)^1.5，d≥3 归零，导致"领地大但远格产能=0"→ 大领地喂不饱
+    /// band → P=5 死锁（split 永不触发）。史实修正：中央营地可食用环面随距离增大
+    /// （hex ring d=6d 格，∝(2d+1)），远缘贡献总产出大头；仅以微旅行折减 (1−d/Rmax) 收边。
+    /// wProd(d)=(2d+1)·(1−d/Rmax)，Rmax=5（~史实 5km 利用半径边缘）→ 权重 1,2.4,3,2.8,1.8,0。
+    /// 只用于 采集/畜牧/农田 的领地潜在与实际产出；归属/影响力场仍用 InfluenceWeight（保家门口稳定）。</summary>
+    private static readonly float[] ProductionWeightLUT = { 1f, 2.4f, 3f, 2.8f, 1.8f, 0f };   // (2d+1)(1−d/5)
+    public static float ProductionWeight(float d)
+    {
+        int di = (int)d;
+        return di >= 0 && di < ProductionWeightLUT.Length ? ProductionWeightLUT[di] : 0f;
     }
 
     /// <summary>猎物占比（biome 相关；浆果 = 1−占比）。草地/萨瓦纳猎物多（草食动物），密林/湿润浆果采集为主。
@@ -637,7 +640,7 @@ public sealed class CivSimContext
         {
             int c = terr[k];
             if (R[c] <= 0f) continue;
-            float w = InfluenceWeight(dists[k]);
+            float w = ProductionWeight(dists[k]);
             float cult = Cultivation != null ? Cultivation[c] : 0f;
             float frac = PreyFrac((BiomeType)Grid.Biome[c]);
             float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
@@ -678,7 +681,7 @@ public sealed class CivSimContext
         {
             int c = terr[k];
             if (R[c] <= 0f) continue;
-            float w = InfluenceWeight(dists[k]);
+            float w = ProductionWeight(dists[k]);
             float cult = Cultivation != null ? Cultivation[c] : 0f;
             float frac = PreyFrac((BiomeType)Grid.Biome[c]);
             float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));

@@ -23,7 +23,7 @@ public static class CivEngine
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new List<Tribe>[n],
+            CellTribes = new Tribe[n],
             Tribes = new List<Tribe>(),
             Seed = seed,
             OriginCount = originCount,
@@ -52,7 +52,7 @@ public static class CivEngine
             ctx.TerritoryDists[i] = new List<byte>();
         }
         for (int i = 0; i < n; i++)
-            ctx.CellTribes[i] = new List<Tribe>();
+            ctx.CellTribes[i] = null;
         BuildLayer1(ctx);   // 层1 空间生产力 R（Miami NPP × 水因子，k 相对标定 → 陆地中位数 0.3 人/km²）
         // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场构造时已建（全 0，随农田增长）
 
@@ -81,7 +81,9 @@ public static class CivEngine
         swRun.Stop();
 
         ctx.Tribes.RemoveAll(e => e.Dead);
-        RefreshCellState(ctx);
+        // ⚠️ 2026-08-18 阶段3 方案 D：边界态统一重建（唯一入口，与读档/Continue 同式）——
+        //   FLast/CellF/领地/酋邦/领袖标记全部从末态持久字段重算，Run 返回态自洽 → 读档续跑无分叉。
+        SettleDerived(ctx);
         // ⚠️ 2026-08-17 监督机制：CivSim 逐模型耗时入历史（对比/告警；--arch 全量测试时也自动记录）
         modelMs["总"] = swRun.ElapsedMilliseconds;
         var (hisAvg, _, hisCnt) = World.Diagnostics.PerfLog.Stats("civsim", "总");
@@ -107,12 +109,12 @@ public static class CivEngine
             onProgress?.Invoke((k + 1f) / Mathf.Max(1, extraTicks));
         }
         ctx.Tribes.RemoveAll(e => e.Dead);
-        RefreshCellState(ctx);
+        SettleDerived(ctx);   // ⚠️ 2026-08-18 阶段3：与 Run 结尾同式（边界态统一重建）
         return new CivSimResult { Context = ctx, FinalTick = ctx.Tick };
     }
 
     /// <summary>层1 空间生产力 R：R = k × min(NPP_T, NPP_P) × 水因子（Miami 模型 Lieth 1975）。
-    /// k 相对标定：陆地 R 中位数 → TargetMedianDensity=0.3 人/km²（Binford 量级锚）。
+    /// k 相对标定：陆地 R 中位数 → TargetMedianDensity=0.1 人/km²（2026-08 史实标定：狩猎采集密度）。
     /// 读档复用（同 grid 同结果，确定性；不存档）。</summary>
     public static void BuildLayer1(CivSimContext ctx)
     {
@@ -137,25 +139,32 @@ public static class CivEngine
         for (int i = 0; i < n; i++) ctx.R[i] *= k;
     }
 
-    /// <summary>重算每格总人口与当 tick 总产出（F_格 = Σ 实体实际产出 F_i）。
-    /// 第一遍 CarryMult/CapMask/CellPop/CellFarmPop（Influence 用 CarryMult）；
-    /// 第二遍 CellF 聚合（FLast 由 HarvestModel 算好，此处只汇总——2026-08-10 影响力场模型）。</summary>
+    /// <summary>每 tick 开头的派生刷新（现状语义，保持不动）：CellTribes/CellPop/CellFarmPop/CarryMult/CapMask
+    /// + 货物副作用累积 + CellF 聚合（FLast 为上 tick 值——Harvest 在本 tick 才更新）。
+    /// ⚠️ 2026-08-18 阶段3 拆分：内部 = RefreshCellStateCore(纯) + AccumulateGoods(副作用) + RefreshCellStateF(纯)。
+    /// 副作用（Goods 累积）只在演化每 tick 调用，绝不在 SettleDerived 边界重算里调（防双倍累积）。</summary>
     public static void RefreshCellState(CivSimContext ctx)
     {
+        RefreshCellStateCore(ctx);
+        AccumulateGoods(ctx);
+        RefreshCellStateF(ctx);
+    }
+
+    /// <summary>纯派生①：CellTribes（一格一实体单引用）+ CellPop/CellFarmPop + CarryMult/CapMask。
+    /// 幂等（可任意次数调用）；供 SettleDerived 边界重算用。</summary>
+    public static void RefreshCellStateCore(CivSimContext ctx)
+    {
         int n = ctx.Grid.N;
-        // ⚠️ 2026-08-17 审查修复：每 tick 按实体列表顺序重建 CellTribes——统一"格内顺序"语义。
-        //   旧版靠演化中 AddTribe/分裂/迁移的"加入顺序"，读档恢复按实体段顺序——两端格内对序不同 →
-        //   SpreadTech(from,to) 方向不同 → Rng 消耗不同 → T04 读档续跑分叉。重建后两端均为
-        //   确定性"实体列表顺序"（分裂 Append 保持，读档恢复同序——T02 已验证）。
-        for (int i = 0; i < n; i++) ctx.CellTribes[i].Clear();
+        // ⚠️ 2026-08-17 审查修复 + 2026-08 阶段2 一格一实体：每 tick 按实体列表顺序重建 CellTribes（单引用）。
+        //   一格一实体：每格至多一个部落；重建=清空为 null 再按实体列表顺序写入（确定性，防读档续跑分叉）。
+        for (int i = 0; i < n; i++) ctx.CellTribes[i] = null;
         for (int i = 0; i < ctx.Tribes.Count; i++)
         {
             var e = ctx.Tribes[i];
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
-            ctx.CellTribes[e.Cell].Add(e);
+            ctx.CellTribes[e.Cell] = e;
         }
         Array.Clear(ctx.CellPop, 0, n);
-        Array.Clear(ctx.CellF, 0, n);
         Array.Clear(ctx.CellFarmPop, 0, n);
         for (int i = 0; i < ctx.Tribes.Count; i++)
         {
@@ -166,14 +175,30 @@ public static class CivEngine
             ctx.CellPop[e.Cell] += e.P;
             if (e.IsFarming) ctx.CellFarmPop[e.Cell] += e.P;
         }
+    }
+
+    /// <summary>副作用累积：货物副产品（Goods += FLast×副产率）。**每 tick 仅一次**（演化循环内），
+    /// 绝不在 SettleDerived 边界重算调用（否则读档/Run结尾重跑双倍累积 → 分叉）。</summary>
+    public static void AccumulateGoods(CivSimContext ctx)
+    {
         for (int i = 0; i < ctx.Tribes.Count; i++)
         {
             var e = ctx.Tribes[i];
             if (e.Dead) continue;
-            // 货物累积（副产品 = 各方式 F × 副产率；2026-08-09）
             e.Goods[CivSimContext.GoodsLeather] += e.FHuntLast * CivSimContext.LeatherRate;
             e.Goods[CivSimContext.GoodsWool] += e.FHerdLast * CivSimContext.WoolRate;
             e.Goods[CivSimContext.GoodsStraw] += e.FFarmLast * CivSimContext.StrawRate;
+        }
+    }
+
+    /// <summary>纯派生②：CellF 聚合（CellF[cell] = Σ 该格实体 FLast）。幂等。</summary>
+    public static void RefreshCellStateF(CivSimContext ctx)
+    {
+        Array.Clear(ctx.CellF, 0, ctx.Grid.N);
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var e = ctx.Tribes[i];
+            if (e.Dead) continue;
             ctx.CellF[e.Cell] += e.FLast;
         }
     }
@@ -183,6 +208,58 @@ public static class CivEngine
         var a = new int[n];
         Array.Fill(a, v);
         return a;
+    }
+
+    /// <summary>末态派生产出重算（2026-08-18 T04 修复）。FLast/FHunt/FHerd/FFarm 派生不入档——
+    /// Run 结尾（及读档补偿）用末态持久字段重算，保证派生态自洽：读档续跑无分叉。
+    /// 与 HarvestModel 同式：AllocateAndProduce(e)→FHunt，FLast=Σ分量。</summary>
+    public static void RecomputeProduction(CivSimContext ctx)
+    {
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var e = ctx.Tribes[i];
+            if (e.Dead) continue;
+            // ⚠️ 2026-08-18 T04 修复：先归零分量——AllocateAndProduce 在领地为空时提前 return 0
+            //   （不走到分量赋值），若不归零则陈旧 FFarm/FHerd 残留（无领地却挂产出的活 bug）。
+            e.FFarmLast = 0f; e.FHerdLast = 0f; e.FBerryLast = 0f;
+            e.FHuntLast = ctx.AllocateAndProduce(e);
+            e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
+        }
+    }
+
+    /// <summary>领袖标记纯派生（IsBigMan/IsChief 从持久字段 Prestige + ReligionShare 确定性重算）。
+    /// 2026-08-18 阶段3：提为共享函数——演化 PrestigeModel（Order 25，写后立即算）与
+    /// SettleDerived 边界重算（读档/Run 结尾）用同一公式 → 无两套实现分叉。</summary>
+    public static void DeriveLeadership(Tribe e)
+    {
+        e.IsBigMan = e.Prestige >= CivSimContext.BigManPrestigeThreshold;
+        // 酋长：BigMan + 祖先宗教（谱系合法性——祖先份额 > 0；祖先=settle 派生，旧石器无）
+        e.IsChief = e.IsBigMan && ShareField.RelFrac(e.ReligionShare, ReligionStage.Ancestor) > 0;
+    }
+
+    /// <summary>边界态派生统一重建（2026-08-18 阶段3 方案 D：唯一重算入口）。
+    /// 调用点：读档后（CivMapArchive.Read）、Run 结尾（演化终止）、Continue 开头——
+    /// 三条路径同一函数 → 消除"重算路径各写一套"缺陷（T04 类分叉根治）。
+    /// 纯派生（幂等，不含 Goods 副作用累积——AccumulateGoods 只在演化每 tick 循环调）。
+    /// 依赖序（勿乱改，逐行注释依赖）：
+    ///   ① Core：CellTribes/CellPop/CellFarmPop/CarryMult/CapMask（供②影响力和④领地并查集）
+    ///   ② RebuildInfluence：CellOwner/TerritoryCells/Dists（供③产出；粘性基准用持久 CellOwner）
+    ///   ③ RecomputeProduction：FLast/FHunt/FHerd/FFarm/FBerry（供④酋邦 DomOutput；供⑤CellF）
+    ///   ③b DeriveLeadership：IsBigMan/IsChief（供④酋邦凝聚条件）
+    ///   ④ TerritoryModel.Rebuild：TerritoryId/Size（供⑤酋邦聚合）
+    ///   ⑤ ChiefdomModel.Rebuild：ChiefdomId/Size（读 TerritoryId + F 分量 + IsChief/IsBigMan）
+    ///   ⑥ RefreshCellStateF：CellF 聚合（供读档续跑首 tick 的 Invention 压力门）
+    /// </summary>
+    public static void SettleDerived(CivSimContext ctx)
+    {
+        RefreshCellStateCore(ctx);                       // ①
+        ctx.RebuildInfluence();                          // ②（内部含 RebuildTerritory）
+        RecomputeProduction(ctx);                        // ③
+        for (int i = 0; i < ctx.Tribes.Count; i++)       // ③b
+            if (!ctx.Tribes[i].Dead) DeriveLeadership(ctx.Tribes[i]);
+        TerritoryModel.Rebuild(ctx);                     // ④
+        ChiefdomModel.Rebuild(ctx);                      // ⑤
+        RefreshCellStateF(ctx);                          // ⑥
     }
 }
 

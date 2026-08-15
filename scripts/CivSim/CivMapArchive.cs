@@ -38,15 +38,19 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 10;   // v10（2026-08-17 酋邦层）：实体段加声望/酋长/酋邦/贡赋/继承窗口（+18B/实体）；v9 旧档拒绝（模型变更）
+    public const ushort Version = 11;   // v11（2026-08-18 阶段3 派生状态架构化）：IsBigMan/IsChief/ChiefdomId 移出入档
+                                       //   （改为派生——DeriveLeadership/ChiefdomModel.Rebuild 确定性重算，读档后 SettleDerived 覆盖）；
+                                       //   v10 旧档可读可进（读时忽略这 3 字段，重算覆盖）。v9 及更旧拒绝。
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
     /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
     /// （旧档显示"旧版本存档"，可展示但禁止进入）。
+    /// v11（2026-08-18）：IsBigMan/IsChief/ChiefdomId 移出入档改派生——v10 档读入后 SettleDerived 重算覆盖，
+    ///   语义一致 → 可读可进。
     /// v6（2026-08-09）：头部 +4B 存 CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
     ///   读档恢复的群计数器 = max(合并值, 场推导) ≠ 从头演化实际值 → 续跑群漂变 key 编号错位 → 读档续跑分叉（T04）。</summary>
-    public static readonly ushort[] CompatibleArchiveVersions = { Version };
+    public static readonly ushort[] CompatibleArchiveVersions = { Version, 10 };
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
     public static string GameVersion =>
@@ -64,6 +68,8 @@ public static class CivMapArchive
 
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {
+        // ⚠️ 2026-08-18 阶段3：清单自检（字段改名/删除后清单过期 → 写档拒绝，防静默漏字段）
+        if (!CivArchiveSchema.Validate()) return false;
         string dir = path.GetBaseDir();
         if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
             DirAccess.MakeDirRecursiveAbsolute(dir);
@@ -89,33 +95,17 @@ public static class CivMapArchive
         int alive = 0;
         for (int k = 0; k < ctx.Tribes.Count; k++) if (!ctx.Tribes[k].Dead) alive++;
         f.Store32((uint)alive);
+        // ⚠️ 2026-08-18 阶段3：实体段由 CivArchiveSchema 清单驱动（单源，防漏字段）。
+        //   TechKeys 变长特例内联；其余遍历清单按当前版本过滤（SinceVer ≤ Version）。
         foreach (var e in ctx.Tribes)
         {
             if (e.Dead) continue;
-            f.Store32((uint)e.Id);
-            f.StoreFloat(e.P);
-            f.Store8((byte)(e.IsFarming ? 1 : 0));
-            f.Store16((ushort)e.TechKeys.Count);
-            foreach (var key in e.TechKeys)
-                StoreKey(f, key);
-            StoreShare(f, e.CultureShare);          // (key16B + frac1B)×2
-            StoreShare(f, e.CultureGroupShare);
-            foreach (var s in e.ReligionShare) f.Store8(s.Frac);   // 宗教类型：固定 key 表 → 只存份额 5B
-            StoreShare(f, e.ReligionCultShare);     // 宗教派别：(key16B + frac1B)×2
-            f.Store32((uint)e.Cell);
-            f.Store32((uint)e.OriginCell);
-            f.Store32((uint)e.BornTick);
-            f.Store32((uint)e.LastMigrateTick);   // 迁移冷却（v8）
-            f.Store32((uint)e.LastSplitTick);     // 分裂冷却（v8）
-            f.Store32((uint)e.LastConflictTick);  // 冲突冷却（v8 冲突机制 2026-08-10）
-            for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);   // 货物 3×float（v7）
-            // 酋邦层（v10，2026-08-17）：声望/酋长标记/酋邦归属/贡赋累计/继承窗口
-            f.StoreFloat(e.Prestige);
-            f.Store8((byte)(e.IsBigMan ? 1 : 0));
-            f.Store8((byte)(e.IsChief ? 1 : 0));
-            f.Store32((uint)e.ChiefdomId);      // -1 → 0xFFFFFFFF
-            f.StoreFloat(e.Contributed);
-            f.Store32((uint)e.SuccessionUntil); // -1 → 0xFFFFFFFF
+            foreach (var def in CivArchiveSchema.TribeFields)
+            {
+                if (def.SinceVer > Version) continue;
+                if (def.Name == "TechKeys") { StoreTechKeys(f, e); continue; }
+                def.Write(f, e);
+            }
         }
         // 尾部：土地挂钩（v9）——开垦率场 + 格归属 + 实控锁定（读档续跑无分叉）
         // ⚠️ 2026-08-17：v8 的存量 Stock 段移除（砍存量再生），原位换开垦率 Cultivation
@@ -136,8 +126,50 @@ public static class CivMapArchive
         for (int i = n; i < KeyMaxLen; i++) f.Store8(0);
     }
 
-    /// <summary>份额场序列化：(key 定长 16B + 份额 1B)×2。null key → 全 0。</summary>
-    private static void StoreShare(FileAccess f, ShareEntry[] s)
+    // ── 2026-08-18 阶段3：CivArchiveSchema 清单委托实现（Write/Read 由表驱动，布局严格对齐）──
+
+    private static void StoreTechKeys(FileAccess f, Tribe e)
+    {
+        f.Store16((ushort)e.TechKeys.Count);
+        foreach (var key in e.TechKeys)
+            StoreKey(f, key);
+    }
+    private static bool ReadTechKeys(FileAccess f, Tribe e)
+    {
+        int keyCount = f.Get16();
+        for (int q = 0; q < keyCount; q++)
+        {
+            var kb = ReadBytes(f, KeyMaxLen);
+            int len = 0;
+            while (len < kb.Length && kb[len] != 0) len++;
+            if (len > 0) e.TechKeys.Add(Encoding.ASCII.GetString(kb, 0, len));
+        }
+        return true;
+    }
+
+    internal static void StoreReligionShare(FileAccess f, Tribe e)
+    {
+        foreach (var s in e.ReligionShare) f.Store8(s.Frac);   // 固定 key 表 → 只存份额 5B
+    }
+    internal static bool ReadReligionShare(FileAccess f, Tribe e)
+    {
+        e.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);   // 固定 key 重建，只读份额
+        for (int q2 = 0; q2 < ReligionStage.Count; q2++) e.ReligionShare[q2].Frac = f.Get8();
+        return true;
+    }
+    internal static void StoreGoods(FileAccess f, Tribe e)
+    {
+        for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);
+    }
+    internal static bool ReadGoods(FileAccess f, Tribe e)
+    {
+        for (int gi = 0; gi < 3; gi++) e.Goods[gi] = f.GetFloat();
+        return true;
+    }
+
+    /// <summary>份额场序列化：(key 定长 16B + 份额 1B)×2。null key → 全 0。
+    /// 2026-08-18 阶段3：internal 供 CivArchiveSchema 清单委托调用。</summary>
+    internal static void StoreShare(FileAccess f, ShareEntry[] s)
     {
         for (int i = 0; i < 2; i++)
         {
@@ -146,7 +178,7 @@ public static class CivMapArchive
         }
     }
 
-    private static ShareEntry[] ReadShare(FileAccess f)
+    internal static ShareEntry[] ReadShare(FileAccess f)
     {
         var r = new[] { new ShareEntry(), new ShareEntry() };
         for (int i = 0; i < 2; i++)
@@ -252,47 +284,32 @@ public static class CivMapArchive
             return false;
         }
         var entities = new List<Tribe>(count);
-        var cellTribes = new List<Tribe>[n];
-        for (int i = 0; i < n; i++) cellTribes[i] = new List<Tribe>();
+        var cellTribes = new Tribe[n];
+        for (int i = 0; i < n; i++) cellTribes[i] = null;
         for (int k = 0; k < count; k++)
         {
-            var e = new Tribe
+            var e = new Tribe();
+            // ⚠️ 2026-08-18 阶段3：实体段由 CivArchiveSchema 清单驱动（单源；按存档版本过滤 SinceVer ≤ ver）。
+            //   TechKeys 变长特例内联；v10 酋邦块字节序与 v11 不同（v10: Prestige→IsBigMan→IsChief→
+            //   ChiefdomId→Contributed→SuccessionUntil；v11: Prestige→Contributed→SuccessionUntil）→
+            //   Contributed/SuccessionUntil 在 v10 分支内联读（Prestige 两版同位，由清单读）。
+            foreach (var def in CivArchiveSchema.TribeFields)
             {
-                Id = (int)f.Get32(),
-                P = f.GetFloat(),
-                IsFarming = f.Get8() != 0,
-            };
-            int keyCount = f.Get16();   // 顺序与 Write/文档 §十 一致：P→IsFarming→keys→份额→Cell 系列
-            for (int q = 0; q < keyCount; q++)
-            {
-                var kb = ReadBytes(f, KeyMaxLen);
-                int len = 0;
-                while (len < kb.Length && kb[len] != 0) len++;
-                if (len > 0) e.TechKeys.Add(Encoding.ASCII.GetString(kb, 0, len));
+                if (def.SinceVer > ver) continue;
+                if (def.Name == "TechKeys") { ReadTechKeys(f, e); continue; }
+                if (ver == 10 && (def.Name == "Contributed" || def.Name == "SuccessionUntil")) continue;   // v10 内联
+                def.Read(f, e);
             }
-            e.CultureShare = ReadShare(f);
-            e.CultureGroupShare = ReadShare(f);
-            e.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);   // 固定 key 重建，只读份额
-            for (int q2 = 0; q2 < ReligionStage.Count; q2++) e.ReligionShare[q2].Frac = f.Get8();
-            e.ReligionCultShare = ReadShare(f);
-            e.Cell = (int)f.Get32();
-            e.OriginCell = (int)f.Get32();
-            e.BornTick = (int)f.Get32();
-            e.LastMigrateTick = ver >= 8 ? (int)f.Get32() : -1;   // 迁移冷却（v8）
-            e.LastSplitTick = ver >= 8 ? (int)f.Get32() : -1;     // 分裂冷却（v8）
-            e.LastConflictTick = ver >= 8 ? (int)f.Get32() : -1;  // 冲突冷却（v8 冲突机制 2026-08-10）
-            for (int gi = 0; gi < 3; gi++) e.Goods[gi] = f.GetFloat();   // 货物（v7）
-            if (ver >= 10)   // 酋邦层（v10，2026-08-17）
+            if (ver == 10)
             {
-                e.Prestige = f.GetFloat();
-                e.IsBigMan = f.Get8() != 0;
-                e.IsChief = f.Get8() != 0;
-                e.ChiefdomId = (int)f.Get32();
+                // v10 兼容：跳过 IsBigMan(1)+IsChief(1)+ChiefdomId(4)，读 Contributed/SuccessionUntil
+                //（SettleDerived 的 DeriveLeadership/ChiefdomModel.Rebuild 重算覆盖被跳过的 3 字段）
+                f.Get8(); f.Get8(); f.Get32();
                 e.Contributed = f.GetFloat();
                 e.SuccessionUntil = (int)f.Get32();
             }
             entities.Add(e);
-            if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell].Add(e);
+            if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell] = e;   // 一格一实体
         }
 
         // 尾部：土地挂钩（v9）——开垦率场 + 格归属
@@ -360,10 +377,10 @@ public static class CivMapArchive
         };
         ctx.EnsureTerritory();   // 惰性建领地索引（若长度不足 RebuildInfluence 内动态扩展）
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
-        ctx.RebuildInfluence();       // 归属+领地重建（v8；旧档 Stock=0 → Harvest=0 → 饿死——旧档已拒，正常路径不达）
-        TerritoryModel.Rebuild(ctx);  // ⚠️ 2026-08-17 领地凝聚（TerritoryModel 已注册演化 Order 45——
-                                      //   读档路径同步重建 TerritoryId/Size，否则读档后全散兵）
-        CivEngine.RefreshCellState(ctx);
+        // ⚠️ 2026-08-18 阶段3 方案 D：边界态统一重建（唯一入口，与 Run 结尾/Continue 同式）——
+        //   取代旧的手写拼装（RebuildInfluence→TerritoryModel.Rebuild→RecomputeProduction→RefreshCellState），
+        //   消除"读档重算路径 ≠ 演化重算路径"缺陷（T04 类分叉根治）。
+        CivEngine.SettleDerived(ctx);
 
         result = new CivSimResult { Context = ctx, FinalTick = finalTick };
         grid = g;
@@ -426,7 +443,10 @@ public static class CivMapArchive
             pop += f.GetFloat();        // P
             f.Get8();                   // IsFarming
             int keyCount = f.Get16();
-            long skip = 16L * keyCount + 34 + 34 + 5 + 34 + 12 + 24;   // keys + 份额×3 + Cell/OriginCell/BornTick/冷却×3(v8冲突) + 货物3×float
+            // ⚠️ 2026-08-18 v11 修正：现 skip 按版本区分酋邦层——v10 含 IsBigMan/IsChief/ChiefdomId（18B），
+            //   v11 移出（仅 Prestige/Contributed/SuccessionUntil 12B）。旧版恒跳 143B 漏 v10 的 18B → 错位。
+            long fixedB = ver == 10 ? 143L + 18L : 143L + 12L;   // 143 = keys 后固定（份额×4 107 + Cell系列24 + 货物12）
+            long skip = 16L * keyCount + fixedB;
             f.Seek(f.GetPosition() + (ulong)skip);
         }
         return true;

@@ -232,7 +232,7 @@ public partial class CivSimDiag : Node
         var ctx = new CivSimContext
         {
             Grid = g,
-            CellTribes = new List<Tribe>[n],
+            CellTribes = new Tribe[n],
             Tribes = new List<Tribe>(),
             Seed = seed,
             OriginCount = origins,
@@ -262,7 +262,7 @@ public partial class CivSimDiag : Node
             ctx.TerritoryCells[i] = new List<int>();
             ctx.TerritoryDists[i] = new List<byte>();
         }
-        for (int i = 0; i < n; i++) ctx.CellTribes[i] = new List<Tribe>();
+        for (int i = 0; i < n; i++) ctx.CellTribes[i] = null;
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（两层模型 2026-08-17）
         // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场已在构造建好（全 0）
         return ctx;
@@ -300,7 +300,7 @@ public partial class CivSimDiag : Node
         };
         foreach (var t in techs) e.TechKeys.Add(t);
         ctx.Tribes.Add(e);
-        ctx.CellTribes[cell].Add(e);
+        ctx.CellTribes[cell] = e;   // 一格一实体
         return e;
     }
 
@@ -459,7 +459,7 @@ public partial class CivSimDiag : Node
         e.CultureGroupShare = new[] { new ShareEntry { Key = "cult_3", Frac = 250 }, new ShareEntry { Key = "cult_0", Frac = 5 } };
         e.ReligionShare = ShareField.NewReligion(ReligionStage.Shaman);
         e.IsFarming = false;
-        ctx.CellTribes[0] = new List<Tribe> { e };
+        ctx.CellTribes[0] = e;
         // 领地 1 格（驻扎点格 0 归属 e）；格 1 无主 → 殖民目标
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
@@ -1351,25 +1351,15 @@ public partial class CivSimDiag : Node
         foreach (int oc in originCells)
         {
             if (oc < 0 || oc >= c.CellTribes.Length) continue;
-            var tl = c.CellTribes[oc];
+            var d0 = c.CellTribes[oc];   // 一格一实体：单部落或 null
             string domKey = "无";
-            if (tl.Count > 0)
+            if (d0 != null && !d0.Dead)
             {
-                var d0 = tl[0];
-                for (int q = 1; q < tl.Count; q++) if (tl[q].P > d0.P) d0 = tl[q];
                 domKey = World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "null";
                 if (domKey == "null" || domKey == "无")
-                {
-                    var sb2 = new System.Text.StringBuilder();
-                    for (int q = 0; q < tl.Count; q++)
-                    {
-                        var e2 = tl[q];
-                        sb2.Append($"#{e2.Id}(P{e2.P:F0})[{World.CivSim.ShareField.DomKey(e2.CultureShare) ?? "n"}:{e2.CultureShare[0].Frac},{World.CivSim.ShareField.SecKey(e2.CultureShare) ?? "n"}:{e2.CultureShare[1].Frac}] ");
-                    }
-                    GD.Print($"  [文化调试] null格{oc} 全实体: {sb2}");
-                }
+                    GD.Print($"  [文化调试] null格{oc} 实体:{d0.Id}(P{d0.P:F0})[{(World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "n")}:{d0.CultureShare[0].Frac},{World.CivSim.ShareField.SecKey(d0.CultureShare) ?? "n"}:{d0.CultureShare[1].Frac}] ");
             }
-            ocStr.Append($"格{oc}:{domKey}({tl.Count}实体) ");
+            ocStr.Append($"格{oc}:{domKey}({(d0 != null && !d0.Dead ? 1 : 0)}实体) ");
         }
         GD.Print($"[文化调试] 起源格现状: {ocStr}");
         // [临时调试] 各文化格级覆盖（主导文化格数 + 平均实体人口）
@@ -1377,10 +1367,8 @@ public partial class CivSimDiag : Node
         var cultPop = new Dictionary<string, float>();
         for (int gi = 0; gi < c.CellTribes.Length; gi++)
         {
-            var tl = c.CellTribes[gi];
-            if (tl.Count == 0) continue;
-            var d0 = tl[0];
-            for (int q = 1; q < tl.Count; q++) if (tl[q].P > d0.P) d0 = tl[q];
+            var d0 = c.CellTribes[gi];
+            if (d0 == null || d0.Dead) continue;
             string gk = World.CivSim.ShareField.DomKey(d0.CultureShare);
             if (gk == null) continue;
             cultGrid[gk] = cultGrid.TryGetValue(gk, out var gv) ? gv + 1 : 1;
@@ -1526,10 +1514,63 @@ public partial class CivSimDiag : Node
                 TerritoryModel.Rebuild(rBack.Context);
                 TerritoryModel.Rebuild(ctxMem);
                 contOk = EntitiesEqual(rBack.Context, ctxMem);
+                // ⚠️ 2026-08-18 阶段3：T04b 派生纯函数守卫——SettleDerived 幂等 + 读档重算≡内存态
+                T04b_DerivedPure(ctxMem, rBack.Context);
             }
         }
         Check("T04 读档续跑无分叉", contOk, outPath == null ? "无 --out" : "IsFarming 入档验证");
     }
+
+    /// <summary>T04b 派生状态纯函数守卫（2026-08-18 阶段3 方案 D）：
+    /// ① 幂等：SettleDerived 连跑两遍 → 派生字段逐位一致（纯函数无内部残留漂移）；
+    /// ② 读档重算 ≡ 内存态：读档 ctx 的派生字段（SettleDerived 后）与内存 ctx 同 tick 派生一致。
+    /// 覆盖派生字段：FLast/FHunt/FHerd/FFarm/FBerry/TerritoryId/Size/ChiefdomId/Size/IsBigMan/IsChief/
+    /// CapMask/CarryMult + 场 CellF。</summary>
+    private void T04b_DerivedPure(CivSimContext ctxMem, CivSimContext ctxBak)
+    {
+        // ① 幂等：读档端连跑两遍 SettleDerived，快照后比对
+        CivEngine.SettleDerived(ctxBak);
+        var snap1 = DerivedSnapshot(ctxBak);
+        CivEngine.SettleDerived(ctxBak);
+        bool idempotent = DerivedEquals(snap1, DerivedSnapshot(ctxBak));
+        // ② 读档 ≡ 内存：内存端（已是 Run 结尾 SettleDerived 后的边界态）再 SettleDerived 对齐一次
+        CivEngine.SettleDerived(ctxMem);
+        bool equivMem = DerivedEquals(snap1, DerivedSnapshot(ctxMem));
+        if (Want("T04b"))
+            Check("T04b 派生纯函数", idempotent && equivMem,
+                $"SettleDerived幂等={idempotent} 读档≡内存={equivMem}（FLast/Territory/Chiefdom/领袖/场）");
+        else if (!idempotent || !equivMem)
+            GD.Print($"  [T04b 未选] ⚠️ 派生守卫失败：幂等={idempotent} 读档≡内存={equivMem}");
+    }
+
+    private static string DerivedSnapshot(CivSimContext ctx)
+    {
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var e = ctx.Tribes[i];
+            if (e.Dead) continue;
+            sb.Append(e.Id).Append(':')
+              .Append(e.FLast.ToString("F3")).Append('/')
+              .Append(e.FHuntLast.ToString("F3")).Append('/')
+              .Append(e.FHerdLast.ToString("F3")).Append('/')
+              .Append(e.FFarmLast.ToString("F3")).Append('/')
+              .Append(e.FBerryLast.ToString("F3")).Append('/')
+              .Append(e.TerritoryId).Append('/').Append(e.TerritorySize).Append('/')
+              .Append(e.ChiefdomId).Append('/').Append(e.ChiefdomSize).Append('/')
+              .Append(e.IsBigMan ? 1 : 0).Append(e.IsChief ? 1 : 0).Append('/')
+              .Append(e.CapMask).Append('/').Append(e.CarryMult.ToString("F3")).Append(';');
+        }
+        // 场：CellF（派生）——哈希聚合防超长
+        long cellFHash = 17;
+        if (ctx.CellF != null)
+            for (int c = 0; c < ctx.CellF.Length; c++)
+                cellFHash = cellFHash * 31 + (long)(ctx.CellF[c] * 1000f);
+        sb.Append("|cellF:").Append(cellFHash);
+        return sb.ToString();
+    }
+
+    private static bool DerivedEquals(string a, string b) => a == b;
 
     /// <summary>T05 起源播种（独立跑 OriginModel，不依赖演化结果）。</summary>
     private void T05_Origins(int seed, int origins)
@@ -1649,8 +1690,8 @@ public partial class CivSimDiag : Node
         {
             if (_grid.IsLandCell(i)) land++;
             if (c.CellPop[i] > 0f) occupied++;
-            if (c.CellTribes[i].Count > 0) cellsWithEnts++;
-            if (c.CellTribes[i].Count > maxCellEnts) maxCellEnts = c.CellTribes[i].Count;
+            if (c.CellTribes[i] != null) cellsWithEnts++;
+            if (c.CellTribes[i] != null && maxCellEnts < 1) maxCellEnts = 1;
         }
         GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Tribes.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
         float cover = land > 0 ? occupied * 100f / land : 0f;

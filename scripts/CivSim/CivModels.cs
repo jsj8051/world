@@ -119,6 +119,9 @@ public sealed class HarvestModel : CivModelBase
         {
             var e = ctx.Tribes[i];
             if (e.Dead) continue;
+            // ⚠️ 2026-08-18 T04 修复（与 RecomputeProduction 同式）：先归零分量——AllocateAndProduce
+            //   领地为空时提前 return 0 不赋值分量，不归零则陈旧 FFarm/FHerd 残留（无领地挂产出）。
+            e.FFarmLast = 0f; e.FHerdLast = 0f; e.FBerryLast = 0f;
             e.FHuntLast = ctx.AllocateAndProduce(e);   // 采集（猎+果）+ 牧场 + 农业（等边际分配后实际产出）
             e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
         }
@@ -160,10 +163,12 @@ public sealed class OriginModel : CivModelBase
         var contCount = new Dictionary<int, int>();
         for (int k = 0; k < count; k++)
         {
-            // 候选 = 池内且距已选 ≥ 阈值
+            // 候选 = 池内、空格（一格一实体）、且距已选 ≥ 阈值
             var cands = new List<int>();
             foreach (int c in pool)
             {
+                bool occupied = ctx.CellTribes != null && ctx.CellTribes[c] != null;
+                if (occupied) continue;   // 一格一实体：起源只能选空格
                 bool ok = true;
                 foreach (int p in chosen)
                     if (grid.DistKm(c, p) < minDistKm) { ok = false; break; }
@@ -207,7 +212,7 @@ public sealed class OriginModel : CivModelBase
             };
             e.TechKeys.Add(TechTable.StoneCore);
             ctx.Tribes.Add(e);
-            ctx.CellTribes[pick].Add(e);
+            ctx.CellTribes[pick] = e;   // 一格一实体：起源占据空格
         }
         ctx.FirstFarmTick = -1;
     }
@@ -432,38 +437,18 @@ public sealed class TerritoryModel : CivModelBase
 
         foreach (var e in ctx.Tribes)
             if (!e.Dead) parent[e.Id] = e.Id;
-        // 同格凝聚边：格内 band 两两，同语言群 → 凝聚
+        // 邻格凝聚边（一格一实体：无同格对）：相邻占据格的部落，同语言群 → 凝聚
         for (int i = 0; i < ctx.Grid.N; i++)
         {
-            var list = ctx.CellTribes[i];
-            for (int a = 0; a < list.Count; a++)
-            {
-                var ea = list[a];
-                if (ea.Dead) continue;
-                for (int b = a + 1; b < list.Count; b++)
-                {
-                    var eb = list[b];
-                    if (eb.Dead) continue;
-                    if (ShareField.DomKey(ea.CultureGroupShare) == ShareField.DomKey(eb.CultureGroupShare))
-                        Union(ea.Id, eb.Id);
-                }
-            }
-        }
-        // 邻格凝聚边：格代表对（格内 P 最大）× 邻格代表，同语言群 → 凝聚（其余 band 经同格边挂靠）
-        for (int i = 0; i < ctx.Grid.N; i++)
-        {
-            var list = ctx.CellTribes[i];
-            if (list.Count == 0) continue;
+            var ea = ctx.CellTribes[i];
+            if (ea == null || ea.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
-                var nbList = ctx.CellTribes[nb];
-                if (nbList.Count == 0) continue;
-                var repA = MaxPop(list);
-                var repB = MaxPop(nbList);
-                if (repA == null || repB == null) continue;
-                if (ShareField.DomKey(repA.CultureGroupShare) == ShareField.DomKey(repB.CultureGroupShare))
-                    Union(repA.Id, repB.Id);
+                var eb = ctx.CellTribes[nb];
+                if (eb == null || eb.Dead) continue;
+                if (ShareField.DomKey(ea.CultureGroupShare) == ShareField.DomKey(eb.CultureGroupShare))
+                    Union(ea.Id, eb.Id);
             }
         }
         // 填分量：标号 = 分量最小实体 Id（确定性）；size = 分量实体数
@@ -505,38 +490,22 @@ public sealed class SpreadModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        // ── 同格对 ──
-        for (int i = 0; i < ctx.Grid.N; i++)
-        {
-            var list = ctx.CellTribes[i];
-            for (int a = 0; a < list.Count; a++)
-            {
-                if (list[a].Dead) continue;
-                for (int b = a + 1; b < list.Count; b++)
-                {
-                    if (list[b].Dead) continue;
-                    SpreadTech(ctx, list[a], list[b]);
-                    SpreadTech(ctx, list[b], list[a]);
-                }
-            }
-        }
-        // ── 邻格边界（代表实体对，人口最大）──
+        // ── 一格一实体：传播只在"相邻有部落的格"之间（占据格彼此球面相邻 → 领地接触）。
+        //   不跨空格传播（邻近不行），无同格对（一格一实体）。──
         for (int i = 0; i < ctx.Grid.N; i++)
         {
             var a = ctx.CellTribes[i];
-            if (a.Count == 0) continue;
+            if (a == null || a.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
                 var b = ctx.CellTribes[nb];
-                if (b.Count == 0) continue;
-                var repA = MaxPop(a);
-                var repB = MaxPop(b);
+                if (b == null || b.Dead) continue;
                 // 闭塞区域：跨格传播 ×= BorderCost（地形障碍 × 气候相似度；A→B 用 A 的科技判定障碍突破）
-                float cost = ctx.BorderCost(i, nb, repA.TechKeys);
+                float cost = ctx.BorderCost(i, nb, a.TechKeys);
                 if (cost <= 0f) continue;
-                SpreadTech(ctx, repA, repB, cost);
-                SpreadTech(ctx, repB, repA, cost);
+                SpreadTech(ctx, a, b, cost);
+                SpreadTech(ctx, b, a, cost);
             }
         }
     }
@@ -698,10 +667,10 @@ public sealed class ConflictModel : CivModelBase
             int target = SplitMigrateModel.PickMigrateTarget(ctx, loser);
             if (target >= 0)
             {
-                ctx.CellTribes[loser.Cell].Remove(loser);
+                if (ctx.CellTribes[loser.Cell] == loser) ctx.CellTribes[loser.Cell] = null;   // 一格一实体
                 loser.Cell = target;
                 loser.LastMigrateTick = ctx.Tick;
-                ctx.CellTribes[target].Add(loser);
+                ctx.CellTribes[target] = loser;
                 ctx.Migrations++;
             }
         }
@@ -727,49 +696,26 @@ public sealed class CultureModel : CivModelBase
 
     public override void Execute(CivSimContext ctx)
     {
-        // ── 格级：文化同化 + 文化群竞争（聚合 → 演化 → 分摊写回）──
-        for (int i = 0; i < ctx.Grid.N; i++)
-        {
-            var list = ctx.CellTribes[i];
-            if (list.Count < 2) continue;
-
-            // 文化标签同化（快）
-            var cShare = ShareField.PopMerge(list, e => e.CultureShare);
-            ShareField.Assimilate(cShare, CivSimContext.AssimilateRate);
-            // 文化群竞争（慢，Abrams-Strogatz）
-            var gShare = ShareField.PopMerge(list, e => e.CultureGroupShare);
-            StepAbramsStrogatz(gShare);
-            // 分摊写回（"不分部落"：格级统一份额）
-            foreach (var e in list)
-            {
-                if (e.Dead) continue;
-                e.CultureShare = ShareField.CloneShare(cShare);
-                e.CultureGroupShare = ShareField.CloneShare(gShare);
-            }
-        }
-
-        // ── 相邻格：Axelrod 相似度互动（代表实体对）──
+        // ── 相邻格：Axelrod 相似度互动（一格一实体：无同格聚合，只做邻格互动）──
         for (int i = 0; i < ctx.Grid.N; i++)
         {
             var a = ctx.CellTribes[i];
-            if (a.Count == 0) continue;
+            if (a == null || a.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
                 var b = ctx.CellTribes[nb];
-                if (b.Count == 0) continue;
-                var repA = MaxPop(a);
-                var repB = MaxPop(b);
-                float sim = (ShareField.DomKey(repA.CultureShare) == ShareField.DomKey(repB.CultureShare) ? 0.5f : 0f)
-                          + (ShareField.DomKey(repA.CultureGroupShare) == ShareField.DomKey(repB.CultureGroupShare) ? 0.5f : 0f);
+                if (b == null || b.Dead) continue;
+                float sim = (ShareField.DomKey(a.CultureShare) == ShareField.DomKey(b.CultureShare) ? 0.5f : 0f)
+                          + (ShareField.DomKey(a.CultureGroupShare) == ShareField.DomKey(b.CultureGroupShare) ? 0.5f : 0f);
                 if (sim <= 0.5f) continue;   // Axelrod：不相似不互动（保持差异）
                 float rate = sim - 0.5f;
                 // 闭塞区域：跨格文化转移 ×= BorderCost（障碍区文化交流弱 → 边界处文化差异保持）
-                float cost = ctx.BorderCost(i, nb, repA.TechKeys);
+                float cost = ctx.BorderCost(i, nb, a.TechKeys);
                 if (cost <= 0f) continue;
                 rate *= cost;
-                var strong = repA.P >= repB.P ? repA : repB;
-                var weak = strong == repA ? repB : repA;
+                var strong = a.P >= b.P ? a : b;
+                var weak = strong == a ? b : a;
                 int amt = (int)MathF.Round(rate * 255f);
                 ShareField.Shift(weak.CultureShare, ShareField.DomKey(weak.CultureShare), ShareField.DomKey(strong.CultureShare), amt);
             }
@@ -845,63 +791,25 @@ public sealed class ReligionModel : CivModelBase
             // 祖先 → 多神 / 多神 → 一神：后续阶段
         }
 
-        // ── 传播（接触，0.02/tick 只向更高阶段）──
-        for (int i = 0; i < ctx.Grid.N; i++)
-        {
-            var list = ctx.CellTribes[i];
-            for (int a = 0; a < list.Count; a++)
-            {
-                if (list[a].Dead) continue;
-                for (int b = a + 1; b < list.Count; b++)
-                {
-                    if (list[b].Dead) continue;
-                    SpreadReligion(ctx, list[a], list[b]);
-                    SpreadReligion(ctx, list[b], list[a]);
-                }
-            }
-        }
+        // ── 传播（接触，0.02/tick 只向更高阶段；一格一实体：仅相邻占据格之间）──
         for (int i = 0; i < ctx.Grid.N; i++)
         {
             var a = ctx.CellTribes[i];
-            if (a.Count == 0) continue;
+            if (a == null || a.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
                 var b = ctx.CellTribes[nb];
-                if (b.Count == 0) continue;
-                var repA = MaxPop(a);
-                var repB = MaxPop(b);
+                if (b == null || b.Dead) continue;
                 // 闭塞区域：跨格宗教传播 ×= BorderCost（障碍区传教弱）
-                float cost = ctx.BorderCost(i, nb, repA.TechKeys);
+                float cost = ctx.BorderCost(i, nb, a.TechKeys);
                 if (cost <= 0f) continue;
-                SpreadReligion(ctx, repA, repB, cost);
-                SpreadReligion(ctx, repB, repA, cost);
+                SpreadReligion(ctx, a, b, cost);
+                SpreadReligion(ctx, b, a, cost);
             }
         }
 
-        // ── 同化（格级，0.3/tick；类型 + 具体派别平行）──
-        for (int i = 0; i < ctx.Grid.N; i++)
-        {
-            var list = ctx.CellTribes[i];
-            if (list.Count < 2) continue;
-            var rShare = ShareField.RelPopMerge(list);
-            string dom = ShareField.DomReligion(rShare);
-            int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.AssimilateRate);
-            for (int k = 0; k < ReligionStage.Count; k++)
-            {
-                if (ReligionStage.All[k] == dom) continue;
-                ShareField.RelTransfer(rShare, ReligionStage.All[k], dom, amt);
-            }
-            // 具体派别同化（强势图腾吞噬弱派别，与文化标签同化平行）
-            var cShare = ShareField.PopMerge(list, e => e.ReligionCultShare);
-            ShareField.Assimilate(cShare, CivSimContext.AssimilateRate);
-            foreach (var e in list)
-            {
-                if (e.Dead) continue;
-                e.ReligionShare = (ShareEntry[])rShare.Clone();
-                e.ReligionCultShare = ShareField.CloneShare(cShare);
-            }
-        }
+        // ── 一格一实体：格级宗教同化已无意义（单部落/格），删除——宗教仅靠实体级升级 + 邻格传播
     }
 
     /// <summary>宗教传播：高阶实体主导宗教份额流向低阶实体（只向更高阶段）。</summary>
@@ -983,7 +891,7 @@ public sealed class SplitMigrateModel : CivModelBase
             if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
             ctx.Tribes.Add(nt);
-            ctx.CellTribes[target].Add(nt);
+            ctx.CellTribes[target] = nt;   // 一格一实体：分裂殖民到空格
             ctx.Fissions++;
         }
 
@@ -998,77 +906,53 @@ public sealed class SplitMigrateModel : CivModelBase
             if (!ctx.IsStarving(t)) continue;
             int target = PickMigrateTarget(ctx, t);
             if (target < 0) continue;   // 无处可去（全被占）→ 饿死路径（GrowthModel）
-            ctx.CellTribes[t.Cell].Remove(t);
+            if (ctx.CellTribes[t.Cell] == t) ctx.CellTribes[t.Cell] = null;
             t.Cell = target;
             t.LastMigrateTick = ctx.Tick;
-            ctx.CellTribes[target].Add(t);
+            ctx.CellTribes[target] = t;
             ctx.Migrations++;
         }
     }
 
-    /// <summary>迁移目标：1-3 跳 BFS 内最高富饶度（R × 路径 BorderCost 乘积）的**无主格**（CellOwner==-1）。
-    /// 确定性：时间戳标记 + 固定遍历顺序；无主 = 落脚不侵犯（冲突未实现）。</summary>
+    /// <summary>迁徙/殖民目标：起始格 BFS 至多 ColonizeRadius 跳；可穿过任意可穿越陆地（BorderCost>0）
+    /// 寻找**未定居**目标（CellTribes==null，即格上无实体；CellOwner 影响力场会广泛圈地，不做定居判定）。
+    /// 按 (R × 路径 BorderCost 衰减) 择优。确定性：时间戳标记 + 固定遍历顺序。
+    /// 阶段2：原 1-3 跳手写展开致"想分裂却无目标" → 改 BFS 到 6 跳。</summary>
     internal static int PickMigrateTarget(CivSimContext ctx, Tribe mover)
     {
         var grid = ctx.Grid;
         var keys = mover.TechKeys;
-        int stamp = ++ctx.BfsStampValue;
         int best = -1; float bestScore = -1f;
-        // 1 跳
+        int maxLayer = CivSimContext.ColonizeRadius;
+        // 复用 BfsStamp 作"本 tick 已访问"标记（stamp 值递增，区分 tick）
+        int stamp = ++ctx.BfsStampValue;
+        var q = new Queue<(int cell, int layer, float cost)>();
         foreach (int nb in grid.Neighbors[mover.Cell])
         {
             if (!grid.IsLandCell(nb) || ctx.R[nb] <= 0f) continue;
             float c1 = ctx.BorderCost(mover.Cell, nb, keys);
             if (c1 <= 0f) continue;
             ctx.BfsStamp[nb] = stamp;
-            if (ctx.CellOwner[nb] == -1)
-            {
-                float s = ctx.R[nb] * c1;
-                if (s > bestScore) { bestScore = s; best = nb; }
-            }
+            q.Enqueue((nb, 1, c1));
         }
-        // 2 跳
-        foreach (int nb in grid.Neighbors[mover.Cell])
+        while (q.Count > 0)
         {
-            if (ctx.BfsStamp[nb] != stamp) continue;
-            float c1 = ctx.BorderCost(mover.Cell, nb, keys);
-            if (c1 <= 0f) continue;
-            foreach (int nb2 in grid.Neighbors[nb])
+            var (c, layer, ccost) = q.Dequeue();
+            // 目标 = 可穿越且未定居（CellTribes==null）；CellOwner 影响力圈地不算定居
+            if (ctx.CellTribes[c] == null)
             {
-                if (ctx.BfsStamp[nb2] == stamp) continue;
-                float c2 = ctx.BorderCost(nb, nb2, keys);
-                if (c2 <= 0f) continue;
-                ctx.BfsStamp[nb2] = stamp;
-                if (grid.IsLandCell(nb2) && ctx.R[nb2] > 0f && ctx.CellOwner[nb2] == -1)
-                {
-                    float s = ctx.R[nb2] * c1 * c2;
-                    if (s > bestScore) { bestScore = s; best = nb2; }
-                }
+                float s = ctx.R[c] * ccost;
+                if (s > bestScore) { bestScore = s; best = c; }
             }
-        }
-        // 3 跳
-        foreach (int nb in grid.Neighbors[mover.Cell])
-        {
-            if (ctx.BfsStamp[nb] != stamp) continue;
-            float c1 = ctx.BorderCost(mover.Cell, nb, keys);
-            if (c1 <= 0f) continue;
-            foreach (int nb2 in grid.Neighbors[nb])
+            if (layer >= maxLayer) continue;   // 达最大跳数不再扩展
+            foreach (int nb in grid.Neighbors[c])
             {
-                if (ctx.BfsStamp[nb2] != stamp) continue;
-                float c2 = ctx.BorderCost(nb, nb2, keys);
+                if (!grid.IsLandCell(nb) || ctx.R[nb] <= 0f) continue;
+                if (ctx.BfsStamp[nb] == stamp) continue;
+                float c2 = ctx.BorderCost(c, nb, keys);
                 if (c2 <= 0f) continue;
-                foreach (int nb3 in grid.Neighbors[nb2])
-                {
-                    if (ctx.BfsStamp[nb3] == stamp) continue;
-                    float c3 = ctx.BorderCost(nb2, nb3, keys);
-                    if (c3 <= 0f) continue;
-                    ctx.BfsStamp[nb3] = stamp;
-                    if (grid.IsLandCell(nb3) && ctx.R[nb3] > 0f && ctx.CellOwner[nb3] == -1)
-                    {
-                        float s = ctx.R[nb3] * c1 * c2 * c3;
-                        if (s > bestScore) { bestScore = s; best = nb3; }
-                    }
-                }
+                ctx.BfsStamp[nb] = stamp;
+                q.Enqueue((nb, layer + 1, ccost * c2));
             }
         }
         return best;
@@ -1170,9 +1054,8 @@ public sealed class PrestigeModel : CivModelBase
                 e.Prestige += surplus * CivSimContext.PrestigeGainRate;   // **绝对盈余**×rate（宴席=绝对食物量，Sahlins）
             else
                 e.Prestige = Mathf.Max(0f, e.Prestige - CivSimContext.PrestigeDecay);   // 可逆（个人化）
-            e.IsBigMan = e.Prestige >= CivSimContext.BigManPrestigeThreshold;
-            // 酋长：BigMan + 祖先宗教（谱系合法性——祖先份额 > 0；祖先=settle 派生，旧石器无）
-            e.IsChief = e.IsBigMan && ShareField.RelFrac(e.ReligionShare, ReligionStage.Ancestor) > 0;
+            // ⚠️ 2026-08-18 阶段3：领袖标记走共享派生函数（与 SettleDerived 同式）——无两套实现分叉
+            CivEngine.DeriveLeadership(e);
             // 贡赋流入（互惠记录——Earle 实物税）：成员盈余 → 酋邦贡赋累计
             if (e.ChiefdomId >= 0 && surplus > 0f)
                 e.Contributed += surplus * CivSimContext.TributeRate;
