@@ -38,19 +38,21 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 11;   // v11（2026-08-18 阶段3 派生状态架构化）：IsBigMan/IsChief/ChiefdomId 移出入档
-                                       //   （改为派生——DeriveLeadership/ChiefdomModel.Rebuild 确定性重算，读档后 SettleDerived 覆盖）；
-                                       //   v10 旧档可读可进（读时忽略这 3 字段，重算覆盖）。v9 及更旧拒绝。
+    public const ushort Version = 12;   // v12（2026-08-18 阶段3 存储/衰变）：实体段 Goods[3]（v7 副产品池）
+                                       //   → Stocks[CommodityTable.Count=6]（动态商品目录，含 Food 粮食池）；
+                                       //   v11 旧档可读可进（Goods→Stocks 映射，Food 槽 0）。v9 及更旧拒绝。
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
     /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
     /// （旧档显示"旧版本存档"，可展示但禁止进入）。
+    /// v12（2026-08-18）：Goods[3]→Stocks[6] 商品目录扩展——v11 档读入 Goods→Stocks 映射，
+    ///   Food 槽默认 0，存储池为空起步（语义一致，可读可进）。
     /// v11（2026-08-18）：IsBigMan/IsChief/ChiefdomId 移出入档改派生——v10 档读入后 SettleDerived 重算覆盖，
     ///   语义一致 → 可读可进。
     /// v6（2026-08-09）：头部 +4B 存 CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
     ///   读档恢复的群计数器 = max(合并值, 场推导) ≠ 从头演化实际值 → 续跑群漂变 key 编号错位 → 读档续跑分叉（T04）。</summary>
-    public static readonly ushort[] CompatibleArchiveVersions = { Version, 10 };
+    public static readonly ushort[] CompatibleArchiveVersions = { Version, 11, 10 };
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
     public static string GameVersion =>
@@ -157,13 +159,20 @@ public static class CivMapArchive
         for (int q2 = 0; q2 < ReligionStage.Count; q2++) e.ReligionShare[q2].Frac = f.Get8();
         return true;
     }
-    internal static void StoreGoods(FileAccess f, Tribe e)
+    internal static void StoreStocks(FileAccess f, Tribe e)
     {
-        for (int gi = 0; gi < 3; gi++) f.StoreFloat(e.Goods[gi]);
+        // v12：写全部商品槽（含 Food）。旧 Goods[3] 槽位（皮革/羊毛/秸秆）现在位于目录的 Material 槽——
+        // 字节序 = CommodityTable.All 顺序（grain/berry/meat/leather/wool/straw）。
+        if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
+        for (int s = 0; s < CommodityTable.Count; s++) f.StoreFloat(e.Stocks[s]);
     }
-    internal static bool ReadGoods(FileAccess f, Tribe e)
+    internal static bool ReadStocks(FileAccess f, Tribe e)
     {
-        for (int gi = 0; gi < 3; gi++) e.Goods[gi] = f.GetFloat();
+        // ⚠️ 2026-08-18 版本分支：ReadStocks 在 ver>=12 时被 schema 调用（写 Count 个）；
+        //   ver<12 时 schema 跳过（SinceVer=12>ver），但旧档 Goods[3] 3 个 float 仍在字节流——
+        //   由 Read 的 v11 兼容分支读掉并映射（见 CivMapArchive.Read）。
+        e.Stocks = CommodityTable.NewStocks();
+        for (int s = 0; s < CommodityTable.Count; s++) e.Stocks[s] = f.GetFloat();
         return true;
     }
 
@@ -299,6 +308,16 @@ public static class CivMapArchive
                 if (def.Name == "TechKeys") { ReadTechKeys(f, e); continue; }
                 if (ver == 10 && (def.Name == "Contributed" || def.Name == "SuccessionUntil")) continue;   // v10 内联
                 def.Read(f, e);
+            }
+            if (ver < 12)
+            {
+                // ⚠️ 2026-08-18 阶段3 兼容：v7-v11 旧档 Goods[3]（皮革/羊毛/秸秆 3 float，在 LastConflictTick 后）
+                //   schema 的 Stocks(SinceVer=12) 被跳过 → 此处读掉并映射到动态目录 Material 槽。
+                e.Stocks = CommodityTable.NewStocks();
+                e.Stocks[CommodityTable.Index(CommodityTable.Leather)] = f.GetFloat();
+                e.Stocks[CommodityTable.Index(CommodityTable.Wool)] = f.GetFloat();
+                e.Stocks[CommodityTable.Index(CommodityTable.Straw)] = f.GetFloat();
+                // Food 槽默认 0（旧档无食物存储概念）
             }
             if (ver == 10)
             {
@@ -443,10 +462,11 @@ public static class CivMapArchive
             pop += f.GetFloat();        // P
             f.Get8();                   // IsFarming
             int keyCount = f.Get16();
-            // ⚠️ 2026-08-18 v11 修正：现 skip 按版本区分酋邦层——v10 含 IsBigMan/IsChief/ChiefdomId（18B），
-            //   v11 移出（仅 Prestige/Contributed/SuccessionUntil 12B）。旧版恒跳 143B 漏 v10 的 18B → 错位。
-            long fixedB = ver == 10 ? 143L + 18L : 143L + 12L;   // 143 = keys 后固定（份额×4 107 + Cell系列24 + 货物12）
-            long skip = 16L * keyCount + fixedB;
+            // ⚠️ 2026-08-18：skip 按版本区分尾部字段——v10 含酋邦 IsBigMan/IsChief/ChiefdomId（+18B），
+            //   v11 移出（+12B），v12 Stocks 扩到 6 槽（+24B）。旧版恒跳 143B 漏尾部 → 错位。
+            //   143 = keys 后固定（份额×4 107 + Cell系列24 + 货物/存储基础 12）。
+            long tailB = ver == 10 ? 143L + 18L : ver == 11 ? 143L + 12L : 143L + 24L;
+            long skip = 16L * keyCount + tailB;
             f.Seek(f.GetPosition() + (ulong)skip);
         }
         return true;

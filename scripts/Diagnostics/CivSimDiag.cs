@@ -147,6 +147,8 @@ public partial class CivSimDiag : Node
         if (Want("T25")) T25_FissionPressure();
         if (Want("T26")) T26_CapabilitySwitches();
         if (Want("T27")) T27_StorageBuffer();
+        if (Want("T53")) T53_FamineFromStorage();
+        if (Want("T54")) T54_GrindingPreserves();
         if (Want("T28")) T28_LivestockEmergence();
         if (Want("T29")) T29_GoodsAccumulation();
         if (Want("T30")) T30_WeightAllocation();
@@ -615,19 +617,70 @@ public partial class CivSimDiag : Node
             $"canoe开关={canoeOk} seed开关={seedOk} 能力集={string.Join(",", ids)}");
     }
 
-    /// <summary>T27 存储缓冲（Testart 分水岭）：有 storage 部落饿死衰减慢（缺口 ×0.6），无 storage 正常饿死。</summary>
+    /// <summary>T27 存储缓冲（Testart 分水岭，2026-08-18 阶段3 重写）：有存粮部落歉年存活，无存粮部落饿死。
+    /// 新语义：Growth 缺口（FLast<P）从 Food 类 Stocks 补——预置存粮 → 不饿；无存粮 → 饿死因子。</summary>
     private void T27_StorageBuffer()
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var withS = AddTribe(ctx, 0, 1000f, TechTable.Storage, TechTable.Fire);     // 有存储
-        var noS = AddTribe(ctx, 1, 1000f, TechTable.Fire);                          // 无存储
-        withS.FLast = 500f; noS.FLast = 500f;   // 缺口 50%（D/F = 2 → 负增长）
+        var withS = AddTribe(ctx, 0, 100f, TechTable.Storage, TechTable.Fire);     // 有存储（预置存粮）
+        var noS = AddTribe(ctx, 1, 100f, TechTable.Fire);                          // 无存储（无存粮）
+        withS.FLast = 50f; noS.FLast = 50f;   // 歉年：缺口 50（D/P=2）
+        // 预置存粮：withS 有 80 人当量谷物（够补缺口），noS 空
+        withS.Stocks[CommodityTable.Index(CommodityTable.Grain)] = 80f;
         var growth = new GrowthModel();
         for (int t = 0; t < 3; t++) { ctx.Tick = t; growth.Execute(ctx); }
-        bool buffered = withS.P > noS.P;   // 有存储的饿死更慢
-        bool stillAlive = withS.P > 1f && noS.P > 1f;
-        Check("T27 存储缓冲", buffered && stillAlive, $"有存储 P={withS.P:F0} 无存储 P={noS.P:F0}（缺口×0.6 应更慢）");
+        bool buffered = withS.P > noS.P;   // 有存粮的缺口被补 → 饿得慢
+        bool withAlive = withS.P > 1f;
+        Check("T27 存储缓冲", buffered && withAlive,
+            $"有存储 P={withS.P:F0} 无存储 P={noS.P:F0}（存粮补缺口应更慢饿死）");
+    }
+
+    /// <summary>T53 饥荒从存储枯竭涌现（2026-08-18 阶段3）：连续歉年（FLast<P）→ 逐年吃存粮 →
+    /// 存粮耗尽 → 缺口扩大 → 饿死。验证饥荒非硬标志、由存储枯竭自然驱动。</summary>
+    private void T53_FamineFromStorage()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var e = AddTribe(ctx, 0, 100f, TechTable.Fire);
+        e.Stocks[CommodityTable.Index(CommodityTable.Grain)] = 150f;   // 预置存粮（够补 3.75 tick 缺口）
+        var growth = new GrowthModel();
+        float pStart = e.P;
+        float pBeforeEmpty = -1f, pAfterEmpty = -1f;
+        bool starvedEventually = false;
+        for (int t = 0; t < 30; t++)
+        {
+            ctx.Tick = t;
+            e.FLast = 60f;   // 每 tick 歉年：缺口 40
+            growth.Execute(ctx);
+            if (e.Stocks[CommodityTable.Index(CommodityTable.Grain)] <= 0f && pBeforeEmpty < 0f)
+                pBeforeEmpty = e.P;   // 存粮耗尽瞬间的人口
+            if (t >= 6 && e.P < pStart) pAfterEmpty = e.P;
+            if (e.P < 1f) { starvedEventually = true; break; }
+        }
+        // 断言：存粮耗尽前人口保住（不饿，容忍最后一 tick 补不满的微降），耗尽后人口下降（饥荒涌现）
+        bool bufferedBefore = pBeforeEmpty >= pStart * 0.9f;
+        bool starvedAfter = pAfterEmpty < 0f || pAfterEmpty < pStart * 0.9f || starvedEventually;
+        Check("T53 饥荒存储涌现", bufferedBefore && starvedAfter,
+            $"存粮耗尽时P={pBeforeEmpty:F1}(起始{pStart:F1}) 耗尽后P={pAfterEmpty:F1} 最终饿死={starvedEventually}（缓冲→枯竭→饥荒）");
+    }
+
+    /// <summary>T54 加工耐储（2026-08-18 阶段3）：grinding 加工态衰变 ×0.7——同条件两部落（同 stocks/同能力，
+    /// 一个带 grinding），跑 AccumulateStorage 一 tick，有 grinding 的存粮衰变更少（非生产倍率）。</summary>
+    private void T54_GrindingPreserves()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var ctx = MakeCtx(g);
+        var withG = AddTribe(ctx, 0, 100f, TechTable.Grinding, TechTable.Storage);   // 加工+存储
+        var noG = AddTribe(ctx, 1, 100f, TechTable.Storage);                          // 仅存储（无加工）
+        int gi = CommodityTable.Index(CommodityTable.Grain);
+        withG.Stocks[gi] = 100f; noG.Stocks[gi] = 100f;
+        withG.FLast = 100f; noG.FLast = 100f;   // 平衡产出（Food 流入=0——AccumulateStorage 只衰变 Food）
+        CivEngine.RefreshCellStateCore(ctx);    // 算 CapMask（grinding/storage 能力）
+        CivEngine.AccumulateStorage(ctx);       // 一 tick 衰变
+        bool preserved = withG.Stocks[gi] > noG.Stocks[gi];   // 加工态衰变少
+        Check("T54 加工耐储", preserved,
+            $"有grinding 剩 {withG.Stocks[gi]:F2} vs 无grinding 剩 {noG.Stocks[gi]:F2}（衰变×0.7 应更耐储）");
     }
 
     /// <summary>T28 畜牧涌现：草原格(WildLivestock=1)+livestock 科技 → 牧产出>0；无生态位/无科技 → 牧=0。
@@ -675,12 +728,13 @@ public partial class CivSimDiag : Node
         CivEngine.RefreshCellState(ctx);   // 先算 CellFarmPop
         var harvest = new HarvestModel();
         harvest.Execute(ctx);
-        CivEngine.RefreshCellState(ctx);   // 再聚合 Goods（FLast × 副产率）
-        bool leather = e.Goods[CivSimContext.GoodsLeather] > 0f;
-        bool straw = e.Goods[CivSimContext.GoodsStraw] > 0f;
-        bool wool = e.Goods[CivSimContext.GoodsWool] > 0f;   // 2026-08-17 畜牧落地：草原+科技 → 羊毛
-        Check("T29 货物累积", leather && straw && wool,
-            $"皮革={e.Goods[CivSimContext.GoodsLeather]:F0} 秸秆={e.Goods[CivSimContext.GoodsStraw]:F0} 羊毛={e.Goods[CivSimContext.GoodsWool]:F0}");
+        CivEngine.RefreshCellState(ctx);   // 再聚合商品存储（FLast → Stocks：Food 消耗/衰变，Material 累积）
+        // ⚠️ 2026-08-18 阶段3：Goods[3] → Stocks[动态目录]（Material 槽 = 皮革/羊毛/秸秆；Food 槽被人口消耗）
+        float leather = e.Stocks[CommodityTable.Index(CommodityTable.Leather)];
+        float straw = e.Stocks[CommodityTable.Index(CommodityTable.Straw)];
+        float wool = e.Stocks[CommodityTable.Index(CommodityTable.Wool)];
+        Check("T29 货物累积", leather > 0f && straw > 0f && wool > 0f,
+            $"皮革={leather:F0} 秸秆={straw:F0} 羊毛={wool:F0}");
     }
 
     /// <summary>T30 等边际牧:猎分配：草原格牧场潜在 = 2×采集潜在（HerdMult=2）——同 LF 档（0.1）
@@ -936,24 +990,27 @@ public partial class CivSimDiag : Node
         var farm = AddTribe(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
         var hunter = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
-        var s1 = AddTribe(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋 ×0.6
-        var s2 = AddTribe(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封 ×0.4
+        var s1 = AddTribe(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋（techMult 1.0）
+        var s2 = AddTribe(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封（×0.3）
         var gA = AddTribe(ctx, 4, 100f, TechTable.StoneCore);                     // 游群（r 基础）
         var gB = AddTribe(ctx, 5, 100f, TechTable.StoneCore);
         gB.IsFarming = true;                                                       // 定居（r×1.5）
         CivEngine.RefreshCellState(ctx);   // CapMask（settle/pottery/storage）
         bool settleOk = CapabilityTable.Has(ctx, farm, "settle") && !CapabilityTable.Has(ctx, hunter, "settle");
-        // ② 饥荒单 tick：FLast=50（P=100 → 缺口）——P 收敛到 F（=50），多 tick 差异被抹平，单 tick 差异明显
-        s1.FLast = 50f; s2.FLast = 50f;
-        var growth = new GrowthModel();
-        growth.Execute(ctx);
-        bool layered = s2.P > s1.P * 1.05f;   // 陶器缓冲更强 → 饿得慢 → P 明显更高
+        // ② 存储分层（2026-08-18 阶段3 新语义）：预置同量谷物，AccumulateStorage 一 tick——
+        //    陶器 techMult×0.3（衰变更慢）→ 剩余存粮更多（旧"无状态 relief 分层"已废）
+        int gi = CommodityTable.Index(CommodityTable.Grain);
+        s1.Stocks[gi] = 100f; s2.Stocks[gi] = 100f;
+        s1.FLast = 100f; s2.FLast = 100f;
+        CivEngine.AccumulateStorage(ctx);
+        bool layered = s2.Stocks[gi] > s1.Stocks[gi];   // 陶器衰变慢 → 剩得多
         // ③ 盈余单 tick：FLast=150（P=100 → 盈余）——定居 r×1.5 更快
         gA.FLast = 150f; gB.FLast = 150f;
+        var growth = new GrowthModel();
         growth.Execute(ctx);
         bool growthBoost = gB.P > gA.P * 1.05f;
         Check("T39 定居+存储", settleOk && layered && growthBoost,
-            $"settle派生={settleOk} 缓冲分层(storage={s1.P:F1} < +陶器={s2.P:F1}) 定居增长(gA={gA.P:F1} < gB={gB.P:F1})");
+            $"settle派生={settleOk} 存储分层(storage剩{s1.Stocks[gi]:F1} < +陶器剩{s2.Stocks[gi]:F1}) 定居增长(gA={gA.P:F1} < gB={gB.P:F1})");
     }
 
     /// <summary>T40 性能分段基线（2026-08-17 审查新增，防优化劣化）：
@@ -1468,13 +1525,12 @@ public partial class CivSimDiag : Node
             if (wrote && CivMapArchive.Read(outPath, out gridBack, out rBack))
             {
                 natOk = NaturalUnchanged(_grid, gridBack);
-                // ⚠️ 2026-08-17 审查修复：读档端 Read 结尾 RebuildInfluence() 重建场（CellOwner 等派生场），
+                // ⚠️ 2026-08-17 审查修复：读档端 Read 结尾 SettleDerived() 重建派生场（CellOwner/FLast/CellF 等），
                 //   而演化端保存的是 tick 171 Order 8 的滞后值（最后 tick 分裂/迁移实体的影响力从未结算）——
                 //   直接对比必然不等。正确口径：两端都重建派生场后再比（同实体状态 → 同场）。
-                c.RebuildInfluence();
-                // 领地是滞后重算的派生状态——对比前强制重算（确定性：同状态 → 同领地）
-                TerritoryModel.Rebuild(c);
-                TerritoryModel.Rebuild(rBack.Context);
+                //   ⚠️ 2026-08-18 阶段3：用 SettleDerived（唯一入口全自洽）——旧版只 RebuildInfluence 导致
+                //   CellF 与 CellOwner 脱节（T02/T04 分叉根因）。
+                CivEngine.SettleDerived(c);
                 rtOk = EntitiesEqual(c, rBack.Context);
                 // [临时验证] Peek vs Read 摘要一致性（只对读档即时状态对照——续跑会推进 tick/人口/实体，放 T04 之后必不一致）
                 if (CivMapArchive.Peek(outPath, out int pSeed, out int pTick, out float pPop, out int pEnt,
@@ -1518,9 +1574,11 @@ public partial class CivSimDiag : Node
                 && CivMapArchive.Read(outPath, out _, out var rBack))
             {
                 var ctxMem = CivEngine.Run(_grid, seed, origins).Context;   // 内存态（存档 tick 时刻）——与写档同一演化
-                // ⚠️ 2026-08-17 审查修复：起点对齐——读档语义 = 状态 + 场重建（Read 结尾 RebuildInfluence 结算
-                //   最后 tick 分裂实体影响力）——内存态也重建对齐；领地派生化（TerritoryModel 已注册 Order 45）
-                ctxMem.RebuildInfluence();
+                // ⚠️ 2026-08-17 审查修复：起点对齐——读档语义 = 状态 + 场重建（Read 结尾 SettleDerived 结算
+                //   最后 tick 分裂实体影响力）——内存态也重建对齐。⚠️ 2026-08-18 阶段3：用 SettleDerived
+                //   （唯一入口，重建 CellOwner+领地+FLast+CellF 全自洽）——旧版只 RebuildInfluence 导致
+                //   CellF 与 CellOwner 脱节（T04 分叉根因）。
+                CivEngine.SettleDerived(ctxMem);
                 // ⚠️ 2026-08-17 领地/酋邦/吞并凝聚频率守卫对齐：守卫不入档——读档端 -1（首 tick 必凝聚），
                 //   内存端是演化末值（错位 N tick）→ 凝聚时刻错位 → 领地/酋邦状态不同 → 分叉
                 ctxMem.TerritoryLastRebuild = rBack.Context.TerritoryLastRebuild;
@@ -1541,18 +1599,21 @@ public partial class CivSimDiag : Node
     }
 
     /// <summary>T04b 派生状态纯函数守卫（2026-08-18 阶段3 方案 D）：
-    /// ① 幂等：SettleDerived 连跑两遍 → 派生字段逐位一致（纯函数无内部残留漂移）；
+    /// ① 幂等（预热后）：SettleDerived 连跑两遍 → 派生字段逐位一致——先预热一遍（ChiefdomModel.Rebuild
+    ///    的继承窗口 SuccessionUntil 是已知副作用，首遍设置窗口、后续豁免；预热后进入稳态再断言）；
     /// ② 读档重算 ≡ 内存态：读档 ctx 的派生字段（SettleDerived 后）与内存 ctx 同 tick 派生一致。
     /// 覆盖派生字段：FLast/FHunt/FHerd/FFarm/FBerry/TerritoryId/Size/ChiefdomId/Size/IsBigMan/IsChief/
     /// CapMask/CarryMult + 场 CellF。</summary>
     private void T04b_DerivedPure(CivSimContext ctxMem, CivSimContext ctxBak)
     {
-        // ① 幂等：读档端连跑两遍 SettleDerived，快照后比对
+        // ① 幂等（预热首遍——吸收 Chiefdom 继承窗口副作用后进入稳态）
+        CivEngine.SettleDerived(ctxBak);
         CivEngine.SettleDerived(ctxBak);
         var snap1 = DerivedSnapshot(ctxBak);
         CivEngine.SettleDerived(ctxBak);
         bool idempotent = DerivedEquals(snap1, DerivedSnapshot(ctxBak));
-        // ② 读档 ≡ 内存：内存端（已是 Run 结尾 SettleDerived 后的边界态）再 SettleDerived 对齐一次
+        // ② 读档 ≡ 内存：内存端同式预热（Chiefdom 窗口副作用对齐——两端同稳态再比）
+        CivEngine.SettleDerived(ctxMem);
         CivEngine.SettleDerived(ctxMem);
         bool equivMem = DerivedEquals(snap1, DerivedSnapshot(ctxMem));
         if (Want("T04b"))

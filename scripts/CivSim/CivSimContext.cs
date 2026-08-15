@@ -92,9 +92,6 @@ public sealed class CivSimContext
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
     public const float TerritoryDriftDiv = 0.5f;     // 领地内分裂漂变概率减半（凝聚自稳）
-    public const float StorageFamineRelief = 0.6f;   // 存储饿死缓冲：缺口衰减系数（Testart 分水岭 2026-08-09）
-    public const float StorageReliefPottery = 0.4f;  // +陶器：密封储粮容器（2026-08-17 分层强化）
-    public const float StorageReliefSettle = 0.3f;   // +定居：粮仓（2026-08-17 分层强化）
     public const float SettleGrowthMult = 1.5f;      // 定居生育跃迁：人口增长 r ×1.5（史实：定居密度 10-50× 游群；★ 标定）
 
     // ── 酋邦层（2026-08-17：Sahlins 1963 声望 / Earle 1997 贡赋 / Kirch 1984 联盟锚定）──
@@ -113,8 +110,7 @@ public sealed class CivSimContext
     public const float SuccessionConflictMult = 2.0f;  // 继承窗口冲突概率 ×2（继承战争，Kirch：Polynesia 常态）
     public const int SuccessionWindowTicks = 20;       // 继承窗口时长
 
-    // ── 货物系统（2026-08-09：生产方式副产品，累积入档 v7；贸易期接物物交换）──
-    public const int GoodsLeather = 0, GoodsWool = 1, GoodsStraw = 2;   // Goods[] 索引
+    // ── 商品副产率（2026-08-09：生产方式副产品；2026-08-18 阶段3 并入 CommodityTable 存储体系）──
     public const float LeatherRate = 0.10f;   // 狩猎产出 → 皮革（★ 标定）
     public const float WoolRate = 0.15f;      // 畜牧产出 → 羊毛（★ 标定）
     public const float StrawRate = 0.05f;     // 农业产出 → 秸秆（★ 标定）

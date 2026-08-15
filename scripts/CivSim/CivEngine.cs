@@ -140,13 +140,13 @@ public static class CivEngine
     }
 
     /// <summary>每 tick 开头的派生刷新（现状语义，保持不动）：CellTribes/CellPop/CellFarmPop/CarryMult/CapMask
-    /// + 货物副作用累积 + CellF 聚合（FLast 为上 tick 值——Harvest 在本 tick 才更新）。
-    /// ⚠️ 2026-08-18 阶段3 拆分：内部 = RefreshCellStateCore(纯) + AccumulateGoods(副作用) + RefreshCellStateF(纯)。
-    /// 副作用（Goods 累积）只在演化每 tick 调用，绝不在 SettleDerived 边界重算里调（防双倍累积）。</summary>
+    /// + 商品存储年步进（副作用）+ CellF 聚合（FLast 为上 tick 值——Harvest 在本 tick 才更新）。
+    /// ⚠️ 2026-08-18 阶段3 拆分：内部 = RefreshCellStateCore(纯) + AccumulateStorage(副作用) + RefreshCellStateF(纯)。
+    /// 副作用（商品存储消耗/衰变）只在演化每 tick 调用，绝不在 SettleDerived 边界重算里调（防双倍累积）。</summary>
     public static void RefreshCellState(CivSimContext ctx)
     {
         RefreshCellStateCore(ctx);
-        AccumulateGoods(ctx);
+        AccumulateStorage(ctx);
         RefreshCellStateF(ctx);
     }
 
@@ -177,17 +177,42 @@ public static class CivEngine
         }
     }
 
-    /// <summary>副作用累积：货物副产品（Goods += FLast×副产率）。**每 tick 仅一次**（演化循环内），
-    /// 绝不在 SettleDerived 边界重算调用（否则读档/Run结尾重跑双倍累积 → 分叉）。</summary>
-    public static void AccumulateGoods(CivSimContext ctx)
+    /// <summary>副作用累积：商品存储 tick 步进（2026-08-18 阶段3 存储/衰变机制）。
+    /// **每 tick 仅一次**（演化循环内），绝不在 SettleDerived 边界重算调用（否则双倍消耗 → 分叉）。
+    /// 职责（与 GrowthModel 分工）：
+    ///   · Material 商品（皮革/羊毛/秸秆）：流入（上 tick FLast 副产）+ 衰变 + 容量——囤积备贸易；
+    ///   · Food 商品（谷物/浆果/肉）：**流入/消耗由 GrowthModel 管**（缺口/盈余 + 优先吃易腐——
+    ///     耐储者留底），本方法只做**衰变 + 容量**（上 tick Stocks 基础上）。
+    /// 单位 Stocks = 人当量（与 FLast/P 同量纲）。衰变按年率折算 tick：
+    ///   decayTick = 1 − (1 − BaseDecay×techMult)^TickYears（年衰变史实锚点 → 100 年聚合）。
+    /// 容量：settle 主仓（Food 合计 ≤0.5×P≈50 年）/附仓（Material ≤0.2×P 每类）；
+    /// 无 settle 随身（Food 0.06×P / Material 0.02×P）——游群随取随食无囤积。</summary>
+    public static void AccumulateStorage(CivSimContext ctx)
     {
         for (int i = 0; i < ctx.Tribes.Count; i++)
         {
             var e = ctx.Tribes[i];
-            if (e.Dead) continue;
-            e.Goods[CivSimContext.GoodsLeather] += e.FHuntLast * CivSimContext.LeatherRate;
-            e.Goods[CivSimContext.GoodsWool] += e.FHerdLast * CivSimContext.WoolRate;
-            e.Goods[CivSimContext.GoodsStraw] += e.FFarmLast * CivSimContext.StrawRate;
+            if (e.Dead || e.P <= 0f) continue;
+            if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
+            bool hasStorage = CapabilityTable.Has(ctx, e, "storage");
+            bool hasPottery = CapabilityTable.Has(ctx, e, "pottery");
+            bool hasSettle = CapabilityTable.Has(ctx, e, "settle");
+            bool hasGrind = CapabilityTable.Has(ctx, e, "grinding");
+            float techMult = !hasStorage ? 1f : (!hasPottery ? 0.6f : (!hasSettle ? 0.3f : 0.15f));
+            if (hasGrind) techMult *= 0.7f;   // 加工态（磨盘去壳/鞣制）提升耐久
+            float foodCap = hasSettle ? 0.5f * e.P : 0.06f * e.P;
+            float matCap = hasSettle ? 0.2f * e.P : 0.02f * e.P;
+            for (int s = 0; s < e.Stocks.Length; s++)
+            {
+                var def = CommodityTable.All[s];
+                float decayTick = 1f - Mathf.Pow(1f - def.BaseDecay * techMult, CivSimContext.TickYears);
+                float inflow = def.Kind == CommodityKind.Material ? def.Produce(e) : 0f;   // 副产囤积（上 tick FLast）
+                float stock = (e.Stocks[s] + inflow) * (1f - decayTick);
+                float cap = def.Kind == CommodityKind.Food ? foodCap : matCap;
+                if (stock > cap) stock = cap;
+                if (stock < 0f) stock = 0f;
+                e.Stocks[s] = stock;
+            }
         }
     }
 

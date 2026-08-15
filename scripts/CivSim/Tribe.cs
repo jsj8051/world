@@ -64,8 +64,9 @@ public class Tribe
     // ── 能力位图缓存（CapabilityTable.MaskOf；RefreshCellState 每 tick；不存档——从科技/状态确定性重算）──
     public uint CapMask;
 
-    // ── 货物库存（副产品累积；入档 .cmp v7——每实体 3×float 12B）──
-    public float[] Goods = new float[3];   // 0=皮革 1=羊毛 2=秸秆（CivSimContext 索引常量）
+    // ── 商品库存（2026-08-18 阶段3：动态商品目录 CommodityTable——所有可存储商品统一存储/衰变；
+    //   入档 .cmp v12——每实体 N×float；旧 v7 Goods[3]（皮革/羊毛/秸秆）迁移并入）──
+    public float[] Stocks = CommodityTable.NewStocks();   // 索引 = CommodityTable.Index(id)；Food 类被人口消耗
 
     // ── 生产方式 F 分量（派生缓存：RefreshCellState 每 tick；不存档——货物分解用）──
     public float FHuntLast, FHerdLast, FFarmLast;   // 各方式当 tick 产出

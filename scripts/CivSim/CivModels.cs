@@ -293,21 +293,42 @@ public sealed class GrowthModel : CivModelBase
             var e = ctx.Tribes[i];
             if (e.Dead) continue;
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
+            // ⚠️ 2026-08-18 阶段3 存储机制：有效粮食 = 当年产出 + Food 存储缓冲（AccumulateStorage 已做衰变/容量）。
+            //   缺口（FLast<P）：从 Food Stocks 扣，**优先吃易腐（高衰变：浆果/肉），耐储者（谷物）留底**——
+            //   这是"特定食物耐储"的机制意义（谷物是饥荒最后防线，新石器革命核心）。
+            //   盈余（FLast>P）：按容量入仓（settle 主仓 0.5×P / 随身 0.06×P）。
+            //   饥荒 = 连续歉年吃空存粮 → 缺口扩大 → 饿死（非硬标志）。替换旧无状态 relief。
+            if (e.Stocks != null && e.Stocks.Length == CommodityTable.Count)
+            {
+                if (f < e.P)
+                {
+                    float deficit = e.P - f;
+                    // 优先消耗高衰变 Food（易腐先吃），最后 grain（耐储留底）
+                    var foodIdx = FoodIdxByDecayDesc();
+                    foreach (int s in foodIdx)
+                    {
+                        if (deficit <= 0f) break;
+                        float take = Mathf.Min(deficit, e.Stocks[s]);
+                        e.Stocks[s] -= take;
+                        deficit -= take;
+                    }
+                    f += e.P - f - deficit;   // 存储补足缺口（不足则 f 仍 < P）
+                }
+                else if (f > e.P)
+                {
+                    // 盈余入仓（仅谷物——其余食物易腐存不住，直接消费；谷物是唯一长期囤积粮）
+                    int gi = CommodityTable.Index(CommodityTable.Grain);
+                    float surplus = f - e.P;
+                    float cap = CapabilityTable.Has(ctx, e, "settle") ? 0.5f * e.P : 0.06f * e.P;
+                    float room = Mathf.Max(0f, cap - e.Stocks[gi]);
+                    e.Stocks[gi] += Mathf.Min(surplus, room);
+                }
+            }
             if (f <= 0f) continue;
             // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
             float rEff = r;
             if (CapabilityTable.Has(ctx, e, "settle")) rEff *= CivSimContext.SettleGrowthMult;   // 1.5
             float factor = Mathf.Exp(rEff * (1f - e.P / f));
-            // 存储缓冲（Testart 分水岭，2026-08-09；2026-08-17 分层强化）：
-            //   storage（游群粮袋）缺口 ×0.6 → +pottery（陶器密封）×0.4 → +settle（定居粮仓）×0.3
-            //   （无状态效果——不引盈余池入档，读档续跑无分叉；宏观等效饥荒缓冲）
-            if (factor < 1f && CapabilityTable.Has(ctx, e, "storage"))
-            {
-                float relief = CivSimContext.StorageFamineRelief;
-                if (CapabilityTable.Has(ctx, e, "pottery")) relief = CivSimContext.StorageReliefPottery;
-                if (CapabilityTable.Has(ctx, e, "settle")) relief = CivSimContext.StorageReliefSettle;
-                factor = 1f + (factor - 1f) * relief;
-            }
             // 酋邦再分配互惠（2026-08-17：Halstead-O'Shea 1989 坏年景开仓——贡献过才受赈）：
             //   成员 band 曾交贡赋（Contributed>0）→ 灾年缺口 ×0.5（酋长开仓）；未贡献不受赈
             if (factor < 1f && e.ChiefdomId >= 0 && e.Contributed > 0f)
@@ -315,6 +336,20 @@ public sealed class GrowthModel : CivModelBase
             e.P *= factor;
             if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
         }
+    }
+
+    /// <summary>Food 类商品索引，按衰变率**降序**（易腐先吃：浆果/肉 → 谷物留底）。
+    /// 静态缓存（目录固定）；确定性（同目录同序）。</summary>
+    private static int[] _foodIdxByDecay;
+    private static int[] FoodIdxByDecayDesc()
+    {
+        if (_foodIdxByDecay != null) return _foodIdxByDecay;
+        var list = new List<int>();
+        for (int s = 0; s < CommodityTable.Count; s++)
+            if (CommodityTable.All[s].Kind == CommodityKind.Food) list.Add(s);
+        list.Sort((a, b) => CommodityTable.All[b].BaseDecay.CompareTo(CommodityTable.All[a].BaseDecay));
+        _foodIdxByDecay = list.ToArray();
+        return _foodIdxByDecay;
     }
 }
 

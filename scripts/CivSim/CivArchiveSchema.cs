@@ -41,7 +41,10 @@ public static class CivArchiveSchema
         new("LastMigrateTick", 8, (f, e) => f.Store32((uint)e.LastMigrateTick), (f, e) => { e.LastMigrateTick = (int)f.Get32(); return true; }),
         new("LastSplitTick", 8, (f, e) => f.Store32((uint)e.LastSplitTick), (f, e) => { e.LastSplitTick = (int)f.Get32(); return true; }),
         new("LastConflictTick", 8, (f, e) => f.Store32((uint)e.LastConflictTick), (f, e) => { e.LastConflictTick = (int)f.Get32(); return true; }),
-        new("Goods", 7, CivMapArchive.StoreGoods, CivMapArchive.ReadGoods),
+        // ⚠️ 2026-08-18 阶段3：Goods[3]（v7 副产品池）→ Stocks[N]（v12 动态商品目录，含食物）。
+        //   v12 起每实体写 CommodityTable.Count 个 float；v7-v11 旧档只含 3 个副产 float（皮革/羊毛/秸秆），
+        //   读入时映射到 Stocks[leather/wool/straw]，Food 槽默认 0（见 CivMapArchive.StoreStocks/ReadStocks 版本分支）。
+        new("Stocks", 12, CivMapArchive.StoreStocks, CivMapArchive.ReadStocks),
         // v10 酋邦累积；v11 起 IsBigMan/IsChief/ChiefdomId 移出（派生重算）——
         //   注意顺序：Prestige→IsBigMan→IsChief→ChiefdomId→Contributed→SuccessionUntil（v10 布局）！
         new("Prestige", 10, (f, e) => f.StoreFloat(e.Prestige), (f, e) => { e.Prestige = f.GetFloat(); return true; }),
