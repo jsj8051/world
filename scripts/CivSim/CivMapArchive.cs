@@ -38,21 +38,23 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 12;   // v12（2026-08-18 阶段3 存储/衰变）：实体段 Goods[3]（v7 副产品池）
-                                       //   → Stocks[CommodityTable.Count=6]（动态商品目录，含 Food 粮食池）；
-                                       //   v11 旧档可读可进（Goods→Stocks 映射，Food 槽 0）。v9 及更旧拒绝。
+    public const ushort Version = 13;   // v13（2026-08-19 阶段3 聚落设计）：部落 +2 字段（SettledSince/PlaceId）
+                                       //   + 新段 Settlements[]（聚落实体：场所比人长寿——粮仓归聚落）。
+                                       //   v12 旧档可读可进（无聚落——仅新演化生成，用户拍板）。v9 及更旧拒绝。
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
     /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
     /// （旧档显示"旧版本存档"，可展示但禁止进入）。
+    /// v13（2026-08-19）：聚落设计——部落 +2 字段 + 新段 Settlements[]——v12 档读入无聚落
+    ///   （仅新演化生成，用户拍板；语义一致 → 可读可进）。
     /// v12（2026-08-18）：Goods[3]→Stocks[6] 商品目录扩展——v11 档读入 Goods→Stocks 映射，
     ///   Food 槽默认 0，存储池为空起步（语义一致，可读可进）。
     /// v11（2026-08-18）：IsBigMan/IsChief/ChiefdomId 移出入档改派生——v10 档读入后 SettleDerived 重算覆盖，
     ///   语义一致 → 可读可进。
     /// v6（2026-08-09）：头部 +4B 存 CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
     ///   读档恢复的群计数器 = max(合并值, 场推导) ≠ 从头演化实际值 → 续跑群漂变 key 编号错位 → 读档续跑分叉（T04）。</summary>
-    public static readonly ushort[] CompatibleArchiveVersions = { Version, 11, 10 };
+    public static readonly ushort[] CompatibleArchiveVersions = { Version, 12, 11, 10 };
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
     public static string GameVersion =>
@@ -114,9 +116,26 @@ public static class CivMapArchive
         for (int c = 0; c < ctx.Grid.N; c++) f.StoreFloat(ctx.Cultivation != null ? ctx.Cultivation[c] : 0f);
         for (int c = 0; c < ctx.Grid.N; c++) f.Store32((uint)ctx.CellOwner[c]);
         for (int c = 0; c < ctx.Grid.N; c++) f.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);   // 实控锁定（v8 冲突机制；0=无）
+        // 尾部：聚落段（v13——追加在土地挂钩后，旧档布局不变）
+        f.Store32((uint)ctx.NextSettlementId);
+        f.Store32((uint)ctx.Settlements.Count);
+        foreach (var s in ctx.Settlements)
+        {
+            f.Store32((uint)s.Id);
+            f.Store32((uint)s.Cell);
+            f.Store32((uint)s.BornTick);
+            f.Store32((uint)s.Level);
+            f.Store32((uint)s.LastLevelUpTick);
+            f.Store32((uint)s.DwellFrom);
+            f.Store32((uint)s.OccupantId);   // -1 → uint 全 1（读回 (int) 还原）
+            f.Store32((uint)s.RuinFrom);
+            for (int k = 0; k < CommodityTable.Count; k++)
+                f.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
+        }
         if (log)
             GD.Print($"[CivMapArchive] wrote v{Version} {path} (ticks={result.FinalTick} " +
-                     $"entities={alive} pop={ctx.TotalPopulation():F0} farm={CountFarming(ctx)} fission={ctx.Fissions} migrate={ctx.Migrations})");
+                     $"entities={alive} pop={ctx.TotalPopulation():F0} farm={CountFarming(ctx)} fission={ctx.Fissions} migrate={ctx.Migrations}" +
+                     $" settlements={ctx.Settlements.Count})");
         return true;
     }
 
@@ -348,6 +367,39 @@ public static class CivMapArchive
             for (int c = 0; c < n; c++) lockedUntil[c] = (int)f.Get32();
         }
 
+        // 尾部：聚落段（v13——土地挂钩后；v12 旧档无聚落——仅新演化生成，用户拍板）
+        var settlements = new List<Settlement>();
+        int nextSettlementId = 0;
+        if (ver >= 13)
+        {
+            nextSettlementId = (int)f.Get32();
+            int sCount = (int)f.Get32();
+            // 长度校验（同实体表：最小聚落 ~56B——8×I32 + 6×F32；用 48B 保守下界防错位读爆）
+            ulong sRemaining = f.GetLength() - f.GetPosition();
+            if (sCount < 0 || (ulong)sCount > sRemaining / 48)
+            {
+                GD.PrintErr($"[CivMapArchive] {path} 聚落段长度异常：count={sCount}，剩余 {sRemaining}B——正文错位或损坏。");
+                return false;
+            }
+            for (int k = 0; k < sCount; k++)
+            {
+                var s = new Settlement
+                {
+                    Id = (int)f.Get32(),
+                    Cell = (int)f.Get32(),
+                    BornTick = (int)f.Get32(),
+                    Level = (int)f.Get32(),
+                    LastLevelUpTick = (int)f.Get32(),
+                    DwellFrom = (int)f.Get32(),
+                    OccupantId = (int)f.Get32(),
+                    RuinFrom = (int)f.Get32(),
+                };
+                s.Stocks = CommodityTable.NewStocks();
+                for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = f.GetFloat();
+                settlements.Add(s);
+            }
+        }
+
         // 文化 key 计数兜底：份额场推导（旧档无头部计数时；被同化掉的 key 可能使推导偏小，故取 max）
         // 2026-08-07：标签/群分开推导（群 "cultg_" 前缀独立空间，防标签挤占语言群 key）
         int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
@@ -386,6 +438,8 @@ public static class CivMapArchive
             CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数：v6 头部独立值优先（续跑无分叉）；场推导兜底
             ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
             NextTribeId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
+            Settlements = settlements,    // 聚落段（v13；v12 旧档空列表）
+            NextSettlementId = nextSettlementId,
             // 土地挂钩（v9）：Cultivation 从存档恢复；暂存/领地索引重建
             Cultivation = cultivation ?? new float[n],
             CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
@@ -463,9 +517,9 @@ public static class CivMapArchive
             f.Get8();                   // IsFarming
             int keyCount = f.Get16();
             // ⚠️ 2026-08-18：skip 按版本区分尾部字段——v10 含酋邦 IsBigMan/IsChief/ChiefdomId（+18B），
-            //   v11 移出（+12B），v12 Stocks 扩到 6 槽（+24B）。旧版恒跳 143B 漏尾部 → 错位。
-            //   143 = keys 后固定（份额×4 107 + Cell系列24 + 货物/存储基础 12）。
-            long tailB = ver == 10 ? 143L + 18L : ver == 11 ? 143L + 12L : 143L + 24L;
+            //   v11 移出（+12B），v12 Stocks 扩到 6 槽（+24B），v13 聚落关联 SettledSince/PlaceId（+8B）。
+            //   旧版恒跳 143B 漏尾部 → 错位。143 = keys 后固定（份额×4 107 + Cell系列24 + 货物/存储基础 12）。
+            long tailB = ver == 10 ? 143L + 18L : ver == 11 ? 143L + 12L : ver == 12 ? 143L + 24L : 143L + 24L + 8L;
             long skip = 16L * keyCount + tailB;
             f.Seek(f.GetPosition() + (ulong)skip);
         }

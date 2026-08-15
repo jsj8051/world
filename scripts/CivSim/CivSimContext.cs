@@ -55,6 +55,8 @@ public sealed class CivSimContext
     public int Fissions;
     public int Migrations;
     public int Conflicts;   // 冲突计数（2026-08-10 冲突机制）
+    public float TradeVolume;   // 贸易总流量（人当量·年；2026-08-19 演化级观测——TradeModel 累计）
+    public int TradeEvents;     // 贸易转移次数（每次单商品转移记 1）
     public int CultureKeyCount;         // 文化标签 key 计数器（分裂分化分配新 key，如 "cult_12"）
     public int CultureGroupKeyCount;    // 文化群 key 计数器（2026-08-07 与文化标签分开——语言大群独立 key 空间，防标签挤占）
     public int ReligionKeyCount;        // 宗教派别 key 计数器（起源/分裂分化分配新 key，如 "relig_3"）
@@ -65,6 +67,19 @@ public sealed class CivSimContext
     public int NextTribeId;   // 实体 Id 分配计数器（2026-08-10：独立于 Tribes.Count——存档只存活实体，Count 会分叉）
     public string[] KeyBuf;    // 科技遍历排序缓冲（SpreadTech 复用，无分配；2026-08-10 确定性）
     public int[] LockedUntil;  // 武力夺取格锁定到期 tick（-1=无锁定；2026-08-10 冲突机制——锁定内场不重算）
+
+    // ── 聚落实体（2026-08-19 阶段3 聚落设计，docs/阶段3设计-聚落实体.md）──
+    public List<Settlement> Settlements = new();   // 全部聚落（存活 + 废墟；场所比人长寿）
+    public int NextSettlementId;                   // 聚落 Id 分配器（确定性；读档恢复）
+
+    /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
+    public Settlement SettlementOf(Tribe e)
+    {
+        if (e == null || e.PlaceId < 0 || Settlements == null) return null;
+        for (int i = 0; i < Settlements.Count; i++)
+            if (Settlements[i].Id == e.PlaceId) return Settlements[i];
+        return null;
+    }
 
     /// <summary>分配新文化 key（确定性递增；与科技 key 同风格——字符串可读）。</summary>
     public string NextCultureKey() => $"cult_{CultureKeyCount++}";
@@ -109,12 +124,53 @@ public sealed class CivSimContext
     public const float InternalConflictMult = 0.5f;    // 同酋邦冲突概率 ×0.5（酋长仲裁——非消除，pax 不存在）
     public const float SuccessionConflictMult = 2.0f;  // 继承窗口冲突概率 ×2（继承战争，Kirch：Polynesia 常态）
     public const int SuccessionWindowTicks = 20;       // 继承窗口时长
+    // ── 酋邦庇护机制（2026-08-19 重构：至尊酋长个人再分配圈——无硬上限，规模从半径涌现）──
+    public const int ChiefReach = 12;   // 至尊酋长个人再分配半径（格步；酋长只能庇护半径内成员——史实：再分配有物理半径，
+                                        //   Earle ahupua'a；语言网络照常大，政治体只能长到个人声望够得着的大小；
+                                        //   史实对照：酋邦数万人口量级；★ 待校准）
+    // ── 国家涌现参数（2026-08-16 阶段4，docs/阶段4设计-国家涌现.md；用户拍板 1A2A3A4A）──
+    //   国家 = 酋邦的制度化：都城（权力中心）+ 决策层级 + 贡赋盈余 + 存续 → 涌现；
+    //   机制差异：税制化（贡赋率×2）、官僚供养↑（精英比例）、继承制度化（王朝豁免危机）、
+    //   内部秩序（Weber 强制力垄断——同邦冲突概率减半）。全部条件用已入档字段 → 纯派生不存档。
+    public const float StateTributeRate = 0.2f;        // 国家贡赋率（酋邦 TributeRate=0.1 翻倍——税制化，Earle）
+    public const float StateEliteFrac = 0.25f;         // 国家官僚/精英比例（酋邦 EliteFrac=0.1——官僚化）
+    public const float StateInternalConflictMult = 0.25f; // 国家内部冲突概率倍率（酋邦 0.5——Weber 强制力垄断）
+    public const int StateCapitalLevel = 2;            // 都城最低聚落等级（城镇+；都城判定本就放宽一档——首都更易达标，Childe 权力中心）
+    public const int StateSubCenterLevel = 1;          // 次级中心最低聚落等级（村庄+；Wright-Johnson 决策层级第 2 级）
+    public const float StateTributePerCap = 0.01f;     // 贡赋盈余线：贡赋池 ≥ 酋邦总人口×此值（剩余集中，Childe）
+                                                        //   ★ 校准（0.1→0.01，2026-08-16 探针）：Contributed 是互惠记录且被
+                                                        //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
+                                                        //   0.1 线下全图 0 国家；0.01 线匹配"少数国家涌现"（史实：早期国家稀少）
+    public const int StateDwellTicks = 20;             // 都城实体存续时长（制度化需要时间；对应城市阈值 Dwell 20 tick 量级；★ 待校准）
+    // ── 聚落实体参数（2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md §2.3）──
+    public const int SettlementLevelTicks1 = 3;    // 新村→村庄 Dwell ticks（★ 待校准）
+    public const int SettlementLevelTicks2 = 8;    // 村庄→城镇
+    public const int SettlementLevelTicks3 = 20;   // 城镇→城市
+    public const float SettlementPop1 = 200f;      // 村庄人口阈值
+    public const float SettlementPop2 = 800f;      // 城镇人口阈值
+    public const float SettlementPop3 = 3000f;     // 城市人口阈值
+    public const float SettlementStoragePerLevel = 0.5f;   // 每级存储容量加成（×0.5/级——村庄 1.5×、城市 2.5×）
+    public const float SettlementGrowthPerLevel = 0.25f;   // 每级增长倍率加成（×0.25/级——城市化集聚）
+    public const int SettlementLevelCooldown = 2;  // 升级冷却 ticks（防跳级抖动；须 < 最小时限阈值 3）
+    // 随身池（Tribe.Stocks 新语义 2026-08-19：正式存储迁聚落，部落只剩随身）——
+    //   容量沿用原游群档（游群即随身；定居部落也随身基础量——行囊/工具/日粮）
+    public const float CarryFoodCap = 0.06f;   // 随身食物容量（×P）
+    public const float CarryMatCap = 0.02f;    // 随身材料容量（×P）
+    public const float SettleFoodCap = 0.5f;   // 粮仓食物容量（×P，无等级；×levelMult 后）
+    public const float SettleMatCap = 0.2f;    // 粮仓材料容量（×P，无等级；×levelMult 后）
 
     // ── 商品副产率（2026-08-09：生产方式副产品；2026-08-18 阶段3 并入 CommodityTable 存储体系）──
     public const float LeatherRate = 0.10f;   // 狩猎产出 → 皮革（★ 标定）
     public const float WoolRate = 0.15f;      // 畜牧产出 → 羊毛（★ 标定）
     public const float StrawRate = 0.05f;     // 农业产出 → 秸秆（★ 标定）
     public const float HerdMult = 2.0f;       // 畜牧单位土地产出倍率（"少许土地产生食物"；★ 标定）
+
+    // ── 贸易机制（2026-08-18 阶段3 贸易期物物交换；docs/阶段3设计-贸易机制.md）──
+    public const float TradeRate = 0.1f;        // 接触对/tick 交换比例（人均库存差的 10%——低频集市语义，物物交换非每日；★ 待校准）
+    public const float TradeDistanceRate = 0.5f; // 运输成本：边界格距 d → ×(1/(1+0.5d))（接触对 d=1 → ×0.667；黑曜石随距衰减史实）
+    public const float TradeMinGap = 0.01f;     // 人均差 < 0.01 不换（防噪声抖动——需求匹配不足）
+    public const float TradeFoodFloor = 0.05f;  // 食物出口保底：出口后人均 Food ≥ 5%×P（≈5 年存粮——饥荒最后防线，防贸易拆粮仓；
+                                                //   2026-08-18 用户拍板"Food+Material 全开放"配保底；当前 TradeRate 下为防御性不触发）
     public const float MigrateThreshold = 0.75f;      // 饱和迁徙阈值（格 P_格/F_格）
     public const float MigrateShare = 0.5f;           // 饱和迁徙分出比例
     public const float ScoutChance = 0.02f;           // 探路迁徙概率/tick
@@ -126,6 +182,8 @@ public sealed class CivSimContext
     public const float LaborFracFarm = 0.2f;          // 农田劳动力需求（2026-08-17 凹化+等边际：农业劳动密集 ~2×采集——Sahlins 每周 40h+；非同构参数使等边际分配有区分度）
     public const float TargetMedianDensity = 0.1f;    // k 标定锚：陆地 R 中位数 ≈ 0.1 人/km²（2026-08 史实标定：前农业时代狩猎采集密度 0.1人/km²；原 0.3 为史实3倍→领地受压挤、部落聚居）
     public const float AssimilateRate = 0.03f;        // 格级同化速率（文化/宗教；2026-08-07 0.3→0.1→0.03：同化放缓 → 弱文化/新派别有存活窗口）
+    public const float CultureSpreadRate = 0.05f;     // 相邻部落文化横向传播速率/tick（2026-08-19 修复死代码：同语言群异文化接触转移；
+                                                      //   旧 Axelrod 门槛把唯一有效组合挡死 → 文化永不混合 → 地图大片单色；★ 待校准——慢：弱文化有存活窗口）
     public const float ReligionSpreadRate = 0.02f;    // 宗教传播速率/tick/接触（只向高阶）
     public const float ReligionUpgradeRate = 0.05f;   // 泛灵→萨满升级速率/tick
     public const float CultureDriftChance = 0.05f;    // 分裂时新文化群/派别概率（5%；2026-08-07 0.5%→1%→2%→5%：分化加强 → 区域多样性）
@@ -541,6 +599,40 @@ public sealed class CivSimContext
         if (TerritoryDists == null) EnsureTerritory();
         if (e.Id >= TerritoryDists.Length) EnsureTerritoryCapacity(e.Id + 256);
         return TerritoryDists[e.Id];
+    }
+
+    /// <summary>两部落领地**最小边界格距**（格步数近似：大圆 km ÷ 胞边长；不相接触返回 int.MaxValue）。
+    /// 确定性：固定遍历序（领地格列表序 × 邻格表序）。贸易运输成本用（黑曜石随距衰减史实）。</summary>
+    public static int BoundaryDist(CivSimContext ctx, Tribe a, Tribe b)
+    {
+        var terrA = ctx.TerritoryOf(a);
+        var terrB = ctx.TerritoryOf(b);
+        if (terrA == null || terrB == null || terrA.Count == 0 || terrB.Count == 0) return int.MaxValue;
+        float cellKm = Mathf.Sqrt(ctx.Grid.CellAreaKm2);
+        if (cellKm <= 0f) return 1;
+        int best = int.MaxValue;
+        foreach (var ca in terrA)
+            foreach (var cb in terrB)
+            {
+                int d = Mathf.Max(1, (int)Mathf.Round(ctx.Grid.DistKm(ca, cb) / cellKm));
+                if (d < best) best = d;
+            }
+        return best;
+    }
+
+    /// <summary>领地边界接触（边界格距 == 1：A 领地格有**邻格**属 B 领地——直接邻接）。
+    /// ⚠️ 2026-08-18 共享判定：酋邦凝聚（ChiefdomModel）与贸易（TradeModel）同用——防"两套实现分叉"
+    ///   （T04 类缺陷根治惯例）。确定性：固定遍历序；HashSet 仅做 Contains 查询（遍历序无关）。</summary>
+    public static bool TerritoryTouches(CivSimContext ctx, Tribe a, Tribe b)
+    {
+        var terrA = ctx.TerritoryOf(a);
+        var terrB = ctx.TerritoryOf(b);
+        if (terrA == null || terrB == null || terrA.Count == 0 || terrB.Count == 0) return false;
+        var setB = new HashSet<int>(terrB);
+        foreach (var c in terrA)
+            foreach (int nb in ctx.Grid.Neighbors[c])
+                if (setB.Contains(nb)) return true;
+        return false;
     }
 
     /// <summary>惰性确保领地索引数组存在（构造场景/读档路径可能未初始化）。</summary>

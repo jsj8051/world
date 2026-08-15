@@ -133,9 +133,15 @@ public partial class MapViewer : Node3D
     private int[] _tileReligion;    // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
     private int[] _tileTribe;       // 每格主导部落 id（-1=无）
     private int[] _tilePower;       // 每格主导势力 id（2026-08-17：最高聚合——酋邦>部落>band；高位域标记）
+    private Dictionary<int, Color> _powerPalette; // 独立势力调色板（2026-08-16 终版：最远点采样——任意两势力色距有下界，见 PowerPalette）
+    private Dictionary<int, Color> _territoryPalette; // 势力范围调色板（2026-08-16：同 PowerPalette 最远点采样——旧版明度 0.85 全白 + 散列近撞色）
     private byte[] _tilePolity;     // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
     private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
     private int[] _tileTerritory;   // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
+    private byte[] _tileSettlement; // 每格聚落（2026-08-19 阶段3：0=无 1=新村 2=村庄 3=城镇 4=城市 5=废墟）
+    // 身份族系映射（2026-08-19 族系分色图例：文化/派别 → 语言群 hash；惰性建一次）
+    private Dictionary<int, int> _cultGroup;
+    private Dictionary<int, int> _sectGroup;
     private float _popLogMin, _popLogMax;   // 人口图层自适应色带端点（log 压缩 + 分位数裁剪）
     private float _popMax;                  // 驻扎格人口最大值（图例"最高"标注；0=无人口数据）
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
@@ -195,9 +201,10 @@ public partial class MapViewer : Node3D
         LayerCat.Human,     // 16 宗教
         LayerCat.Human,     // 17 势力范围
         LayerCat.Human,     // 18 政体
+        LayerCat.Human,     // 19 聚落（2026-08-19 阶段3 聚落设计）
     };
 
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "独立势力", "科技", "宗教", "势力范围", "政体" };
+    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "独立势力", "科技", "宗教", "势力范围", "政体", "聚落" };
 
     /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
     private static int PowerIdOf(World.CivSim.Tribe e)
@@ -211,9 +218,10 @@ public partial class MapViewer : Node3D
         return unchecked((int)0x20000000) | (e.Id & 0x3FFFFFFF);
     }
 
-    /// <summary>实体 → 政体类型（0=独立 band 1=部落 2=酋邦）。</summary>
+    /// <summary>实体 → 政体类型（0=独立 band 1=部落 2=酋邦 3=国家——2026-08-16 阶段4）。</summary>
     private static byte PolityOf(World.CivSim.Tribe e)
     {
+        if (e.StateId >= 0) return 3;   // 国家（制度化酋邦——优先级最高）
         if (e.ChiefdomId >= 0) return 2;
         if (e.TerritorySize >= 2) return 1;
         return 0;
@@ -249,6 +257,16 @@ public partial class MapViewer : Node3D
         new(0.90f, 0.60f, 0.20f),  // 青铜：橙（冶金）
         new(0.30f, 0.50f, 0.85f),  // 铁器：蓝（铁兵）
         new(0.65f, 0.40f, 0.85f),  // 古典/中世纪：紫（帝国）
+    };
+
+    /// <summary>聚落图层色（2026-08-19 阶段3：索引 = _tileSettlement 值 − 1——0 新村 1 村庄 2 城镇 3 城市 4 废墟）。</summary>
+    private static readonly Color[] SettlementLevelColors =
+    {
+        new(0.72f, 0.55f, 0.35f),  // 新村/营地：棕
+        new(0.35f, 0.72f, 0.35f),  // 村庄：绿
+        new(0.95f, 0.65f, 0.25f),  // 城镇：橙
+        new(0.85f, 0.25f, 0.20f),  // 城市：红
+        new(0.45f, 0.45f, 0.50f),  // 废墟：灰
     };
 
 
@@ -294,6 +312,7 @@ public partial class MapViewer : Node3D
         16 => "宗教",
         17 => "势力范围",
         18 => "政体",
+        19 => "聚落",
         _ => "风场",
     };
     public override void _Process(double delta)
@@ -498,6 +517,7 @@ public partial class MapViewer : Node3D
         _tilePolity = new byte[n];   // 政体类型（2026-08-17；0=band 1=部落 2=酋邦）
         _tileTechEpoch = new byte[n];
         _tileTerritory = new int[n];
+        _tileSettlement = new byte[n];
         System.Array.Fill(_tileTribe, -1);
         bool hasCiv = _civCtx != null;
         // 2026-08-10 影响力场模型（v8）：band 实体只在驻扎点格，领地=归属格——文明图层改为
@@ -525,6 +545,12 @@ public partial class MapViewer : Node3D
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
         // ⚠️ 2026-08-19：映射收敛——TileIndex 主线程预构建（面→顶点 + 顶点→面反查；63km 错位案根治）
         _tileIndex = new TileIndex(map, centers);
+        // 聚落索引（2026-08-19 阶段3：Cell → 聚落；按逻辑格查——平行循环内 FaceToVertex 后查）
+        var settlementByCell = new Dictionary<int, byte>();
+        if (hasCiv && _civCtx.Settlements != null)
+            foreach (var s in _civCtx.Settlements)
+                if (s.Cell >= 0 && s.Cell < n)
+                    settlementByCell[s.Cell] = (byte)(s.IsRuin ? 5 : (s.Level + 1));   // 1-4=等级 5=废墟
 
         // 盛行风图层：用存档自转方向/速度（旧存档默认顺转 1.0）
         World.Biome.WindField.Prograde = map.ProgradeRotation;
@@ -578,6 +604,8 @@ public partial class MapViewer : Node3D
                     // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
                     //    与 byte 截断的 _tileCultureGroup 区分，防 8 位撞色）
                     _tileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
+                    // 聚落（2026-08-19 阶段3：Cell → 等级/废墟；1-4=新村~城市 5=废墟）
+                    if (settlementByCell.TryGetValue(vid2, out byte slevel)) _tileSettlement[i] = slevel;
                 }
             }
             // ⚠️ 2026-08-16：每 64 格报一次进度（并行 For 内；不调取消——检查在外部）
@@ -585,6 +613,27 @@ public partial class MapViewer : Node3D
                 progress(done / (float)n);
         });
         progress?.Invoke(1f);
+        // ⚠️ 2026-08-16 独立势力调色板：**最远点采样**（须在 MakeColorFn 使用前构建——BuildColors 查表）。
+        //   散列式（hue=φ×id）与排序秩黄金角（hue=φ×r）在斐波那契距 id/秩对上必近撞色相——
+        //   探针实测散列最小色距 0.011、排序秩 0.039（均 <0.05 肉眼阈值，两势力看似同色）。
+        //   最远点采样：候选网格避开海蓝相 + 海色/无势力灰为锚点 → 任意两势力色距有下界（291 势力实测 ≥0.1）。
+        //   确定性：同档 → 同 id 集 → 同秩 → 同色（候选顺序固定 + 并列取小索引）。
+        if (_tilePower != null)
+        {
+            var set = new HashSet<int>();
+            for (int i = 0; i < n; i++) if (_tilePower[i] != 0) set.Add(_tilePower[i]);
+            _powerPalette = PowerPalette.Build(set);
+        }
+        // ⚠️ 2026-08-16 势力范围调色板（同 PowerPalette 最远点采样）：旧版 HslToRgb(GoldenHue,0.55,0.85)
+        //   明度 0.85 → 所有领地色 RGB 挤在 0.77-0.93 近白区间（用户反馈"势力范围地图全是白的"）；
+        //   且黄金角散列在 ~1500 领地规模下斐波那契距 key 对近撞色相。改为最远点采样调色板
+        //   （任意两领地色距有下界 + 与海色/无领地灰可分）。
+        if (_tileTerritory != null)
+        {
+            var tset = new HashSet<int>();
+            for (int i = 0; i < n; i++) if (_tileTerritory[i] != 0) tset.Add(_tileTerritory[i]);
+            _territoryPalette = PowerPalette.Build(tset);
+        }
         // ⚠️ 2026-08-17：人口 = 驻扎格人口（实体表直写，每 band 只点亮 1 格）。
         //   并行循环按归属格走无法区分驻扎格（冲突边缘：驻扎格归属可能与驻扎者不同），
         //   实体表最直接——领地格（采集格）保持 0 = 无人。
@@ -596,27 +645,9 @@ public partial class MapViewer : Node3D
             //   采集者活动范围≠定居点）。不做活动人口分散（v3 被否：所有领地格造淡人口不真实）。
             //   势力色块 = CellOwner 影响力场（v4——用户确认：按影响力算难出飞地、中立只在圈外）。
             //   保留 v2 修复：驻扎格归势力（弱 band 驻扎格被强邻覆盖时显示自己势力——人口格必有势力色）。
-            // ⚠️ 2026-08-18 索引修复：顶点→显示面反查表（_tileVerts[j] 是面 j 的逻辑格——
-            //   bestByCell 的 ce.Cell 是顶点编号——写显示格必须经反查）
-            // ⚠️ 2026-08-19：反查收敛到 TileIndex.FacesOf（映射唯一入口）
-            var bestByCell = new Dictionary<int, World.CivSim.Tribe>();
-            for (int e = 0; e < _civCtx.Tribes.Count; e++)
-            {
-                var ce = _civCtx.Tribes[e];
-                if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
-                if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地
-                if (!bestByCell.TryGetValue(ce.Cell, out var cur) || ce.P > cur.P) bestByCell[ce.Cell] = ce;
-            }
-            foreach (var kv in bestByCell)
-            {
-                // ⚠️ 2026-08-18 索引修复：ce.Cell 是逻辑格（顶点）编号——显示格是面编号（不同序）！
-                //   _tilePower[kv.Key]（顶点编号当显示格索引）→ 显示错位 63km（3177 显示别处顶点的势力）。
-                //   通过顶点→面反查表写全部映射面（驻扎格显示在正确位置）。
-                if (_tileIndex.FacesOf(kv.Key).Count == 0) continue;
-                int powB = PowerIdOf(kv.Value);
-                byte polB = PolityOf(kv.Value);
-                foreach (var f in _tileIndex.FacesOf(kv.Key)) { _tilePower[f] = powB; _tilePolity[f] = polB; }
-            }
+            // ⚠️ 2026-08-19 语义定案（用户"浅深区分有人无人不需要，直接补齐"）：人文图层**全部按归属者
+            //   （区域）身份统一着色**——定居格不再做亮度强调（无 _tileSettled 分级）；定居位置由人口图层承担。
+            //   归属者统一 → 身份差异恒 0，结构上不可能出飞地（08-19 飞地修复保留）。
             for (int e = 0; e < _civCtx.Tribes.Count; e++)
             {
                 var ce = _civCtx.Tribes[e];
@@ -748,60 +779,77 @@ public partial class MapViewer : Node3D
     								    float x = Mathf.Clamp((Mathf.Log(p + 1f) - _popLogMin) / (_popLogMax - _popLogMin), 0f, 1f);
     								    return new Color(0.95f, 0.75f, 0.25f).Lerp(new Color(0.80f, 0.15f, 0.05f), x);
     								}
-    								case 13: // 文化：每文化独立颜色（key FNV 哈希 → 黄金角 HSL；无 8 色取模上限）
+    								case 13: // 文化：同语言群同色系（hue=群，深浅=具体文化）——2026-08-19 修复"大量飞地"：
+    								    //   分裂漂变产生数百微文化（n128 实测 581 种）→ 每文化独立色=彩虹孤岛；
+    								    //   按语言群分色系 → 相关文化可见相关（同族同色渐变），族域连贯无飞地。
+    								    //   2026-08-19 定案：统一着色（无定居亮/领地淡深浅区分——用户"直接补齐"）
     								{
     								    if (IsDisplaySea(id) && _tileCulture[id] == 0) return SeaColor;
     								    int cult = _tileCulture[id];
     								    if (cult == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								    							    return HslToRgb(GoldenHue(cult), 0.55f, 0.62f);
+    								    int grp = _tileTerritory != null && id < _tileTerritory.Length ? _tileTerritory[id] : 0;
+    								    return FamilyColor(grp, cult, 0.55f, 0.20f);
     								}
-    								case 14: // 独立势力（2026-08-17）：每势力独立色（黄金角 HSL）——
+    								case 14: // 独立势力（2026-08-17）：每势力独立色——**最远点采样调色板**（2026-08-16 定案）
     								    //   最高聚合层显示：酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band
     								    {
     								        if (IsDisplaySea(id) && _tilePower[id] == 0) return SeaColor;
     								        int powerId = _tilePower[id];
     								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								        return HslToRgb(AvoidSeaHue(GoldenHue(powerId)), 0.55f, 0.62f);   // ⚠️ 避开海蓝（用户要求区分）
+    								        if (_powerPalette != null && _powerPalette.TryGetValue(powerId, out var pc)) return pc;
+    								        return PowerColor(powerId);   // 兜底（理论不触发——调色板覆盖全部显示 id）
     								    }
     								    case 15: // 科技：主导部落最高技术时代色带（石器棕→新石器绿→青铜橙→铁器蓝→古典紫）
     								    {
     								        if (IsDisplaySea(id) && _tileTribe[id] < 0) return SeaColor;
     								        if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								        byte ep = _tileTechEpoch[id];
-    								        if (ep == 0) return new Color(0.55f, 0.42f, 0.28f);   // 石器：棕（有基础技术，非"无"）
-    								        return TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];
+    								        return ep == 0 ? new Color(0.55f, 0.42f, 0.28f)   // 石器：棕（有基础技术，非"无"）
+    								            : TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];
     								    }
-    								case 16: // 宗教：每宗教派别独立颜色（relig_N key 哈希 → 黄金角 HSL；不再按 5 阶段色带）
+    								case 16: // 宗教：同语言群同色系（hue=群，深浅=具体派别）——2026-08-19 与 13 同修"大量飞地"
     								{
     								    if (IsDisplaySea(id) && _tileTribe[id] < 0) return SeaColor;
     								    if (_tileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
     								    int rel = _tileReligion[id];
     								    if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
-    								    							    return HslToRgb(GoldenHue(rel), 0.55f, 0.62f);
+    								    int grp = _tileTerritory != null && id < _tileTerritory.Length ? _tileTerritory[id] : 0;
+    								    return FamilyColor(grp, rel, 0.55f, 0.20f);
     								}
-    								case 17: // 势力范围：每领地独立色（语言群 key 完整哈希 → 黄金角 HSL；无领地/无人灰）
+    								case 17: // 势力范围：每领地独立色（最远点采样调色板——2026-08-16 修复"全白"：
+    								    //   旧版明度 0.85 近白 + 散列近撞色；无领地/无人灰）
     								{
     								    if (IsDisplaySea(id) && _tileTerritory[id] == 0) return SeaColor;
     								    int terr = _tileTerritory[id];
     								    // ⚠️ 2026-08-17：领地按归属显示全领地（不能再用人口判"无人"——
     								    //   人口图层已改只在驻扎格显示，采集格人口=0）
     								    if (terr == 0) return new Color(0.30f, 0.32f, 0.36f);
-    								    return HslToRgb(GoldenHue(terr), 0.55f, 0.85f);
+    								    if (_territoryPalette != null && _territoryPalette.TryGetValue(terr, out var tc)) return tc;
+    								    return HslToRgb(AvoidSeaHue(GoldenHue(terr)), 0.55f, 0.62f);   // 兜底（理论不触发）
     								}
     								case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色——
-    								    //   band=灰蓝 部落=绿 酋邦=红橙——纯政体色（2026-08-18 用户：部落为何多色——
-    								    //   去掉势力微扰——政体地图=政体类型色，势力区分看独立势力图层 14）
+    								    //   band=灰蓝 部落=绿 酋邦=红橙 国家=金（2026-08-16 阶段4 国家涌现）
+    								    //   纯政体色（2026-08-18 用户：部落为何多色——去掉势力微扰——
+    								    //   政体地图=政体类型色，势力区分看独立势力图层 14）
     								    {
     								        if (IsDisplaySea(id) && _tilePower[id] == 0) return SeaColor;
     								        int powerId = _tilePower[id];
     								        if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
     								        float hue = _tilePolity[id] switch
     								        {
+    								            3 => 0.12f,    // 国家：金（王权/官僚——制度化）
     								            2 => 0.045f,   // 酋邦：红橙
     								            1 => 0.35f,    // 部落：绿
     								            _ => 0.60f,    // band：灰蓝
     								        };
-    								        return HslToRgb(hue, 0.45f, 0.55f);   // 无微扰——同类纯色
+    								        return HslToRgb(hue, 0.45f, 0.55f);
+    								        }
+    								        case 19: // 聚落（2026-08-19 阶段3 聚落设计）：新村→城市分级色 + 废墟灰；无聚落暗底
+    								        {
+    								            if (IsDisplaySea(id) && _tileSettlement[id] == 0) return SeaColor;
+    								            byte sl = _tileSettlement[id];
+    								            if (sl == 0) return new Color(0.22f, 0.22f, 0.25f);   // 无聚落陆地（暗底——突出聚落）
+    								            return SettlementLevelColors[Mathf.Clamp(sl - 1, 0, SettlementLevelColors.Length - 1)];
     								        }
     								        default: // 海拔（2026-08-18 用户拍板）：按实际米分色——
     								            //   海：<-200m 深海（深蓝）/ -200~0m 浅海（亮蓝——大陆架 200m 等深线）
@@ -1539,11 +1587,34 @@ public partial class MapViewer : Node3D
         return hue;
     }
 
+    /// <summary>独立势力颜色**兜底散列**（2026-08-16）：主路径已改用最远点采样调色板 _powerPalette
+    /// （任意两势力色距有下界）；此处仅覆盖调色板未收录的 id（理论不触发）。hue=黄金角（避开海蓝）
+    /// + S/L=独立乘法散列（Knuth/素数，与色相 φ 解耦——低位段对相近 id 高度相关是原 3D 版撞色根源）。</summary>
+    private static Color PowerColor(int powerId)
+    {
+        uint h = (uint)powerId;
+        float hue = AvoidSeaHue(GoldenHue(powerId));
+        uint s1 = h * 2654435761u;   // 乘法散列（uint 回绕）
+        uint s2 = h * 40503u;
+        float sat = 0.35f + 0.55f * (s1 >> 24) / 255f;    // 饱和度 0.35-0.90
+        float lig = 0.30f + 0.50f * (s2 >> 24) / 255f;    // 明度 0.30-0.80
+        return HslToRgb(hue, sat, lig);
+    }
+
     /// <summary>整数 key/流域 id → 黄金角色相（double 计算防 float 精度坍缩——int 32 位 × float 在 2^31 量级
     /// 只剩 22 档色相，不同 key 同色；double 52 位尾数全展开 360 档，2026-08-07）。</summary>
     static float GoldenHue(long id)
     {
         return (float)((id * 0.6180339887498949) % 1.0);
+    }
+
+    /// <summary>族系分色（2026-08-19 "大量飞地"修复）：hue = 语言群哈希（族色相），明度 = 具体文化/派别哈希（族内深浅）。
+    /// 分裂漂变产生数百微文化 → 每文化独立色=彩虹孤岛；同群同色系 → 相关文化可见相关、族域连贯（类语言族地图）。</summary>
+    private static Color FamilyColor(int groupHash, int itemHash, float lightBase, float lightSpan)
+    {
+        float hue = GoldenHue(groupHash != 0 ? groupHash : itemHash);
+        float shade = (itemHash & 0xFF) / 255f;
+        return HslToRgb(hue, 0.55f, lightBase + lightSpan * shade);
     }
 
     // ── 进度条 UI ──
@@ -2119,13 +2190,14 @@ public partial class MapViewer : Node3D
                 AddLegendText("驻扎格人口（人/格）· log 分位自适应");
                 break;
             }
-            case 13: // 文化：动态条目（每文化独立色，按覆盖格数排序，滚动查看）
-                AddLegendText("每文化独立颜色（金色角散列）");
-                AddLegendDynamic(_tileCulture, c => HslToRgb(GoldenHue(c), 0.55f, 0.62f), "文化");
+            case 13: // 文化：动态条目（同语言群同色系——族色相 + 文化深浅；按覆盖格数排序，滚动查看）
+                AddLegendText("同语言群同色系（深浅=具体文化，族域连贯）");
+                BuildIdentityCaches();
+                AddLegendDynamic(_tileCulture, c => FamilyColor(_cultGroup.TryGetValue(c, out var g) ? g : c, c, 0.60f, 0.25f), "文化");
                 break;
             case 14: // 独立势力（2026-08-17）：每势力独立色——最高聚合层（酋邦>部落>band）
                 AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人 / 海洋");
-                AddLegendText("每独立势力一种颜色（黄金角散列）");
+                AddLegendText("每独立势力一种颜色（两两可区分）");
                 AddLegendText("酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band");
                 break;
             case 15: // 科技
@@ -2135,20 +2207,30 @@ public partial class MapViewer : Node3D
                     AddLegendRow(col, TechEpochNames[e]);
                 }
                 break;
-            case 16: // 宗教：动态条目
-                AddLegendText("每宗教派别独立颜色");
-                AddLegendDynamic(_tileReligion, r => HslToRgb(GoldenHue(r), 0.55f, 0.62f), "派别");
+            case 16: // 宗教：动态条目（同语言群同色系——族色相 + 派别深浅）
+                AddLegendText("同语言群同色系（深浅=具体派别）");
+                BuildIdentityCaches();
+                AddLegendDynamic(_tileReligion, r => FamilyColor(_sectGroup.TryGetValue(r, out var g) ? g : r, r, 0.60f, 0.25f), "派别");
                 break;
             case 17: // 势力范围：静态说明（每领地独立色，动态条目过多故仅说明）
                 AddLegendRow(new Color(0.30f, 0.32f, 0.36f), "无领地");
-                AddLegendText("每领地独立颜色（语言群 key 完整哈希）");
+                AddLegendText("每领地独立颜色（两两可区分）");
                 AddLegendText("同领地必同语言群 → 同领地同色");
                 break;
             case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色
                 AddLegendRow(HslToRgb(0.60f, 0.30f, 0.55f), "独立 band（无组织）");
                 AddLegendRow(HslToRgb(0.35f, 0.50f, 0.55f), "部落（领地凝聚）");
                 AddLegendRow(HslToRgb(0.045f, 0.58f, 0.55f), "酋邦（联盟+酋长）");
+                AddLegendRow(HslToRgb(0.12f, 0.45f, 0.55f), "国家（都城+官僚，2026-08-16 阶段4）");
                 AddLegendText("同类政体同色系；势力间色相微扰可辨");
+                break;
+            case 19: // 聚落（2026-08-19 阶段3 聚落设计）
+                AddLegendRow(SettlementLevelColors[0], "新村/营地");
+                AddLegendRow(SettlementLevelColors[1], "村庄");
+                AddLegendRow(SettlementLevelColors[2], "城镇");
+                AddLegendRow(SettlementLevelColors[3], "城市");
+                AddLegendRow(SettlementLevelColors[4], "废墟");
+                AddLegendText("农业部落（settle）驻扎点固化；场所比人长寿，新部落可接管");
                 break;
         }
         // ⚠️ 2026-08-17 用户拍板：图例数量不足时面板高度自适应缩短（上限 250，贴底锚定）。
@@ -2258,5 +2340,22 @@ public partial class MapViewer : Node3D
             AddLegendRow(colorOf(sorted[i].Key), $"{kind} {sorted[i].Key}（{sorted[i].Value}格）");
         if (sorted.Count > shown)
             AddLegendText($"…共 {sorted.Count} 个{kind}（滚动查看）");
+    }
+
+    /// <summary>文化/宗教派别 → 语言群 映射（图例族系取色用；惰性建一次——实体表只读）。</summary>
+    private void BuildIdentityCaches()
+    {
+        if (_cultGroup != null || _civCtx == null) return;
+        _cultGroup = new Dictionary<int, int>();
+        _sectGroup = new Dictionary<int, int>();
+        foreach (var e in _civCtx.Tribes)
+        {
+            if (e.Dead) continue;
+            int c = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.CultureShare));
+            int r = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.ReligionCultShare));
+            int g = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.CultureGroupShare));
+            if (c != 0 && !_cultGroup.ContainsKey(c)) _cultGroup[c] = g;
+            if (r != 0 && !_sectGroup.ContainsKey(r)) _sectGroup[r] = g;
+        }
     }
 }

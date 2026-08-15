@@ -61,12 +61,24 @@ public class Tribe
     public int ChiefdomId = -1;       // 酋邦 id = 分量内最小部落 id（跨部落政治整合；-1=无）
     public int ChiefdomSize = 1;      // 酋邦内部落数（≥2 = 正式酋邦）
 
+    // ── 国家层（2026-08-16 阶段4 国家涌现，docs/阶段4设计-国家涌现.md）──
+    // 纯派生（不存档，同 ChiefdomId 模式）：从酋邦+聚落+贡赋等已入档持久字段确定性重建。
+    // 国家 = 酋邦的制度化（官僚/税制/继承规则/强制力垄断），无规模阈值——性质跃迁非体积达标。
+    public int StateId = -1;          // 所属国家 id = 至尊酋长 Id（-1=非国家；StateModel 重建）
+    public int StateSize = 1;         // 国家内部落数（≥2 = 正式国家；StateModel 重建）
+
     // ── 能力位图缓存（CapabilityTable.MaskOf；RefreshCellState 每 tick；不存档——从科技/状态确定性重算）──
     public uint CapMask;
 
-    // ── 商品库存（2026-08-18 阶段3：动态商品目录 CommodityTable——所有可存储商品统一存储/衰变；
-    //   入档 .cmp v12——每实体 N×float；旧 v7 Goods[3]（皮革/羊毛/秸秆）迁移并入）──
-    public float[] Stocks = CommodityTable.NewStocks();   // 索引 = CommodityTable.Index(id)；Food 类被人口消耗
+    // ── 商品随身池（2026-08-18 阶段3：动态商品目录 CommodityTable；2026-08-19 聚落设计改语义）──
+    //   ⚠️ v12 存档字段 Stocks 保留同名但语义改为**随身携带**（容量 CarryFoodCap/CarryMatCap×P——
+    //   游群即随身；定居部落也随身基础量）。**正式存储（粮仓）迁到聚落实体**（Settlement.Stocks，
+    //   用户拍板"存粮迁移到聚落"）——人走粮留。旧 v12 档 Stocks 读入 = 随身池。
+    public float[] Stocks = CommodityTable.NewStocks();   // 随身池（索引 = CommodityTable.Index(id)；Food 类被人口消耗）
+
+    // ── 聚落关联（2026-08-19 阶段3 聚落设计；v13 入档）──
+    public int SettledSince = -1;   // 当前农业定居起点 tick（-1=游动中/未定居；迁徙重置）；v12 旧档默认 -1
+    public int PlaceId = -1;        // 占据聚落 Id（-1=无）；SettlementModel 形成/接管时赋值
 
     // ── 生产方式 F 分量（派生缓存：RefreshCellState 每 tick；不存档——货物分解用）──
     public float FHuntLast, FHerdLast, FFarmLast;   // 各方式当 tick 产出

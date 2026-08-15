@@ -50,6 +50,10 @@ public static class CivArchiveSchema
         new("Prestige", 10, (f, e) => f.StoreFloat(e.Prestige), (f, e) => { e.Prestige = f.GetFloat(); return true; }),
         new("Contributed", 10, (f, e) => f.StoreFloat(e.Contributed), (f, e) => { e.Contributed = f.GetFloat(); return true; }),
         new("SuccessionUntil", 10, (f, e) => f.Store32((uint)e.SuccessionUntil), (f, e) => { e.SuccessionUntil = (int)f.Get32(); return true; }),
+        // v13 聚落关联（2026-08-19 阶段3 聚落设计）：定居起点 + 占据聚落 Id——v12 旧档默认 -1（无聚落）
+        //   -1 按 uint 全 1 存储（同 LastMigrateTick 惯例——(int) 读回还原 -1）
+        new("SettledSince", 13, (f, e) => f.Store32((uint)e.SettledSince), (f, e) => { e.SettledSince = (int)f.Get32(); return true; }),
+        new("PlaceId", 13, (f, e) => f.Store32((uint)e.PlaceId), (f, e) => { e.PlaceId = (int)f.Get32(); return true; }),
     };
 
     /// <summary>反射校验：清单字段名必须在 Tribe 上真实存在（防字段改名/删除后清单过期静默失效）。</summary>

@@ -177,16 +177,16 @@ public static class CivEngine
         }
     }
 
-    /// <summary>副作用累积：商品存储 tick 步进（2026-08-18 阶段3 存储/衰变机制）。
+    /// <summary>副作用累积：商品存储 tick 步进（2026-08-18 阶段3 存储/衰变机制；2026-08-19 聚落双池改造）。
     /// **每 tick 仅一次**（演化循环内），绝不在 SettleDerived 边界重算调用（否则双倍消耗 → 分叉）。
-    /// 职责（与 GrowthModel 分工）：
-    ///   · Material 商品（皮革/羊毛/秸秆）：流入（上 tick FLast 副产）+ 衰变 + 容量——囤积备贸易；
-    ///   · Food 商品（谷物/浆果/肉）：**流入/消耗由 GrowthModel 管**（缺口/盈余 + 优先吃易腐——
-    ///     耐储者留底），本方法只做**衰变 + 容量**（上 tick Stocks 基础上）。
+    /// 双池（用户拍板"存粮迁移到聚落"）：
+    ///   · **随身池**（Tribe.Stocks，v12 字段语义改）：衰变用**基础年率**（携带即自然损耗——存储科技不保护
+    ///     随身物）；Material 流入的**溢余**；容量 CarryFoodCap/CarryMatCap×P（游群即随身）。
+    ///   · **粮仓**（Settlement.Stocks，v13）：衰变用 techMult（storage/pottery/settle/grinding 分层保藏——
+    ///     谷物耐储核心）；Material 流入**优先入仓**；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×Level)。
+    ///   Food 流入/消耗由 GrowthModel 管（缺口吃随身→粮仓，耐储者留底）；本方法只做衰变+流入+容量。
     /// 单位 Stocks = 人当量（与 FLast/P 同量纲）。衰变按年率折算 tick：
-    ///   decayTick = 1 − (1 − BaseDecay×techMult)^TickYears（年衰变史实锚点 → 100 年聚合）。
-    /// 容量：settle 主仓（Food 合计 ≤0.5×P≈50 年）/附仓（Material ≤0.2×P 每类）；
-    /// 无 settle 随身（Food 0.06×P / Material 0.02×P）——游群随取随食无囤积。</summary>
+    ///   decayTick = 1 − (1 − BaseDecay×techMult)^TickYears（年衰变史实锚点 → 100 年聚合）。</summary>
     public static void AccumulateStorage(CivSimContext ctx)
     {
         for (int i = 0; i < ctx.Tribes.Count; i++)
@@ -194,24 +194,56 @@ public static class CivEngine
             var e = ctx.Tribes[i];
             if (e.Dead || e.P <= 0f) continue;
             if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
+            var s = ctx.SettlementOf(e);   // 粮仓（定居部落）；null = 游群
+            if (s != null && (s.Stocks == null || s.Stocks.Length != CommodityTable.Count)) s.Stocks = CommodityTable.NewStocks();
             bool hasStorage = CapabilityTable.Has(ctx, e, "storage");
             bool hasPottery = CapabilityTable.Has(ctx, e, "pottery");
             bool hasSettle = CapabilityTable.Has(ctx, e, "settle");
             bool hasGrind = CapabilityTable.Has(ctx, e, "grinding");
             float techMult = !hasStorage ? 1f : (!hasPottery ? 0.6f : (!hasSettle ? 0.3f : 0.15f));
             if (hasGrind) techMult *= 0.7f;   // 加工态（磨盘去壳/鞣制）提升耐久
-            float foodCap = hasSettle ? 0.5f * e.P : 0.06f * e.P;
-            float matCap = hasSettle ? 0.2f * e.P : 0.02f * e.P;
-            for (int s = 0; s < e.Stocks.Length; s++)
+            // ── 衰变（随身基础年率 / 粮仓 ×techMult）──
+            for (int k = 0; k < e.Stocks.Length; k++)
             {
-                var def = CommodityTable.All[s];
-                float decayTick = 1f - Mathf.Pow(1f - def.BaseDecay * techMult, CivSimContext.TickYears);
-                float inflow = def.Kind == CommodityKind.Material ? def.Produce(e) : 0f;   // 副产囤积（上 tick FLast）
-                float stock = (e.Stocks[s] + inflow) * (1f - decayTick);
-                float cap = def.Kind == CommodityKind.Food ? foodCap : matCap;
-                if (stock > cap) stock = cap;
-                if (stock < 0f) stock = 0f;
-                e.Stocks[s] = stock;
+                var def = CommodityTable.All[k];
+                float carryDecay = 1f - Mathf.Pow(1f - def.BaseDecay, CivSimContext.TickYears);
+                e.Stocks[k] *= (1f - carryDecay);
+                if (s != null)
+                {
+                    float granDecay = 1f - Mathf.Pow(1f - def.BaseDecay * techMult, CivSimContext.TickYears);
+                    s.Stocks[k] *= (1f - granDecay);
+                }
+            }
+            // ── Material 流入（副产囤积：粮仓优先 → 随身溢余）──
+            for (int k = 0; k < e.Stocks.Length; k++)
+            {
+                var def = CommodityTable.All[k];
+                if (def.Kind != CommodityKind.Material) continue;
+                float inflow = def.Produce(e);
+                if (inflow <= 0f) continue;
+                if (s != null)
+                {
+                    float granCap = CivSimContext.SettleMatCap * (1f + CivSimContext.SettlementStoragePerLevel * s.Level) * e.P;
+                    float toGran = Mathf.Min(inflow, Mathf.Max(0f, granCap - s.Stocks[k]));
+                    s.Stocks[k] += toGran;
+                    inflow -= toGran;
+                }
+                e.Stocks[k] += Mathf.Min(inflow, Mathf.Max(0f, CivSimContext.CarryMatCap * e.P - e.Stocks[k]));
+            }
+            // ── 容量兜底（随身/粮仓统一 clamp——贸易接收可能超限，下 tick 归位）──
+            for (int k = 0; k < e.Stocks.Length; k++)
+            {
+                var def = CommodityTable.All[k];
+                float carryCap = def.Kind == CommodityKind.Food ? CivSimContext.CarryFoodCap * e.P : CivSimContext.CarryMatCap * e.P;
+                if (e.Stocks[k] > carryCap) e.Stocks[k] = carryCap;
+                if (e.Stocks[k] < 0f) e.Stocks[k] = 0f;
+                if (s != null)
+                {
+                    float granCap = (def.Kind == CommodityKind.Food ? CivSimContext.SettleFoodCap : CivSimContext.SettleMatCap)
+                                  * (1f + CivSimContext.SettlementStoragePerLevel * s.Level) * e.P;
+                    if (s.Stocks[k] > granCap) s.Stocks[k] = granCap;
+                    if (s.Stocks[k] < 0f) s.Stocks[k] = 0f;
+                }
             }
         }
     }
@@ -273,6 +305,7 @@ public static class CivEngine
     ///   ③b DeriveLeadership：IsBigMan/IsChief（供④酋邦凝聚条件）
     ///   ④ TerritoryModel.Rebuild：TerritoryId/Size（供⑤酋邦聚合）
     ///   ⑤ ChiefdomModel.Rebuild：ChiefdomId/Size（读 TerritoryId + F 分量 + IsChief/IsBigMan）
+    ///   ⑤b StateModel.Rebuild：StateId/StateSize（读 ChiefdomCells + 聚落 + Contributed——纯派生不存档）
     ///   ⑥ RefreshCellStateF：CellF 聚合（供读档续跑首 tick 的 Invention 压力门）
     /// </summary>
     public static void SettleDerived(CivSimContext ctx)
@@ -284,6 +317,7 @@ public static class CivEngine
             if (!ctx.Tribes[i].Dead) DeriveLeadership(ctx.Tribes[i]);
         TerritoryModel.Rebuild(ctx);                     // ④
         ChiefdomModel.Rebuild(ctx);                      // ⑤
+        StateModel.Rebuild(ctx);                         // ⑤b 国家（读 ⑤ 的 ChiefdomCells——须在其后）
         RefreshCellStateF(ctx);                          // ⑥
     }
 }

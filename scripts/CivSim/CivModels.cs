@@ -50,12 +50,15 @@ public sealed class CivModelRegistry
             .Register(new ModeModel())
             .Register(new InventionModel())
             .Register(new SpreadModel())
+            .Register(new TradeModel())      // 物物交换（Order 55，2026-08-18 阶段3 贸易期——Spread 与 Culture 之间）
             .Register(new CultureModel())
             .Register(new ReligionModel())
             .Register(new TerritoryModel())     // 领地凝聚（Order 45，2026-08-17 注册修复：此前从未注册进演化——
                                                 //   TerritoryId/Size 全 -1 → 科技传播领地加成失效 + 酋邦永不凝聚）
             .Register(new ChiefdomModel())      // 酋邦凝聚（Order 46，2026-08-17 酋邦层）
             .Register(new AbsorptionModel())    // 吞并（Order 47，2026-08-17 用户拍板：驻扎格被覆盖→并入/迁走）
+            .Register(new SettlementModel())    // 聚落（Order 48，2026-08-19 阶段3 聚落设计——场所实体）
+            .Register(new StateModel())         // 国家涌现（Order 49，2026-08-16 阶段4——酋邦制度化，docs/阶段4设计-国家涌现.md）
             .Register(new ConflictModel())      // 边境冲突（Order 75，2026-08-10）：粘性僵局暴力出口
             .Register(new SplitMigrateModel());
     }
@@ -294,16 +297,18 @@ public sealed class GrowthModel : CivModelBase
             if (e.Dead) continue;
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
             // ⚠️ 2026-08-18 阶段3 存储机制：有效粮食 = 当年产出 + Food 存储缓冲（AccumulateStorage 已做衰变/容量）。
-            //   缺口（FLast<P）：从 Food Stocks 扣，**优先吃易腐（高衰变：浆果/肉），耐储者（谷物）留底**——
+            //   缺口（FLast<P）：从 Food 存储扣，**优先吃易腐（高衰变：浆果/肉），耐储者（谷物）留底**——
             //   这是"特定食物耐储"的机制意义（谷物是饥荒最后防线，新石器革命核心）。
-            //   盈余（FLast>P）：按容量入仓（settle 主仓 0.5×P / 随身 0.06×P）。
-            //   饥荒 = 连续歉年吃空存粮 → 缺口扩大 → 饿死（非硬标志）。替换旧无状态 relief。
+            //   盈余（FLast>P）：按容量入仓（随身 0.06×P → 粮仓 0.5×P×等级倍率）。
+            //   饥荒 = 连续歉年吃空存粮 → 缺口扩大 → 饿死（非硬标志）。
+            //   ⚠️ 2026-08-19 聚落双池：缺口**先吃随身、再吃粮仓**（粮仓=耐储最后防线——人先耗行囊）；
+            //   盈余**随身先满、粮仓后收**（正式存储归聚落，用户拍板）。
+            var st = ctx.SettlementOf(e);   // 粮仓（定居部落；null=游群——随身即全部）
             if (e.Stocks != null && e.Stocks.Length == CommodityTable.Count)
             {
                 if (f < e.P)
                 {
                     float deficit = e.P - f;
-                    // 优先消耗高衰变 Food（易腐先吃），最后 grain（耐储留底）
                     var foodIdx = FoodIdxByDecayDesc();
                     foreach (int s in foodIdx)
                     {
@@ -312,22 +317,41 @@ public sealed class GrowthModel : CivModelBase
                         e.Stocks[s] -= take;
                         deficit -= take;
                     }
+                    if (st != null)
+                    {
+                        foreach (int s in foodIdx)
+                        {
+                            if (deficit <= 0f) break;
+                            float take = Mathf.Min(deficit, st.Stocks[s]);
+                            st.Stocks[s] -= take;
+                            deficit -= take;
+                        }
+                    }
                     f += e.P - f - deficit;   // 存储补足缺口（不足则 f 仍 < P）
                 }
                 else if (f > e.P)
                 {
-                    // 盈余入仓（仅谷物——其余食物易腐存不住，直接消费；谷物是唯一长期囤积粮）
+                    // 盈余入仓：随身谷物（cap CarryFoodCap）→ 粮仓谷物（cap SettleFoodCap×等级倍率）
                     int gi = CommodityTable.Index(CommodityTable.Grain);
                     float surplus = f - e.P;
-                    float cap = CapabilityTable.Has(ctx, e, "settle") ? 0.5f * e.P : 0.06f * e.P;
-                    float room = Mathf.Max(0f, cap - e.Stocks[gi]);
-                    e.Stocks[gi] += Mathf.Min(surplus, room);
+                    float carryRoom = Mathf.Max(0f, CivSimContext.CarryFoodCap * e.P - e.Stocks[gi]);
+                    float toCarry = Mathf.Min(surplus, carryRoom);
+                    e.Stocks[gi] += toCarry;
+                    surplus -= toCarry;
+                    if (st != null && surplus > 0f)
+                    {
+                        float granCap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * st.Level) * e.P;
+                        st.Stocks[gi] += Mathf.Min(surplus, Mathf.Max(0f, granCap - st.Stocks[gi]));
+                    }
                 }
             }
             if (f <= 0f) continue;
             // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
             float rEff = r;
             if (CapabilityTable.Has(ctx, e, "settle")) rEff *= CivSimContext.SettleGrowthMult;   // 1.5
+            // ⚠️ 2026-08-19 聚落城市化集聚：占据高等级聚落 → 增长加成（城镇 ×1.25、城市 ×1.5——集聚收益）
+            if (st != null && st.Level > 0)
+                rEff *= 1f + CivSimContext.SettlementGrowthPerLevel * st.Level;
             float factor = Mathf.Exp(rEff * (1f - e.P / f));
             // 酋邦再分配互惠（2026-08-17：Halstead-O'Shea 1989 坏年景开仓——贡献过才受赈）：
             //   成员 band 曾交贡赋（Contributed>0）→ 灾年缺口 ×0.5（酋长开仓）；未贡献不受赈
@@ -639,15 +663,37 @@ public sealed class ConflictModel : CivModelBase
             // ⚠️ 2026-08-17 酋邦军事整合（Kirch 1984）：
             //   ① 同酋邦冲突概率 ×0.5（酋长仲裁——非消除，pax 不存在）
             //   ② 继承窗口内 ×2（权力真空 → 继承战争，Polynesia 常态）
-            float conflictChance = CivSimContext.ConflictChance;
-            bool sameChiefdom = ec.ChiefdomId >= 0 && ec.ChiefdomId == eo.ChiefdomId;
-            if (sameChiefdom) conflictChance *= CivSimContext.InternalConflictMult;
-            bool succession = ec.SuccessionUntil > ctx.Tick || eo.SuccessionUntil > ctx.Tick;
-            if (succession) conflictChance *= CivSimContext.SuccessionConflictMult;
+            // ⚠️ 2026-08-16 阶段4 国家（docs/阶段4设计-国家涌现.md §2.4）：
+            //   ① 内部秩序：同国家冲突概率 ×0.25（StateInternalConflictMult——Weber 强制力垄断）
+            //   ② 继承制度化：国家成员间继承窗口 ×2 豁免（王朝——制度化缓和继承战争，非消除；
+            //      StateModel Order 49 在 Conflict 75 前已重建 StateId → 读当前值无分叉）
+            float conflictChance = ConflictChanceOf(ctx, ec, eo);
             if (ctx.Rng.NextDouble() >= conflictChance) continue;
             ResolveConflict(ctx, ec, eo, c);
             if (++conflictsThisTick >= 3) return;   // 单 tick 最多 3 场（性能/爆炸防护）
         }
+    }
+
+    /// <summary>冲突触发概率（2026-08-16 提取为纯函数——T67 继承制度化直接断言，避免 0.01 概率采样噪声）。
+    /// 基础 ConflictChance × 政体整合倍率 × 继承窗口倍率：
+    ///   同国家：×0.25（内部秩序，Weber 强制力垄断）+ 继承窗口 ×2 豁免（王朝制度化——同国不内战）；
+    ///   同酋邦：×0.5（酋长仲裁）+ 继承窗口 ×2（权力真空 → 继承战争，Kirch）；
+    ///   跨邦：×1 + 窗口 ×2。</summary>
+    internal static float ConflictChanceOf(CivSimContext ctx, Tribe a, Tribe b)
+    {
+        float chance = CivSimContext.ConflictChance;
+        bool sameChiefdom = a.ChiefdomId >= 0 && a.ChiefdomId == b.ChiefdomId;
+        if (sameChiefdom)
+        {
+            bool sameState = a.StateId >= 0 && a.StateId == b.StateId;
+            chance *= sameState
+                ? CivSimContext.StateInternalConflictMult
+                : CivSimContext.InternalConflictMult;
+        }
+        bool succession = a.SuccessionUntil > ctx.Tick || b.SuccessionUntil > ctx.Tick;
+        bool stateSuccessionExempt = a.StateId >= 0 && a.StateId == b.StateId;   // 同国家 → 王朝豁免 ×2
+        if (succession && !stateSuccessionExempt) chance *= CivSimContext.SuccessionConflictMult;
+        return chance;
     }
 
     internal static void ResolveConflict(CivSimContext ctx, Tribe challenger, Tribe owner, int cell)
@@ -721,6 +767,112 @@ public sealed class ConflictModel : CivModelBase
 }
 
 // ══════════════════════════════════════════════════════════════════
+// ⑳ 物物交换（Order 55，2026-08-18 阶段3 贸易期；docs/阶段3设计-贸易机制.md）：
+//    Material 商品的**出口**——互通有无，为专业化/文明整合铺路。
+//    触发：领地边界接触（TerritoryTouches 共享判定，同酋邦凝聚——用户拍板"接触即互通"）。
+//    商品流（比较优势）：逐商品比**人均库存**（Stocks[i]/P——相对丰缺）——
+//      你多我少才换（无货币 → 无单向贸易，双重巧合需求）；交换量 = TradeRate×人均差×min(P)×距离折减。
+//    距离折减：边界格距 d → ×(1/(1+0.5d))（接触对 d=1 → ×0.667；黑曜石随距衰减史实）。
+//    食物保底：Food 出口后出口方人均 ≥ TradeFoodFloor×P（5 年存粮——饥荒最后防线）。
+//    确定性：无 Rng、固定对序（部落表序 i<j）、顺序应用、纯 Stocks 转移（v12 已入档）——
+//      读档续跑无分叉（T04 保证）；SettleDerived 不碰（副作用同 AccumulateStorage 层语义）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class TradeModel : CivModelBase
+{
+    public override string Name => "物物交换";
+    public override int Order => 55;
+
+    public override void Execute(CivSimContext ctx)
+    {
+        // 空间预过滤：领地 = 驻扎点影响圈 R 内格——两领地可能接触仅当驻扎点距 ≤ 2R+1 格
+        // （确定性：纯几何；把 O(对²×领地格) 降为 O(对²) 距离检查——全量演化性能防线）
+        float reachKm = (2 * CivSimContext.InfluenceRadius + 1) * Mathf.Sqrt(ctx.Grid.CellAreaKm2);
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var a = ctx.Tribes[i];
+            if (a.Dead || a.P <= 0f) continue;
+            EnsureStocks(a);
+            for (int j = i + 1; j < ctx.Tribes.Count; j++)
+            {
+                var b = ctx.Tribes[j];
+                if (b.Dead || b.P <= 0f) continue;
+                EnsureStocks(b);
+                if (ctx.Grid.DistKm(a.Cell, b.Cell) > reachKm) continue;   // 远隔两地无接触可能
+                if (!CivSimContext.TerritoryTouches(ctx, a, b)) continue;   // 领地边界接触（同酋邦判定）
+                int d = CivSimContext.BoundaryDist(ctx, a, b);
+                float mult = 1f / (1f + CivSimContext.TradeDistanceRate * d);   // 运输成本（接触对 d=1 → ×0.667）
+                if (mult <= 0f) continue;
+                Exchange(ctx, a, b, mult);
+            }
+        }
+    }
+
+    /// <summary>部落商品池 = 随身 + 占据聚落粮仓（2026-08-19 双池：正式存储归聚落——贸易互通含其仓）。</summary>
+    private static float PoolOf(CivSimContext ctx, Tribe e, int s)
+    {
+        float v = e.Stocks != null && s < e.Stocks.Length ? e.Stocks[s] : 0f;
+        var st = ctx.SettlementOf(e);
+        if (st != null && st.Stocks != null && s < st.Stocks.Length) v += st.Stocks[s];
+        return v;
+    }
+
+    /// <summary>逐商品等量交换（固定商品序 = 目录序，确定性；跨商品天然成对——A 出 X、B 出 Y 即双重巧合）。</summary>
+    private static void Exchange(CivSimContext ctx, Tribe a, Tribe b, float mult)
+    {
+        for (int s = 0; s < CommodityTable.Count; s++)
+        {
+            float gap = PoolOf(ctx, a, s) / a.P - PoolOf(ctx, b, s) / b.P;   // A 人均 − B 人均（正 = A 盈余）
+            if (Mathf.Abs(gap) < CivSimContext.TradeMinGap) continue;   // 需求匹配不足（无货币 → 无单向贸易）
+            float amount = Mathf.Abs(gap) * CivSimContext.TradeRate * Mathf.Min(a.P, b.P) * mult;
+            if (amount <= 0f) continue;
+            if (gap > 0f) Transfer(ctx, a, b, s, amount);
+            else Transfer(ctx, b, a, s, amount);
+        }
+    }
+
+    /// <summary>单商品转移 from → to（等量守恒；食物出口保底——出口后总池人均不低于 TradeFoodFloor×P；
+    /// 出方：粮仓先出（卖存粮）→ 随身后出；入方：粮仓先收（定居）→ 随身（游群）。
+    /// 演化级统计：TradeEvents/TradeVolume 累计——2026-08-19 贸易量级观测）。</summary>
+    private static void Transfer(CivSimContext ctx, Tribe from, Tribe to, int s, float amount)
+    {
+        var def = CommodityTable.All[s];
+        if (def.Kind == CommodityKind.Food)
+            amount = Mathf.Min(amount, Mathf.Max(0f, PoolOf(ctx, from, s) - CivSimContext.TradeFoodFloor * from.P));   // 保底（5 年存粮）
+        amount = Mathf.Min(amount, PoolOf(ctx, from, s));
+        if (amount <= 0f) return;
+        // 出方：粮仓先出 → 随身后出
+        float moved = 0f;
+        var fs = ctx.SettlementOf(from);
+        if (fs != null && fs.Stocks != null && s < fs.Stocks.Length && fs.Stocks[s] > 0f)
+        {
+            float take = Mathf.Min(amount, fs.Stocks[s]);
+            fs.Stocks[s] -= take;
+            moved += take;
+        }
+        if (amount - moved > 0f)
+        {
+            float take = Mathf.Min(amount - moved, from.Stocks[s]);
+            from.Stocks[s] -= take;
+            moved += take;
+        }
+        if (moved <= 0f) return;
+        // 入方：粮仓先收（定居）→ 随身（游群；不查上限——AccumulateStorage 下 tick clamp）
+        var ts = ctx.SettlementOf(to);
+        if (ts != null && ts.Stocks != null && s < ts.Stocks.Length)
+            ts.Stocks[s] += moved;
+        else
+            to.Stocks[s] += moved;
+        ctx.TradeVolume += moved;
+        ctx.TradeEvents++;
+    }
+
+    private static void EnsureStocks(Tribe e)
+    {
+        if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // ⑦ 文化互动（Order 60）：格级聚合-演化-分摊（不分部落，用户拍板）+ 相邻格 Axelrod。
 //    同化：主导 x' = x + 0.3(1−x)；文化群：Abrams-Strogatz 竞争（慢）。
 // ══════════════════════════════════════════════════════════════════
@@ -732,6 +884,12 @@ public sealed class CultureModel : CivModelBase
     public override void Execute(CivSimContext ctx)
     {
         // ── 相邻格：Axelrod 相似度互动（一格一实体：无同格聚合，只做邻格互动）──
+        // ⚠️ 2026-08-19 修复（死代码）：旧版 sim = 同文化0.5+同群0.5，门槛 sim<=0.5 continue + rate=sim−0.5——
+        //   唯一有传播意义的组合（同语言群、异文化）恰好 sim=0.5 被门槛挡死且 rate=0 → 文化永不混合
+        //   （实测 60 tick 零传播）→ 单一 lineage 靠分裂无限扩张 → 地图大片单色。
+        //   新语义（Axelrod）：**同语言群、异文化**的相邻部落互动（语言群=沟通能力——同群能交流才传文化，
+        //   异群保持边界分界）；弱方（P 小）主导文化向强方主导文化转移（速率 CultureSpreadRate×BorderCost）。
+        //   同文化对跳过（无转移语义——旧版同 key 自转移还瞬态污染份额场：次席重复 key）。
         for (int i = 0; i < ctx.Grid.N; i++)
         {
             var a = ctx.CellTribes[i];
@@ -741,18 +899,21 @@ public sealed class CultureModel : CivModelBase
                 if (nb <= i) continue;
                 var b = ctx.CellTribes[nb];
                 if (b == null || b.Dead) continue;
-                float sim = (ShareField.DomKey(a.CultureShare) == ShareField.DomKey(b.CultureShare) ? 0.5f : 0f)
-                          + (ShareField.DomKey(a.CultureGroupShare) == ShareField.DomKey(b.CultureGroupShare) ? 0.5f : 0f);
-                if (sim <= 0.5f) continue;   // Axelrod：不相似不互动（保持差异）
-                float rate = sim - 0.5f;
-                // 闭塞区域：跨格文化转移 ×= BorderCost（障碍区文化交流弱 → 边界处文化差异保持）
+                string domA = ShareField.DomKey(a.CultureShare);
+                string domB = ShareField.DomKey(b.CultureShare);
+                if (domA == null || domB == null || domA == domB) continue;   // 无文化/已同 → 无转移
+                string grpA = ShareField.DomKey(a.CultureGroupShare);
+                string grpB = ShareField.DomKey(b.CultureGroupShare);
+                if (grpA == null || grpB == null || grpA != grpB) continue;   // 异语言群不传（边界文化分界）
                 float cost = ctx.BorderCost(i, nb, a.TechKeys);
-                if (cost <= 0f) continue;
-                rate *= cost;
+                if (cost <= 0f) continue;   // 闭塞区域：跨格文化转移 ×= BorderCost（障碍区交流弱 → 边界差异保持）
                 var strong = a.P >= b.P ? a : b;
                 var weak = strong == a ? b : a;
-                int amt = (int)MathF.Round(rate * 255f);
-                ShareField.Shift(weak.CultureShare, ShareField.DomKey(weak.CultureShare), ShareField.DomKey(strong.CultureShare), amt);
+                string strongDom = ShareField.DomKey(strong.CultureShare);
+                string weakDom = ShareField.DomKey(weak.CultureShare);
+                int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.CultureSpreadRate * cost);
+                if (amt <= 0) continue;
+                ShareField.Shift(weak.CultureShare, weakDom, strongDom, amt);   // 弱方文化向强方文化转移
             }
         }
     }
@@ -841,10 +1002,28 @@ public sealed class ReligionModel : CivModelBase
                 if (cost <= 0f) continue;
                 SpreadReligion(ctx, a, b, cost);
                 SpreadReligion(ctx, b, a, cost);
+                // ⚠️ 2026-08-19 修复：宗教图层显示 relig_N **派别**——旧版只传 5 段（泛灵→…），
+                //   派别只靠分裂继承 → 不横向混合 → 大片单色（与文化传播同根因）。派别随接触转移
+                //   （弱方派别向强方派别转移，速率同 5 段传播 ReligionSpreadRate×BorderCost）。
+                SpreadSect(ctx, a, b, cost);
             }
         }
 
         // ── 一格一实体：格级宗教同化已无意义（单部落/格），删除——宗教仅靠实体级升级 + 邻格传播
+    }
+
+    /// <summary>宗教派别（relig_N）横向传播：相邻部落弱方（P 小）派别向强方派别转移。
+    /// 无 Rng、固定遍历序 + P 比较 → 确定性（读档续跑无分叉）。</summary>
+    private static void SpreadSect(CivSimContext ctx, Tribe a, Tribe b, float border)
+    {
+        var strong = a.P >= b.P ? a : b;
+        var weak = strong == a ? b : a;
+        string strongSect = ShareField.DomKey(strong.ReligionCultShare);
+        string weakSect = ShareField.DomKey(weak.ReligionCultShare);
+        if (strongSect == null || weakSect == null || strongSect == weakSect) return;   // 无派别/已同 → 无转移
+        int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionSpreadRate * border);
+        if (amt <= 0) return;
+        ShareField.Shift(weak.ReligionCultShare, weakSect, strongSect, amt);
     }
 
     /// <summary>宗教传播：高阶实体主导宗教份额流向低阶实体（只向更高阶段）。</summary>
@@ -1092,12 +1271,15 @@ public sealed class PrestigeModel : CivModelBase
             // ⚠️ 2026-08-18 阶段3：领袖标记走共享派生函数（与 SettleDerived 同式）——无两套实现分叉
             CivEngine.DeriveLeadership(e);
             // 贡赋流入（互惠记录——Earle 实物税）：成员盈余 → 酋邦贡赋累计
+            // ⚠️ 2026-08-16 阶段4 税制化：国家成员税率 ×2（StateTributeRate）——税 vs 互惠贡赋
+            //   （滞后 1 tick 读 StateId：SettleDerived 重建值 ≡ 演化末值 → 读档续跑无分叉，T04）
             if (e.ChiefdomId >= 0 && surplus > 0f)
-                e.Contributed += surplus * CivSimContext.TributeRate;
+                e.Contributed += surplus * (e.StateId >= 0 ? CivSimContext.StateTributeRate : CivSimContext.TributeRate);
             // 精英供养（等级结构）：酋长 band 非生产者（祭司/战士/亲信）由酋邦贡赋供养
+            // ⚠️ 2026-08-16 阶段4 官僚化：国家酋长精英比例 ×2.5（StateEliteFrac）——官僚体系更庞大
             if (e.IsChief && e.P > 0f)
             {
-                float elite = e.P * CivSimContext.EliteFrac;
+                float elite = e.P * (e.StateId >= 0 ? CivSimContext.StateEliteFrac : CivSimContext.EliteFrac);
                 float pool = TributePool(ctx, e);
                 if (pool >= elite)
                     ConsumeTribute(ctx, e, elite);
@@ -1155,7 +1337,18 @@ public sealed class ChiefdomModel : CivModelBase
         Rebuild(ctx);
     }
 
-    /// <summary>确定性重建酋邦（凝聚/解散/继承窗口/成员表）。
+    /// <summary>确定性重建酋邦（庇护/解散/继承窗口/成员表）。
+    /// ⚠️ 2026-08-19 重构（用户拍板"合理机制衬托"，反对硬上限）：**至尊酋长庇护（patronage）**——
+    ///   旧版领地级并查集"任一方有酋长即合并"→ 语言领地内酋长遍地 → 3000+ band 超级酋邦
+    ///   （n128 实测 3 个 350 万人口酋邦——史实不存在，酋邦上限数万）。
+    ///   新机制：酋邦 = 至尊酋长的个人贡赋-再分配圈（Sahlins 个人化权力 / Earle 再分配半径 /
+    ///   Kirch 继承分裂）——规模从 ChiefReach 半径涌现，无任何硬性规模上限。
+    ///   ① 酋长 = 自己酋邦的中心（ChiefdomId = 自身 Id）；
+    ///   ② 非酋长 band 选 ChiefReach 内 Prestige 最高的酋长为庇护人（平局 → 较小 Id）；
+    ///   ③ 半径内无酋长 → 独立（-1）；同语言网络内多酋长 → 竞争的中小酋邦（语言族大 ≠ 政治统一，
+    ///      Walker & Hamilton 2010 班图/南岛扩张：社会复杂性低而语言多样性高）。
+    ///   ④ 继承窗口保留（酋长消亡 → 权力真空 → 继承竞争，Kirch；窗口内冲突 ×2——ConflictModel）。
+    ///   确定性：酋长按（Prestige 降序, Id 升序）遍历 + BFS 固定序（无 Rng）。
     /// ⚠️ 2026-08-17 设计修正（T50 暴露）：全量重算下"酋长死亡→不凝聚→解散"——继承窗口永无机会。
     ///   修正：① 旧酋邦快照检测危机（无酋长且未在危机 → 给 Prestige 最高者设窗口）
     ///   ② 危机成员（SuccessionUntil > Tick）豁免凝聚/解散条件（联盟在酋长死亡后存续，
@@ -1189,76 +1382,74 @@ public sealed class ChiefdomModel : CivModelBase
             }
         }
 
-        // ── 部落级聚合 ──
-        var tribes = new Dictionary<int, TribeAgg>();   // TerritoryId → 聚合
+        // ── ② 收集酋长（Prestige 降序 + Id 升序——确定性遍历序：先处理声望最高者）──
+        var chiefs = new List<Tribe>();
         for (int i = 0; i < ctx.Tribes.Count; i++)
         {
             var e = ctx.Tribes[i];
-            if (e.Dead || e.TerritoryId < 0) continue;
-            if (!tribes.TryGetValue(e.TerritoryId, out var agg)) agg = tribes[e.TerritoryId] = new TribeAgg();
-            agg.Members.Add(e);
+            if (e.Dead || !e.IsChief || e.Cell < 0 || e.Cell >= ctx.Grid.N) continue;
+            chiefs.Add(e);
         }
-        // 产出主导类型（猎/农/牧——互补判定用）
-        foreach (var kv in tribes)
+        chiefs.Sort((x, y) => y.Prestige != x.Prestige ? y.Prestige.CompareTo(x.Prestige) : x.Id.CompareTo(y.Id));
+
+        // ── ③ 庇护 BFS：每酋长在 ChiefReach 内宣告庇护（band 只认声望更高的酋长）──
+        //    Id 索引缓冲（Id 有空洞——NextTribeId 分配，勿用列表索引）
+        int bufLen = Math.Max(ctx.NextTribeId, ctx.Tribes.Count + 1);
+        var bestPrestige = new float[bufLen];
+        var bestChief = new int[bufLen];
+        System.Array.Fill(bestChief, -1);
+        foreach (var c in chiefs)
         {
-            float hunt = 0, farm = 0, herd = 0;
-            foreach (var m in kv.Value.Members)
+            ctx.BfsRadius(c.Cell, CivSimContext.ChiefReach, (cell, _) =>
             {
-                hunt += m.FHuntLast;
-                farm += m.FFarmLast;
-                herd += m.FHerdLast;
-                if (m.IsChief) kv.Value.HasChief = true;
-                if (m.SuccessionUntil > ctx.Tick) kv.Value.InCrisis = true;   // 继承危机豁免
-                if (m.IsBigMan && m.Prestige > kv.Value.MaxPrestige) kv.Value.MaxPrestige = m.Prestige;
-            }
-            kv.Value.DomOutput = hunt >= farm && hunt >= herd ? 0 : (farm >= herd ? 1 : 2);
+                var e = ctx.CellTribes[cell];
+                if (e == null || e.Dead || e.IsChief) return;   // 酋长不隶属（互相竞争）
+                if (e.Id >= bestPrestige.Length) return;
+                if (c.Prestige > bestPrestige[e.Id])   // 平局不覆盖（遍历序保证低 Id 先到）
+                {
+                    bestPrestige[e.Id] = c.Prestige;
+                    bestChief[e.Id] = c.Id;
+                }
+            }, landOnly: true);   // 庇护沿可居土地（不跨海）
         }
 
-        // ── 并查集（酋邦 = 分量内最小部落 id）──
-        var parent = new Dictionary<int, int>();
-        int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
-        void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) parent[ra] = rb; }
-        foreach (var tid in tribes.Keys) parent[tid] = tid;
-        var tribeIds = new List<int>(tribes.Keys);
-        tribeIds.Sort();
-        for (int a = 0; a < tribeIds.Count; a++)
-            for (int b = a + 1; b < tribeIds.Count; b++)
-            {
-                int ta = tribeIds[a], tb = tribeIds[b];
-                var aggA = tribes[ta]; var aggB = tribes[tb];
-                if (!aggA.HasChief && !aggB.HasChief && !aggA.InCrisis && !aggB.InCrisis) continue;   // ② 需酋长（或继承危机中——联盟存续）
-                if (aggA.DomOutput == aggB.DomOutput) continue;           // ③ 产出互补（主导类型不同）
-                if (!TribesTouch(ctx, aggA, aggB)) continue;              // ① 领地边界接触
-                Union(ta, tb);
-            }
-
-        // ── 填 ChiefdomId/Size + 解散判定（危机成员豁免解散）──
-        var comps = new Dictionary<int, List<int>>();   // 根 → 成员部落
-        foreach (var tid in tribeIds) { int r = Find(tid); if (!comps.TryGetValue(r, out var l)) comps[r] = l = new List<int>(); l.Add(tid); }
-        foreach (var kv in comps)
+        // ── ④ 分配 ChiefdomId/Size（酋长 = 自己中心；band = 最优庇护人）──
+        var memberCount = new Dictionary<int, int>();   // chiefId → 成员数（含酋长自己）
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var comp = kv.Value;
-            bool crisis = false;
-            foreach (var tid in comp)
-                if (tribes[tid].InCrisis) { crisis = true; break; }
-            if (comp.Count < CivSimContext.ChiefdomMinTribes && !crisis)
+            var e = ctx.Tribes[i];
+            if (e.Dead) continue;
+            if (e.SuccessionUntil > 0 && e.SuccessionUntil <= ctx.Tick) e.SuccessionUntil = -1;   // 窗口过期清除
+            if (e.TerritoryId < 0) { e.ChiefdomId = -1; e.ChiefdomSize = 1; continue; }   // 无领地不入邦
+            if (e.IsChief)
             {
-                // 解散：单部落（且非危机）→ ChiefdomId=-1（清除窗口）
-                foreach (var tid in comp)
-                    foreach (var m in tribes[tid].Members) { m.ChiefdomId = -1; m.ChiefdomSize = 1; m.SuccessionUntil = -1; }
+                e.ChiefdomId = e.Id;   // 酋长 = 自己酋邦的中心
+                memberCount[e.Id] = memberCount.TryGetValue(e.Id, out var n) ? n + 1 : 1;
                 continue;
             }
-            int chiefdomId = comp[0];   // 分量内最小部落 id（确定性标号）
-            foreach (var tid in comp)
-                foreach (var m in tribes[tid].Members)
-                {
-                    m.ChiefdomId = chiefdomId;
-                    m.ChiefdomSize = comp.Count;
-                    if (m.SuccessionUntil > 0 && m.SuccessionUntil <= ctx.Tick) m.SuccessionUntil = -1;   // 窗口过期清除
-                }
+            int pc = e.Id < bestChief.Length ? bestChief[e.Id] : -1;
+            if (pc < 0) { e.ChiefdomId = -1; e.ChiefdomSize = 1; continue; }   // 半径内无酋长 → 独立
+            e.ChiefdomId = pc;
+            memberCount[pc] = memberCount.TryGetValue(pc, out var m) ? m + 1 : 1;
         }
 
-        // ── ChiefdomCells 成员表（按酋邦 id；再分配/联盟/供养查询用）──
+        // ── ⑤ 解散：< ChiefdomMinTribes → -1（单人酋邦不成邦）──
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var e = ctx.Tribes[i];
+            if (e.Dead || e.ChiefdomId < 0) continue;
+            if (memberCount.TryGetValue(e.ChiefdomId, out var n) && n < CivSimContext.ChiefdomMinTribes)
+            {
+                e.ChiefdomId = -1;
+                e.ChiefdomSize = 1;
+            }
+            else if (memberCount.TryGetValue(e.ChiefdomId, out var m))
+            {
+                e.ChiefdomSize = m;
+            }
+        }
+
+        // ── ⑥ ChiefdomCells 成员表（按酋邦 id；再分配/联盟/供养查询用）──
         // ⚠️ 2026-08-17 索引体系修复：动态扩容（旧版固定 4096——ChiefdomId 超限直接 continue 丢成员）
         if (ctx.ChiefdomCells == null || ctx.ChiefdomCells.Length < 4096)
         {
@@ -1281,36 +1472,213 @@ public sealed class ChiefdomModel : CivModelBase
             ctx.ChiefdomCells[e.ChiefdomId].Add(e.Id);
         }
     }
+}
 
-    private sealed class TribeAgg
+// ══════════════════════════════════════════════════════════════════
+// ①j 聚落（Order 48，2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md）：
+//    物理场所实体——农业部落（settle）的驻扎点固化；场所比人长寿。
+//    形成：IsFarming 部落无聚落 → 所在格废墟接管（继承 Level）/新建（Level 0）；
+//    存续：部落迁徙/灭绝 → 聚落 OccupantId=-1（废墟——实体保留）；
+//    等级：Dwell（定居时长）× P 阈值纯函数（无 Rng，读档续跑无分叉）；都城（至尊酋长聚落）阈值减半；
+//    收益：存储容量 ×(1+0.5×Level)（AccumulateStorage）、增长 ×(1+0.25×Level)（GrowthModel）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class SettlementModel : CivModelBase
+{
+    public override string Name => "聚落";
+    public override int Order => 48;
+
+    public override void Execute(CivSimContext ctx)
     {
-        public readonly List<Tribe> Members = new();
-        public int DomOutput;      // 0=猎 1=农 2=牧（主导产出类型）
-        public bool HasChief;
-        public bool InCrisis;      // 继承危机中（SuccessionUntil > Tick——联盟存续豁免）
-        public float MaxPrestige;
+        // ① 占据同步：已死/迁走部落释放聚落（废墟——场所比人长寿）
+        for (int i = 0; i < ctx.Settlements.Count; i++)
+        {
+            var s = ctx.Settlements[i];
+            if (s.OccupantId < 0) continue;
+            var occ = FindTribe(ctx, s.OccupantId);
+            if (occ == null || occ.Dead || occ.Cell != s.Cell || occ.PlaceId != s.Id)
+            {
+                if (occ != null && !occ.Dead && occ.Cell != s.Cell)
+                {
+                    // 部落迁走：清其聚落关联（SettledSince 随迁徙重置——新址重新定居）
+                    occ.PlaceId = -1;
+                    occ.SettledSince = -1;
+                }
+                s.OccupantId = -1;
+                if (s.RuinFrom < 0) s.RuinFrom = ctx.Tick;
+            }
+        }
+        // ② 形成/接管：农业部落无聚落 → 建新村/接管废墟
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var e = ctx.Tribes[i];
+            if (e.Dead || !e.IsFarming || e.PlaceId >= 0) continue;
+            if (e.SettledSince < 0) e.SettledSince = ctx.Tick;   // 定居起点（转农/迁入当 tick）
+            Settlement reclaim = null;
+            for (int k = 0; k < ctx.Settlements.Count; k++)
+                if (ctx.Settlements[k].Cell == e.Cell && ctx.Settlements[k].IsRuin) { reclaim = ctx.Settlements[k]; break; }
+            if (reclaim != null)
+            {
+                // 接管废墟：继承 Level（场所比人长寿）；粮仓清空（新占据者从零开始）
+                reclaim.OccupantId = e.Id;
+                reclaim.DwellFrom = ctx.Tick;
+                reclaim.RuinFrom = -1;
+                System.Array.Clear(reclaim.Stocks, 0, reclaim.Stocks.Length);
+                e.PlaceId = reclaim.Id;
+            }
+            else
+            {
+                var s = new Settlement
+                {
+                    Id = ctx.NextSettlementId++,
+                    Cell = e.Cell,
+                    BornTick = ctx.Tick,
+                    Level = 0,
+                    LastLevelUpTick = ctx.Tick,
+                    DwellFrom = ctx.Tick,
+                    OccupantId = e.Id,
+                };
+                ctx.Settlements.Add(s);
+                e.PlaceId = s.Id;
+            }
+        }
+        // ③ 等级演化（Dwell×P 阈值 + 冷却；都城 = 至尊酋长聚落，阈值减半）
+        for (int i = 0; i < ctx.Settlements.Count; i++)
+        {
+            var s = ctx.Settlements[i];
+            if (s.OccupantId < 0) continue;
+            var occ = FindTribe(ctx, s.OccupantId);
+            if (occ == null || occ.Dead) continue;
+            if (ctx.Tick - s.LastLevelUpTick < CivSimContext.SettlementLevelCooldown) continue;
+            int dwell = ctx.Tick - s.DwellFrom;
+            bool capital = occ.IsChief && occ.ChiefdomId == occ.Id;   // 至尊酋长（自己酋邦中心）聚落 = 都城
+            int target = s.Level;
+            if (dwell >= CivSimContext.SettlementLevelTicks1 && occ.P >= (capital ? CivSimContext.SettlementPop1 / 2f : CivSimContext.SettlementPop1)) target = Math.Max(target, 1);
+            if (dwell >= CivSimContext.SettlementLevelTicks2 && occ.P >= (capital ? CivSimContext.SettlementPop2 / 2f : CivSimContext.SettlementPop2)) target = Math.Max(target, 2);
+            if (dwell >= CivSimContext.SettlementLevelTicks3 && occ.P >= (capital ? CivSimContext.SettlementPop3 / 2f : CivSimContext.SettlementPop3)) target = Math.Max(target, 3);
+            if (target > s.Level) { s.Level = target; s.LastLevelUpTick = ctx.Tick; }
+        }
     }
 
-    /// <summary>领地边界接触：A 的领地格有邻格属于 B 的领地格（格集从成员 TerritoryCells 并集）。</summary>
-    private static bool TribesTouch(CivSimContext ctx, TribeAgg a, TribeAgg b)
+    private static Tribe FindTribe(CivSimContext ctx, int id)
     {
-        var cellSetA = new HashSet<int>();
-        foreach (var m in a.Members)
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+            if (ctx.Tribes[i].Id == id && !ctx.Tribes[i].Dead) return ctx.Tribes[i];
+        return null;
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// ①k 国家涌现（Order 49，2026-08-16 阶段4；docs/阶段4设计-国家涌现.md；用户拍板 1A2A3A4A）：
+//    酋邦 → 国家 = **制度化**（无规模阈值——性质跃迁非体积达标）。
+//    涌现条件（AND，全部用已入档持久字段 → 纯派生不存档，读档续跑无分叉）：
+//      ① 都城：至尊酋长（ChiefdomId==Id 且 IsChief）占据聚落，Level ≥ StateCapitalLevel(2=城镇+)
+//      ② 决策层级：酋邦内 ≥2 个成员聚落，且存在 Level ≥ StateSubCenterLevel(1=村庄+) 的非都城聚落
+//      ③ 贡赋盈余：贡赋池（Σ 成员 Contributed）≥ 酋邦总人口 × StateTributePerCap
+//      ④ 存续：Tick − 都城.BornTick ≥ StateDwellTicks（都城实体存续——场所比人长寿）
+//    判定为同一条件（无滞回字段——聚落等级单调 + 存续单调 = 天然弱滞回；4A 对称可逆）。
+//    机制差异（接线点在 Prestige/Conflict——见设计文档 §2.4）：
+//      税制化（贡赋率×2）、官僚供养↑（精英比例 0.25）、内部秩序（冲突 ×0.25）、
+//      继承制度化（国家成员间继承窗口 ×2 豁免——ConflictModel 实现，晚于 StateModel 无分叉）。
+//    执行位置：Order 49（Chiefdom 46 之后——读最新 ChiefdomId/成员表；Conflict 75 之前——冲突豁免生效）。
+//    ⚠️ 滞后 1 tick：PrestigeModel(25) 读 StateId 是上一 tick 值——SettleDerived 重建值 ≡ 演化末写入值
+//      （同输入同公式）→ 读档续跑无分叉（T04 验证）。
+// ══════════════════════════════════════════════════════════════════
+public sealed class StateModel : CivModelBase
+{
+    public override string Name => "国家涌现";
+    public override int Order => 49;
+
+    public override void Execute(CivSimContext ctx) => Rebuild(ctx);
+
+    /// <summary>确定性重建国家（纯派生；读档入口 SettleDerived 同用——同一公式无分叉）。
+    /// ① 清空全部 StateId/StateSize；② 按酋邦（ChiefdomCells 成员表）判定涌现条件；
+    /// ③ 满足 → 全部成员 StateId = 酋长 Id、StateSize = 成员数。
+    /// ⚠️ 2026-08-16 性能（T18 暴露 309s 劣化）：每 tick 执行 → 必须 O(1) 索引——
+    ///   FindTribe 线性扫描 × 成员数 × 酋邦数 + SettlementOf 线性扫描 = 每 tick 上千万比较。
+    ///   修复：Id→Tribe 数组（同 ChiefdomModel 缓冲）+ PlaceId→Settlement 字典。</summary>
+    public static void Rebuild(CivSimContext ctx)
+    {
+        for (int i = 0; i < ctx.Tribes.Count; i++)
         {
-            var terr = ctx.TerritoryOf(m);
-            if (terr == null) continue;
-            foreach (var c in terr) cellSetA.Add(c);
+            ctx.Tribes[i].StateId = -1;
+            ctx.Tribes[i].StateSize = 1;
         }
-        var cellSetB = new HashSet<int>();
-        foreach (var m in b.Members)
+        if (ctx.ChiefdomCells == null) return;
+        // Id 索引（O(1) 取实体——StateModel 每 tick 跑，线性扫描是性能杀手）
+        int bufLen = Math.Max(ctx.NextTribeId, ctx.Tribes.Count + 1);
+        var byId = new Tribe[bufLen];
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+            if (!ctx.Tribes[i].Dead && ctx.Tribes[i].Id < bufLen) byId[ctx.Tribes[i].Id] = ctx.Tribes[i];
+        // 聚落索引：Settlement.Id → Settlement（O(1) 查询——SettlementOf 线性扫描 O(S) 同样致命）
+        var settleById = new Dictionary<int, Settlement>();
+        if (ctx.Settlements != null)
+            foreach (var s in ctx.Settlements)
+                settleById[s.Id] = s;
+        // 按酋邦遍历（ChiefdomId = 酋长 Id——ChiefdomModel.Rebuild ⑥ 已填成员表）
+        for (int chiefId = 0; chiefId < ctx.ChiefdomCells.Length; chiefId++)
         {
-            var terr = ctx.TerritoryOf(m);
-            if (terr == null) continue;
-            foreach (var c in terr) cellSetB.Add(c);
+            var members = ctx.ChiefdomCells[chiefId];
+            if (members == null || members.Count < CivSimContext.ChiefdomMinTribes) continue;
+            Tribe chief = chiefId < bufLen ? byId[chiefId] : null;
+            if (chief == null || chief.Dead || !chief.IsChief) continue;   // 无酋长 → 非国家（权力真空）
+            if (!IsState(ctx, chief, members, byId, settleById)) continue;
+
+            int size = members.Count;
+            for (int k = 0; k < members.Count; k++)
+            {
+                int mid = members[k];
+                if (mid >= bufLen) continue;
+                Tribe m = byId[mid];
+                if (m == null || m.Dead) continue;
+                m.StateId = chiefId;
+                m.StateSize = size;
+            }
         }
-        foreach (var c in cellSetA)
-            foreach (int nb in ctx.Grid.Neighbors[c])
-                if (cellSetB.Contains(nb)) return true;
-        return false;
+    }
+
+    /// <summary>国家涌现判定（AND 四条件；纯函数——全部输入已入档/派生）。</summary>
+    private static bool IsState(CivSimContext ctx, Tribe chief, List<int> members, Tribe[] byId, Dictionary<int, Settlement> settleById)
+    {
+        // ① 都城：酋长占据聚落（PlaceId → Settlement）
+        Settlement capital = chief.PlaceId >= 0 && settleById.TryGetValue(chief.PlaceId, out var c) ? c : null;
+        if (capital == null || capital.OccupantId != chief.Id) return false;
+        if (capital.Level < CivSimContext.StateCapitalLevel) return false;
+        // ④ 存续：都城实体存续时长（BornTick 单调——天然弱滞回）
+        if (ctx.Tick - capital.BornTick < CivSimContext.StateDwellTicks) return false;
+        // ② 决策层级：≥2 成员聚落 + 存在次级中心（非都城且 Level ≥ 阈值）
+        int memberSettlements = 0;
+        bool hasSubCenter = false;
+        for (int k = 0; k < members.Count; k++)
+        {
+            int mid = members[k];
+            if (mid >= byId.Length) continue;
+            Tribe m = byId[mid];
+            if (m == null || m.Dead) continue;
+            Settlement s = m.PlaceId >= 0 && settleById.TryGetValue(m.PlaceId, out var st) ? st : null;
+            if (s == null || s.OccupantId != m.Id) continue;
+            memberSettlements++;
+            if (s.Id != capital.Id && s.Level >= CivSimContext.StateSubCenterLevel) hasSubCenter = true;
+        }
+        if (memberSettlements < 2 || !hasSubCenter) return false;
+        // ③ 贡赋盈余：贡赋池 ≥ 酋邦总人口 × 线（剩余集中——Childe）
+        float pop = 0f, pool = 0f;
+        for (int k = 0; k < members.Count; k++)
+        {
+            int mid = members[k];
+            if (mid >= byId.Length) continue;
+            Tribe m = byId[mid];
+            if (m == null || m.Dead) continue;
+            pop += m.P;
+            pool += m.Contributed;
+        }
+        if (pop <= 0f) return false;
+        return pool >= pop * CivSimContext.StateTributePerCap;
+    }
+
+    private static Tribe FindTribe(CivSimContext ctx, int id)
+    {
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+            if (ctx.Tribes[i].Id == id && !ctx.Tribes[i].Dead) return ctx.Tribes[i];
+        return null;
     }
 }

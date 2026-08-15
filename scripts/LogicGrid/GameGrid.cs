@@ -166,6 +166,10 @@ public class GameGrid
     /// <summary>球面邻接表（确定性重建：桶内球面距离 &lt; 1.5×平均格距；与 MapData 同算法）。</summary>
     public int[][] Neighbors => _neighbors ??= BuildNeighbors();
 
+    /// <summary>测试钩子：覆盖邻接表（构造场景需精确图——如酋邦庇护的"真环"；BuildRing 放 XY 平面会进极区桶
+    /// → 邻接残缺不对称，BFS 跳数不可靠）。仅测试用；演化/显示路径永远走 BuildNeighbors 重建。</summary>
+    public void OverrideNeighbors(int[][] nb) => _neighbors = nb;
+
     /// <summary>海陆判定（elev &gt; 0 = 陆地，与生成器 land% 口径一致）。</summary>
     public bool[] IsLand => _isLand ??= BuildIsLand();
 
