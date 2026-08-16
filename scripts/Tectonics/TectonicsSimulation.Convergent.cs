@@ -138,9 +138,17 @@ namespace World.Tectonics
                     plate.Crust.FelsicVolcanic[i] = 0;
                 }
 
-                // 消减：腐蚀1层 & mask 内扩1层 & 密度>mantle → 从板移除（回地幔）
+                // 消减：被俯冲内部层 ∩ 板 mask 内边界层 & 密度>mantle → 从板移除（回地幔）
+                // ⚠️ 2026-08 测试发现并修复：原用 Margin(板mask) = mask **外扩**层（Dilate−mask），
+                //   与 willStay（被俯冲**内部**层）交集落在板外（那些格本板无地壳）→ 移除实为死路径，
+                //   高密度老洋壳（埋板前缘）永不消减、Accretion 恒 0（造山带闭环拿不到物质）。
+                //   修复：justInside 改用 mask **内**边界层（= mask − Erode(mask,1)：
+                //   mask 中与板外相邻的格——埋板前缘正在此处），让负浮力埋板边缘按设计消减。
                 var willStay = FieldOps.Erode(GlobalGrid, localSubducted, 1);
-                var justInside = FieldOps.Margin(GlobalGrid, plate.Mask, 1);   // 板内边界层
+                var erodedMask = FieldOps.Erode(GlobalGrid, plate.Mask, 1);
+                var justInside = new byte[LocalGridCount];
+                for (int li = 0; li < LocalGridCount; li++)
+                    justInside[li] = plate.Mask[li] == 1 && erodedMask[li] == 0 ? (byte)1 : (byte)0;
                 var density = plate.Crust.GetDensity(
                     plate.Crust.GetTotalMass(), plate.Crust.GetThickness(Material), Material.MaficVolcanicMin);
                 for (int i = 0; i < LocalGridCount; i++)
