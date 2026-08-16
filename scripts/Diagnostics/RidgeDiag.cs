@@ -8,7 +8,7 @@ namespace World.Diagnostics;
 /// 构造一个理想高斯山脊（沿经线方向延伸），测垂直/平行风向下的雨影强度。
 /// 物理期望：垂直风向 → 沿风向坡度大 → 强雨影；平行风向 → 坡度≈0 → 无雨影。
 /// </summary>
-public partial class RidgeDiag : Node
+public partial class RidgeDiag : DiagSceneBase
 {
     public override void _Ready()
     {

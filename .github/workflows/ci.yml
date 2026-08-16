@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test-format:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore & build
+        run: dotnet build world.csproj --configuration Debug
+
+      - name: Unit tests (NUnit)
+        run: dotnet test tests/World.Tests/World.Tests.csproj --configuration Debug --no-build
+
+      - name: Format check
+        run: dotnet format world.csproj --verify-no-changes --no-restore
+
+  # 说明：headless 回归（构造全流程/存档往返/全量 CivSim）由 scripts/verify.sh 承担，
+  # 需要 Godot mono 控制台可执行文件，本地跑（GODOT_EXE 环境变量指定）；CI 暂不下载引擎。
+  # 若以后需要 CI 冒烟，在此加一步下载官方 Godot mono 二进制并跑 verify.sh。

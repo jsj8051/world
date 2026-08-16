@@ -6,6 +6,7 @@ using World.CivSim;
 using World.Diagnostics;
 using World.LogicGrid;
 using World.MapView;
+using World.Services;
 
 namespace World.UI;
 
@@ -271,7 +272,7 @@ public partial class CivEvolveMenu : Control
     private void OnPlayPressed()
     {
         if (string.IsNullOrEmpty(_cmpOutPath)) return;
-        ViewerLauncher.PendingPath = _cmpOutPath;
+        EventBus.RequestMapView(_cmpOutPath);
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 }

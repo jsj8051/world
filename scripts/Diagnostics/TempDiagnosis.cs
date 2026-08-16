@@ -5,7 +5,7 @@ using World.Biome;
 namespace World.Diagnostics;
 
 /// <summary>温度图诊断：导出等距柱状温度图 + 打印极寒色值。</summary>
-public partial class TempDiagnosis : Node
+public partial class TempDiagnosis : DiagSceneBase
 {
     public override void _Ready()
     {

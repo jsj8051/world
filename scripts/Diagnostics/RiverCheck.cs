@@ -4,7 +4,7 @@ using World.MapGen;
 namespace World.Diagnostics;
 
 /// <summary>河流存档数据检查：打印 RiverFlow/RiverLevel 合法性。</summary>
-public partial class RiverCheck : Node
+public partial class RiverCheck : DiagSceneBase
 {
     public override void _Ready()
     {

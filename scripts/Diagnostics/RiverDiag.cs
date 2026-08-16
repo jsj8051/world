@@ -9,7 +9,7 @@ namespace World.Diagnostics;
 /// <summary>河流诊断：河流统计 + 等距柱状图（河线+陆地+海洋）。
 /// 存档直读（-- --arch=...）：用存档海拔/降水/温度重跑 RiverSystem（秒级），
 /// 并与其存档河流数据做自洽性对比——改 RiverSystem 后免 n=64 板块模拟（~3min）。</summary>
-public partial class RiverDiag : Node
+public partial class RiverDiag : DiagSceneBase
 {
 	public override void _Ready()
 	{

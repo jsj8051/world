@@ -9,7 +9,7 @@ namespace World.Diagnostics;
 /// 极区放大诊断（headless）：读 v3 存档，导出极区（lat 55°~90°）放大图
 /// 等距柱状 1024×512，验证极区色带是否为同心圆（等高线）。
 /// </summary>
-public partial class PolarPreview : Node
+public partial class PolarPreview : DiagSceneBase
 {
     public override void _Ready()
     {

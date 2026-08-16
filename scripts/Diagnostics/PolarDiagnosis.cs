@@ -11,7 +11,7 @@ namespace World.Diagnostics;
 /// 检查 Goldberg hex 网格在极区（lat&gt;80°）的结构——五边形位置、每格邻居数、
 /// 纬度环带分布。回答"极地圈状/辐射状是否预期"。
 /// </summary>
-public partial class PolarDiagnosis : Node
+public partial class PolarDiagnosis : DiagSceneBase
 {
     public override void _Ready()
     {

@@ -7,7 +7,7 @@ namespace World.Diagnostics;
 
 /// <summary>洋流验证：顺转/逆转的洋流冷暖分布 + 导出冷暖图。
 /// 存档直读（-- --arch=...）：跳板块模拟，用存档海拔重算洋流（秒级）。</summary>
-public partial class CurrentDiag : Node
+public partial class CurrentDiag : DiagSceneBase
 {
     public override void _Ready()
     {

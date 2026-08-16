@@ -2,6 +2,7 @@ using Godot;
 using System;
 using World.HexPlanet;
 using World.MapGen;
+using World.Services;
 
 namespace World.UI;
 
@@ -448,7 +449,7 @@ public partial class MapGenMenu : Control
         float oceanScale = (float)_oceanSpin.Value; // 海洋水量 ×
         int scCycle = (int)_scCycleSpin.Value;      // 超级大陆周期 My
         float erosionScale = (float)_erosionSpin.Value; // 侵蚀强度 ×
-        _lastOutPath = $"user://maps/map_seed{seed}_n{n}_r{radiusKm:F0}.mpa";
+        _lastOutPath = ArchiveService.MapPath(seed, n, radiusKm);
 
         _gen = new MapGenerator
         {
@@ -474,7 +475,7 @@ public partial class MapGenMenu : Control
         _gen.GenerateAsync(
             p => _progress = p,     // 后台线程写 volatile（线程安全）
             (ok, path) => { });     // 实际完成回调走 SetAsyncDoneCallback（主线程）
-        GD.Print($"[MapGenMenu] 开始生成 seed={seed} R={radiusKm:F0}km n={n} 大陆={continents}块 plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× 水量={oceanScale}× 周期={scCycle}My 侵蚀={erosionScale}× → {_lastOutPath}");
+        LogService.Log("MapGenMenu", $"开始生成 seed={seed} R={radiusKm:F0}km n={n} 大陆={continents}块 plates={plates} {my}My 自转={(prograde ? "顺转" : "逆转")} 倾角={tilt}° 距离={distAu}AU 速度={speed}× 水量={oceanScale}× 周期={scCycle}My 侵蚀={erosionScale}× → {_lastOutPath}");
     }
 
     private void OnGenerateDone(bool ok, string path)
@@ -493,7 +494,7 @@ public partial class MapGenMenu : Control
             viewBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
             viewBtn.Pressed += () => EnterViewer(path);
             _status.GetParent().AddChild(viewBtn);
-            GD.Print($"[MapGenMenu] 生成完成: {path}");
+            LogService.Log("MapGenMenu", $"生成完成: {path}");
         }
         else
         {
@@ -507,13 +508,7 @@ public partial class MapGenMenu : Control
         // MapViewer 场景加载后自动读默认 map1.mpa；这里通过全局单例传路径。
         // 简单方案：MapViewer 支持命令行/user args 不可行（运行时），
         // 用静态字段传递：MapViewer 的 MapPath 属性在 _Ready 前可被设置。
-        ViewerLauncher.PendingPath = path;
+        EventBus.RequestMapView(path);
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
-}
-
-/// <summary>场景间传递"要查看的存档路径"（MapViewer._Ready 读取后清空）。</summary>
-public static class ViewerLauncher
-{
-    public static string PendingPath;
 }

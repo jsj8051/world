@@ -1,6 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 using World.MapGen;
+using World.Services;
 
 namespace World.UI;
 
@@ -118,7 +119,7 @@ public partial class MapSelectMenu : Control
 
     private void EnterViewer(string path)
     {
-        ViewerLauncher.PendingPath = path;
+        EventBus.RequestMapView(path);
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 }

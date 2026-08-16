@@ -4,7 +4,7 @@ using World.Biome;
 namespace World.Diagnostics;
 
 /// <summary>自转速度诊断：不同速度下 20°N 风向 + 迎风海岸/内陆降水。</summary>
-public partial class SpeedDiag : Node
+public partial class SpeedDiag : DiagSceneBase
 {
     public override void _Ready()
     {

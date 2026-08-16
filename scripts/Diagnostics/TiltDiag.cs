@@ -5,7 +5,7 @@ using World.MapGen;
 namespace World.Diagnostics;
 
 /// <summary>温差诊断：不同倾角/距离下赤道 vs 极地温度。</summary>
-public partial class TiltDiag : Node
+public partial class TiltDiag : DiagSceneBase
 {
     public override void _Ready()
     {

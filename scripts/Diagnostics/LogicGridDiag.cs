@@ -13,7 +13,7 @@ namespace World.Diagnostics;
 /// 命令行：-- --arch=user://maps/xxx.mpa [--out=user://maps/xxx.gmp]
 ///   --arch 必填（无值=默认 map1.mpa）；--out 默认同目录同名 .gmp。
 /// </summary>
-public partial class LogicGridDiag : Node
+public partial class LogicGridDiag : DiagSceneBase
 {
     public override void _Ready()
     {
@@ -31,14 +31,8 @@ public partial class LogicGridDiag : Node
         }
 
         string outPath = arch.GetBaseName() + ".gmp";
-        var ua = OS.GetCmdlineUserArgs();
-        for (int i = 0; i < ua.Length; i++)
-        {
-            string a = ua[i];
-            string v = a.StartsWith("--") ? a.Substring(2) : a;
-            if (v.StartsWith("out=", StringComparison.OrdinalIgnoreCase))
-                outPath = v.Substring(4);
-        }
+        var args = ParseUserArgs();
+        if (args.TryGetValue("out", out var outArg)) outPath = outArg;
 
         var map = ctx.Map;
         int n = map.Verts.Length;

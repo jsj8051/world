@@ -15,7 +15,7 @@ namespace World.Diagnostics;
 ///   --arch 必填（无值=默认 map1.mpa）；--tilt 覆盖倾角（存档头部没有倾角，默认 23.4）；
 ///   --out 指定输出（默认覆盖原档）。写回后 MapViewer 可直接看季风图层 + 月降水数据。
 /// </summary>
-public partial class MonsoonDiag : Node
+public partial class MonsoonDiag : DiagSceneBase
 {
     public override void _Ready()
     {
@@ -36,17 +36,10 @@ public partial class MonsoonDiag : Node
         float tilt = 23.4f;
         string outPath = arch;
         bool selfTest = false;
-        var ua = OS.GetCmdlineUserArgs();
-        for (int i = 0; i < ua.Length; i++)
-        {
-            string a = ua[i];
-            string v = a.StartsWith("--") ? a.Substring(2) : a;
-            if (v.StartsWith("tilt=", StringComparison.OrdinalIgnoreCase)
-                && float.TryParse(v.Substring(5), out float t)) tilt = t;
-            else if (v.StartsWith("out=", StringComparison.OrdinalIgnoreCase))
-                outPath = v.Substring(4);
-            else if (v == "selftest") selfTest = true;
-        }
+        var args = ParseUserArgs();
+        if (args.TryGetValue("tilt", out var tiltArg) && float.TryParse(tiltArg, out float t)) tilt = t;
+        if (args.TryGetValue("out", out var outArg)) outPath = outArg;
+        if (args.ContainsKey("selftest")) selfTest = true;
 
         var map = ctx.Map;
         int n = ctx.VertexCount;

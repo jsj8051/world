@@ -12,20 +12,15 @@ namespace World.Diagnostics;
 /// + Axelrod 互动死代码实测（同文化对是否污染份额场 / 异文化对是否传播）。
 /// 用：godot --headless --path . res://scenes/diag/HumanLayersProbe.tscn -- --map=user://maps/xxx.cmp
 /// 日志重定向 logs\probes\。</summary>
-public partial class HumanLayersProbe : Node
+public partial class HumanLayersProbe : DiagSceneBase
 {
     private static readonly Color SeaColor = new(0.10f, 0.25f, 0.45f);
 
     public override void _Ready()
     {
         string path = "user://maps/map_seed42_n128.cmp";
-        var ua = OS.GetCmdlineUserArgs();
-        for (int i = 0; i < ua.Length; i++)
-        {
-            string a = ua[i];
-            string v = a.StartsWith("--") ? a.Substring(2) : a;
-            if (v.StartsWith("map=", StringComparison.OrdinalIgnoreCase)) path = v.Substring(4);
-        }
+        var args = ParseUserArgs();
+        if (args.TryGetValue("map", out var mapArg)) path = mapArg;
         if (!CivMapArchive.Read(path, out var grid, out var res))
         {
             GD.PrintErr($"[HumanLayersProbe] 读取失败 {path}");

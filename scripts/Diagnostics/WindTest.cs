@@ -11,7 +11,7 @@ namespace World.Diagnostics;
 /// 期望：慢速 → 科里奥利弱 → 风带模糊 → 东西岸降水差小；
 ///       快速 → 西风/信风强偏转 → 东西岸降水差大。
 /// </summary>
-public partial class WindTest : Node
+public partial class WindTest : DiagSceneBase
 {
     public override void _Ready()
     {

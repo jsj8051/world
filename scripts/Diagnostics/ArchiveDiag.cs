@@ -93,19 +93,13 @@ public sealed class DiagContext
 /// <summary>存档直读入口（静态工具）。</summary>
 public static class ArchiveDiag
 {
-    /// <summary>解析 --arch 参数；返回存档路径（无 --arch 参数返回 null）。--arch 无值 = 默认 map1.mpa。</summary>
+    /// <summary>解析 --arch 参数；返回存档路径（无 --arch 参数返回 null）。--arch 无值 = 默认 map1.mpa。
+    /// 2026-08-19 迁移：统一走 DiagSceneBase.ParseUserArgs（兼容 --arch=X / --arch X / arch=X）。</summary>
     public static string ResolveArchPath()
     {
-        var ua = OS.GetCmdlineUserArgs();
-        for (int i = 0; i < ua.Length; i++)
-        {
-            string a = ua[i];
-            string v = a.StartsWith("--") ? a.Substring(2) : a; // 兼容 --arch=X 与 arch=X
-            if (v.StartsWith("arch=", StringComparison.OrdinalIgnoreCase))
-                return v.Substring(5);
-            if (v == "arch" || v == "--arch")
-                return i + 1 < ua.Length ? ua[i + 1] : "user://maps/map1.mpa";
-        }
+        var args = DiagSceneBase.ParseUserArgs();
+        if (args.TryGetValue("arch", out var path))
+            return path == "true" ? "user://maps/map1.mpa" : path;   // 裸 --arch → 默认档（旧语义）
         return null; // 未指定 → 调用方走原流程
     }
 

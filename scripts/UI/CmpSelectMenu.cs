@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.CivSim;
+using World.Services;
 
 namespace World.UI;
 
@@ -166,7 +167,7 @@ public partial class CmpSelectMenu : Control
             GD.Print($"[CmpSelectMenu] 拒绝进入版本不符存档 {path}");
             return;
         }
-        ViewerLauncher.PendingPath = path;
+        EventBus.RequestMapView(path);
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 }

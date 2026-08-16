@@ -10,23 +10,18 @@ namespace World.Diagnostics;
 /// 用：godot --headless --path . res://scenes/diag/EvolveCmp.tscn
 ///     -- --map=user://maps/xxx.mpa [--out=user://maps/xxx_v2.cmp] [--seed=N] [--origins=N]
 /// 日志重定向 logs\diag\civsim\。</summary>
-public partial class EvolveCmp : Node
+public partial class EvolveCmp : DiagSceneBase
 {
     public override void _Ready()
     {
         string mapPath = "user://maps/map_seed42_n128.mpa";
         string outPath = null;
         int seed = 42, origins = 3;
-        var ua = OS.GetCmdlineUserArgs();
-        for (int i = 0; i < ua.Length; i++)
-        {
-            string a = ua[i];
-            string v = a.StartsWith("--") ? a.Substring(2) : a;
-            if (v.StartsWith("map=", StringComparison.OrdinalIgnoreCase)) mapPath = v.Substring(4);
-            else if (v.StartsWith("out=", StringComparison.OrdinalIgnoreCase)) outPath = v.Substring(4);
-            else if (v.StartsWith("seed=", StringComparison.OrdinalIgnoreCase) && int.TryParse(v.Substring(5), out int s)) seed = s;
-            else if (v.StartsWith("origins=", StringComparison.OrdinalIgnoreCase) && int.TryParse(v.Substring(8), out int o)) origins = Math.Clamp(o, 1, 6);
-        }
+        var args = ParseUserArgs();
+        if (args.TryGetValue("map", out var mapArg)) mapPath = mapArg;
+        if (args.TryGetValue("out", out var outArg)) outPath = outArg;
+        if (args.TryGetValue("seed", out var seedArg) && int.TryParse(seedArg, out int s)) seed = s;
+        if (args.TryGetValue("origins", out var oArg) && int.TryParse(oArg, out int o)) origins = Math.Clamp(o, 1, 6);
         outPath ??= mapPath.GetBaseName() + "_v2.cmp";
         if (!MapArchive.Read(mapPath, out var map))
         {

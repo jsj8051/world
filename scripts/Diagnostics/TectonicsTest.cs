@@ -1,6 +1,7 @@
 using Godot;
 using World.HexPlanet;
 using System;
+using World.Diagnostics;
 using World.Tectonics;
 
 namespace World.Tectonics
@@ -19,7 +20,7 @@ namespace World.Tectonics
     ///   --init                    只看初始地壳（分割不移动）
     ///   --compare                 侵蚀 开/关 各跑一次，对比导出
     /// </summary>
-    public partial class TectonicsTest : Node
+    public partial class TectonicsTest : DiagSceneBase
     {
         [Export] public int GridN = 16;        // Icosahedron 细分（verts≈10n²+2）
         [Export] public int NumPlates = 8;
@@ -32,49 +33,19 @@ namespace World.Tectonics
 
         public override void _Ready()
         {
-            // headless 参数覆盖（兼容 --key=value 与 --key value）
-            var ua = OS.GetCmdlineUserArgs();
-            for (int i = 0; i < ua.Length; i++)
+            // headless 参数覆盖（DiagSceneBase.ParseUserArgs 统一解析，2026-08-19 迁移）
+            var args = ParseUserArgs();
+            if ((args.TryGetValue("seed", out var sv) || args.TryGetValue("s", out sv)) && int.TryParse(sv, out int s1)) Seed = s1;
+            if ((args.TryGetValue("plates", out sv) || args.TryGetValue("p", out sv)) && int.TryParse(sv, out int s2)) NumPlates = s2;
+            if ((args.TryGetValue("run", out sv) || args.TryGetValue("r", out sv)) && float.TryParse(sv, out float f1)) RunMy = f1;
+            if (args.TryGetValue("step", out sv) && float.TryParse(sv, out float f2)) StepMy = f2;
+            if ((args.TryGetValue("n", out sv) || args.TryGetValue("grid", out sv)) && int.TryParse(sv, out int s3)) GridN = s3;
+            if (args.ContainsKey("init")) InitOnly = true;
+            if (args.ContainsKey("compare")) Compare = true;
+            if (args.TryGetValue("rift", out sv))
             {
-                string a = ua[i];
-                string v = a.StartsWith("--") ? a.Substring(2) : a;
-                string inline = null;
-                if (v.Contains('=')) { inline = v.Substring(v.IndexOf('=') + 1); v = v.Substring(0, v.IndexOf('=')); }
-                string Next() => i + 1 < ua.Length ? ua[i + 1] : null;
-
-                if (v == "seed" || v == "s")
-                {
-                    string val = inline ?? Next();
-                    if (val != null && int.TryParse(val, out int s1)) { Seed = s1; if (inline == null) i++; }
-                }
-                else if (v == "plates" || v == "p")
-                {
-                    string val = inline ?? Next();
-                    if (val != null && int.TryParse(val, out int s2)) { NumPlates = s2; if (inline == null) i++; }
-                }
-                else if (v == "run" || v == "r")
-                {
-                    string val = inline ?? Next();
-                    if (val != null && float.TryParse(val, out float f1)) { RunMy = f1; if (inline == null) i++; }
-                }
-                else if (v == "step")
-                {
-                    string val = inline ?? Next();
-                    if (val != null && float.TryParse(val, out float f2)) { StepMy = f2; if (inline == null) i++; }
-                }
-                else if (v == "n" || v == "grid")
-                {
-                    string val = inline ?? Next();
-                    if (val != null && int.TryParse(val, out int s3)) { GridN = s3; if (inline == null) i++; }
-                }
-                else if (v == "init") InitOnly = true;
-                else if (v == "compare") Compare = true;
-                else if (v == "rift")
-                {
-                    string val = inline ?? Next();
-                    if (val != null && bool.TryParse(val, out bool b1)) { Rift = b1; if (inline == null) i++; }
-                    else Rift = true;
-                }
+                if (bool.TryParse(sv, out bool b1)) Rift = b1;
+                else Rift = true;
             }
 
             GD.Print($"[TectonicsTest] gridN={GridN} plates={NumPlates} seed={Seed} run={RunMy}My step={StepMy}My compare={Compare}");

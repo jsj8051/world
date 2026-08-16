@@ -5,7 +5,7 @@ using World.MapGen;
 namespace World.Diagnostics;
 
 /// <summary>临时验证：洋流算法分辨率修复（读旧 n=128 档重算洋流，验证迭代/梯度补偿生效）。</summary>
-public partial class OceanCurrentDiag : Node
+public partial class OceanCurrentDiag : DiagSceneBase
 {
     public override void _Ready()
     {
