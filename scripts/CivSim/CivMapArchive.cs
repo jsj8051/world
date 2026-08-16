@@ -39,14 +39,16 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newe
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 13;   // v13（2026-08-19 阶段3 聚落设计）：部落 +2 字段（SettledSince/PlaceId）
-                                        //   + 新段 Settlements[]（聚落实体：场所比人长寿——粮仓归聚落）。
-                                        //   v12 旧档可读可进（无聚落——仅新演化生成，用户拍板）。v9 及更旧拒绝。
+    public const ushort Version = 14;   // v14（2026-08-19 阶段5 军事征服）：部落 +2 字段（ConqueredBy/LastWarTick）
+                                        //   + 新段 War[]（战争=外交状态：过程状态不可派生重建——用户拍板 P3）。
+                                        //   v13 旧档可读可进（无战争——仅新演化生成）。v9 及更旧拒绝。
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
     /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
     /// （旧档显示"旧版本存档"，可展示但禁止进入）。
+    /// v14（2026-08-19）：军事征服——部落 +2 字段 + 新段 War[]——v13 档读入无战争
+    ///   （战争状态是过程数据，旧档没有 → 无战争起步；语义一致 → 可读可进）。
     /// v13（2026-08-19）：聚落设计——部落 +2 字段 + 新段 Settlements[]——v12 档读入无聚落
     ///   （仅新演化生成，用户拍板；语义一致 → 可读可进）。
     /// v12（2026-08-18）：Goods[3]→Stocks[6] 商品目录扩展——v11 档读入 Goods→Stocks 映射，
@@ -55,7 +57,7 @@ public static class CivMapArchive
     ///   语义一致 → 可读可进。
     /// v6（2026-08-09）：头部 +4B 存 CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
     ///   读档恢复的群计数器 = max(合并值, 场推导) ≠ 从头演化实际值 → 续跑群漂变 key 编号错位 → 读档续跑分叉（T04）。</summary>
-    public static readonly ushort[] CompatibleArchiveVersions = { Version, 12, 11, 10 };
+    public static readonly ushort[] CompatibleArchiveVersions = { Version, 13, 12, 11, 10 };
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
     public static string GameVersion =>
@@ -133,10 +135,26 @@ public static class CivMapArchive
             for (int k = 0; k < CommodityTable.Count; k++)
                 f.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
         }
+        // 尾部：战争段（v14——追加在聚落段后；过程状态不可派生重建，读档必须恢复原样）
+        f.Store32((uint)ctx.Wars.Count);
+        for (int k = 0; k < ctx.Wars.Count; k++)
+        {
+            var w = ctx.Wars[k];
+            f.Store32((uint)w.StateIdA);
+            f.Store32((uint)w.StateIdB);
+            f.Store32((uint)w.Defender);        // -1 → uint 全 1（读回 (int) 还原）
+            f.Store32((uint)w.StartTick);
+            f.Store32((uint)w.WinsA);
+            f.Store32((uint)w.WinsB);
+            f.Store32((uint)w.LastBattleTick);
+            f.Store32((uint)w.TributeTo);       // -1 = 交战中
+            f.Store32((uint)w.TributeFrom);
+            f.Store32((uint)w.TributesLeft);
+        }
         if (log)
             LogService.Log("CivMapArchive", $"wrote v{Version} {path} (ticks={result.FinalTick} " +
                      $"entities={alive} pop={ctx.TotalPopulation():F0} farm={CountFarming(ctx)} fission={ctx.Fissions} migrate={ctx.Migrations}" +
-                     $" settlements={ctx.Settlements.Count})");
+                     $" settlements={ctx.Settlements.Count} wars={ctx.Wars.Count})");
         return true;
     }
 
@@ -401,6 +419,35 @@ public static class CivMapArchive
             }
         }
 
+        // 尾部：战争段（v14——聚落段后；过程状态不可派生重建，读档必须恢复原样；v13 旧档无战争）
+        var wars = new List<War>();
+        if (ver >= 14)
+        {
+            int wCount = (int)f.Get32();
+            if (wCount < 0 || wCount > 4096)
+            {
+                LogService.LogErr("CivMapArchive", $"{path} 战争段长度异常：count={wCount}——正文错位或损坏。");
+                return false;
+            }
+            for (int k = 0; k < wCount; k++)
+            {
+                var w = new War
+                {
+                    StateIdA = (int)f.Get32(),
+                    StateIdB = (int)f.Get32(),
+                    Defender = (int)f.Get32(),
+                    StartTick = (int)f.Get32(),
+                    WinsA = (int)f.Get32(),
+                    WinsB = (int)f.Get32(),
+                    LastBattleTick = (int)f.Get32(),
+                    TributeTo = (int)f.Get32(),
+                    TributeFrom = (int)f.Get32(),
+                    TributesLeft = (int)f.Get32(),
+                };
+                wars.Add(w);
+            }
+        }
+
         // 文化 key 计数兜底：份额场推导（旧档无头部计数时；被同化掉的 key 可能使推导偏小，故取 max）
         // 2026-08-07：标签/群分开推导（群 "cultg_" 前缀独立空间，防标签挤占语言群 key）
         int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
@@ -441,6 +488,7 @@ public static class CivMapArchive
             NextTribeId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
             Settlements = settlements,    // 聚落段（v13；v12 旧档空列表）
             NextSettlementId = nextSettlementId,
+            Wars = wars,                  // 战争段（v14；v13 旧档空列表——无战争起步）
             // 土地挂钩（v9）：Cultivation 从存档恢复；暂存/领地索引重建
             Cultivation = cultivation ?? new float[n],
             CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
@@ -518,9 +566,17 @@ public static class CivMapArchive
             f.Get8();                   // IsFarming
             int keyCount = f.Get16();
             // ⚠️ 2026-08-18：skip 按版本区分尾部字段——v10 含酋邦 IsBigMan/IsChief/ChiefdomId（+18B），
-            //   v11 移出（+12B），v12 Stocks 扩到 6 槽（+24B），v13 聚落关联 SettledSince/PlaceId（+8B）。
+            //   v11 移出（+12B），v12 Stocks 扩到 6 槽（+24B），v13 聚落关联 SettledSince/PlaceId（+8B），
+            //   v14 军事征服 ConqueredBy/LastWarTick（+8B）。
             //   旧版恒跳 143B 漏尾部 → 错位。143 = keys 后固定（份额×4 107 + Cell系列24 + 货物/存储基础 12）。
-            long tailB = ver == 10 ? 143L + 18L : ver == 11 ? 143L + 12L : ver == 12 ? 143L + 24L : 143L + 24L + 8L;
+            long tailB = ver switch
+            {
+                10 => 143L + 18L,
+                11 => 143L + 12L,
+                12 => 143L + 24L,
+                13 => 143L + 24L + 8L,
+                _ => 143L + 24L + 8L + 8L,   // v14：+ConqueredBy/LastWarTick
+            };
             long skip = 16L * keyCount + tailB;
             f.Seek(f.GetPosition() + (ulong)skip);
         }

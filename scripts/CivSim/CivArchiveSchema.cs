@@ -55,6 +55,9 @@ public static class CivArchiveSchema
         //   -1 按 uint 全 1 存储（同 LastMigrateTick 惯例——(int) 读回还原 -1）
         new("SettledSince", 13, (f, e) => f.Store32((uint)e.SettledSince), (f, e) => { e.SettledSince = (int)f.Get32(); return true; }),
         new("PlaceId", 13, (f, e) => f.Store32((uint)e.PlaceId), (f, e) => { e.PlaceId = (int)f.Get32(); return true; }),
+        // v14 阶段5 军事征服（2026-08-19）：被征服效忠 + 参战冷却——v13 旧档默认 -1（无战争痕迹）
+        new("ConqueredBy", 14, (f, e) => f.Store32((uint)e.ConqueredBy), (f, e) => { e.ConqueredBy = (int)f.Get32(); return true; }),
+        new("LastWarTick", 14, (f, e) => f.Store32((uint)e.LastWarTick), (f, e) => { e.LastWarTick = (int)f.Get32(); return true; }),
     };
 
     /// <summary>反射校验：清单字段名必须在 Tribe 上真实存在（防字段改名/删除后清单过期静默失效）。</summary>

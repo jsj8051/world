@@ -160,6 +160,14 @@ public partial class CivSimDiag : DiagSceneBase
         if (Want("T65")) T65_StateMechanisms();
         if (Want("T66")) T66_StateCollapse();
         if (Want("T67")) T67_SuccessionInstitutionalized();
+        if (Want("T70")) T70_WarDeclareGate();      // 阶段5 军事征服（2026-08-19，docs/阶段5设计-军事征服.md）
+        if (Want("T71")) T71_BattleChance();
+        if (Want("T72")) T72_WarAnnex();
+        if (Want("T73")) T73_WarTribute();
+        if (Want("T74")) T74_WarTruce();
+        if (Want("T75")) T75_WarDiplomacy();
+        if (Want("T76")) T76_SeaColonization();  // 扩张修正（2026-08-19：跨海 unlock_sea 落地 + 殖民扩散项）
+        if (Want("T77")) T77_ColonizeDiffusion();
         if (Want("T28")) T28_LivestockEmergence();
         if (Want("T29")) T29_GoodsAccumulation();
         if (Want("T30")) T30_WeightAllocation();

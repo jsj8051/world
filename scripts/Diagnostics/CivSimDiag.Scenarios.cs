@@ -876,6 +876,230 @@ public partial class CivSimDiag
     }
 
 
+    /// <summary>T70 宣战门槛（2026-08-19 阶段5，docs/阶段5设计-军事征服.md）：国家领地相邻 + 贡赋池足 +
+    /// 冷却过 → CanDeclare 允许；池不足 / 冷却中 / 不接触 → 拒绝。概率门控（WarDeclareChance）不在判定内。</summary>
+    private void T70_WarDeclareGate()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        RingLinks(g);   // ⚠️ 精确环邻接：庇护 BFS/领地接触依赖跳数——BuildRing 桶邻接残缺（Builders 注释）
+        var ctx = MakeCtx(g);
+        ctx.Tick = 50;
+        var (a, a1, a2) = AddWarState(ctx, 0, 1, 2, popA: 1800f);
+        var (b, b1, b2) = AddWarState(ctx, 5, 6, 7, popA: 600f);
+        AttachWarTerritory(ctx, new[] { (a, 0), (a1, 1), (a2, 2), (b, 5), (b1, 6), (b2, 7) });
+        StateModel.Rebuild(ctx);
+        float reach = (2 * CivSimContext.InfluenceRadius + 1) * Mathf.Sqrt(g.CellAreaKm2);
+        bool allowed = WarModel.CanDeclare(ctx, a, b, reach);   // 池足（150 ≥ 1000×0.02=20）+ 接触 + 冷却过
+        // 反例①：宣战国池不足（穷兵不打）
+        a.Contributed = 0f; a1.Contributed = 0f; a2.Contributed = 0f;
+        bool noPool = !WarModel.CanDeclare(ctx, a, b, reach);
+        a.Contributed = 50f; a1.Contributed = 50f; a2.Contributed = 50f;
+        // 反例②：参战冷却中
+        a.LastWarTick = ctx.Tick;
+        bool cooling = !WarModel.CanDeclare(ctx, a, b, reach);
+        a.LastWarTick = -1;
+        // 反例③：领地不接触（A 领地缩到格2——与 B 格5-7 不相邻）
+        ctx.TerritoryCells[a.Id].Clear(); ctx.TerritoryDists[a.Id].Clear();
+        ctx.TerritoryCells[a.Id].Add(2); ctx.TerritoryDists[a.Id].Add(0);
+        ctx.TerritoryCells[a1.Id].Clear(); ctx.TerritoryDists[a1.Id].Clear();
+        ctx.TerritoryCells[a2.Id].Clear(); ctx.TerritoryDists[a2.Id].Clear();
+        bool noTouch = !WarModel.CanDeclare(ctx, a, b, reach);
+        Check("T70 宣战门槛", allowed && noPool && cooling && noTouch,
+            $"达标={allowed} 池不足拒={noPool} 冷却拒={cooling} 不接触拒={noTouch}");
+    }
+
+
+    /// <summary>T71 会战胜率（纯函数——免概率采样噪声）：军力对比 → 胜率 = fA/(fA+fB)。</summary>
+    private void T71_BattleChance()
+    {
+        float p1 = WarModel.BattleChanceOf(200f, 100f);   // 2/3
+        float p2 = WarModel.BattleChanceOf(50f, 200f);    // 1/5
+        float p3 = WarModel.BattleChanceOf(0f, 100f);     // 0（无军力必败）
+        bool ok = Mathf.Abs(p1 - 2f / 3f) < 1e-5f && Mathf.Abs(p2 - 0.2f) < 1e-5f && p3 == 0f;
+        Check("T71 会战胜率", ok, $"200vs100={p1:F4}(应0.667) 50vs200={p2:F4}(应0.2) 0vs100={p3:F4}(应0)");
+    }
+
+
+    /// <summary>T72 吞并（2026-08-19 阶段5）：碾压（胜场≥3 + 军力比≥1.5）→ 战败国成员 ConqueredBy 强制效忠
+    /// 征服者、首领不效忠（流放）、战利品入池、原国家消失（下 tick 重建后成员并入战胜国）。</summary>
+    private void T72_WarAnnex()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        RingLinks(g);   // ⚠️ 精确环邻接：ChiefdomModel.Rebuild 庇护 BFS 依赖跳数（Builders 注释）
+        var ctx = MakeCtx(g);
+        ctx.Tick = 50;
+        var (a, a1, a2) = AddWarState(ctx, 0, 1, 2, popA: 1800f);
+        var (b, b1, b2) = AddWarState(ctx, 5, 6, 7, popA: 600f);
+        AttachWarTerritory(ctx, new[] { (a, 0), (a1, 1), (a2, 2), (b, 5), (b1, 6), (b2, 7) });
+        // 战利品基线：b 池 = 100×3（含酋长）→ ×0.5 = 150；A 需是正式国家（重映射断言用）
+        a.Contributed = 100f; b.Contributed = 100f; b1.Contributed = 100f; b2.Contributed = 100f;
+        b.Prestige = 5f;   // ⚠️ 庇护竞争平局（10 vs 10）时 BFS 序敏感——降低败方声望消除歧义
+        var capA = AddSettlement(ctx, a); capA.Level = 2; capA.BornTick = 0;
+        var subA = AddSettlement(ctx, a1); subA.Level = 1;
+        StateModel.Rebuild(ctx);
+        ctx.Wars.Add(new War { StateIdA = a.Id, StateIdB = b.Id, Defender = b.Id, StartTick = ctx.Tick - 10, LastBattleTick = ctx.Tick, WinsA = 3, WinsB = 0 });
+        new WarModel().Execute(ctx);
+        bool annexed = ctx.Wars.Count == 0;
+        bool loyal = b1.ConqueredBy == a.Id && b2.ConqueredBy == a.Id && b.ConqueredBy != a.Id;   // 首领不效忠（流放）
+        bool plunder = Mathf.Abs(a.Contributed - 250f) < 1e-3f;   // 100 + 300×0.5
+        // 下 tick 重建：被吞并成员并入 A 国（ConqueredBy → ChiefdomId → StateId）；原国 B 消失
+        ChiefdomModel.Rebuild(ctx);
+        StateModel.Rebuild(ctx);
+        int aMembers = ctx.ChiefdomCells != null && a.Id < ctx.ChiefdomCells.Length ? ctx.ChiefdomCells[a.Id].Count : -1;
+        bool reabsorbed = b1.StateId == a.Id && b2.StateId == a.Id && b.StateId < 0;   // B 酋长无成员 → 非国家
+        Check("T72 吞并", annexed && loyal && plunder && reabsorbed,
+            $"终结={annexed} 效忠={loyal}(b1={b1.ConqueredBy}) 战利品={a.Contributed:F0}(应250) 重映射={reabsorbed}(b1.StateId={b1.StateId} b.StateId={b.StateId} a.StateId={a.StateId} A成员={aMembers} b1.ChiefdomId={b1.ChiefdomId} a1.ChiefdomId={a1.ChiefdomId} b.Cell={b.Cell})");
+    }
+
+
+    /// <summary>T73 朝贡（2026-08-19 阶段5）：险胜（胜场≥2 未达吞并线）→ 战争转朝贡模式（TributeTo）：
+    /// 每 tick 转移 战败国人口×WarTributeRate 入战胜国池 + 边境割地。</summary>
+    private void T73_WarTribute()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        RingLinks(g);   // ⚠️ 精确环邻接（同 T72——割地边境判定依赖邻居表）
+        var ctx = MakeCtx(g);
+        ctx.Tick = 50;
+        var (a, a1, a2) = AddWarState(ctx, 0, 1, 2, popA: 1800f);
+        var (b, b1, b2) = AddWarState(ctx, 5, 6, 7, popA: 600f);
+        AttachWarTerritory(ctx, new[] { (a, 0), (a1, 1), (a2, 2), (b, 5), (b1, 6), (b2, 7) });
+        a.Contributed = 100f; b.Contributed = 100f; b1.Contributed = 100f; b2.Contributed = 100f;
+        var capA2 = AddSettlement(ctx, a); capA2.Level = 2; capA2.BornTick = 0;
+        var subA2 = AddSettlement(ctx, a1); subA2.Level = 1;
+        StateModel.Rebuild(ctx);
+        ctx.Wars.Add(new War { StateIdA = a.Id, StateIdB = b.Id, Defender = b.Id, StartTick = ctx.Tick - 10, LastBattleTick = ctx.Tick, WinsA = 2, WinsB = 0 });
+        new WarModel().Execute(ctx);
+        bool tribute = ctx.Wars.Count == 1 && ctx.Wars[0].TributeTo == a.Id && ctx.Wars[0].TributeFrom == b.Id
+            && ctx.Wars[0].TributesLeft == CivSimContext.WarTributeTicks;
+        bool ceded = ctx.CellOwner[7] == a.Id;   // 格7（b2 边境，邻格0）割给 A 酋长
+        // 朝贡转移：900 人口 × 0.005 = 4.5/tick
+        float before = a.Contributed;
+        new WarModel().Execute(ctx);
+        float gained = a.Contributed - before;
+        bool transfer = Mathf.Abs(gained - 4.5f) < 1e-3f;
+        Check("T73 朝贡", tribute && ceded && transfer,
+            $"转朝贡={tribute}(TributeTo={(ctx.Wars.Count > 0 ? ctx.Wars[0].TributeTo : -1)}) 割地={ceded} 转移={gained:F3}(应4.5)");
+    }
+
+
+    /// <summary>T74 停战（2026-08-19 阶段5）：战争持续 ≥ WarMaxTicks 未决出 → 移除（无赔偿，损耗已发生）。</summary>
+    private void T74_WarTruce()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        ctx.Tick = 50;
+        ctx.Wars.Add(new War { StateIdA = 1, StateIdB = 2, Defender = 2, StartTick = ctx.Tick - CivSimContext.WarMaxTicks, LastBattleTick = ctx.Tick, WinsA = 1, WinsB = 1 });
+        new WarModel().Execute(ctx);
+        bool truce = ctx.Wars.Count == 0;
+        Check("T74 停战", truce, $"超时移除={truce}");
+    }
+
+
+    /// <summary>T75 外交效果（2026-08-19 阶段5）：交战国（含朝贡期）边境冲突概率 ×2（WarConflictMult）；
+    /// IsAtWar 判定（交战/朝贡敌对，非战争国不受影响）。</summary>
+    private void T75_WarDiplomacy()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g);
+        ctx.Tick = 50;
+        ctx.Wars.Add(new War { StateIdA = 9, StateIdB = 8, Defender = 8, StartTick = ctx.Tick });
+        var wa = new Tribe { Id = 1, ChiefdomId = 9, StateId = 9 };
+        var wb = new Tribe { Id = 2, ChiefdomId = 8, StateId = 8 };
+        float atWar = ConflictModel.ConflictChanceOf(ctx, wa, wb);   // 跨邦 0.01 × 2（交战）
+        bool x2 = Mathf.Abs(atWar - 0.01f * CivSimContext.WarConflictMult) < 1e-6f;
+        // 朝贡期同样敌对（TributeTo 模式）
+        ctx.Wars[0].TributeTo = 9; ctx.Wars[0].TributeFrom = 8;
+        float tribute = ConflictModel.ConflictChanceOf(ctx, wa, wb);
+        bool tributeHostile = Mathf.Abs(tribute - 0.01f * CivSimContext.WarConflictMult) < 1e-6f;
+        // IsAtWar 判定
+        bool atWarOk = WarModel.IsAtWar(ctx, 9, 8) && !WarModel.IsAtWar(ctx, 9, 7) && !WarModel.IsAtWar(ctx, -1, 8);
+        Check("T75 外交效果", x2 && tributeHostile && atWarOk,
+            $"交战国冲突={atWar:F4}(应0.02) 朝贡期={tribute:F4}(应0.02) 判定={atWarOk}");
+    }
+
+
+    /// <summary>T76 跨海殖民（2026-08-19 扩张修正，路线图 unlock_sea 落地）：canoe 部落可渡海殖民对岸
+    /// （TerrainCost 海洋 canoe=0.3——BFS 扩展不再硬过滤陆地）；无 canoe 海不可穿（cost=0）→ 无目标。
+    /// 布局（环 8 格）：0,1 陆（母岸，格1 占据防同岸目标）/ 2,3 海 / 4,5,6 陆（对岸）/ 7 海（接缝防绕行）。</summary>
+    private void T76_SeaColonization()
+    {
+        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        RingLinks(g);
+        for (int c = 0; c < g.N; c++) g.Elev[c] = (c == 2 || c == 3 || c == 7) ? -100f : 100f;
+        // canoe 部落：渡海到对岸
+        var ctx1 = MakeCtx(g);
+        var canoe = AddTribe(ctx1, 0, 200f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
+        AddTribe(ctx1, 1, 200f, TechTable.StoneCore, TechTable.Fire);   // 占据同岸格——防就近目标
+        int t1 = SplitMigrateModel.PickMigrateTarget(ctx1, canoe);
+        bool canoeCrosses = t1 >= 0 && ctx1.R[t1] > 0f && t1 != 1;   // 目标在对岸可居格（4/5/6）
+        // 无 canoe：海不可穿 → 无处可去
+        var ctx2 = MakeCtx(g);
+        var noCanoe = AddTribe(ctx2, 0, 200f, TechTable.StoneCore, TechTable.Fire);
+        AddTribe(ctx2, 1, 200f, TechTable.StoneCore, TechTable.Fire);
+        int t2 = SplitMigrateModel.PickMigrateTarget(ctx2, noCanoe);
+        bool blocked = t2 < 0;
+        Check("T76 跨海殖民", canoeCrosses && blocked,
+            $"canoe渡海目标={t1}(R={(t1 >= 0 ? ctx1.R[t1] : -1f):F3}应∈{{4,5,6}}) 无canoe={t2}(应-1)");
+    }
+
+
+    /// <summary>T77 殖民扩散（2026-08-19 扩张修正）：落点分数 = cost×(1+bias×R/RMax)——距离主导，
+    /// 贫瘠近邻 &gt; 富饶远邻（波前推进）；旧公式 R×cost 贫瘠永不选（富饶区独占的病根）。</summary>
+    private void T77_ColonizeDiffusion()
+    {
+        float nearPoor = SplitMigrateModel.ColonizeScore(0.05f, 1f, 1f);      // 贫瘠邻格：1×1.015
+        float farRich = SplitMigrateModel.ColonizeScore(1f, 1f, 0.5f);        // 富饶远格（cost 半衰）：0.5×1.3
+        float midNear = SplitMigrateModel.ColonizeScore(0.5f, 1f, 1f);        // 中等地邻格：1×1.15
+        bool diffuse = nearPoor > farRich;                       // 波前推进（贫瘠近邻赢）
+        bool richStillPreferred = midNear > nearPoor;            // 同距离下肥度仍微偏好（不反转）
+        bool legacyWouldFail = 0.05f * 1f < 1f * 0.5f;           // 旧公式 R×cost：贫瘠必输（病根佐证）
+        Check("T77 殖民扩散", diffuse && richStillPreferred && legacyWouldFail,
+            $"贫瘠近邻={nearPoor:F3}(应1.015) vs 富饶远邻={farRich:F3}(应0.65) → 扩散={diffuse} 同距肥度偏好={richStillPreferred} 旧公式必败={legacyWouldFail}");
+    }
+
+
+    /// <summary>T70/T72/T73 辅助：构造一个国家（酋长 + 2 成员，手动酋邦成员表——SetupStateChiefdom 单邦专用）。</summary>
+    private static (Tribe, Tribe, Tribe) AddWarState(CivSimContext ctx, int chiefCell, int m1Cell, int m2Cell, float popA)
+    {
+        var chief = AddTribe(ctx, chiefCell, popA, TechTable.StoneCore, TechTable.SeedWheat);
+        var m1 = AddTribe(ctx, m1Cell, popA * 0.3f, TechTable.StoneCore, TechTable.SeedWheat);
+        var m2 = AddTribe(ctx, m2Cell, popA * 0.2f, TechTable.StoneCore, TechTable.SeedWheat);
+        chief.IsChief = true;
+        chief.Prestige = 10f;   // ⚠️ 庇护竞争（ChiefdomModel ③）：Prestige 严格大于才覆盖——全 0 时 band 无庇护人
+        foreach (var e in new[] { chief, m1, m2 })
+        {
+            e.ChiefdomId = chief.Id;
+            e.ChiefdomSize = 3;
+            e.TerritoryId = chief.Id;
+            e.Contributed = 50f;
+        }
+        ctx.ChiefdomCells ??= new List<int>[64];
+        if (ctx.ChiefdomCells.Length < 64)
+        {
+            var grown = new List<int>[64];
+            Array.Copy(ctx.ChiefdomCells, grown, ctx.ChiefdomCells.Length);
+            ctx.ChiefdomCells = grown;
+        }
+        for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i] ??= new List<int>();
+        ctx.ChiefdomCells[chief.Id].Add(chief.Id);
+        ctx.ChiefdomCells[chief.Id].Add(m1.Id);
+        ctx.ChiefdomCells[chief.Id].Add(m2.Id);
+        return (chief, m1, m2);
+    }
+
+
+    /// <summary>T70/T72/T73 辅助：挂领地（CellOwner + TerritoryCells 索引——StatesTouch 的 TerritoryTouches 依据）。</summary>
+    private static void AttachWarTerritory(CivSimContext ctx, (Tribe E, int Cell)[] cells)
+    {
+        foreach (var (e, cell) in cells)
+        {
+            ctx.CellOwner[cell] = e.Id;
+            ctx.TerritoryCells[e.Id].Add(cell);
+            ctx.TerritoryDists[e.Id].Add(0);
+        }
+    }
+
+
     /// <summary>T28 畜牧涌现：草原格(WildLivestock=1)+livestock 科技 → 牧产出>0；无生态位/无科技 → 牧=0。
     /// 2026-08-17 畜牧落地：走等边际分配器（牧场建筑并入采集档）。</summary>
     private void T28_LivestockEmergence()

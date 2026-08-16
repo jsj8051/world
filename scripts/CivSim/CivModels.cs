@@ -55,6 +55,7 @@ public sealed class CivModelRegistry
             .Register(new AbsorptionModel())    // 吞并（Order 47，2026-08-17 用户拍板：驻扎格被覆盖→并入/迁走）
             .Register(new SettlementModel())    // 聚落（Order 48，2026-08-19 阶段3 聚落设计——场所实体）
             .Register(new StateModel())         // 国家涌现（Order 49，2026-08-16 阶段4——酋邦制度化，docs/阶段4设计-国家涌现.md）
+            .Register(new WarModel())           // 军事战争（Order 51，2026-08-19 阶段5——战争=外交状态，docs/阶段5设计-军事征服.md）
             .Register(new ConflictModel())      // 边境冲突（Order 75，2026-08-10）：粘性僵局暴力出口
             .Register(new SplitMigrateModel());
     }

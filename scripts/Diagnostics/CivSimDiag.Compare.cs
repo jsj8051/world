@@ -56,7 +56,9 @@ public partial class CivSimDiag
                 || x.ChiefdomId != y.ChiefdomId || x.Contributed != y.Contributed
                 || x.SuccessionUntil != y.SuccessionUntil
                 // ⚠️ 2026-08-16 阶段4 国家层字段对比（纯派生不存档——读档 SettleDerived 重建须 ≡ 内存态）
-                || x.StateId != y.StateId || x.StateSize != y.StateSize)
+                || x.StateId != y.StateId || x.StateSize != y.StateSize
+                // ⚠️ 2026-08-19 阶段5 军事征服字段对比（v14 入档：吞并效忠/参战冷却——读档须恢复）
+                || x.ConqueredBy != y.ConqueredBy || x.LastWarTick != y.LastWarTick)
             {
                 LogService.Log("往返诊断{tag}", $"实体{k}: id={x.Id}vs{y.Id} cell={x.Cell}vs{y.Cell} P={x.P:F1}vs{y.P:F1} farm={x.IsFarming}vs{y.IsFarming} origin={x.OriginCell}vs{y.OriginCell} born={x.BornTick}vs{y.BornTick}");
                 return false;
@@ -99,6 +101,29 @@ public partial class CivSimDiag
         {
             LogService.Log("往返诊断{tag}", $"Settlements 不一致（聚落状态分叉）");
             return false;
+        }
+        // ⚠️ 2026-08-19 阶段5 战争：War 段（v14 新段）是过程状态——往返/续跑必须逐位一致
+        //   （战争进行中读档续跑 = 继续消耗同一战争状态，T04 防线）
+        if (!WarsEqual(a, b))
+        {
+            LogService.Log("往返诊断{tag}", $"Wars 不一致（战争状态分叉）");
+            return false;
+        }
+        return true;
+    }
+
+
+    private static bool WarsEqual(CivSimContext a, CivSimContext b)
+    {
+        var wa = a.Wars; var wb = b.Wars;
+        if (wa == null || wb == null || wa.Count != wb.Count) return false;
+        for (int i = 0; i < wa.Count; i++)
+        {
+            var x = wa[i]; var y = wb[i];
+            if (x.StateIdA != y.StateIdA || x.StateIdB != y.StateIdB || x.Defender != y.Defender
+                || x.StartTick != y.StartTick || x.WinsA != y.WinsA || x.WinsB != y.WinsB
+                || x.LastBattleTick != y.LastBattleTick || x.TributeTo != y.TributeTo
+                || x.TributeFrom != y.TributeFrom || x.TributesLeft != y.TributesLeft) return false;
         }
         return true;
     }

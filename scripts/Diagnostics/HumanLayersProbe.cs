@@ -50,6 +50,8 @@ public partial class HumanLayersProbe : DiagSceneBase
         DumpPowerColorCheck(ctx, grid.N);
         DumpTerritoryColorCheck(ctx, grid.N);
         DumpStateStats(ctx);
+        DumpWarStats(ctx);
+        DumpExpansionStats(ctx, grid);
 
         var terrBands = new Dictionary<int, int>();
         foreach (var e in ctx.Tribes)
@@ -328,6 +330,58 @@ public partial class HumanLayersProbe : DiagSceneBase
             dSb.Append($"邦{d.Chief}:{d.Bands}b/{d.Pop:F0}p 都城L{d.CapLvl} 池{d.Pool:F0}/需{d.Need:F0} 聚落{d.Settles} 次级{d.Sub} 存续{d.Dwell} | ");
         }
         LogService.Log("HumanLayersProbe", $"国家诊断(前10大酋邦): {dSb}");
+    }
+
+    /// <summary>战争统计（2026-08-19 阶段5）：宣战/吞并/朝贡场次 + 进行中的战争明细。</summary>
+    private void DumpWarStats(CivSimContext ctx)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var w in ctx.Wars)
+        {
+            if (w.IsTribute)
+                sb.Append($"朝贡:{w.TributeFrom}→{w.TributeTo} 剩{w.TributesLeft}tick ");
+            else
+                sb.Append($"交战:{w.StateIdA}vs{w.StateIdB} 胜{w.WinsA}:{w.WinsB} 起{w.StartTick} ");
+        }
+        LogService.Log("HumanLayersProbe", $"战争统计: 进行中={ctx.Wars.Count}（累计宣战{ctx.WarsDeclared} 吞并{ctx.WarsAnnexed}）| {sb}");
+    }
+
+    /// <summary>扩张诊断（2026-08-19）：实体按格 R 分桶 + 领地格数分布 + 归属格 R 分桶——
+    /// 验证"殖民扩散后贫瘠区能否活人"（领地大小/承载是否足够）。</summary>
+    private void DumpExpansionStats(CivSimContext ctx, GameGrid grid)
+    {
+        int n = grid.N;
+        var terrHist = new int[6];   // 领地格数：1 / 2-3 / 4-7 / 8-19 / 20-59 / 60+
+        var popByR = new long[5];    // 实体人口按格 R 分桶：<0.02 / <0.05 / <0.1 / <0.2 / ≥0.2
+        var entByR = new int[5];
+        var ownedByR = new int[5];   // 归属格按 R 分桶
+        float[] rBins = { 0.02f, 0.05f, 0.1f, 0.2f, float.MaxValue };
+        foreach (var e in ctx.Tribes)
+        {
+            if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
+            int ri = BucketIndex(ctx.R[e.Cell], rBins);
+            popByR[ri] += (long)e.P; entByR[ri]++;
+            int tc = e.TerritoryId >= 0 && e.TerritoryId < ctx.TerritoryCells.Length ? ctx.TerritoryCells[e.TerritoryId].Count : 0;
+            int ti = tc <= 1 ? 0 : tc <= 3 ? 1 : tc <= 7 ? 2 : tc <= 19 ? 3 : tc <= 59 ? 4 : 5;
+            terrHist[ti]++;
+        }
+        for (int c = 0; c < n; c++)
+        {
+            if (ctx.CellOwner[c] >= 0)
+                ownedByR[BucketIndex(ctx.R[c], rBins)]++;
+        }
+        string terrStr = $"领地: 1格={terrHist[0]} 2-3={terrHist[1]} 4-7={terrHist[2]} 8-19={terrHist[3]} 20-59={terrHist[4]} 60+={terrHist[5]}";
+        string rStr = "格R分布: ";
+        for (int i = 0; i < 5; i++)
+            rStr += $"[{(i == 4 ? "≥0.2" : "<" + rBins[i])}]实体{entByR[i]}/人口{popByR[i]}/归属格{ownedByR[i]} ";
+        LogService.Log("HumanLayersProbe", $"扩张诊断: {terrStr} | {rStr}");
+    }
+
+    private static int BucketIndex(float r, float[] bins)
+    {
+        for (int i = 0; i < bins.Length; i++)
+            if (r < bins[i]) return i;
+        return bins.Length - 1;
     }
 
     /// <summary>势力色碰撞检查（2026-08-16 用户"所有势力颜色都要不一样"验证）：直接用 **生产代码**

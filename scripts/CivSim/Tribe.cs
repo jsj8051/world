@@ -67,6 +67,12 @@ public class Tribe
     public int StateId = -1;          // 所属国家 id = 至尊酋长 Id（-1=非国家；StateModel 重建）
     public int StateSize = 1;         // 国家内部落数（≥2 = 正式国家；StateModel 重建）
 
+    // ── 阶段5 军事征服（2026-08-19，docs/阶段5设计-军事征服.md）──
+    // 战争是外交状态（War 段入档）；这两字段是战争的**持久效忠/冷却痕迹**（v14 入档）：
+    public int ConqueredBy = -1;      // 被征服效忠对象（吞并后强制归属战胜国酋长——无视庇护半径；
+                                      //   征服者死亡/失势 → ChiefdomModel 重建自动清空，效忠脱落）
+    public int LastWarTick = -1;      // 最近参战 tick（宣战/被宣战冷却——WarCooldownTicks 内不参战）
+
     // ── 能力位图缓存（CapabilityTable.MaskOf；RefreshCellState 每 tick；不存档——从科技/状态确定性重算）──
     public uint CapMask;
 

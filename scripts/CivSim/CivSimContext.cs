@@ -50,6 +50,7 @@ public sealed class CivSimContext
     // ── 自然层派生缓存（确定性重建，不存档）──
     public byte[] WildCrops;   // WildCrops 位（grid.EnsureWildCrops 惰性）
     public float[,] Suit;      // 每格每种子适宜度 φ（WildCropsSystem.Suitability 缓存）
+    public float RMax = 1f;    // 层1 R 最大值（BuildLayer1 计算——殖民落点分数归一化用；不存档）
 
     // ── 演化统计（诊断/输出）──
     public int Fissions;
@@ -71,6 +72,12 @@ public sealed class CivSimContext
     // ── 聚落实体（2026-08-19 阶段3 聚落设计，docs/阶段3设计-聚落实体.md）──
     public List<Settlement> Settlements = new();   // 全部聚落（存活 + 废墟；场所比人长寿）
     public int NextSettlementId;                   // 聚落 Id 分配器（确定性；读档恢复）
+
+    // ── 战争状态（2026-08-19 阶段5 军事征服，docs/阶段5设计-军事征服.md）──
+    // 外交状态：多 tick 持续，**v14 存档段**（过程状态不可派生重建——用户拍板 P3）。
+    public List<War> Wars = new();                 // 进行中的战争（交战 + 朝贡期）
+    public int WarsDeclared;   // 演化统计：宣战场次（不入档——同 Conflicts 模式，诊断/日志）
+    public int WarsAnnexed;    // 演化统计：吞并场次
 
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
     public Settlement SettlementOf(Tribe e)
@@ -103,6 +110,9 @@ public sealed class CivSimContext
     public const float FissionTensionStart = SplitPop;   // 规模张力起算点（跟随 SplitPop——band 量级，2026-08-17 土地挂钩；原硬编码 12 与 SplitPop 断链）
     public const float FissionTensionSpan = 8f;    // 张力封顶跨度（12+8=20 → 张力 1.0）
     public const int ColonizeRadius = 6;             // 殖民/迁移搜索最大跳数（阶段2 扩大：原 3 跳致部落扩张停滞，改 6 跳 BFS）
+    public const float ColonizeFertilityBias = 0.3f; // 殖民落点肥度偏好（2026-08-19 扩散修正：score=cost×(1+bias×R/RMax)——
+                                                     //   距离主导、肥度微偏好（×1.3 封顶）；旧 R×cost 只挑最肥格 → 富饶区独占、贫瘠空置；
+                                                     //   1.0→0.3 校准：bias=1 时富饶近邻 2.0 仍碾压贫瘠近邻 1.05——溢出太慢（n128 实测仅 +3% 覆盖））
     public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
@@ -142,6 +152,23 @@ public sealed class CivSimContext
                                                        //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
                                                        //   0.1 线下全图 0 国家；0.01 线匹配"少数国家涌现"（史实：早期国家稀少）
     public const int StateDwellTicks = 20;             // 都城实体存续时长（制度化需要时间；对应城市阈值 Dwell 20 tick 量级；★ 待校准）
+    // ── 军事征服参数（2026-08-19 阶段5，docs/阶段5设计-军事征服.md；用户拍板 P1-P6）──
+    public const int WarBattleInterval = 5;        // 会战节奏（每 N tick 一场；5 tick = 500 年）
+    public const float WarMinPoolPerCap = 0.02f;   // 宣战门槛：贡赋池 ≥ 总人口×此值（防穷兵黩武；比国家维持线 0.01 高——战争是余力行为）
+    public const float WarDeclareChance = 0.002f;  // 候选国家对/tick 宣战概率（低频——战争偶发，n128 全演化约几场）
+    public const int WarCooldownTicks = 30;        // 参战冷却（宣战/被宣战后 N tick 不参与新战争）
+    public const int WarMaxTicks = 60;             // 战争最长持续（超时停战——6000 年防死锁；战争多会战累计在窗口内）
+    public const int WarAnnexWins = 3;             // 吞并线：累计胜场 ≥ 3 且当前军力比 ≥ WarPowerRatio（碾压）
+    public const float WarPowerRatio = 1.5f;       // 吞并力量比（军力对比——碾压才吞并）
+    public const int WarTributeWins = 2;           // 朝贡线：胜场 ≥ 2（低于吞并线——险胜）
+    public const float WarLoss = 0.03f;            // 会战败方损耗（成员人口 + 贡赋池 ×此值/场；3 场 ≈ 9%——消耗战可承受）
+    public const float WarCapitalBonus = 0.1f;     // 都城加成：军力 ×(1+0.1×都城Level)（权力中心集结——Childe）
+    public const float WarCityDefenseBonus = 0.1f; // 城墙加成（P6）：防御方（被宣战国）军力 ×(1+0.1×城市数)（城市=要塞）
+    public const float WarTributeRate = 0.005f;    // 朝贡：每 tick 转移 战败国总人口×此值 入战胜国贡赋池（对比 TributeRate 0.1/tick——战败重负）
+    public const int WarTributeTicks = 40;         // 朝贡持续 tick（4000 年——一代人的重负）
+    public const float WarPlunderRate = 0.5f;      // 吞并战利品：战胜国池 += 战败国池×此值（Tilly 战争养战争）
+    public const float WarConflictMult = 2.0f;     // 交战国边境冲突概率 ×2（战争中的治安战更凶——外交断交的格级表现）
+    public const int WarCedeCells = 3;             // 朝贡割地格数（战败国边境格易主）
     // ── 聚落实体参数（2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md §2.3）──
     public const int SettlementLevelTicks1 = 3;    // 新村→村庄 Dwell ticks（★ 待校准）
     public const int SettlementLevelTicks2 = 8;    // 村庄→城镇
@@ -526,7 +553,11 @@ public sealed class CivSimContext
     //   领地 = 归属格集合；F = Σ 领地格 min(需求份额, Cap×w)；存量耗竭→饿→迁移。
     // ══════════════════════════════════════════════════════════════════
 
-    /// <summary>紧支撑平滑核：w(d) = (1−d/R)^1.5（d=格步数，d≥R 严格 0；2026-08-17 陡化修正）。</summary>
+    /// <summary>紧支撑平滑核：w(d) = (1−d/R)^1.5（d=格步数，d≥R 严格 0；2026-08-17 陡化修正）。
+    /// ⚠️ 2026-08-17 陡化：d=0 权重 1（家）、d=1 半衰 0.54、d=2 保留 0.19——驻扎格覆盖需邻 P×M ≥ 2.1×自己
+    ///   （含粘性）——家门口稳定（foraging site catchment，Binford）；d≥R 严格 0（紧支撑不变）。
+    /// ⚠️ 2026-08-19 曾扩展远格弱权重（d=3-5）→ 领地产出去中心化 → 采集经济增强、农业门槛被压
+    ///   （n128 实测 farm 412→74 崩溃）——回退（领地大小保持 3 跳；扩散靠殖民机制，不靠领地核）。</summary>
     private static readonly float[] InfluenceWeightLUT = { 1f, 0.544f, 0.192f, 0f };   // (1−d/3)^1.5 查表
     public static float InfluenceWeight(float d)
     {
@@ -545,6 +576,7 @@ public sealed class CivSimContext
     /// band → P=5 死锁（split 永不触发）。史实修正：中央营地可食用环面随距离增大
     /// （hex ring d=6d 格，∝(2d+1)），远缘贡献总产出大头；仅以微旅行折减 (1−d/Rmax) 收边。
     /// wProd(d)=(2d+1)·(1−d/Rmax)，Rmax=5（~史实 5km 利用半径边缘）→ 权重 1,2.4,3,2.8,1.8,0。
+    /// ⚠️ 2026-08-19 曾扩到 Rmax=6 → 产出去中心化 → 农业门槛被压（farm 崩溃）——回退。
     /// 只用于 采集/畜牧/农田 的领地潜在与实际产出；归属/影响力场仍用 InfluenceWeight（保家门口稳定）。</summary>
     private static readonly float[] ProductionWeightLUT = { 1f, 2.4f, 3f, 2.8f, 1.8f, 0f };   // (2d+1)(1−d/5)
     public static float ProductionWeight(float d)

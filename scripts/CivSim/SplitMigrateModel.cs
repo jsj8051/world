@@ -35,9 +35,15 @@ public sealed class SplitMigrateModel : CivModelBase
             float tension = Mathf.Clamp((t.P - CivSimContext.FissionTensionStart) / CivSimContext.FissionTensionSpan, 0f, 1f);
             float pEff = t.P * (1f + Mathf.Max(0f, 1f - t.FLast / t.P) + tension);
             if (pEff <= CivSimContext.SplitPop) continue;
-            int target = PickMigrateTarget(ctx, t);   // 殖民目标：影响圈外 1-3 跳最高 R 无主陆地格
+            int target = PickMigrateTarget(ctx, t);   // 殖民目标：影响圈外 1-6 跳最高分无主可居格
             if (target < 0) continue;                 // 无主地耗尽 → 不分裂
-            float newPop = t.P * CivSimContext.SplitShare;
+            // ⚠️ 2026-08-19 扩张修正：分裂人口**自适应目标承载**——殖民者带"能活的数量"。
+            //   旧 45% 固定：母体 P=1600 → 新实体 720 落贫瘠格（承载 ~155）→ GrowthModel 指数减员
+            //   （exp(0.5×(1−P/f)) ≈ 0.045/tick）→ 2-3 tick 饿死 → 殖民即死 → 扩散被死亡抵消
+            //   （n128 实测：分裂 1.8 万 / 净增 0.6 万 = 死亡 1.2 万）。
+            //   史实：band 分裂 = 溢出小群殖民，带走量由目的地可养决定（压力小就少分）。
+            float cap = ctx.R[target] * ctx.Grid.CellAreaKm2 * TechTable.HuntingCarry(t.TechKeys);   // 目标格狩猎承载（人）
+            float newPop = Mathf.Min(t.P * CivSimContext.SplitShare, Mathf.Max(1f, cap));
             t.P -= newPop;
             t.LastSplitTick = ctx.Tick;
             var nt = new Tribe
@@ -89,10 +95,13 @@ public sealed class SplitMigrateModel : CivModelBase
         }
     }
 
-    /// <summary>迁徙/殖民目标：起始格 BFS 至多 ColonizeRadius 跳；可穿过任意可穿越陆地（BorderCost>0）
-    /// 寻找**未定居**目标（CellTribes==null，即格上无实体；CellOwner 影响力场会广泛圈地，不做定居判定）。
-    /// 按 (R × 路径 BorderCost 衰减) 择优。确定性：时间戳标记 + 固定遍历顺序。
-    /// 阶段2：原 1-3 跳手写展开致"想分裂却无目标" → 改 BFS 到 6 跳。</summary>
+    /// <summary>迁徙/殖民目标：起始格 BFS 至多 ColonizeRadius 跳；穿过任意 BorderCost&gt;0 的格
+    /// （地形成本含技术突破：火/皮毛解锁冰原、**canoe 解锁海洋**——TerrainCost 语义，2026-08-19 落地
+    /// 路线图 unlock_sea）；目标 = 可居（R&gt;0）未定居格（海洋/冰盖不是殖民地）。
+    /// 择优：**距离主导 + 肥度微偏好**（扩散项，2026-08-19 用户拍板：波前推进铺满大陆）——
+    ///   旧公式 R×cost 让殖民只挑最肥格 → 全图挤富饶区（30% 陆地），贫瘠 70% 永久空置。
+    ///   新公式 cost×(1+ColonizeFertilityBias×R/RMax)：就近优先（cost 衰减），贫瘠近邻 &gt; 富饶远邻。
+    /// 确定性：时间戳标记 + 固定遍历顺序。</summary>
     internal static int PickMigrateTarget(CivSimContext ctx, Tribe mover)
     {
         var grid = ctx.Grid;
@@ -104,25 +113,24 @@ public sealed class SplitMigrateModel : CivModelBase
         var q = new Queue<(int cell, int layer, float cost)>();
         foreach (int nb in grid.Neighbors[mover.Cell])
         {
-            if (!grid.IsLandCell(nb) || ctx.R[nb] <= 0f) continue;
             float c1 = ctx.BorderCost(mover.Cell, nb, keys);
-            if (c1 <= 0f) continue;
+            if (c1 <= 0f) continue;   // 不可穿越（含无 canoe 的海洋）
             ctx.BfsStamp[nb] = stamp;
             q.Enqueue((nb, 1, c1));
         }
         while (q.Count > 0)
         {
             var (c, layer, ccost) = q.Dequeue();
-            // 目标 = 可穿越且未定居（CellTribes==null）；CellOwner 影响力圈地不算定居
-            if (ctx.CellTribes[c] == null)
+            // 目标 = 可居（R>0——海洋/冰盖不是殖民地）且未定居（CellTribes==null）；
+            // CellOwner 影响力圈地不算定居（分裂殖民可落入他邦影响圈——竞争由归属场表达）
+            if (ctx.CellTribes[c] == null && ctx.R[c] > 0f)
             {
-                float s = ctx.R[c] * ccost;
+                float s = ColonizeScore(ctx.R[c], ctx.RMax, ccost);
                 if (s > bestScore) { bestScore = s; best = c; }
             }
             if (layer >= maxLayer) continue;   // 达最大跳数不再扩展
             foreach (int nb in grid.Neighbors[c])
             {
-                if (!grid.IsLandCell(nb) || ctx.R[nb] <= 0f) continue;
                 if (ctx.BfsStamp[nb] == stamp) continue;
                 float c2 = ctx.BorderCost(c, nb, keys);
                 if (c2 <= 0f) continue;
@@ -132,4 +140,10 @@ public sealed class SplitMigrateModel : CivModelBase
         }
         return best;
     }
+
+    /// <summary>殖民落点分数（纯函数——T77 直接断言）：距离主导（cost 路径衰减）+ 肥度微偏好
+    /// （R/RMax 相对值，ColonizeFertilityBias=1 时肥度最多 ×2——近邻贫瘠格 &gt; 远邻富饶格）。
+    /// 旧公式 R×cost（肥度绝对主导）→ 殖民只挑最肥格 → 富饶区独占、贫瘠区空置（2026-08-19 诊断）。</summary>
+    internal static float ColonizeScore(float r, float rMax, float cost)
+        => cost * (1f + CivSimContext.ColonizeFertilityBias * (rMax > 0f ? r / rMax : 0f));
 }

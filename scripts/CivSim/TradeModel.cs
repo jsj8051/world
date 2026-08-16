@@ -41,6 +41,9 @@ public sealed class TradeModel : CivModelBase
                 EnsureStocks(b);
                 if (ctx.Grid.DistKm(a.Cell, b.Cell) > reachKm) continue;   // 远隔两地无接触可能
                 if (!CivSimContext.TerritoryTouches(ctx, a, b)) continue;   // 领地边界接触（同酋邦判定）
+                // ⚠️ 2026-08-19 阶段5：交战国断交（WarTradeBlock——战争=外交状态，不只打仗还有经济封锁；
+                //   朝贡期同样敌对；停战（War 移除）后恢复通商）
+                if (a.StateId >= 0 && b.StateId >= 0 && WarModel.IsAtWar(ctx, a.StateId, b.StateId)) continue;
                 int d = CivSimContext.BoundaryDist(ctx, a, b);
                 float mult = 1f / (1f + CivSimContext.TradeDistanceRate * d);   // 运输成本（接触对 d=1 → ×0.667）
                 if (mult <= 0f) continue;

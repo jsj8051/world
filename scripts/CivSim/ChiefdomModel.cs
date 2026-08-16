@@ -105,6 +105,13 @@ public sealed class ChiefdomModel : CivModelBase
         }
 
         // ── ④ 分配 ChiefdomId/Size（酋长 = 自己中心；band = 最优庇护人）──
+        //    Id 索引（ConqueredBy 强制归属查询——阶段5 吞并效忠，见 WarModel.Annex）
+        var byId = new Tribe[bufLen];
+        for (int i = 0; i < ctx.Tribes.Count; i++)
+        {
+            var e = ctx.Tribes[i];
+            if (!e.Dead && e.Id < bufLen) byId[e.Id] = e;
+        }
         var memberCount = new Dictionary<int, int>();   // chiefId → 成员数（含酋长自己）
         for (int i = 0; i < ctx.Tribes.Count; i++)
         {
@@ -112,6 +119,20 @@ public sealed class ChiefdomModel : CivModelBase
             if (e.Dead) continue;
             if (e.SuccessionUntil > 0 && e.SuccessionUntil <= ctx.Tick) e.SuccessionUntil = -1;   // 窗口过期清除
             if (e.TerritoryId < 0) { e.ChiefdomId = -1; e.ChiefdomSize = 1; continue; }   // 无领地不入邦
+            // ⚠️ 2026-08-19 阶段5：被征服强制归属（吞并后效忠征服者——无视庇护半径；酋邦凝聚的
+            //   制度性例外：被征服者的政治归属由武力决定，不由声望竞争决定——Tilly 战争制造国家）。
+            //   征服者死亡/失势 → 效忠失效（清空，回正常凝聚）。
+            if (e.ConqueredBy >= 0 && e.ConqueredBy < bufLen)
+            {
+                var conqueror = byId[e.ConqueredBy];
+                if (conqueror != null && !conqueror.Dead && conqueror.IsChief && conqueror.TerritoryId >= 0)
+                {
+                    e.ChiefdomId = e.ConqueredBy;
+                    memberCount[e.ConqueredBy] = memberCount.TryGetValue(e.ConqueredBy, out var cn) ? cn + 1 : 1;
+                    continue;
+                }
+                e.ConqueredBy = -1;   // 效忠对象失效 → 脱落
+            }
             if (e.IsChief)
             {
                 e.ChiefdomId = e.Id;   // 酋长 = 自己酋邦的中心

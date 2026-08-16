@@ -76,6 +76,9 @@ public sealed class ConflictModel : CivModelBase
                 ? CivSimContext.StateInternalConflictMult
                 : CivSimContext.InternalConflictMult;
         }
+        // ⚠️ 2026-08-19 阶段5：交战国边境冲突 ×2（战争状态下的治安战更凶——外交断交的格级表现）
+        if (a.StateId >= 0 && b.StateId >= 0 && WarModel.IsAtWar(ctx, a.StateId, b.StateId))
+            chance *= CivSimContext.WarConflictMult;
         bool succession = a.SuccessionUntil > ctx.Tick || b.SuccessionUntil > ctx.Tick;
         bool stateSuccessionExempt = a.StateId >= 0 && a.StateId == b.StateId;   // 同国家 → 王朝豁免 ×2
         if (succession && !stateSuccessionExempt) chance *= CivSimContext.SuccessionConflictMult;

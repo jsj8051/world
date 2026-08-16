@@ -122,12 +122,14 @@ public static class CivEngine
         var grid = ctx.Grid;
         int n = grid.N;
         var vals = new List<float>(n);
+        float rMax = 0f;
         for (int i = 0; i < n; i++)
         {
             if (!grid.IsLandCell(i)) { ctx.R[i] = 0f; continue; }
             if (grid.Temp[i] <= -5.5f) { ctx.R[i] = 0f; continue; }   // ⚠️ 2026-08-18 冰盖无生产力（温度 ≤-5.5°C——余量避 byte 量化边界——T04 读档/内存同判）
             float raw = CivSimContext.MiamiNpp(grid.Temp[i], grid.Precip[i]) * (ctx.WaterRich(i) ? 1.5f : 1f);
             ctx.R[i] = raw;
+            if (raw > rMax) rMax = raw;
             vals.Add(raw);
         }
         float k = 0f;
@@ -138,6 +140,7 @@ public static class CivEngine
             k = median > 1f ? CivSimContext.TargetMedianDensity / median : 0f;
         }
         for (int i = 0; i < n; i++) ctx.R[i] *= k;
+        ctx.RMax = Mathf.Max(1e-6f, rMax * k);   // 殖民落点分数归一化参考（2026-08-19 扩散项）
     }
 
     /// <summary>每 tick 开头的派生刷新（现状语义，保持不动）：CellTribes/CellPop/CellFarmPop/CarryMult/CapMask
