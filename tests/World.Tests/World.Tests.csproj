@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 版本锁定本机 NuGet 缓存（离线可还原）；CI 联网时同版本可从 nuget.org 还原 -->
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.9.0" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 引用游戏程序集；测试只覆盖纯托管逻辑（不触碰 Godot 原生调用） -->
+    <ProjectReference Include="..\..\world.csproj" />
+  </ItemGroup>
+
+</Project>

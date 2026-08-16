@@ -3,4 +3,9 @@
     <TargetFramework>net8.0</TargetFramework>
     <RootNamespace>world</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- 测试项目独立编译，不进入游戏程序集 -->
+    <Compile Remove="tests/**/*.cs" />
+    <None Remove="tests/**" />
+  </ItemGroup>
 </Project>
