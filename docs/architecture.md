@@ -53,7 +53,8 @@ L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单�
 
 ## 5. 工程质量（"国家机器"）
 
-- **测试**：`tests/World.Tests`（xUnit）。L0 纯模型与 L1 系统的不变量必须进测试，
+- **提交门槛**：`.githooks/pre-commit`（build + 单元测试；安装 `git config core.hooksPath .githooks`）。
+- **测试**：`tests/World.Tests`（NUnit，见 ADR-0001）。L0 纯模型与 L1 系统的不变量必须进测试，
   不变量包括：同 seed 同输出、边界合法、存档往返一致。
 - **规范**：`.editorconfig` + `dotnet format`（CI 强制校验）。
 - **CI**：GitHub Actions —— `dotnet build` → `dotnet test` → `dotnet format --verify` →
@@ -65,7 +66,7 @@ L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单�
 | 条目 | 状态 | 说明 |
 |---|---|---|
 | 分层文档 | ✅ 本文档 | 之前缺失 |
-| 单元测试项目 | ⏳ 建设中 | `tests/World.Tests` |
+| 单元测试项目 | ✅ | `tests/World.Tests`（NUnit 48 用例）+ 本地执行器 `World.Tests.Local` |
 | 服务层 | ❌ 缺失 | 待建 EventBus/LogService/ArchiveService |
 | CI | ❌ 缺失 | 待建 `.github/workflows/` |
 | 诊断场景统一 | ❌ 未统一 | 15+ 场景各自复制样板 |
