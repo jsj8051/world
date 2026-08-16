@@ -3,6 +3,7 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:   # 手动触发（T40 性能基线等昂贵作业）
 
 jobs:
   build-test-format:
@@ -44,3 +45,31 @@ jobs:
   #         run: bash scripts/verify.sh --fast
   #   说明：verify.sh 全量（含 CivSimDiag T 全套 ~10min）用 workflow_dispatch 手动触发，
   #   不入 push 默认路径（时长成本）；GODOT_EXE_PATH 为自托管机上的 Godot mono 控制台路径。
+
+  # ── T40 性能基线作业（2026-08-19，手动触发；自托管 Windows runner）──
+  # 用途：算法改动的性能劣化报警器（MapGen 板块/管线/存档三段，超基线 ×1.5 即 FAIL）。
+  # 基线：user://perf_baseline.json 按 runner 机器持久（换 runner = 首次运行重新种基线，
+  #   种基线那次只记录不判定）；历史趋势：user://perf_history.json（滚动 200 条，T41 可读）。
+  # 注意：共享 runner 机器抖动可达 2-3×，若误报频繁可把 T40 阈值调到 ×2.5 或只跑自托管。
+  # 用法：Actions 页 → Run workflow（workflow_dispatch）→ 选 perf-baseline。
+  perf-baseline:
+    runs-on: [self-hosted, windows]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Build
+        run: dotnet build world.csproj --configuration Debug
+      - name: T40 performance baseline (vs user://perf_baseline.json)
+        shell: bash
+        env:
+          GODOT_EXE: ${{ secrets.GODOT_EXE_PATH }}
+        run: |
+          OUT=$("$GODOT_EXE" --headless --path . "res://scenes/diag/CivSimDiag.tscn" -- --only=T40 2>&1)
+          echo "$OUT" | grep -E "T40|PASS|FAIL" | tail -6
+          if echo "$OUT" | grep -q "FAIL T40"; then
+            echo "::error::T40 性能劣化（超基线 ×1.5）——检查近期算法改动"
+            exit 1
+          fi
+          echo "✓ T40 通过（首次运行 = 已记录新基线）"
