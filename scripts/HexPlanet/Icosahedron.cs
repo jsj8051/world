@@ -108,7 +108,8 @@ namespace World.HexPlanet
                 }
             }
 
-            LogService.Log("Icosahedron", $"n={n} verts={verts.Count} tris={indices.Count / 3}  (expect verts≈{VertexCountFor(n)}, tris={20 * n * n})");
+            // ⚠️ 引擎适配器重构（2026-08）：本函数是纯几何函数，不打印日志——
+            //   调用方需要网格统计时自行记录（日志已从 Subdivide 移除，无引擎测试进程可直调）
         }
 
         /// <summary>

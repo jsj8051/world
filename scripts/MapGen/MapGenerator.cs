@@ -254,6 +254,10 @@ public partial class MapGenerator : Node
 
         // 写档前卫生检查（2026-08-19：NaN/全 0 异常场在写档前暴露，防静默写坏档）
         pipe.HealthCheck();
+        // ⚠️ 引擎适配器重构（2026-08）：Run 路径无日志——NaN 消毒计数与模型状态报告由调用层记录
+        if (pipe.NansSanitized > 0)
+            LogService.Log("PlanetPipeline", $"⚠️ NaN 消毒：{pipe.NansSanitized} 顶点 → 0");
+        ClimateModel.PrintReport(pipe);
 
         MapArchive.WriteSpherical(OutputPath, Seed, simVerts, pipe.MinElev, pipe.MaxElev, pipe.Elev,
             pipe.Temp, pipe.Precip, pipe.Biome, pipe.MinTemp, pipe.MaxTemp, pipe.MinPrecip, pipe.MaxPrecip,

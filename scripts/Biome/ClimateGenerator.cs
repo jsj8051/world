@@ -12,8 +12,8 @@ namespace World.Biome;
 /// </summary>
 public class ClimateGenerator
 {
-    private readonly FastNoiseLite _tempNoise;
-    private readonly FastNoiseLite _precipNoise;
+    private readonly ISphericalNoise _tempNoise;
+    private readonly ISphericalNoise _precipNoise;
     private readonly float _tiltRad;   // 轴向倾角（弧度）
     private readonly float _insolation; // 恒星辐照度（相对地球 1AU = 1.0）
     private System.Func<Vector3, (float warm, float str)> _sampleCurrent;   // 洋流（冷暖-1~1, 强度0.3~1），null=无洋流
@@ -21,24 +21,17 @@ public class ClimateGenerator
     /// <summary>轴向倾角（度）。默认 23.4（地球）。影响年均温度带：倾角大 → 高纬年均更冷
     /// （夏季直射但冬季极夜更长）、季节振幅更大；倾角 0 → 无季节、极地温和。
     /// insolation：恒星辐照度倍率（1.0=地球 1AU）。接收能量 ∝ 1/d²，温度 ∝ 能量^0.25
-    /// （Stefan-Boltzmann）：0.8AU(1.56×) → 全球 +12°C；1.2AU(0.69×) → 全球 -10°C。</summary>
-    public ClimateGenerator(int seed, float axialTiltDeg = 23.4f, float insolation = 1.0f)
+    /// （Stefan-Boltzmann）：0.8AU(1.56×) → 全球 +12°C；1.2AU(0.69×) → 全球 -10°C。
+    /// ⚠️ 引擎适配器重构（2026-08）：噪声经 <see cref="ISphericalNoise"/> 注入——
+    /// 传 null = 默认引擎实现 FastNoiseLiteNoise（生产行为不变）；测试注入纯托管实现
+    /// （恒零/确定性伪噪声）即可在无引擎进程测试物理公式。</summary>
+    public ClimateGenerator(int seed, float axialTiltDeg = 23.4f, float insolation = 1.0f,
+        ISphericalNoise tempNoise = null, ISphericalNoise precipNoise = null)
     {
         _tiltRad = Mathf.DegToRad(axialTiltDeg);
         _insolation = insolation;
-        _tempNoise = new FastNoiseLite();
-        _tempNoise.NoiseType = FastNoiseLite.NoiseTypeEnum.SimplexSmooth;
-        _tempNoise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
-        _tempNoise.FractalOctaves = 3;
-        _tempNoise.Frequency = 0.0006f; // 波长 ~1 万 km：大尺度大陆性差异
-        _tempNoise.Seed = seed ^ 0x1A2B3C;
-
-        _precipNoise = new FastNoiseLite();
-        _precipNoise.NoiseType = FastNoiseLite.NoiseTypeEnum.SimplexSmooth;
-        _precipNoise.FractalType = FastNoiseLite.FractalTypeEnum.Fbm;
-        _precipNoise.FractalOctaves = 4;
-        _precipNoise.Frequency = 0.0012f; // 波长 ~5000 km：区域降水差异
-        _precipNoise.Seed = seed ^ 0x4D5E6F;
+        _tempNoise = tempNoise ?? FastNoiseLiteNoise.CreateTemperature(seed);
+        _precipNoise = precipNoise ?? FastNoiseLiteNoise.CreatePrecipitation(seed);
     }
 
     /// <summary>
@@ -57,7 +50,10 @@ public class ClimateGenerator
     {
         Vector3 dir = pos.Normalized();
         float lat = Mathf.Asin(Mathf.Clamp(dir.Y, -1f, 1f)); // -π/2..π/2
-        float cosLat = Mathf.Cos(lat);                        // 1 赤道 → 0 极地
+        // ⚠️ 极点浮点 bug（2026-08 测试发现）：float π/2 量化略大于真值 → cos(asin(1))≈-4e-8（略负）→
+        //   Mathf.Pow(负底, 1.1)=NaN → 极点温度全链路 NaN（生产仅靠 SanitizeNaNs 抹成 0°C，值错误）。
+        //   修复：cosLat 下限 0 → 极点 baseT = 52×0^1.1−22 = −22（正确极地温）。
+        float cosLat = Mathf.Max(0f, Mathf.Cos(lat));        // 1 赤道 → 0 极地
 
         // 纬度基准：赤道 ≈ +30°C，极地 ≈ -22°C（cosLat^1.1 让高纬度降温更快）
         // ⚠️ 2026-08-02 标定：用户要求"基线赤道 30°C、极端（0.8AU）50°C"——原 48→52。
@@ -87,7 +83,7 @@ public class ClimateGenerator
         }
 
         // 大陆性噪声：±7°C
-        float noise = _tempNoise.GetNoise3D(dir.X, dir.Y, dir.Z) * 7f;
+        float noise = _tempNoise.Sample(dir) * 7f;
 
         // 洋流修正（2026-08-02）：暖流沿岸升温、寒流降温。
         //   ⚠️ 动态化：修正 = 冷暖(warm -1~1) × 强度(str 0.3~1.0) × 5°C——
@@ -140,7 +136,7 @@ public class ClimateGenerator
         // 恒星辐照度修正：能量多 → 蒸发强 → 全球降水增（±12%）
         baseP *= 1f + (_insolation - 1f) * 0.30f;
 
-        float noise = _precipNoise.GetNoise3D(dir.X, dir.Y, dir.Z);
+        float noise = _precipNoise.Sample(dir);
         // ⚠️ 2026-08-02：噪声从 ±45% 降到 ±12%——之前噪声摆动比盛行风修正（±35%）还大，
         //   把信风带/雨影的物理信号淹没了。现在纬度带基准是骨架、盛行风是主要调节、噪声只是小扰动。
         float mod = 1f + noise * 0.12f; // 0.88..1.12
@@ -203,7 +199,7 @@ public class ClimateGenerator
 
         baseP *= 1f + (_insolation - 1f) * 0.30f;
 
-        float noise = _precipNoise.GetNoise3D(dir.X, dir.Y, dir.Z);
+        float noise = _precipNoise.Sample(dir);
         float mod = 1f + noise * 0.12f;
 
         if (_sampleCurrent != null)

@@ -42,6 +42,8 @@ public class PlanetPipeline
     public float[] Psi;                        // 洋流流函数（环流圈提取；存档 v4 起，供显示层"每环最外圈"）
     public float MinElev, MaxElev, MinTemp, MaxTemp, MinPrecip, MaxPrecip;
     public int RiparianCount;
+    /// <summary>上次 Run 消毒的 NaN 顶点数（调用方按需记录日志；Run 路径本身无日志）。</summary>
+    public int NansSanitized { get; private set; }
     // 季风环流诊断场（v3.7/v3.8 存档 + 元数据校验）
     public float[] MonsoonStrength;
     public float[][] MonthPrecip;   // [12][n] 月降水比例
@@ -95,7 +97,9 @@ public class PlanetPipeline
 
     /// <summary>NaN → 0 消毒（写档前最后防线；河流侵蚀等浮点链路偶发 0/0）。
     /// ⚠️ 2026-08-19 扩展：全字段扫描（原只查 Elev/Temp/Precip 3 个主字段——月场/洋流场
-    /// 的 NaN 会静默写档，下游显示全错）。消毒后调用 HealthCheck 统计残留异常。</summary>
+    /// 的 NaN 会静默写档，下游显示全错）。消毒后调用方按需记录日志。
+    /// ⚠️ 引擎适配器重构（2026-08）：本方法不打印（Run 路径无引擎调用）——调用方读
+    /// <see cref="NansSanitized"/> 决定是否记录。</summary>
     private void SanitizeNaNs()
     {
         int nan = 0;
@@ -118,8 +122,7 @@ public class PlanetPipeline
         Scan(CurrentWarmth, "洋流冷暖"); Scan(CurrentStrength, "洋流强度"); Scan(Psi, "流函数");
         Scan(ErosionNet, "侵蚀堆积");
         ScanV3(WindYear, "年风场");
-        if (nan > 0)
-            LogService.Log("PlanetPipeline", $"⚠️ NaN 消毒：{nan} 顶点 → 0");
+        NansSanitized = nan;
     }
 
     private void ScanV3(Vector3[] arr, string name)

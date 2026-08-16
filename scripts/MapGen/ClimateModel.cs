@@ -59,6 +59,8 @@ public static class ClimateModel
     /// <summary>
     /// 全流水线执行（2026-08-16 抽象框架迁移）：依赖拓扑排序 → 场 Compute + 环 Apply → 校验。
     /// PlanetPipeline.Run 只注入环境（Sim/P/Grid/ENorm/Climate…），计算全部由这里驱动。
+    /// ⚠️ 引擎适配器重构（2026-08）：Run 路径**纯计算 + 校验，无日志**（可无引擎测试）；
+    /// 模型状态报告抽到 <see cref="PrintReport"/>，由生产调用方在 Run 后按需调用。
     /// </summary>
     public static void Run(PlanetPipeline pipe, Action<float> onProgress = null)
     {
@@ -113,8 +115,18 @@ public static class ClimateModel
 
     /// <summary>
     /// 全流水线校验（Run 末尾调用）：全部模型（13 场 + 8 环）。
+    /// 纯校验（逐模型 Verify），**无日志**——供测试断言（每个模型 Verify 通过）。
     /// </summary>
     public static void ValidateAll(PlanetPipeline pipe)
+    {
+        foreach (var m in Models(pipe)) m.Verify();
+    }
+
+    /// <summary>
+    /// 模型状态诊断报告（引擎环境专用：含 LogService→GD.Print）。
+    /// 引擎适配器重构后 Run 不再打印，由生产调用方（MapGenerator 同步路径）在 Run 后调用。
+    /// </summary>
+    public static void PrintReport(PlanetPipeline pipe)
     {
         Print(pipe, "全流水线模型");
     }
