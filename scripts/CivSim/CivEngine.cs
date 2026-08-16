@@ -90,6 +90,7 @@ public static class CivEngine
         World.Diagnostics.PerfLog.Append("civsim", $"{ctx.Tick}t/{ctx.Tribes.Count}e", modelMs);
         if (hisCnt > 0)
         {
+            // 调用方可能后台线程（CivEvolveMenu Task.Run）：LogService 纪律禁止，保持 GD.Print 直调（ADR-0004 §决策4）
             if (swRun.ElapsedMilliseconds > hisAvg * 1.5)
                 GD.Print($"[性能] ⚠️ CivSim 劣化告警：总={swRun.ElapsedMilliseconds}ms > 历史均值 {hisAvg:F0}ms ×1.5——检查近期模型改动");
             else

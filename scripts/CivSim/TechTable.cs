@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.Services;
 
 namespace World.CivSim;
 
@@ -114,7 +115,7 @@ public static class TechTable
         using var f = FileAccess.Open(CsvPath, FileAccess.ModeFlags.Read);
         if (f == null)
         {
-            GD.PrintErr($"[TechTable] cannot open {CsvPath}: {FileAccess.GetOpenError()}");
+            LogService.LogErr("TechTable", $"cannot open {CsvPath}: {FileAccess.GetOpenError()}");
             _loaded = true;
             return;
         }
@@ -162,6 +163,6 @@ public static class TechTable
         _byKey = new Dictionary<string, TechDef>();
         foreach (var t in _techs) _byKey[t.Key] = t;
         _loaded = true;
-        GD.Print($"[TechTable] loaded {_techs.Length} techs: {string.Join(" / ", Array.ConvertAll(_techs, t => t.Key))}");
+        LogService.Log("TechTable", $"loaded {_techs.Length} techs: {string.Join(" / ", Array.ConvertAll(_techs, t => t.Key))}");
     }
 }

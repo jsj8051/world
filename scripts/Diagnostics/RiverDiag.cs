@@ -2,6 +2,7 @@ using Godot;
 using System.Collections.Generic;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 using World.Tectonics;
 
 namespace World.Diagnostics;
@@ -18,7 +19,7 @@ public partial class RiverDiag : DiagSceneBase
         {
             if (!ArchiveDiag.TryLoad(arch, out var ctx))
             {
-                GD.PrintErr("[RiverDiag] 存档直读失败");
+                LogService.LogErr("RiverDiag", "存档直读失败");
                 GetTree().Quit(1);
                 return;
             }
@@ -77,7 +78,7 @@ public partial class RiverDiag : DiagSceneBase
                 if (d < -0.5f) { cut++; maxCut = Mathf.Min(maxCut, d); }
                 if (d > 0.5f) { dep++; maxDep = Mathf.Max(maxDep, d); }
             }
-            GD.Print($"[RiverDiag] 侵蚀沉积(v2输沙): 下切格 {cut} 最大切深 {maxCut:F0}m | 堆积格 {dep} 最大堆积 {maxDep:F0}m");
+            LogService.Log("RiverDiag", $"侵蚀沉积(v2输沙): 下切格 {cut} 最大切深 {maxCut:F0}m | 堆积格 {dep} 最大堆积 {maxDep:F0}m");
         }
 
         sw.Stop();
@@ -121,7 +122,7 @@ public partial class RiverDiag : DiagSceneBase
                 if (ctx.Map.RiverFlow != null && ai >= 0 && ai < ctx.Map.RiverFlow.Length && flow[i] == ctx.Map.RiverFlow[ai]) sameFlow++;
             }
         }
-        GD.Print($"[RiverDiag] 直读自洽性(陆地 {totalLand} 顶点): 级别一致 {sameLevel} ({100f * sameLevel / totalLand:F1}%) | 流向一致 {sameFlow} ({100f * sameFlow / totalLand:F1}%)");
+        LogService.Log("RiverDiag", $"直读自洽性(陆地 {totalLand} 顶点): 级别一致 {sameLevel} ({100f * sameLevel / totalLand:F1}%) | 流向一致 {sameFlow} ({100f * sameFlow / totalLand:F1}%)");
         PrintStats(ctx.VertexCount, vn, eNorm, area, flow, riverLevel, lakeLevel, paths, sw.ElapsedMilliseconds);
         DrawPng(ctx.Grid, verts, eNorm, paths, lakeLevel, flow);
         GetTree().Quit();
@@ -143,7 +144,7 @@ public partial class RiverDiag : DiagSceneBase
             float q50 = landWater[landWater.Count / 2];
             float q90 = landWater[(int)(landWater.Count * 0.9)];
             float q99 = landWater[(int)(landWater.Count * 0.99)];
-            GD.Print($"[RiverDiag] 水量分位数(陆地): 50%={q50:F0} 90%={q90:F0} 99%={q99:F0}mm");
+            LogService.Log("RiverDiag", $"水量分位数(陆地): 50%={q50:F0} 90%={q90:F0} 99%={q99:F0}mm");
         }
         int maxLen = 0;
         for (int p = 0; p < paths.Count; p++)
@@ -161,9 +162,9 @@ public partial class RiverDiag : DiagSceneBase
         {
             float med = basinWaters[basinWaters.Count / 2];
             float p90 = basinWaters[(int)(basinWaters.Count * 0.9f)];
-            GD.Print($"[RiverDiag] 盆地水量: 中位 {med:F0} p90 {p90:F0} 最大 {basinWaters[^1]:F0}mm");
+            LogService.Log("RiverDiag", $"盆地水量: 中位 {med:F0} p90 {p90:F0} 最大 {basinWaters[^1]:F0}mm");
         }
-        GD.Print($"[RiverDiag] n={n} 河流格: 1级={levelCount[1]} 2级={levelCount[2]} 3级={levelCount[3]} | 路径 {paths.Count} 条 | 最长 {maxLen} 格 | 盆地候选 {lakeIds.Count} 湖 {lakeCount} | 耗时 {ms}ms");
+        LogService.Log("RiverDiag", $"n={n} 河流格: 1级={levelCount[1]} 2级={levelCount[2]} 3级={levelCount[3]} | 路径 {paths.Count} 条 | 最长 {maxLen} 格 | 盆地候选 {lakeIds.Count} 湖 {lakeCount} | 耗时 {ms}ms");
     }
 
     /// <summary>等距柱状图（1024×512）：深蓝海/暗绿陆/蓝河/红主河/亮蓝湖。</summary>
@@ -219,7 +220,7 @@ public partial class RiverDiag : DiagSceneBase
             }
         }
         img.SavePng("user://maps/river_diag.png");
-        GD.Print("[RiverDiag] saved user://maps/river_diag.png");
+        LogService.Log("RiverDiag", "saved user://maps/river_diag.png");
     }
 
     static Color HslToRgb(float h, float s, float l)

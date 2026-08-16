@@ -9,6 +9,7 @@ using World.Camera;
 using World.HexPlanet;
 using World.MapGen;
 using World.PlanetLOD;
+using World.Services;
 using World.Surface;
 using World.UI;
 
@@ -219,7 +220,7 @@ public partial class MapViewer
         if (!_geometryReady || _tiles == null)
         {
             _pendingRecolor = true;   // 构建完成后自动重算颜色（用最新 Layer）
-            GD.Print($"[MapViewer] RebuildColors: 几何未就绪 → pendingRecolor（Layer={_layer}）");
+            LogService.Log("MapViewer", $"RebuildColors: 几何未就绪 → pendingRecolor（Layer={_layer}）");
             return;
         }
 
@@ -231,11 +232,12 @@ public partial class MapViewer
         _progress = 0f;
         _phase = "重算颜色";
         ShowProgress();
-        GD.Print($"[MapViewer] RebuildColors: v{version} Layer={layer} 启动后台着色");
+        LogService.Log("MapViewer", $"RebuildColors: v{version} Layer={layer} 启动后台着色");
         _buildTask = Task.Run(() => BuildColorsTask(_map, version, token, layer), token);
         _buildTask.ContinueWith(t =>
         {
             if (t.IsFaulted)
+                // 后台线程回调：LogService 纪律禁止，保持 GD.Print 直调（ADR-0004 §决策4）
                 GD.PrintErr($"[MapViewer] recolor failed: {t.Exception?.GetBaseException().Message}\n{t.Exception?.GetBaseException().StackTrace}");
             CallDeferred(nameof(FinishGenerate), version);
         });
@@ -301,7 +303,7 @@ public partial class MapViewer
             var img = new Image();   // LoadSvgFromBuffer 是实例方法（返回 Error）
             if (img.LoadSvgFromBuffer(bytes) != Error.Ok)
             {
-                GD.PrintErr($"[MapViewer] SVG icon {idx} load failed");
+                LogService.LogErr("MapViewer", $"SVG icon {idx} load failed");
                 return null;
             }
             img.Resize(28, 28, Image.Interpolation.Bilinear);
@@ -309,7 +311,7 @@ public partial class MapViewer
         }
         catch (System.Exception e)
         {
-            GD.PrintErr($"[MapViewer] SVG icon {idx} failed: {e.Message}");
+            LogService.LogErr("MapViewer", $"SVG icon {idx} failed: {e.Message}");
             return null;
         }
     }

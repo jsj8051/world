@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -32,7 +33,7 @@ public static class PerfLog
         using var f = FileAccess.Open(Path, FileAccess.ModeFlags.Write);
         if (f == null)
         {
-            GD.PrintErr($"[PerfLog] 无法写 {Path}（仅本次计时）");
+            LogService.LogErr("PerfLog", $"无法写 {Path}（仅本次计时）");
             return;
         }
         f.StoreString("# perf history: kind|label|ts|k=v,...\n" + string.Join("\n", lines) + "\n");
@@ -74,7 +75,7 @@ public static class PerfLog
     public static void Summarize(string kind, string title)
     {
         var keys = new Dictionary<string, (double sum, long max, int n, long last)>();
-        if (!FileAccess.FileExists(Path)) { GD.Print($"[性能] {title}：无历史记录"); return; }
+        if (!FileAccess.FileExists(Path)) { LogService.Log("性能", $"{title}：无历史记录"); return; }
         string text = FileAccess.GetFileAsString(Path);
         foreach (var ln in text.Split('\n'))
         {
@@ -91,13 +92,13 @@ public static class PerfLog
                 keys[p[0]] = st;
             }
         }
-        if (keys.Count == 0) { GD.Print($"[性能] {title}：无记录"); return; }
+        if (keys.Count == 0) { LogService.Log("性能", $"{title}：无记录"); return; }
         int total = 0;
         foreach (var kv in keys) { total = kv.Value.n; break; }   // 各 key 条数相同
-        var sb = new System.Text.StringBuilder($"[性能] {title} 历史 {total} 条: ");
+        var sb = new System.Text.StringBuilder($"{title} 历史 {total} 条: ");
         foreach (var kv in keys)
             sb.Append($"{kv.Key}={kv.Value.sum / kv.Value.n:F0}ms(均)/{kv.Value.max}ms(峰) ");
-        GD.Print(sb.ToString());
+        LogService.Log("性能", sb.ToString());
     }
 
     private static string Serialize(Dictionary<string, long> t)

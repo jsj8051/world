@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Text;
+using World.Services;
 
 namespace World.MapGen;
 
@@ -121,10 +122,10 @@ public static class ClimateModel
     private static void Print(PlanetPipeline pipe, string title)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"[ClimateModel] {title}状态（对照 docs/气候反馈环.md）：");
+        sb.AppendLine($"{title}状态（对照 docs/气候反馈环.md）：");
         foreach (var m in Models(pipe))
             sb.AppendLine($"  {m.ToString(),-50} {(m.Verify() ? "✅" : "⚠️")}");
-        GD.Print(sb.ToString().TrimEnd());
+        LogService.Log("ClimateModel", sb.ToString().TrimEnd());
         int closed = 0, cut = 0, ignored = 0, fields = 0;
         foreach (var m in Models(pipe))
         {
@@ -136,6 +137,6 @@ public static class ClimateModel
             }
             else fields++;
         }
-        GD.Print($"[ClimateModel] 模型 {fields} 场 + {closed + cut + ignored} 环（Closed {closed} / Cut {cut} / Ignored {ignored}）— 封版（2026-08-16）");
+        LogService.Log("ClimateModel", $"模型 {fields} 场 + {closed + cut + ignored} 环（Closed {closed} / Cut {cut} / Ignored {ignored}）— 封版（2026-08-16）");
     }
 }

@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Reflection;
+using World.Services;
 
 namespace World.CivSim;
 
@@ -65,7 +66,7 @@ public static class CivArchiveSchema
             if (def.Name == "TechKeys") continue;   // 变长特例（HashSet 字段，类型不可直接 GetField 序列化）
             if (t.GetField(def.Name, BindingFlags.Public | BindingFlags.Instance) == null)
             {
-                GD.PrintErr($"[CivArchiveSchema] 字段 '{def.Name}' 在 Tribe 上不存在——清单过期！");
+                LogService.LogErr("CivArchiveSchema", $"字段 '{def.Name}' 在 Tribe 上不存在——清单过期！");
                 return false;
             }
         }

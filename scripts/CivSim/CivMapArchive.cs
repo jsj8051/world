@@ -6,6 +6,7 @@ using World.Biome;
 using World.HexPlanet;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.CivSim;
 
@@ -80,7 +81,7 @@ public static class CivMapArchive
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
         if (f == null)
         {
-            GD.PrintErr($"[CivMapArchive] cannot open {path} for write: {FileAccess.GetOpenError()}");
+            LogService.LogErr("CivMapArchive", $"cannot open {path} for write: {FileAccess.GetOpenError()}");
             return false;
         }
         var ctx = result.Context;
@@ -133,7 +134,7 @@ public static class CivMapArchive
                 f.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
         }
         if (log)
-            GD.Print($"[CivMapArchive] wrote v{Version} {path} (ticks={result.FinalTick} " +
+            LogService.Log("CivMapArchive", $"wrote v{Version} {path} (ticks={result.FinalTick} " +
                      $"entities={alive} pop={ctx.TotalPopulation():F0} farm={CountFarming(ctx)} fission={ctx.Fissions} migrate={ctx.Migrations}" +
                      $" settlements={ctx.Settlements.Count})");
         return true;
@@ -257,23 +258,23 @@ public static class CivMapArchive
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
         if (f == null)
         {
-            GD.PrintErr($"[CivMapArchive] cannot open {path} for read: {FileAccess.GetOpenError()}");
+            LogService.LogErr("CivMapArchive", $"cannot open {path} for read: {FileAccess.GetOpenError()}");
             return false;
         }
         if (f.Get8() != 'C' || f.Get8() != 'M' || f.Get8() != 'P' || f.Get8() != '1')
         {
-            GD.PrintErr($"[CivMapArchive] bad magic in {path}");
+            LogService.LogErr("CivMapArchive", $"bad magic in {path}");
             return false;
         }
         ushort ver = f.Get16();
         switch (ClassifyVersion(ver))
         {
             case ArchiveVersionStatus.Newer:
-                GD.PrintErr($"[CivMapArchive] unsupported version {ver} in {path} (need ≤{Version})");
+                LogService.LogErr("CivMapArchive", $"unsupported version {ver} in {path} (need ≤{Version})");
                 return false;
             case ArchiveVersionStatus.Older:
             case ArchiveVersionStatus.Unknown:
-                GD.PrintErr($"[CivMapArchive] old version {ver} in {path}（旧档已放弃，请重新演化生成 v{Version}）");
+                LogService.LogErr("CivMapArchive", $"old version {ver} in {path}（旧档已放弃，请重新演化生成 v{Version}）");
                 return false;
         }
         int seed = (int)f.Get32();
@@ -295,7 +296,7 @@ public static class CivMapArchive
             byte b = g.Biome[i];
             if (b >= 4 && b <= 11)
             {
-                GD.PrintErr($"[CivMapArchive] {path} 含化石 biome 值 {b}（旧档已放弃，请重新生成）");
+                LogService.LogErr("CivMapArchive", $"{path} 含化石 biome 值 {b}（旧档已放弃，请重新生成）");
                 return false;
             }
         }
@@ -308,7 +309,7 @@ public static class CivMapArchive
         ulong remaining = f.GetLength() - f.GetPosition();
         if (count < 0 || (ulong)count > remaining / 64)
         {
-            GD.PrintErr($"[CivMapArchive] {path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
+            LogService.LogErr("CivMapArchive", $"{path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
             return false;
         }
         var entities = new List<Tribe>(count);
@@ -378,7 +379,7 @@ public static class CivMapArchive
             ulong sRemaining = f.GetLength() - f.GetPosition();
             if (sCount < 0 || (ulong)sCount > sRemaining / 48)
             {
-                GD.PrintErr($"[CivMapArchive] {path} 聚落段长度异常：count={sCount}，剩余 {sRemaining}B——正文错位或损坏。");
+                LogService.LogErr("CivMapArchive", $"{path} 聚落段长度异常：count={sCount}，剩余 {sRemaining}B——正文错位或损坏。");
                 return false;
             }
             for (int k = 0; k < sCount; k++)
@@ -457,7 +458,7 @@ public static class CivMapArchive
 
         result = new CivSimResult { Context = ctx, FinalTick = finalTick };
         grid = g;
-        GD.Print($"[CivMapArchive] read v{ver} {path} (ticks={finalTick} years={years} entities={count})");
+        LogService.Log("CivMapArchive", $"read v{ver} {path} (ticks={finalTick} years={years} entities={count})");
         return true;
     }
 

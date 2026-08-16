@@ -1,6 +1,7 @@
 using Godot;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -11,7 +12,7 @@ public partial class TempDiagnosis : DiagSceneBase
     {
         if (!MapArchive.Read("user://maps/map1.mpa", out var map) || !map.IsSpherical)
         {
-            GD.PrintErr("[TempDiagnosis] 无法读取");
+            LogService.LogErr("TempDiagnosis", "无法读取");
             GetTree().Quit();
             return;
         }
@@ -19,7 +20,7 @@ public partial class TempDiagnosis : DiagSceneBase
         foreach (var t in new[] { -82.4f, -60f, -40f, -30f, -20f, 0f, 26f })
         {
             var c = BiomeColors.TemperatureToColor(t);
-            GD.Print($"[TempDiagnosis] {t}°C -> RGB({c.R:F2},{c.G:F2},{c.B:F2})  x={(t + 30f) / 65f:F2}");
+            LogService.Log("TempDiagnosis", $"{t}°C -> RGB({c.R:F2},{c.G:F2},{c.B:F2})  x={(t + 30f) / 65f:F2}");
         }
 
         // 导出等距柱状温度图
@@ -39,7 +40,7 @@ public partial class TempDiagnosis : DiagSceneBase
             }
         }
         img.SavePng("user://maps/temp_diag.png");
-        GD.Print("[TempDiagnosis] saved user://maps/temp_diag.png");
+        LogService.Log("TempDiagnosis", "saved user://maps/temp_diag.png");
         GetTree().Quit();
     }
 }

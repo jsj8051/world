@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using World.HexPlanet;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -34,16 +35,16 @@ public partial class PolarDiagnosis : DiagSceneBase
             if (nb == 5) { pentagons++; pentagonLats.Add(GetLatDeg(t.Center)); }
             else if (nb == 6) hexagons++;
         }
-        GD.Print($"[Polar] tiles={tiles.Count} 五边形={pentagons} 六边形={hexagons}");
+        LogService.Log("Polar", $"tiles={tiles.Count} 五边形={pentagons} 六边形={hexagons}");
         foreach (var kv in neighborCounts)
-            GD.Print($"[Polar] {kv.Key}邻居格: {kv.Value} 个");
+            LogService.Log("Polar", $"{kv.Key}邻居格: {kv.Value} 个");
 
         // 五边形纬度分布（是否有靠近极点的）
         if (pentagonLats.Count > 0)
         {
             float minLat = float.MaxValue, maxLat = float.MinValue;
             foreach (var la in pentagonLats) { minLat = Mathf.Min(minLat, la); maxLat = Mathf.Max(maxLat, la); }
-            GD.Print($"[Polar] 五边形纬度范围: {minLat:F1}° ~ {maxLat:F1}°");
+            LogService.Log("Polar", $"五边形纬度范围: {minLat:F1}° ~ {maxLat:F1}°");
         }
 
         // 极区（lat>80°）每格邻居数分布
@@ -56,10 +57,10 @@ public partial class PolarDiagnosis : DiagSceneBase
                 else if (t.Corners.Length == 6) polar6++;
             }
         }
-        GD.Print($"[Polar] 极区(|lat|&gt;80°): 五边形={polar5} 六边形={polar6}");
+        LogService.Log("Polar", $"极区(|lat|&gt;80°): 五边形={polar5} 六边形={polar6}");
 
         // 极区最近顶点环带：采样点与最近顶点的角距分布
-        GD.Print("[Polar] 诊断完成");
+        LogService.Log("Polar", "诊断完成");
         GetTree().Quit();
     }
 

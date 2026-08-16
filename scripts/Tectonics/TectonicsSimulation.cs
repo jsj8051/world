@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.Services;
 
 namespace World.Tectonics
 {
@@ -128,7 +129,7 @@ namespace World.Tectonics
                     }
                 }
             }
-            GD.Print($"[Tectonics] 俯冲检测: 板边界格={boundaryCells} 负浮力命中={negBuoy} Plates.Count={Plates.Count}");
+            LogService.Log("Tectonics", $"俯冲检测: 板边界格={boundaryCells} 负浮力命中={negBuoy} Plates.Count={Plates.Count}");
         }
 
         /// <summary>
@@ -245,11 +246,11 @@ namespace World.Tectonics
                         else if (d < 6000) bins[4]++;
                         else bins[5]++;
                     }
-                    GD.Print($"[Tectonics] hist(深<-4k, 海-4~0, 低0~1k, 中1~3k, 高3~6k, 峰>6k): " +
+                    LogService.Log("Tectonics", $"hist(深<-4k, 海-4~0, 低0~1k, 中1~3k, 高3~6k, 峰>6k): " +
                              $"{bins[0]},{bins[1]},{bins[2]},{bins[3]},{bins[4]},{bins[5]}");
                     long totalMs = swMove.ElapsedMilliseconds + swMerge.ElapsedMilliseconds
                         + swRift.ElapsedMilliseconds + swErode.ElapsedMilliseconds + swOther.ElapsedMilliseconds;
-                    GD.Print($"[Tectonics] 耗时 move={swMove.ElapsedMilliseconds}ms merge={swMerge.ElapsedMilliseconds}ms " +
+                    LogService.Log("Tectonics", $"耗时 move={swMove.ElapsedMilliseconds}ms merge={swMerge.ElapsedMilliseconds}ms " +
                              $"rift={swRift.ElapsedMilliseconds}ms erode={swErode.ElapsedMilliseconds}ms " +
                              $"other={swOther.ElapsedMilliseconds}ms total={totalMs}ms");
                 }
@@ -261,7 +262,7 @@ namespace World.Tectonics
                     SolveSeaLevelByVolume();
                 }
                 if (s % 10 == 0 || s == steps - 1)
-                    GD.Print($"[Tectonics] step {s}/{steps} ({s * stepMy:F0}My) plates={Plates.Count} " +
+                    LogService.Log("Tectonics", $"step {s}/{steps} ({s * stepMy:F0}My) plates={Plates.Count} " +
                              $"disp[{FieldOps.Min(Displacement):F0},{FieldOps.Max(Displacement):F0}]m land={LandFractionAboveSea() * 100:F1}%");
                 onProgress?.Invoke((s + 1f) / steps);
             }

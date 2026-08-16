@@ -2,6 +2,7 @@ using Godot;
 using System;
 using World.CivSim;   // DeterministicRandom（确定性随机工具——跨 .NET 运行时序列稳定，2026-08-19）
 using World.MapGen;
+using World.Services;
 
 namespace World.Tectonics
 {
@@ -129,7 +130,7 @@ namespace World.Tectonics
                 crust.Age[i] = landAge * Units.MEGAYEAR;
             }
             if (maficMin < float.MaxValue)
-                GD.Print($"[Tectonics] 洋壳 mafic_volcanic 厚度: {maficMin / 2890f:F0}~{maficMax / 2890f:F0} m（深海区）");
+                LogService.Log("Tectonics", $"洋壳 mafic_volcanic 厚度: {maficMin / 2890f:F0}~{maficMax / 2890f:F0} m（深海区）");
 
             // 诊断：质量统计（felsic 大陆 / mafic 洋壳 是否正常）
             double felsicMass = 0, maficMass = 0;
@@ -140,7 +141,7 @@ namespace World.Tectonics
                 if (f > 1e6) { felsicMass += f; felsicCells++; }
                 if (crust.MaficVolcanic[i] > 1e6) { maficMass += crust.MaficVolcanic[i]; maficCells++; }
             }
-            GD.Print($"[Tectonics] felsic: {felsicCells}格 总质量{felsicMass / 1e9:F0}Gt | mafic: {maficCells}格 总质量{maficMass / 1e9:F0}Gt");
+            LogService.Log("Tectonics", $"felsic: {felsicCells}格 总质量{felsicMass / 1e9:F0}Gt | mafic: {maficCells}格 总质量{maficMass / 1e9:F0}Gt");
 
             // 诊断：初始位移直方图（确认海陆分离度）
             ComputeDisplacement();
@@ -155,9 +156,9 @@ namespace World.Tectonics
                 else if (d < 6000) bins[5]++;
                 else bins[6]++;
             }
-            GD.Print($"[Tectonics] init disp hist(<-3k,-3~-1k,-1~0,0~1k,1~3k,3~6k,>6k): {string.Join(",", bins)}");
+            LogService.Log("Tectonics", $"init disp hist(<-3k,-3~-1k,-1~0,0~1k,1~3k,3~6k,>6k): {string.Join(",", bins)}");
 
-            GD.Print($"[Tectonics] initial crust: minDisp={FieldOps.Min(Displacement):F0} maxDisp={FieldOps.Max(Displacement):F0} m");
+            LogService.Log("Tectonics", $"initial crust: minDisp={FieldOps.Min(Displacement):F0} maxDisp={FieldOps.Max(Displacement):F0} m");
         }
 
         private static double Normal(Random rng, double mean, double stddev)
@@ -231,7 +232,7 @@ namespace World.Tectonics
                 Plates.Add(new Plate(p, GlobalGrid, crust, mask));
             }
 
-            GD.Print($"[Tectonics] split into {numPlates} plates");
+            LogService.Log("Tectonics", $"split into {numPlates} plates");
         }
     }
 }

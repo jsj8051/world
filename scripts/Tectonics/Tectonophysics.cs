@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using World.MapGen;
+using World.Services;
 
 namespace World.Tectonics
 {
@@ -263,7 +264,7 @@ namespace World.Tectonics
                     }
                 }
             }
-            GD.Print($"[Tectonics] 分割后处理: 空洞 {uncovered} 格 → BFS 兜底填平");
+            LogService.Log("Tectonics", $"分割后处理: 空洞 {uncovered} 格 → BFS 兜底填平");
             return plateMap;
         }
 

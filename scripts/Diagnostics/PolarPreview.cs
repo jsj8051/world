@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using World.MapGen;
+using World.Services;
 using World.Surface;
 
 namespace World.Diagnostics;
@@ -16,7 +17,7 @@ public partial class PolarPreview : DiagSceneBase
         string path = "user://maps/map1.mpa";
         if (!MapArchive.Read(path, out var map) || !map.IsSpherical)
         {
-            GD.PrintErr("[PolarPreview] 无法读取 v3 存档");
+            LogService.LogErr("PolarPreview", "无法读取 v3 存档");
             GetTree().Quit();
             return;
         }
@@ -41,7 +42,7 @@ public partial class PolarPreview : DiagSceneBase
             }
         }
         img.SavePng("user://maps/polar_preview.png");
-        GD.Print("[PolarPreview] saved user://maps/polar_preview.png (lat 55-90)");
+        LogService.Log("PolarPreview", "saved user://maps/polar_preview.png (lat 55-90)");
         GetTree().Quit();
     }
 }

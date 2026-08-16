@@ -1,5 +1,6 @@
 using Godot;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -10,7 +11,7 @@ public partial class StreamlineDiag : DiagSceneBase
     {
         if (!MapArchive.Read("user://maps/map1.mpa", out var map) || map.CurrentDirs == null)
         {
-            GD.PrintErr("[StreamlineDiag] 存档无洋流段");
+            LogService.LogErr("StreamlineDiag", "存档无洋流段");
             GetTree().Quit();
             return;
         }
@@ -81,7 +82,7 @@ public partial class StreamlineDiag : DiagSceneBase
         }
 
         img.SavePng("user://maps/streamline_diag.png");
-        GD.Print($"[StreamlineDiag] 流线 {lineCount} 条 / {ptCount} 点 → user://maps/streamline_diag.png");
+        LogService.Log("StreamlineDiag", $"流线 {lineCount} 条 / {ptCount} 点 → user://maps/streamline_diag.png");
         GetTree().Quit();
     }
 }

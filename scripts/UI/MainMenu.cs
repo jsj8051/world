@@ -1,4 +1,5 @@
 using Godot;
+using World.Services;
 
 namespace World.UI;
 
@@ -70,7 +71,7 @@ public partial class MainMenu : Control
         footer.Position = new Vector2(0, -60);
         AddChild(footer);
 
-        GD.Print("[MainMenu] ready");
+        LogService.Log("MainMenu", "ready");
     }
 
     private Button MakeButton(string text)

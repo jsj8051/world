@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using World.Biome;
+using World.Services;
 using World.Surface;
 using World.Tectonics;
 
@@ -115,7 +116,7 @@ public partial class MapGenerator : Node
                 else ProgradeRotation = true;
             }
         }
-        GD.Print($"[MapGenerator] user args: {string.Join(" | ", ua)}  -> seed={Seed} n={TectonicsGridN} {NumPlates}plates {SimMegayears}My ProgradeRotation={ProgradeRotation}");
+        LogService.Log("MapGenerator", $"user args: {string.Join(" | ", ua)}  -> seed={Seed} n={TectonicsGridN} {NumPlates}plates {SimMegayears}My ProgradeRotation={ProgradeRotation}");
         Generate();
         if (AutoQuit)
             GetTree().Quit();
@@ -129,7 +130,7 @@ public partial class MapGenerator : Node
 
         // ── 海拔生成：球面板块模拟（tectonics.js 移植，M1-M3）──
         var swTec = System.Diagnostics.Stopwatch.StartNew();
-        GD.Print($"[MapGenerator] 板块模拟开始 seed={Seed} n={TectonicsGridN} {SimMegayears}My ...");
+        LogService.Log("MapGenerator", $"板块模拟开始 seed={Seed} n={TectonicsGridN} {SimMegayears}My ...");
         var sim = new TectonicsSimulation(TectonicsGridN);
         sim.NumContinents = NumContinents;    // 大陆块数（构造格局；2=超大陆/20=碎陆）
         sim.GenerateInitialCrust(Seed, 0.6f, RadiusKm);   // ⚠️ 2026-08-18 行星标度（A：hypsography 按 sqrt(R/R⊕)——小星球地壳薄、均衡山低）
@@ -141,13 +142,13 @@ public partial class MapGenerator : Node
         sim.ComputeSubductionZones();   // 俯冲带检测（2026-08-18：主动边缘——大陆架场跳过）
         {
             int subCnt = 0; if (sim.SubductionMask != null) foreach (var b in sim.SubductionMask) if (b == 1) subCnt++;
-            GD.Print($"[MapGenerator] 俯冲带（主动边缘）={subCnt} 格");
+            LogService.Log("MapGenerator", $"俯冲带（主动边缘）={subCnt} 格");
         }
         var disp = sim.Displacement;
         float sea = sim.SeaLevel;
         float minD = float.MaxValue, maxD = float.MinValue;
         foreach (var d in disp) { if (d < minD) minD = d; if (d > maxD) maxD = d; }
-        GD.Print($"[MapGenerator] 板块模拟完成 disp[{minD:F0},{maxD:F0}]m sealevel={sea:F0}m land={sim.LandFractionAboveSea() * 100:F1}%");
+        LogService.Log("MapGenerator", $"板块模拟完成 disp[{minD:F0},{maxD:F0}]m sealevel={sea:F0}m land={sim.LandFractionAboveSea() * 100:F1}%");
         swTec.Stop();
 
         // ── 阶段化管线（2026-08-03 重构：气候→水文→生态→资源→统计；同步/异步共用）──
@@ -169,7 +170,7 @@ public partial class MapGenerator : Node
         _soilLevel = pipe.SoilLevel;
         _curDirs = pipe.CurrentDirs; _curWarmth = pipe.CurrentWarmth; _curStrength = pipe.CurrentStrength;
 
-        GD.Print($"[MapGenerator] 河岸带 {pipe.RiparianCount} 格");
+        LogService.Log("MapGenerator", $"河岸带 {pipe.RiparianCount} 格");
         int mineralCount = 0;
         var mdist = new int[9];
         for (int i = 0; i < vn; i++)
@@ -178,7 +179,7 @@ public partial class MapGenerator : Node
                 mineralCount++;
                 mdist[MineralSystem.TypeOf(_mineralLevel[i])]++;
             }
-        GD.Print($"[MapGenerator] 矿藏 {mineralCount} 格 ({mineralCount * 100f / vn:F1}%)" +
+        LogService.Log("MapGenerator", $"矿藏 {mineralCount} 格 ({mineralCount * 100f / vn:F1}%)" +
             $" 铁={mdist[1]} 铜={mdist[2]} 锡={mdist[3]} 金={mdist[4]} 煤={mdist[5]} 盐={mdist[6]} 石料={mdist[7]} 宝石={mdist[8]}");
 
         // 侵蚀堆积场统计（诊断：山脊侵蚀/谷底堆积）
@@ -192,12 +193,12 @@ public partial class MapGenerator : Node
                 if (v > eMax) eMax = v;
                 if (v < 0f) ero++; else if (v > 0f) dep++;
             }
-            GD.Print($"[MapGenerator] 侵蚀堆积场: 侵蚀区{ero}格({ero * 100f / vn:F1}%) 堆积区{dep}格({dep * 100f / vn:F1}%) 净速率[{eMin:F0},{eMax:F0}]m");
+            LogService.Log("MapGenerator", $"侵蚀堆积场: 侵蚀区{ero}格({ero * 100f / vn:F1}%) 堆积区{dep}格({dep * 100f / vn:F1}%) 净速率[{eMin:F0},{eMax:F0}]m");
         }
 
         sw.Stop();
         swPipe.Stop();
-        GD.Print($"[MapGenerator] seed={Seed} 球面顶点 {vn} elev[{pipe.MinElev:F4},{pipe.MaxElev:F4}] " +
+        LogService.Log("MapGenerator", $"seed={Seed} 球面顶点 {vn} elev[{pipe.MinElev:F4},{pipe.MaxElev:F4}] " +
             $"temp[{pipe.MinTemp:F1},{pipe.MaxTemp:F1}]°C precip[{pipe.MinPrecip:F0},{pipe.MaxPrecip:F0}]mm took {sw.ElapsedMilliseconds}ms");
         // ⚠️ 2026-08-17 性能分段基线（T40 防劣化）：板块/管线/存档各段耗时记录
         long archiveMs = sw.ElapsedMilliseconds - swTec.ElapsedMilliseconds - swPipe.ElapsedMilliseconds;
@@ -205,19 +206,19 @@ public partial class MapGenerator : Node
         LastTimings["pipeline_ms"] = swPipe.ElapsedMilliseconds;
         LastTimings["archive_ms"] = archiveMs;
         LastTimings["total_ms"] = sw.ElapsedMilliseconds;
-        GD.Print($"[MapGenTiming] 板块={swTec.ElapsedMilliseconds}ms 管线={swPipe.ElapsedMilliseconds}ms 存档={archiveMs}ms 总={sw.ElapsedMilliseconds}ms (n={TectonicsGridN} seed={Seed})");
+        LogService.Log("MapGenTiming", $"板块={swTec.ElapsedMilliseconds}ms 管线={swPipe.ElapsedMilliseconds}ms 存档={archiveMs}ms 总={sw.ElapsedMilliseconds}ms (n={TectonicsGridN} seed={Seed})");
         // ⚠️ 2026-08-17 监督机制：历史对比 + 劣化告警（每次生成自动记录）
         var (hisAvg, hisMax, hisCnt) = World.Diagnostics.PerfLog.Stats("mapgen", "total_ms");
         World.Diagnostics.PerfLog.Append("mapgen", $"n{TectonicsGridN}/s{Seed}", LastTimings);
         if (hisCnt > 0)
         {
             if (sw.ElapsedMilliseconds > hisAvg * 1.5)
-                GD.Print($"[性能] ⚠️ MapGen 劣化告警：总={sw.ElapsedMilliseconds}ms > 历史均值 {hisAvg:F0}ms ×1.5（峰值 {hisMax}ms / {hisCnt} 次）——检查近期算法改动");
+                LogService.Log("性能", $"⚠️ MapGen 劣化告警：总={sw.ElapsedMilliseconds}ms > 历史均值 {hisAvg:F0}ms ×1.5（峰值 {hisMax}ms / {hisCnt} 次）——检查近期算法改动");
             else
-                GD.Print($"[性能] MapGen 本次总={sw.ElapsedMilliseconds}ms（历史均值 {hisAvg:F0}ms / 峰值 {hisMax}ms / {hisCnt} 次 → 正常）");
+                LogService.Log("性能", $"MapGen 本次总={sw.ElapsedMilliseconds}ms（历史均值 {hisAvg:F0}ms / 峰值 {hisMax}ms / {hisCnt} 次 → 正常）");
         }
         long total = vn;
-        var sb = new System.Text.StringBuilder("[MapGenerator] biome dist: ");
+        var sb = new System.Text.StringBuilder("biome dist: ");
         var dist = new int[32];   // biome 0..31（旧 0-13 + 柯本 14-31）
         foreach (var b in pipe.Biome) dist[b]++;
         for (int i = 0; i < dist.Length; i++)
@@ -225,7 +226,7 @@ public partial class MapGenerator : Node
             var name = ((BiomeType)i).ToString();
             sb.Append($"{name}={dist[i]}({dist[i] * 100.0 / total:F1}%) ");
         }
-        GD.Print(sb.ToString());
+        LogService.Log("MapGenerator", sb.ToString());
 
         // 季风/月降水/月温度 byte 化（v3.7/v3.8 存档）
         var monsoonLevel = new byte[vn];
@@ -267,13 +268,13 @@ public partial class MapGenerator : Node
         // 季风区统计（headless 验证用）
         int monsoonCells = 0;
         for (int i = 0; i < vn; i++) if (monsoonLevel[i] >= 64) monsoonCells++;
-        GD.Print($"[MapGenerator] 季风区（强度≥0.25）：{monsoonCells} 格 ({monsoonCells * 100f / vn:F1}%)");
+        LogService.Log("MapGenerator", $"季风区（强度≥0.25）：{monsoonCells} 格 ({monsoonCells * 100f / vn:F1}%)");
 
         // 大陆块统计（2026-08-10：验证 NumContinents 参数——陆地格球面连通分量。
         // 注意：600My 演化后大陆会被裂解/侵蚀切割成许多小块，连通块数 ≠ 初始 N；
         // 真正反映格局的是最大块面积占比（N=2 应 ~70%+ 超大陆，N=20 应分散）。
         var (masses, maxFrac) = CountLandMasses(sim.GlobalGrid.Neighbors, pipe.Elev);
-        GD.Print($"[MapGenerator] 陆地连通块：{masses} 块（最大块占陆地 {maxFrac * 100f:F0}%；参数 NumContinents={NumContinents}，碎渣风险当 N≫n/2）");
+        LogService.Log("MapGenerator", $"陆地连通块：{masses} 块（最大块占陆地 {maxFrac * 100f:F0}%；参数 NumContinents={NumContinents}，碎渣风险当 N≫n/2）");
 
         if (ExportPreview)
             ExportSphericalPreview(simVerts, pipe.Elev, pipe.MinElev, pipe.MaxElev);
@@ -401,6 +402,7 @@ public partial class MapGenerator : Node
         {
             // 线程池回调：线程安全的事（打印错误）直接做，UI 更新必须主线程
             if (t.IsFaulted)
+                // 后台线程回调：LogService 纪律禁止，保持 GD.Print 直调（ADR-0004 §决策4）
                 GD.PrintErr($"[MapGenerator] async failed: {t.Exception?.GetBaseException().Message}");
             CallDeferred(nameof(FinishAsync), t.IsCompletedSuccessfully && t.Result.ok, t.IsCompletedSuccessfully ? t.Result.outPath : "");
         });

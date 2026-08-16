@@ -8,6 +8,7 @@ using World.Biome;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -1252,12 +1253,12 @@ public partial class CivSimDiag
             if (f != null)
             {
                 f.StoreString($"{{\"tectonics_ms\":{tec},\"pipeline_ms\":{pipe},\"archive_ms\":{arc},\"total_ms\":{total},\"n\":16,\"seed\":42}}");
-                GD.Print($"[T40] 首次基线已记录 → {baselinePath}（板块{tec}ms 管线{pipe}ms 存档{arc}ms 总{total}ms）");
+                LogService.Log("T40", $"首次基线已记录 → {baselinePath}（板块{tec}ms 管线{pipe}ms 存档{arc}ms 总{total}ms）");
             }
             else
             {
                 baselineOk = false;
-                GD.Print("[T40] ⚠️ 无法写基线文件（仅本次耗时报告）");
+                LogService.Log("T40", "⚠️ 无法写基线文件（仅本次耗时报告）");
             }
         }
         else
@@ -1286,9 +1287,9 @@ public partial class CivSimDiag
             bool arcOk = bArc <= 2f ? true : arc <= bArc * threshold;
             bool totalOk = total <= bTotal * threshold;
             baselineOk = tecOk && pipeOk && arcOk && totalOk;
-            GD.Print($"[T40] 基线 板块{bTec:F0} 管线{bPipe:F0} 存档{bArc:F0} 总{bTotal:F0} | 本次 {tec}/{pipe}/{arc}/{total} | 阈值 ×{threshold}");
+            LogService.Log("T40", $"基线 板块{bTec:F0} 管线{bPipe:F0} 存档{bArc:F0} 总{bTotal:F0} | 本次 {tec}/{pipe}/{arc}/{total} | 阈值 ×{threshold}");
             if (!baselineOk)
-                GD.Print("  ⚠ [T40] 性能劣化！超基线 +50%——检查近期 MapGen/管线改动（算法回归或死循环）");
+                LogService.Log("T40", $"⚠ 性能劣化！超基线 +50%——检查近期 MapGen/管线改动（算法回归或死循环）");
         }
         Check("T40 MapGen 分段基线（n16）", baselineOk && hasTec && hasPipe && hasArc,
             $"板块={tec}ms 管线={pipe}ms 存档={arc}ms 总={total}ms");
@@ -1306,13 +1307,13 @@ public partial class CivSimDiag
         var all = new List<long>();
         foreach (var (_, v) in PerfLog.Enumerate("mapgen", "total_ms")) all.Add(v);
         int start = Math.Max(0, all.Count - 8);
-        var trend = new System.Text.StringBuilder("[T41] MapGen 总耗时趋势(ms): ");
+        var trend = new System.Text.StringBuilder("MapGen 总耗时趋势(ms): ");
         for (int i = start; i < all.Count; i++)
         {
             trend.Append(all[i]);
             if (i < all.Count - 1) trend.Append(" → ");
         }
-        GD.Print(trend.ToString());
+        LogService.Log("T41", trend.ToString());
         int civCount = 0;
         foreach (var _ in PerfLog.Enumerate("civsim", "总")) civCount++;
         Check("T41 性能历史可读", all.Count > 0 || civCount > 0,

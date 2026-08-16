@@ -1,5 +1,6 @@
 using Godot;
 using World.Biome;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -15,7 +16,7 @@ public partial class SpeedDiag : DiagSceneBase
             float la = Mathf.DegToRad(20f);
             var p = new Vector3(Mathf.Cos(la), Mathf.Sin(la), 0f);
             var w = WindField.WindAt(p);
-            GD.Print($"[SpeedDiag] 速度{sp}×: 20°N 风向=({w.X:F3},{w.Y:F3},{w.Z:F3}) 纬向偏转={w.Z:F3}");
+            LogService.Log("SpeedDiag", $"速度{sp}×: 20°N 风向=({w.X:F3},{w.Y:F3},{w.Z:F3}) 纬向偏转={w.Z:F3}");
         }
         GetTree().Quit();
     }

@@ -95,7 +95,7 @@ public partial class CmpSelectMenu : Control
         }
 
         _status.Text = $"找到 {files.Count} 个文明存档：";
-        GD.Print($"[CmpSelectMenu] found {files.Count} civ maps");
+        LogService.Log("CmpSelectMenu", $"found {files.Count} civ maps");
         _broken.Clear();
         _locked.Clear();
         foreach (var f in files)
@@ -148,7 +148,7 @@ public partial class CmpSelectMenu : Control
         }
         catch (Exception ex)
         {
-            GD.PrintErr($"[CmpSelectMenu] 存档异常 {path}: {ex}");
+            LogService.LogErr("CmpSelectMenu", $"存档异常 {path}: {ex}");
             return (null, false);   // 读取异常 → 损坏
         }
     }
@@ -158,13 +158,13 @@ public partial class CmpSelectMenu : Control
         if (_broken.Contains(path))
         {
             _status.Text = "⚠️ 该存档已损坏，无法进入。请重新生成/演化。";
-            GD.Print($"[CmpSelectMenu] 拒绝进入损坏存档 {path}");
+            LogService.Log("CmpSelectMenu", $"拒绝进入损坏存档 {path}");
             return;
         }
         if (_locked.Contains(path))
         {
             _status.Text = "⚠️ 该存档版本与本游戏不兼容，无法进入。请用当前版本重新演化。";
-            GD.Print($"[CmpSelectMenu] 拒绝进入版本不符存档 {path}");
+            LogService.Log("CmpSelectMenu", $"拒绝进入版本不符存档 {path}");
             return;
         }
         EventBus.RequestMapView(path);

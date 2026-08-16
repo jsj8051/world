@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using World.Biome;
+using World.Services;
 using World.Tectonics;
 
 namespace World.MapGen;
@@ -118,7 +119,7 @@ public class PlanetPipeline
         Scan(ErosionNet, "侵蚀堆积");
         ScanV3(WindYear, "年风场");
         if (nan > 0)
-            GD.Print($"[PlanetPipeline] ⚠️ NaN 消毒：{nan} 顶点 → 0");
+            LogService.Log("PlanetPipeline", $"⚠️ NaN 消毒：{nan} 顶点 → 0");
     }
 
     private void ScanV3(Vector3[] arr, string name)
@@ -151,7 +152,7 @@ public class PlanetPipeline
             if (nan > 0) flag += $"⚠️NaN{nan} ";
             if (!zeroOk && zero > vn * 0.99) flag += $"⚠️全0({zero}) ";
             if (flag.Length > 0)
-                GD.Print($"[PlanetPipeline] 卫生: {name} [{mn:F2},{mx:F2}] {flag}");
+                LogService.Log("PlanetPipeline", $"卫生: {name} [{mn:F2},{mx:F2}] {flag}");
         }
         Report("海拔", Elev); Report("温度", Temp); Report("降水", Precip);
         Report("季风", MonsoonStrength, zeroOk: true);   // 无季风区可以全 0

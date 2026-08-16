@@ -3,6 +3,7 @@ using System;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -25,25 +26,25 @@ public partial class EvolveCmp : DiagSceneBase
         outPath ??= mapPath.GetBaseName() + "_v2.cmp";
         if (!MapArchive.Read(mapPath, out var map))
         {
-            GD.PrintErr($"[EvolveCmp] 读取失败 {mapPath}");
+            LogService.LogErr("EvolveCmp", $"读取失败 {mapPath}");
             GetTree().Quit(1);
             return;
         }
         var grid = GameGrid.FromMapData(map);
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        GD.Print($"[EvolveCmp] 演化 {mapPath} n={grid.N} seed={seed} origins={origins}（全部修复：文化传播/派别传播/酋邦庇护）...");
+        LogService.Log("EvolveCmp", $"演化 {mapPath} n={grid.N} seed={seed} origins={origins}（全部修复：文化传播/派别传播/酋邦庇护）...");
         int lastPct = -1;
         var result = CivEngine.Run(grid, seed, origins, p =>
         {
             int pct = (int)(p * 100f);
-            if (pct >= lastPct + 10) { lastPct = pct; GD.Print($"[EvolveCmp] 进度 {pct}%"); }
+            if (pct >= lastPct + 10) { lastPct = pct; LogService.Log("EvolveCmp", $"进度 {pct}%"); }
         });
         sw.Stop();
         var ctx = result.Context;
-        GD.Print($"[EvolveCmp] 演化完成 {result.FinalTick} tick（{result.FinalTick * CivSimContext.TickYears} 年）| 实体 {ctx.Tribes.Count} | 人口 {ctx.TotalPopulation():F0} | 首转农 tick {ctx.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
+        LogService.Log("EvolveCmp", $"演化完成 {result.FinalTick} tick（{result.FinalTick * CivSimContext.TickYears} 年）| 实体 {ctx.Tribes.Count} | 人口 {ctx.TotalPopulation():F0} | 首转农 tick {ctx.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
                  $" | 贸易 {ctx.TradeEvents} 次/{ctx.TradeVolume:F0} 量 | 冲突 {ctx.Conflicts} | 分裂 {ctx.Fissions}");
         bool wrote = CivMapArchive.Write(outPath, grid, result);
-        GD.Print($"[EvolveCmp] 写档 {outPath} = {wrote}");
+        LogService.Log("EvolveCmp", $"写档 {outPath} = {wrote}");
         GetTree().Quit(wrote ? 0 : 1);
     }
 }

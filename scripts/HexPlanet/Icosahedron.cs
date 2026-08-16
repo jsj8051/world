@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.Services;
 
 namespace World.HexPlanet
 {
@@ -107,7 +108,7 @@ namespace World.HexPlanet
                 }
             }
 
-            GD.Print($"[Icosahedron] n={n} verts={verts.Count} tris={indices.Count / 3}  (expect verts≈{VertexCountFor(n)}, tris={20 * n * n})");
+            LogService.Log("Icosahedron", $"n={n} verts={verts.Count} tris={indices.Count / 3}  (expect verts≈{VertexCountFor(n)}, tris={20 * n * n})");
         }
 
         /// <summary>

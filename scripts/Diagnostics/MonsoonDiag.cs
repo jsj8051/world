@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -22,7 +23,7 @@ public partial class MonsoonDiag : DiagSceneBase
         string arch = ArchiveDiag.ResolveArchPath();
         if (arch == null)
         {
-            GD.PrintErr("[MonsoonDiag] 需要 --arch=user://maps/xxx.mpa（季风诊断是存档直读工具，不跑板块模拟）");
+            LogService.LogErr("MonsoonDiag", "需要 --arch=user://maps/xxx.mpa（季风诊断是存档直读工具，不跑板块模拟）");
             GetTree().Quit(1);
             return;
         }
@@ -43,7 +44,7 @@ public partial class MonsoonDiag : DiagSceneBase
 
         var map = ctx.Map;
         int n = ctx.VertexCount;
-        GD.Print($"[MonsoonDiag] 读档 {arch} n={n} tilt={tilt}° → 重算季风/月降水/biome");
+        LogService.Log("MonsoonDiag", $"读档 {arch} n={n} tilt={tilt}° → 重算季风/月降水/biome");
 
         // ── 季风环流诊断场（用存档的年温/年降水）──
         var climate = new ClimateGenerator(map.Seed, tilt, 1f);
@@ -120,7 +121,7 @@ public partial class MonsoonDiag : DiagSceneBase
                 }
             }
             img.SavePng("user://selftest_temp7.png");
-            GD.Print("[SelfTest] 已生成 user://selftest_temp7.png（Equirect 7月温度像素图）");
+            LogService.Log("SelfTest", "已生成 user://selftest_temp7.png（Equirect 7月温度像素图）");
 
             // ── 读像素断言（直接从顶点数据，等价于像素图内容；像素图已存 PNG 供人查）──
             double aEq = 0, aMid = 0, aPol = 0; int cEq = 0, cMid = 0, cPol = 0;
@@ -172,10 +173,10 @@ public partial class MonsoonDiag : DiagSceneBase
             bool passA = eq - pol > 10f;
             bool passB = land > ocean;   // Plan C：7 月北半球大陆实际温度 > 海洋
             bool passC = high < low;
-            GD.Print($"[SelfTest] A纬度梯度: 赤道带{eq:F1}°C vs 极地带{pol:F1}°C (差{eq - pol:F1}, 需>10) → {(passA ? "PASS" : "FAIL")}");
-            GD.Print($"[SelfTest] B海陆对照: 7月北半球中低纬同纬度海陆温差={land:F1}°C (需>0=大陆热于海洋) → {(passB ? "PASS" : "FAIL")}");
-            GD.Print($"[SelfTest] C海拔效应: 高海拔{high:F1}°C vs 低海拔{low:F1}°C (需高山冷) → {(passC ? "PASS" : "FAIL")}");
-            GD.Print($"[SelfTest] 总体 → {(passA && passB && passC ? "PASS" : "FAIL")}");
+            LogService.Log("SelfTest", $"A纬度梯度: 赤道带{eq:F1}°C vs 极地带{pol:F1}°C (差{eq - pol:F1}, 需>10) → {(passA ? "PASS" : "FAIL")}");
+            LogService.Log("SelfTest", $"B海陆对照: 7月北半球中低纬同纬度海陆温差={land:F1}°C (需>0=大陆热于海洋) → {(passB ? "PASS" : "FAIL")}");
+            LogService.Log("SelfTest", $"C海拔效应: 高海拔{high:F1}°C vs 低海拔{low:F1}°C (需高山冷) → {(passC ? "PASS" : "FAIL")}");
+            LogService.Log("SelfTest", $"总体 → {(passA && passB && passC ? "PASS" : "FAIL")}");
         }
 
         // ── 统计 ──
@@ -206,16 +207,16 @@ public partial class MonsoonDiag : DiagSceneBase
                 break;
             }
         }
-        GD.Print($"[MonsoonDiag] 季风区（≥0.25）：{monsoonCells} 格 ({monsoonCells * 100f / n:F1}%) 峰值强度={monsoonMax:F2}" +
+        LogService.Log("MonsoonDiag", $"季风区（≥0.25）：{monsoonCells} 格 ({monsoonCells * 100f / n:F1}%) 峰值强度={monsoonMax:F2}" +
                  (strong > 0 ? $" 示例季风格：雨季月={wetM + 1}月 干季月={dryM + 1}月" : ""));
         var dist = new int[32];
         foreach (var b in biome) dist[b]++;
-        var sb = new System.Text.StringBuilder("[MonsoonDiag] biome dist: ");
+        var sb = new System.Text.StringBuilder("biome dist: ");
         for (int i = 0; i < dist.Length; i++)
             if (dist[i] > 0) sb.Append($"{((BiomeType)i)}={dist[i]}({dist[i] * 100.0 / n:F1}%) ");
-        GD.Print(sb.ToString());
+        LogService.Log("MonsoonDiag", sb.ToString());
 
-        GD.Print($"[MonsoonDiag] 写回 {(ok ? "成功" : "失败")} → {outPath}");
+        LogService.Log("MonsoonDiag", $"写回 {(ok ? "成功" : "失败")} → {outPath}");
         GetTree().Quit(ok ? 0 : 1);
     }
 }

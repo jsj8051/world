@@ -8,6 +8,7 @@ using World.Biome;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -51,7 +52,7 @@ public partial class CivSimDiag
         bool wcOk = wcDet && wcLand && landCells > 0;
         Check("T17 WildCrops", wcOk,
             $"确定性={wcDet} 只落陆地={wcLand} 斑块格数=[{string.Join(",", wcCount)}] 灭绝={string.Join(";", extinct)}");
-        if (extinct.Count > 0) GD.Print($"  ⚠ [T17] 天然灭绝种子: {string.Join(";", extinct)}（星球气候不匹配，按设计不保底）");
+        if (extinct.Count > 0) LogService.Log("T17", $"⚠ 天然灭绝种子: {string.Join(";", extinct)}（星球气候不匹配，按设计不保底）");
         return wcDet;
     }
 
@@ -83,9 +84,9 @@ public partial class CivSimDiag
                 {
                     bool pkOk = pSeed == rBack.Context.Seed && pTick == rBack.Context.Tick
                         && pPop == rBack.Context.TotalPopulation() && pEnt == rBack.Context.Tribes.Count;
-                    GD.Print($"[Peek验证] seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Tribes.Count}) 一致={pkOk}");
+                    LogService.Log("Peek验证", $"seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Tribes.Count}) 一致={pkOk}");
                 }
-                else GD.Print("[Peek验证] FAIL 无法 Peek");
+                else LogService.Log("Peek验证", "FAIL 无法 Peek");
             }
             // T19 存档版本：ver>7 拒绝；v6/v5/v4 旧档拒绝（格式变更，旧档续跑分叉）；旧 biome 4-11 拒绝
             string badPath = outPath + ".bad";
@@ -167,7 +168,7 @@ public partial class CivSimDiag
             Check("T04b 派生纯函数", idempotent && equivMem,
                 $"SettleDerived幂等={idempotent} 读档≡内存={equivMem}（FLast/Territory/Chiefdom/领袖/场）");
         else if (!idempotent || !equivMem)
-            GD.Print($"  [T04b 未选] ⚠️ 派生守卫失败：幂等={idempotent} 读档≡内存={equivMem}");
+            LogService.Log("T04b 未选", $"⚠️ 派生守卫失败：幂等={idempotent} 读档≡内存={equivMem}");
     }
 
 
@@ -274,12 +275,12 @@ public partial class CivSimDiag
             if (ef < eh - CivSimContext.Hysteresis)   // 滞回带内（差<0.02）保持不算退农
             {
                 if (revertCount < 3)
-                    GD.Print($"  [T08诊断] 退农倾向实体 cell={e.Cell} P={e.P:F0} Soil={c.Grid.SoilLevel[e.Cell]} " +
+                    LogService.Log("T08诊断", $"退农倾向实体 cell={e.Cell} P={e.P:F0} Soil={c.Grid.SoilLevel[e.Cell]} " +
                              $"F_农={yF:F0} F_猎={yH:F0} e_农={ef:F3} e_猎={eh:F3} F_格={c.CellF[e.Cell]:F0} 持种子=[{string.Join(";", TechTable.HeldSeeds(e.TechKeys))}]");
                 revertCount++;
             }
         }
-        GD.Print($"  [T08数据] 农业实体 {farmCount} 个，良田 {goodFarm} 个（e_农≥0.5），其中 e_农<e_猎 的 {revertCount} 个");
+        LogService.Log("T08数据", $"农业实体 {farmCount} 个，良田 {goodFarm} 个（e_农≥0.5），其中 e_农<e_猎 的 {revertCount} 个");
         if (Want("T14")) Check("T14 农业涌现", agriEmerged && farmCount > 0, $"首转农 tick={c.FirstFarmTick} 农业实体={farmCount} 种子持有=[{string.Join(",", seedHolders)}]");
         // 2026-08-18：良田 ≥80% 站稳（容忍考古"假开始"+终止过渡态）
         bool stable = goodFarm == 0 || revertCount <= goodFarm * 0.2f;
@@ -337,7 +338,7 @@ public partial class CivSimDiag
             if (c.CellTribes[i] != null) cellsWithEnts++;
             if (c.CellTribes[i] != null && maxCellEnts < 1) maxCellEnts = 1;
         }
-        GD.Print($"[CivSimDiag] 实体格分布: 占 {cellsWithEnts} 格（实体 {c.Tribes.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
+        LogService.Log("CivSimDiag", $"实体格分布: 占 {cellsWithEnts} 格（实体 {c.Tribes.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
         float cover = land > 0 ? occupied * 100f / land : 0f;
         if (Want("T15")) Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（⚠️ 数据展示型：恒 PASS 参考指标，不硬卡——改阈值需先讨论）");
         if (Want("T16"))
@@ -404,7 +405,7 @@ public partial class CivSimDiag
             if (e.IsChief) chiefs++;
             if (e.ChiefdomId >= 0) chiefdomIds.Add(e.ChiefdomId);
         }
-        GD.Print($"[T52数据] 声望band={prestigeEnts} 大人物={bigMen} 酋长={chiefs} 酋邦={chiefdomIds.Count} 个（成员band≥2）");
+        LogService.Log("T52数据", $"声望band={prestigeEnts} 大人物={bigMen} 酋长={chiefs} 酋邦={chiefdomIds.Count} 个（成员band≥2）");
         Check("T52 酋邦涌现", prestigeEnts > 0, $"声望涌现={prestigeEnts > 0}（酋邦 {chiefdomIds.Count} 个——观测值，达标断言待演化数据）");
     }
 

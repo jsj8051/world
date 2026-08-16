@@ -44,6 +44,9 @@ L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单�
    （.tscn 的脚本绑定路径不变，移动文件必须同步改场景引用并验证）。
 6. 诊断场景统一继承 `DiagSceneBase`（行星搭建/截图/参数面板在基类，子类只写"测什么"）。
 7. 一切随机性走 `DeterministicRandom`；禁止裸 `System.Random` 实例与时间种子。
+8. **日志统一走 `LogService.Log/LogErr`**（ADR-0004）：L1 系统层允许调用（日志为横切关注点，
+   L1→L2 的此项依赖是唯一豁免）；L0 纯模型禁止打印（调试残留一律删除，不依赖 Godot）；
+   后台线程禁止调用（低频错误打印保留 GD.Print 直调 + 注释，见 ADR-0004 §决策 4）。
 
 ## 4. 确定性纪律（本项目的命根子）
 
@@ -61,17 +64,18 @@ L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单�
   Godot `--headless` 冒烟。
 - **决策记录**：`docs/decisions/*.md`（ADR），记录"为什么"，不是"做了什么"。
 
-## 6. 现状对照表（建国进度）
+## 6. 现状对照表（建国进度 v2）
 
 | 条目 | 状态 | 说明 |
 |---|---|---|
-| 分层文档 | ✅ 本文档 | 之前缺失 |
-| 单元测试项目 | ✅ | `tests/World.Tests`（NUnit 48 用例）+ 本地执行器 `World.Tests.Local` |
-| 服务层 | ❌ 缺失 | 待建 EventBus/LogService/ArchiveService |
-| CI | ❌ 缺失 | 待建 `.github/workflows/` |
-| 诊断场景统一 | ❌ 未统一 | 15+ 场景各自复制样板 |
-| 重复场景 | ❌ 存在 | `scenes/MainMenu.tscn` 与 `scenes/core/MainMenu.tscn` |
-| 超大文件 | ⚠️ 存在 | CivSimDiag 2283 行 / MapViewer 1935 / CivModels 1387 / TectonicsSimulation 960 |
+| 分层文档 | ✅ | 本文档 + ADR-0001~0004 |
+| 单元测试项目 | ✅ | `tests/World.Tests`（NUnit 48 用例）+ 本地执行器 `World.Tests.Local` + pre-commit 门槛 |
+| 服务层 | ✅ | EventBus / LogService / ArchiveService（ADR-0002） |
+| CI | ✅ | GitHub Actions `build+test+format` + T40 性能基线作业（workflow_dispatch，自托管 runner）；headless 回归由本地 `scripts/verify.sh` 承担（本机已跑通） |
+| 诊断场景统一 | ✅ | 18 个诊断场景全迁 DiagSceneBase（ADR-0003） |
+| 重复场景 | ✅ | 已删重复 MainMenu |
+| 超大文件 | ✅ | TectonicsSimulation（6 分片）/ CivModels（21 文件）/ MapViewer（3 分片）/ CivSimDiag（4 分片） |
+| GD.Print 收编 | ✅ | 全量迁移 LogService（L3/L2/L1；断言输出与后台线程直调例外，ADR-0004） |
 
 ## 7. 命名与目录约定
 
@@ -88,5 +92,6 @@ L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单�
 - [x] ④ 国家机关：服务层 scripts/Services/（EventBus 替代 ViewerLauncher、LogService、ArchiveService）——ADR-0002
 - [x] ⑤ 收税与官僚：GitHub Actions CI（build+test+format；headless 回归由本地 verify.sh 承担，见 ADR-0001）
 - [x] ⑥ 裁并重复：✅ DiagSceneBase（全部 18 个诊断场景已迁移，ADR-0003）+ ✅ 删重复 MainMenu
+- [x] ⑦ 日志收编：✅ GD.Print 全量迁移 LogService（ADR-0004；断言输出/后台线程直调例外）+ ✅ 本机 headless 回归跑通
 
 > 红线：每次提交可编译可运行；重构期间不加新功能；一次只拆一个文件。

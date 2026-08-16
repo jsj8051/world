@@ -1,6 +1,7 @@
 using Godot;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 using World.Tectonics;
 
 namespace World.Diagnostics;
@@ -16,7 +17,7 @@ public partial class CurrentDiag : DiagSceneBase
         {
             if (!ArchiveDiag.TryLoad(arch, out var ctx))
             {
-                GD.PrintErr("[CurrentDiag] 存档直读失败");
+                LogService.LogErr("CurrentDiag", "存档直读失败");
                 GetTree().Quit(1);
                 return;
             }
@@ -71,7 +72,7 @@ public partial class CurrentDiag : DiagSceneBase
             if (warmth[i] > 0.3f) warm++;
             else if (warmth[i] < -0.3f) cold++;
         }
-        GD.Print($"[CurrentDiag] {(prograde ? "顺转" : "逆转")}: 暖流海洋顶点={warm} 寒流海洋顶点={cold}");
+        LogService.Log("CurrentDiag", $"{(prograde ? "顺转" : "逆转")}: 暖流海洋顶点={warm} 寒流海洋顶点={cold}");
 
         const int w = 1024, h = 512;
         var img = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
@@ -96,6 +97,6 @@ public partial class CurrentDiag : DiagSceneBase
             }
         }
         img.SavePng($"user://maps/current_{name}.png");
-        GD.Print($"[CurrentDiag] saved current_{name}.png");
+        LogService.Log("CurrentDiag", $"saved current_{name}.png");
     }
 }

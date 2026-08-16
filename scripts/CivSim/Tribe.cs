@@ -212,9 +212,6 @@ public static class ShareField
             //   下 tick 聚合反超 → 主导 key 振荡（S3 曾抓）。交换保 DomFrac ≥ SecFrac。
             if (r[1].Frac > r[0].Frac) (r[0], r[1]) = (r[1], r[0]);
         }
-        // [临时调试] 畸形输出检测（主导 null + 次席满额——交换把 null 提到主导？）
-        if (r[0].Key == null && r[1].Key != null)
-            Godot.GD.Print($"[PopMerge调试] 畸形输出 total={total:F0} 实体数={entities.Count} list0=({list[0].Key},{list[0].Value:F0}) list1=({(list.Count > 1 ? list[1].Key : "-")},{(list.Count > 1 ? list[1].Value : 0):F0}) r0=({r[0].Key},{r[0].Frac}) r1=({r[1].Key},{r[1].Frac})");
         return r;
     }
 

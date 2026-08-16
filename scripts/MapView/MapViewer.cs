@@ -79,7 +79,7 @@ public partial class MapViewer : Node3D
             //   点击已选中按钮会取消选中（Pressed 仍触发），若此处直接 return，
             //   按钮 UI 会停在"未选中"状态 → 显示像切换失败。始终同步 + 只在实际变化时重建。
             bool changed = _layer != value;
-            GD.Print($"[MapViewer] Layer.set {value} ({LayerName(value)}) changed={changed} geoReady={_geometryReady} pending={_pendingRecolor}");
+            LogService.Log("MapViewer", $"Layer.set {value} ({LayerName(value)}) changed={changed} geoReady={_geometryReady} pending={_pendingRecolor}");
             if (changed)
             {
                 _layer = value;
@@ -287,7 +287,7 @@ public partial class MapViewer : Node3D
         if (!string.IsNullOrEmpty(pending))
         {
             _mapPath = pending;
-            GD.Print($"[MapViewer] pending path: {_mapPath}");
+            LogService.Log("MapViewer", $"pending path: {_mapPath}");
         }
         Generate();
     }
@@ -344,18 +344,18 @@ public partial class MapViewer : Node3D
                 // 文明游玩地图：读 GameGrid + 文明演化结果 → 转 MapData 供自然图层，文明图层直读 ctx
                 if (!World.CivSim.CivMapArchive.Read(_mapPath, out var grid, out var civResult))
                 {
-                    GD.PrintErr($"[MapViewer] failed to load civ map {_mapPath}");
+                    LogService.LogErr("MapViewer", $"failed to load civ map {_mapPath}");
                     return;
                 }
                 _map = grid.ToMapData();
                 _civCtx = civResult.Context;
                 _mapLoaded = true;
-                GD.Print($"[MapViewer] loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
+                LogService.Log("MapViewer", $"loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
                          $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Tribes.Count})");
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
-                GD.PrintErr($"[MapViewer] failed to load {_mapPath}");
+                LogService.LogErr("MapViewer", $"failed to load {_mapPath}");
                 return;
             }
             else
@@ -363,7 +363,7 @@ public partial class MapViewer : Node3D
                 _map = map;
                 _civCtx = null;
                 _mapLoaded = true;
-                GD.Print($"[MapViewer] loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}]");
+                LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}]");
             }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。
@@ -374,7 +374,7 @@ public partial class MapViewer : Node3D
                 int simN = Icosahedron.GridNFromVertexCount(_map.Verts.Length);
                 if (simN >= 8 && simN <= 512 && simN != _gridN)
                 {
-                    GD.Print($"[MapViewer] 存档模拟 n={simN}（{_map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
+                    LogService.Log("MapViewer", $"存档模拟 n={simN}（{_map.Verts.Length} 顶点）→ GridN 对齐 {simN}");
                     _gridN = simN;
                 }
             }
@@ -385,7 +385,7 @@ public partial class MapViewer : Node3D
             {
                 RadiusKm = _map.RadiusKm;
                 GetNode<OrbitalCamera>("OrbitalCamera")?.SetPlanetRadius(RadiusKm);
-                GD.Print($"[MapViewer] 星球半径 R={RadiusKm:F0} km（存档口径）");
+                LogService.Log("MapViewer", $"星球半径 R={RadiusKm:F0} km（存档口径）");
             }
 
             // ⚠️ 2026-08-02：流域现场算（不存档——纯计算毫秒级）。
@@ -403,7 +403,7 @@ public partial class MapViewer : Node3D
                 int wsCount = 0;
                 for (int i = 0; i < vn2; i++)
                     if (_vertexWatershed[i] > wsCount) wsCount = _vertexWatershed[i];
-                GD.Print($"[MapViewer] 流域 {wsCount + 1} 个（现场算）");
+                LogService.Log("MapViewer", $"流域 {wsCount + 1} 个（现场算）");
             }
         }
 
@@ -420,6 +420,7 @@ public partial class MapViewer : Node3D
         {
             // 线程池回调里只做线程安全的事：失败打印 + CallDeferred 回主线程
             if (t.IsFaulted)
+                // 后台线程回调：LogService 纪律禁止，保持 GD.Print 直调（ADR-0004 §决策4）
                 GD.PrintErr($"[MapViewer] build failed: {t.Exception?.GetBaseException().Message}");
             CallDeferred(nameof(FinishGenerate), version);
         });
@@ -697,7 +698,7 @@ public partial class MapViewer : Node3D
     ///   消除"进度满但主线程还有活"的未响应感）。</summary>
     private void FinishGenerate(int version)
     {
-        GD.Print($"[MapViewer] FinishGenerate v{version} (当前 _buildVersion={_buildVersion}, Layer={_layer})");
+        LogService.Log("MapViewer", $"FinishGenerate v{version} (当前 _buildVersion={_buildVersion}, Layer={_layer})");
         if (version != _buildVersion)
             return; // 用户在生成期间又改了 GridN，丢弃过期结果
 
@@ -706,7 +707,7 @@ public partial class MapViewer : Node3D
             var data = _buildTask.Result;
             if (data.Verts == null)
             {
-                GD.Print("[MapViewer] build cancelled (superseded by newer request)");
+                LogService.Log("MapViewer", "build cancelled (superseded by newer request)");
                 return;
             }
             var shader = GD.Load<Shader>("res://shaders/planet_detail.gdshader");
@@ -728,8 +729,8 @@ public partial class MapViewer : Node3D
             };
             AddChild(mi);
             _planetMesh = mi;
-            GD.Print($"[MapViewer] sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0}) (CreateMesh {sw.ElapsedMilliseconds}ms)");
-            GD.Print($"[MapViewer] BuildAll 阶段耗时: {_buildDiag}");
+            LogService.Log("MapViewer", $"sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0}) (CreateMesh {sw.ElapsedMilliseconds}ms)");
+            LogService.Log("MapViewer", $"BuildAll 阶段耗时: {_buildDiag}");
 
             // 统一风场箭头网格（图层 4 显示；热成风：信风/西风/季风一体，月份滑块切换）
             // ⚠️ 2026-08-16：EnsureMonthWind 已异步化——此调用只触发后台计算，不阻塞主线程
@@ -737,24 +738,24 @@ public partial class MapViewer : Node3D
             _progress = 0.94f;
             sw.Restart();
             BuildMonsoonArrows();
-            GD.Print($"[MapViewer] 收尾: 季风箭头 {sw.ElapsedMilliseconds}ms");
+            LogService.Log("MapViewer", $"收尾: 季风箭头 {sw.ElapsedMilliseconds}ms");
             // 月降水缓存（图层 11 显示；当前月）
             RefreshMonthPrecip();
             // 月温度缓存（图层 12 显示；当前月）
             RefreshMonthTemp();
-            GD.Print($"[MapViewer] 收尾: 月缓存 {sw.ElapsedMilliseconds}ms");
+            LogService.Log("MapViewer", $"收尾: 月缓存 {sw.ElapsedMilliseconds}ms");
             // 洋流箭头网格（图层 5 显示；暖流红/寒流蓝）
             _phase = "构建洋流箭头";
             _progress = 0.97f;
             sw.Restart();
             BuildCurrentArrows();
-            GD.Print($"[MapViewer] 收尾: 洋流箭头 {sw.ElapsedMilliseconds}ms");
+            LogService.Log("MapViewer", $"收尾: 洋流箭头 {sw.ElapsedMilliseconds}ms");
             // 河流网格（图层 6 显示；每条河独立颜色，支流汇合截断）
             _phase = "构建河流";
             _progress = 0.99f;
             sw.Restart();
             BuildRivers();
-            GD.Print($"[MapViewer] 收尾耗时: 河流 {sw.ElapsedMilliseconds}ms");
+            LogService.Log("MapViewer", $"收尾耗时: 河流 {sw.ElapsedMilliseconds}ms");
 
             // 构建中切了图层 → 自动应用最新图层（几何已就绪，走快速重算）
             if (_pendingRecolor)
@@ -773,10 +774,10 @@ public partial class MapViewer : Node3D
             //   （Inner = OperationCanceledException）——正常路径，不误报。
             if (e is AggregateException ae && ae.InnerException is OperationCanceledException)
             {
-                GD.Print("[MapViewer] build cancelled (superseded by newer request)");
+                LogService.Log("MapViewer", "build cancelled (superseded by newer request)");
                 return;
             }
-            GD.PrintErr($"[MapViewer] finish failed: {e}\n{e.StackTrace}");
+            LogService.LogErr("MapViewer", $"finish failed: {e}\n{e.StackTrace}");
         }
         finally
         {
@@ -935,9 +936,10 @@ public partial class MapViewer : Node3D
     private void ClickDebug(int i)
     {
         var col = MakeColorFn(_layer)(_tiles[i]);
-        GD.Print($"[CLICK] 格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
+        LogService.Log("CLICK", $"格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
         int vid = _tileIndex != null ? _tileIndex.FaceToVertex(i) : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射（2026-08-19 收敛 TileIndex）
         float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_tileElev[i] - _hSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
+        // 续行诊断：保持 GD.Print 直调（[CLICK] 主行的格式续行，非日志，ADR-0004 §决策5）
         GD.Print($"  elev={_tileElev[i]:F3} 海拔={elevM2:F0}m pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
         if (_tilePower[i] != 0)

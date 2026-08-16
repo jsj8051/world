@@ -9,6 +9,7 @@ using World.Camera;
 using World.HexPlanet;
 using World.MapGen;
 using World.PlanetLOD;
+using World.Services;
 using World.Surface;
 using World.UI;
 
@@ -90,7 +91,7 @@ public partial class MapViewer
             {
                 _category = (LayerCat)cat;
                 ShowCategoryButtons();   // 只切显示，不改 _layer（用户拍板）
-                GD.Print($"[MapViewer] category={CatNames[cat]} layer仍={LayerName(_layer)}");
+                LogService.Log("MapViewer", $"category={CatNames[cat]} layer仍={LayerName(_layer)}");
             };
             catBox.AddChild(btn);
             _catButtons[i] = btn;

@@ -2,6 +2,7 @@ using Godot;
 using System;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 using World.Tectonics;
 
 namespace World.Diagnostics;
@@ -20,7 +21,7 @@ public partial class WindTest : DiagSceneBase
         {
             if (!ArchiveDiag.TryLoad(arch, out var ctx))
             {
-                GD.PrintErr("[WindTest] 存档直读失败");
+                LogService.LogErr("WindTest", "存档直读失败");
                 GetTree().Quit(1);
                 return;
             }
@@ -32,7 +33,7 @@ public partial class WindTest : DiagSceneBase
             RunSeed(42);
             RunSeed(7);
         }
-        GD.Print("[WindTest] 完成");
+        LogService.Log("WindTest", "完成");
         GetTree().Quit();
     }
 
@@ -71,7 +72,7 @@ public partial class WindTest : DiagSceneBase
             }
             string c = coast > 0 ? $"{coastP / coast:F0}mm" : "N/A";
             string inc = inland > 0 ? $"{inlandP / inland:F0}mm" : "N/A";
-            GD.Print($"[WindTest] 直读 seed={ctx.Map.Seed} 速度{sp}×: 迎风海岸({coast}点)={c} 内陆({inland}点)={inc} 海陆差={(coast > 0 && inland > 0 ? coastP / coast - inlandP / inland : 0):F0}mm");
+            LogService.Log("WindTest", $"直读 seed={ctx.Map.Seed} 速度{sp}×: 迎风海岸({coast}点)={c} 内陆({inland}点)={inc} 海陆差={(coast > 0 && inland > 0 ? coastP / coast - inlandP / inland : 0):F0}mm");
         }
     }
 
@@ -122,7 +123,7 @@ public partial class WindTest : DiagSceneBase
             }
             string c = coast > 0 ? $"{coastP / coast:F0}mm" : "N/A";
             string inc = inland > 0 ? $"{inlandP / inland:F0}mm" : "N/A";
-            GD.Print($"[WindTest] seed={seed} 速度{sp}×: 迎风海岸({coast}点)={c} 内陆({inland}点)={inc} 海陆差={(coast > 0 && inland > 0 ? coastP / coast - inlandP / inland : 0):F0}mm");
+            LogService.Log("WindTest", $"seed={seed} 速度{sp}×: 迎风海岸({coast}点)={c} 内陆({inland}点)={inc} 海陆差={(coast > 0 && inland > 0 ? coastP / coast - inlandP / inland : 0):F0}mm");
         }
     }
 }

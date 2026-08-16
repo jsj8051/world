@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using World.HexPlanet;
 using World.MapGen;
+using World.Services;
 using World.Tectonics;
 
 namespace World.Diagnostics;
@@ -109,14 +110,14 @@ public static class ArchiveDiag
         ctx = null;
         if (!MapArchive.Read(path, out var map))
         {
-            GD.PrintErr($"[ArchiveDiag] 读取存档失败: {path}");
+            LogService.LogErr("ArchiveDiag", $"读取存档失败: {path}");
             return false;
         }
         // 存档 n 反推：顶点数 = 10n²+2（10242→32, 40962→64, 2562→16）
         int n = Icosahedron.GridNFromVertexCount(map.Verts.Length);
         var sim = new TectonicsSimulation(n);
         ctx = new DiagContext(map, sim.GlobalGrid);
-        GD.Print($"[ArchiveDiag] 直读 {path} n={n} verts={map.Verts.Length}（跳板块模拟）");
+        LogService.Log("ArchiveDiag", $"直读 {path} n={n} verts={map.Verts.Length}（跳板块模拟）");
         return true;
     }
 }

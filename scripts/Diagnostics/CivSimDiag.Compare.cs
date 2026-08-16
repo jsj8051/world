@@ -8,6 +8,7 @@ using World.Biome;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -18,7 +19,7 @@ public partial class CivSimDiag
     {
         if (a.Tribes.Count != b.Tribes.Count)
         {
-            GD.Print($"  [往返诊断{tag}] 实体数 {a.Tribes.Count} vs {b.Tribes.Count}");
+            LogService.Log("往返诊断{tag}", $"实体数 {a.Tribes.Count} vs {b.Tribes.Count}");
             return false;
         }
         // ⚠️ 2026-08-17 审查修复：场层对比（Cultivation/CellOwner/LockedUntil/Rng 状态）——
@@ -26,22 +27,22 @@ public partial class CivSimDiag
         //   T04 分叉定位也只差场层）。FirstFarmTick/Fissions 不入档 → 不对比（避免往返必 FAIL）。
         if (!FloatSeqEqual(a.Cultivation, b.Cultivation))
         {
-            GD.Print($"  [往返诊断{tag}] Cultivation 场不一致（开垦率往返错位）");
+            LogService.Log("往返诊断{tag}", $"Cultivation 场不一致（开垦率往返错位）");
             return false;
         }
         if (!IntSeqEqual(a.CellOwner, b.CellOwner))
         {
-            GD.Print($"  [往返诊断{tag}] CellOwner 场不一致");
+            LogService.Log("往返诊断{tag}", $"CellOwner 场不一致");
             return false;
         }
         if (!IntSeqEqual(a.LockedUntil, b.LockedUntil))
         {
-            GD.Print($"  [往返诊断{tag}] LockedUntil 场不一致");
+            LogService.Log("往返诊断{tag}", $"LockedUntil 场不一致");
             return false;
         }
         if (RngStateOf(a) != RngStateOf(b))
         {
-            GD.Print($"  [往返诊断{tag}] Rng 状态不一致 {RngStateOf(a)} vs {RngStateOf(b)}");
+            LogService.Log("往返诊断{tag}", $"Rng 状态不一致 {RngStateOf(a)} vs {RngStateOf(b)}");
             return false;
         }
         for (int k = 0; k < a.Tribes.Count; k++)
@@ -57,46 +58,46 @@ public partial class CivSimDiag
                 // ⚠️ 2026-08-16 阶段4 国家层字段对比（纯派生不存档——读档 SettleDerived 重建须 ≡ 内存态）
                 || x.StateId != y.StateId || x.StateSize != y.StateSize)
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: id={x.Id}vs{y.Id} cell={x.Cell}vs{y.Cell} P={x.P:F1}vs{y.P:F1} farm={x.IsFarming}vs{y.IsFarming} origin={x.OriginCell}vs{y.OriginCell} born={x.BornTick}vs{y.BornTick}");
+                LogService.Log("往返诊断{tag}", $"实体{k}: id={x.Id}vs{y.Id} cell={x.Cell}vs{y.Cell} P={x.P:F1}vs{y.P:F1} farm={x.IsFarming}vs{y.IsFarming} origin={x.OriginCell}vs{y.OriginCell} born={x.BornTick}vs{y.BornTick}");
                 return false;
             }
             if (!SetEqual(x.TechKeys, y.TechKeys))
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: techKeys A=[{string.Join(";", x.TechKeys)}] B=[{string.Join(";", y.TechKeys)}]");
+                LogService.Log("往返诊断{tag}", $"实体{k}: techKeys A=[{string.Join(";", x.TechKeys)}] B=[{string.Join(";", y.TechKeys)}]");
                 return false;
             }
             if (!ShareEqual(x.CultureShare, y.CultureShare))
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: CultureShare A=[{ShareStr(x.CultureShare)}] B=[{ShareStr(y.CultureShare)}]");
+                LogService.Log("往返诊断{tag}", $"实体{k}: CultureShare A=[{ShareStr(x.CultureShare)}] B=[{ShareStr(y.CultureShare)}]");
                 return false;
             }
             if (!ShareEqual(x.CultureGroupShare, y.CultureGroupShare))
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: CultureGroup A=[{ShareStr(x.CultureGroupShare)}] B=[{ShareStr(y.CultureGroupShare)}]");
+                LogService.Log("往返诊断{tag}", $"实体{k}: CultureGroup A=[{ShareStr(x.CultureGroupShare)}] B=[{ShareStr(y.CultureGroupShare)}]");
                 return false;
             }
             if (!ShareEqual(x.ReligionCultShare, y.ReligionCultShare))
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: ReligionCult A=[{ShareStr(x.ReligionCultShare)}] B=[{ShareStr(y.ReligionCultShare)}]");
+                LogService.Log("往返诊断{tag}", $"实体{k}: ReligionCult A=[{ShareStr(x.ReligionCultShare)}] B=[{ShareStr(y.ReligionCultShare)}]");
                 return false;
             }
             if (!ShareEqual(x.ReligionShare, y.ReligionShare))
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: Religion A=[{ShareStr(x.ReligionShare)}] B=[{ShareStr(y.ReligionShare)}]");
+                LogService.Log("往返诊断{tag}", $"实体{k}: Religion A=[{ShareStr(x.ReligionShare)}] B=[{ShareStr(y.ReligionShare)}]");
                 return false;
             }
             // ⚠️ 2026-08-18 阶段3 贸易期：Stocks 是贸易的活状态（v12 入档）——往返/续跑必须逐位一致
             //   （贸易 → 下 tick 增长/交换 → 人口，分叉会逐 tick 放大；补进实体对比防线）
             if (!FloatSeqEqual(x.Stocks, y.Stocks))
             {
-                GD.Print($"  [往返诊断{tag}] 实体{k}: Stocks 不一致（贸易/存储状态分叉）");
+                LogService.Log("往返诊断{tag}", $"实体{k}: Stocks 不一致（贸易/存储状态分叉）");
                 return false;
             }
         }
         // ⚠️ 2026-08-19 阶段3 聚落：聚落实体（v13 新段）是场所持久状态——往返/续跑必须一致
         if (!SettlementsEqual(a, b))
         {
-            GD.Print($"  [往返诊断{tag}] Settlements 不一致（聚落状态分叉）");
+            LogService.Log("往返诊断{tag}", $"Settlements 不一致（聚落状态分叉）");
             return false;
         }
         return true;

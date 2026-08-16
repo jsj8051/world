@@ -9,6 +9,7 @@ using World.Camera;
 using World.HexPlanet;
 using World.MapGen;
 using World.PlanetLOD;
+using World.Services;
 using World.Surface;
 using World.UI;
 
@@ -38,6 +39,7 @@ public partial class MapViewer
         }).ContinueWith(t =>
         {
             if (t.IsFaulted)
+                // 后台线程回调：LogService 纪律禁止，保持 GD.Print 直调（ADR-0004 §决策4）
                 GD.PrintErr($"[MapViewer] 季风月风场计算失败: {t.Exception?.GetBaseException().Message}");
             CallDeferred(nameof(ApplyMonthWind));   // 回主线程应用（含失败路径清 pending）
         });
@@ -50,7 +52,7 @@ public partial class MapViewer
         _monthWindPending = null;
         if (mw == null) return;
         _monthWind = mw;
-        GD.Print($"[MapViewer] 季风月风场重算完成（{_map?.Verts.Length} 顶点，倾角 {_map?.AxialTilt}°）");
+        LogService.Log("MapViewer", $"季风月风场重算完成（{_map?.Verts.Length} 顶点，倾角 {_map?.AxialTilt}°）");
         // 若当前已是风场/月降水/月温度图层，补建箭头（异步完成前可能已跳过）
         if (Layer == 4 || Layer == 10 || Layer == 11)
             BuildMonsoonArrows();
@@ -128,7 +130,7 @@ public partial class MapViewer
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_monsoonArrows);
-        GD.Print($"[MapViewer] monsoon arrows built: {verts.Count / 3} arrows (月={_month + 1})");
+        LogService.Log("MapViewer", $"monsoon arrows built: {verts.Count / 3} arrows (月={_month + 1})");
     }
 
 
@@ -180,7 +182,7 @@ public partial class MapViewer
         }
         if (_map == null || _map.CurrentDirs == null || _map.CurrentWarmth == null)
         {
-            GD.Print("[MapViewer] current arrows skipped: 存档无洋流段（旧版）");
+            LogService.Log("MapViewer", "current arrows skipped: 存档无洋流段（旧版）");
             return;
         }
 
@@ -237,11 +239,11 @@ public partial class MapViewer
                 drawn++;
             }
         }
-        GD.Print($"[MapViewer] current arrows built: {drawn} 箭头（格点稀疏采样，固定大小）");
+        LogService.Log("MapViewer", $"current arrows built: {drawn} 箭头（格点稀疏采样，固定大小）");
 
         if (verts.Count == 0)
         {
-            GD.Print("[MapViewer] current arrows: 无洋流数据");
+            LogService.Log("MapViewer", "current arrows: 无洋流数据");
             return;
         }
 
@@ -269,7 +271,7 @@ public partial class MapViewer
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_currentArrows);
-        GD.Print($"[MapViewer] current arrows built: {drawn} 箭头（稀疏采样，固定大小） (from archive)");
+        LogService.Log("MapViewer", $"current arrows built: {drawn} 箭头（稀疏采样，固定大小） (from archive)");
     }
 
 
@@ -402,7 +404,7 @@ public partial class MapViewer
 
         if (verts.Count == 0)
         {
-            GD.Print("[MapViewer] current rings: 无闭合环流圈（psi 水位法）");
+            LogService.Log("MapViewer", "current rings: 无闭合环流圈（psi 水位法）");
             return;
         }
 
@@ -428,7 +430,7 @@ public partial class MapViewer
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_currentArrows);
-        GD.Print($"[MapViewer] 洋流环：最外圈 {ringCount} 个，箭头 {arrowTotal}（水位法，v4 psi）");
+        LogService.Log("MapViewer", $"洋流环：最外圈 {ringCount} 个，箭头 {arrowTotal}（水位法，v4 psi）");
     }
 
 
@@ -444,7 +446,7 @@ public partial class MapViewer
         }
         if (_map == null || _map.RiverLevel == null || _map.RiverFlow == null)
         {
-            GD.Print("[MapViewer] rivers skipped: 存档无河流段（旧版）");
+            LogService.Log("MapViewer", "rivers skipped: 存档无河流段（旧版）");
             return;
         }
 
@@ -459,7 +461,7 @@ public partial class MapViewer
         var paths = World.MapGen.RiverSystem.RebuildPaths(_map.RiverFlow, _map.RiverLevel, eNorm);
         if (paths.Count == 0)
         {
-            GD.Print("[MapViewer] rivers: 无主河道");
+            LogService.Log("MapViewer", "rivers: 无主河道");
             return;
         }
 
@@ -509,7 +511,7 @@ public partial class MapViewer
 
         if (vertList.Count == 0)
         {
-            GD.Print("[MapViewer] rivers: 无可见河道");
+            LogService.Log("MapViewer", "rivers: 无可见河道");
             return;
         }
 
@@ -536,7 +538,7 @@ public partial class MapViewer
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
         AddChild(_riverMesh);
-        GD.Print($"[MapViewer] rivers built: {riverCount} 条主河道 / {paths.Count} 源 (from archive)");
+        LogService.Log("MapViewer", $"rivers built: {riverCount} 条主河道 / {paths.Count} 源 (from archive)");
         // ⚠️ 2026-08-03：headless 验证构建完成即退——取消 --quit-after 800 帧空转
         //   （构建完不再等帧数；验证循环 n=16 从 ~51s 减到 ~15s）
         if (OS.HasFeature("headless"))

@@ -3,6 +3,7 @@ using System;
 using World.CivSim;   // DeterministicRandom（诊断导出也用确定性随机，2026-08-19）
 using World.Diagnostics;
 using World.HexPlanet;
+using World.Services;
 using World.Tectonics;
 
 namespace World.Tectonics
@@ -49,7 +50,7 @@ namespace World.Tectonics
                 else Rift = true;
             }
 
-            GD.Print($"[TectonicsTest] gridN={GridN} plates={NumPlates} seed={Seed} run={RunMy}My step={StepMy}My compare={Compare}");
+            LogService.Log("TectonicsTest", $"gridN={GridN} plates={NumPlates} seed={Seed} run={RunMy}My step={StepMy}My compare={Compare}");
 
             if (InitOnly) { RunInitOnly(); return; }
             if (Compare) { RunCompare(); return; }
@@ -67,7 +68,7 @@ namespace World.Tectonics
             sim.MergePlatesToMaster();
             sim.ComputeDisplacement();
             float sea = sim.SolveSeaLevel(0.6f);
-            GD.Print($"[TectonicsTest] INITIAL ONLY: sealevel={sea:F0} m, land={100f * sim.LandFractionAboveSea():F1}%, " +
+            LogService.Log("TectonicsTest", $"INITIAL ONLY: sealevel={sea:F0} m, land={100f * sim.LandFractionAboveSea():F1}%, " +
                      $"disp[{FieldOps.Min(sim.Displacement):F0},{FieldOps.Max(sim.Displacement):F0}]m");
             ExportEquirectPreview(sim, "user://tectonics_elev.png");
             ExportPlatePreview(sim, "user://tectonics_plates.png");
@@ -77,14 +78,14 @@ namespace World.Tectonics
         // ── 模式 2：侵蚀 开/关 对比 ──
         private void RunCompare()
         {
-            GD.Print($"[TectonicsTest] === 侵蚀关（无地表过程）===");
+            LogService.Log("TectonicsTest", $"=== 侵蚀关（无地表过程）===");
             var simNo = RunSingle(false, "user://tectonics_elev_noerosion.png", "user://tectonics_plates_noerosion.png");
-            GD.Print($"[TectonicsTest] === 侵蚀开（侵蚀/风化/成岩/变质）===");
+            LogService.Log("TectonicsTest", $"=== 侵蚀开（侵蚀/风化/成岩/变质）===");
             var simYes = RunSingle(true, "user://tectonics_elev_erosion.png", "user://tectonics_plates_erosion.png");
 
             // 对比诊断
             float[] d0 = simNo.Displacement, d1 = simYes.Displacement;
-            GD.Print($"[TectonicsTest] 对比: 无侵蚀 disp[{FieldOps.Min(d0):F0},{FieldOps.Max(d0):F0}]m " +
+            LogService.Log("TectonicsTest", $"对比: 无侵蚀 disp[{FieldOps.Min(d0):F0},{FieldOps.Max(d0):F0}]m " +
                      $"land={100f * simNo.LandFractionAboveSea():F1}% | 有侵蚀 disp[{FieldOps.Min(d1):F0},{FieldOps.Max(d1):F0}]m " +
                      $"land={100f * simYes.LandFractionAboveSea():F1}%");
             GetTree().Quit();
@@ -100,12 +101,12 @@ namespace World.Tectonics
             sim.GlobalGrid.PrintDiagnostics();
 
             sim.GenerateInitialCrust(Seed);
-            GD.Print($"[TectonicsTest] initial crust ok");
+            LogService.Log("TectonicsTest", $"initial crust ok");
             sim.SplitIntoPlates(NumPlates, Seed);
-            GD.Print($"[TectonicsTest] plates={sim.Plates.Count}, sizes={string.Join(",", sim.Plates.ConvertAll(p => p.TileCount))}");
+            LogService.Log("TectonicsTest", $"plates={sim.Plates.Count}, sizes={string.Join(",", sim.Plates.ConvertAll(p => p.TileCount))}");
             sim.Run(RunMy, StepMy);
             sw.Stop();
-            GD.Print($"[TectonicsTest] run took {sw.ElapsedMilliseconds}ms");
+            LogService.Log("TectonicsTest", $"run took {sw.ElapsedMilliseconds}ms");
 
             ExportEquirectPreview(sim, elevPath);
             ExportPlatePreview(sim, platePath);
@@ -135,7 +136,7 @@ namespace World.Tectonics
                 }
             }
             img.SavePng(path);
-            GD.Print($"[TectonicsTest] elev preview saved: {path} (sealevel={sea:F0}m)");
+            LogService.Log("TectonicsTest", $"elev preview saved: {path} (sealevel={sea:F0}m)");
         }
 
         /// <summary>板块 id 预览（每板随机色 + 黑色边界线，512×256 等距柱状）。
@@ -181,7 +182,7 @@ namespace World.Tectonics
                 }
             }
             img.SavePng(path);
-            GD.Print($"[TectonicsTest] plate preview saved: {path}");
+            LogService.Log("TectonicsTest", $"plate preview saved: {path}");
         }
 
         private static Vector3 LatLonToUnit(float lat, float lon)

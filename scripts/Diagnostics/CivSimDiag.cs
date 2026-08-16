@@ -7,6 +7,7 @@ using World.Biome;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -47,7 +48,7 @@ public partial class CivSimDiag : DiagSceneBase
         if (args.TryGetValue("only", out var onlyArg)) _only = ParseSet(onlyArg);
         if (args.TryGetValue("skip", out var skipArg)) _skip = ParseSet(skipArg);
         if (_only != null || _skip != null)
-            GD.Print($"[CivSimDiag] 筛选: --only=[{string.Join(",", _only ?? new HashSet<string>())}] --skip=[{string.Join(",", _skip ?? new HashSet<string>())}]");
+            LogService.Log("CivSimDiag", $"筛选: --only=[{string.Join(",", _only ?? new HashSet<string>())}] --skip=[{string.Join(",", _skip ?? new HashSet<string>())}]");
 
         // ── S 构造场景（无地图依赖，先跑）──
         RunScenarios();
@@ -55,7 +56,7 @@ public partial class CivSimDiag : DiagSceneBase
         // ── T 地图测试 ──
         if (arch == null)
         {
-            GD.Print($"[CivSimDiag] 无 --arch：仅跑构造场景（S1-S6）→ 总 {_pass}P/{_fail}F");
+            LogService.Log("CivSimDiag", $"无 --arch：仅跑构造场景（S1-S6）→ 总 {_pass}P/{_fail}F");
             GetTree().Quit(_fail == 0 ? 0 : 1);
             return;
         }
@@ -65,20 +66,21 @@ public partial class CivSimDiag : DiagSceneBase
             return;
         }
         _grid = GameGrid.FromMapData(mctx.Map);
-        GD.Print($"[CivSimDiag] 读档 {arch} n={_grid.N} → 全测试（seed={seed} 起源{origins}，自然层只读）");
+        LogService.Log("CivSimDiag", $"读档 {arch} n={_grid.N} → 全测试（seed={seed} 起源{origins}，自然层只读）");
         bool hasFossil = false;
         for (int i = 0; i < _grid.N; i++)
             if (_grid.Biome[i] >= 4 && _grid.Biome[i] <= 11) { hasFossil = true; break; }
-        GD.Print($"[CivSimDiag] 地图 biome 化石值(4-11)存在={hasFossil}（旧档放弃策略：含化石 → 存档/演化拒绝）");
+        LogService.Log("CivSimDiag", $"地图 biome 化石值(4-11)存在={hasFossil}（旧档放弃策略：含化石 → 存档/演化拒绝）");
         RunMapTests(seed, origins, outPath);
 
-        GD.Print($"[CivSimDiag] 汇总：{_pass} PASS / {_fail} FAIL → {(_fail == 0 ? "全部PASS" : "有失败!")}");
+        LogService.Log("CivSimDiag", $"汇总：{_pass} PASS / {_fail} FAIL → {(_fail == 0 ? "全部PASS" : "有失败!")}");
         GetTree().Quit(_fail == 0 ? 0 : 1);
     }
 
     private void Check(string name, bool ok, string data = "")
     {
         if (ok) _pass++; else _fail++;
+        // 断言输出：保持 GD.Print 直调（`^  FAIL` 前缀被 verify.sh/CI 解析，ADR-0004 §决策3）
         GD.Print($"  {(ok ? "PASS" : "FAIL")} {name}{(data.Length > 0 ? " | " + data : "")}");
     }
 
@@ -129,7 +131,7 @@ public partial class CivSimDiag : DiagSceneBase
 
     private void RunScenarios()
     {
-        GD.Print("[CivSimDiag] ── S 构造场景 ──");
+        LogService.Log("CivSimDiag", "── S 构造场景 ──");
         if (Want("S1")) S1_GrowthAndEnergy();
         if (Want("S2")) S2_ModeMatrix();
         if (Want("S3")) S3_ShareConservation();
@@ -188,12 +190,12 @@ public partial class CivSimDiag : DiagSceneBase
 
     private void RunMapTests(int seed, int origins, string outPath)
     {
-        GD.Print("[CivSimDiag] ── T 地图测试 ──");
+        LogService.Log("CivSimDiag", "── T 地图测试 ──");
         // 演化 gate：未选任何地图测试（如 --only=S1,S2）时跳过完整演化（最贵段 ~11s）
         bool needEvol = WantAny("T01", "T02", "T03", "T04", "T05", "T08", "T09", "T10", "T11", "T13", "T14", "T15", "T16", "T17", "T21", "T22", "T52", "存档");
         CivSimResult r1 = null;    // 演化结果（needEvol=false 时为 null，依赖它的测试已被筛掉）
         if (needEvol) r1 = EvolveAndDebug(seed, origins);
-        else GD.Print("[CivSimDiag] --only 未含地图测试：跳过演化");
+        else LogService.Log("CivSimDiag", "--only 未含地图测试：跳过演化");
         var c = r1?.Context;   // 演化 context（needEvol=false 时为 null）
 
         bool repro = false, wcDet = false, rtOk = false;
@@ -242,7 +244,7 @@ public partial class CivSimDiag : DiagSceneBase
         var cultStr = new System.Text.StringBuilder();
         for (int q = 0; q < Math.Min(6, cultTop.Count); q++)
             cultStr.Append($"{cultTop[q].Key}={cultTop[q].Value} ");
-        GD.Print($"[文化调试] 起源={originCults} | 文化实体数: {cultStr}");
+        LogService.Log("文化调试", $"起源={originCults} | 文化实体数: {cultStr}");
         // [调试] 起源格当前主导文化（是否被外文化吞并）——2026-08-17 审查修复：改动态起源格（旧硬编码 {7597,7106,58} 是特定 n128 图的残留）
         var originCells = new List<int>();
         foreach (var e in r1.Context.Tribes) if (e.BornTick == 0 && !originCells.Contains(e.Cell)) originCells.Add(e.Cell);
@@ -257,11 +259,11 @@ public partial class CivSimDiag : DiagSceneBase
             {
                 domKey = World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "null";
                 if (domKey == "null" || domKey == "无")
-                    GD.Print($"  [文化调试] null格{oc} 实体:{d0.Id}(P{d0.P:F0})[{(World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "n")}:{d0.CultureShare[0].Frac},{World.CivSim.ShareField.SecKey(d0.CultureShare) ?? "n"}:{d0.CultureShare[1].Frac}] ");
+                    LogService.Log("文化调试", $"null格{oc} 实体:{d0.Id}(P{d0.P:F0})[{(World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "n")}:{d0.CultureShare[0].Frac},{World.CivSim.ShareField.SecKey(d0.CultureShare) ?? "n"}:{d0.CultureShare[1].Frac}] ");
             }
             ocStr.Append($"格{oc}:{domKey}({(d0 != null && !d0.Dead ? 1 : 0)}实体) ");
         }
-        GD.Print($"[文化调试] 起源格现状: {ocStr}");
+        LogService.Log("文化调试", $"起源格现状: {ocStr}");
         // [临时调试] 各文化格级覆盖（主导文化格数 + 平均实体人口）
         var cultGrid = new Dictionary<string, int>();
         var cultPop = new Dictionary<string, float>();
@@ -279,7 +281,7 @@ public partial class CivSimDiag : DiagSceneBase
         var cgStr = new System.Text.StringBuilder();
         for (int q = 0; q < cgTop.Count; q++)
             cgStr.Append($"{cgTop[q].Key}={cgTop[q].Value}格(均pop{cultPop[cgTop[q].Key] / cgTop[q].Value:F0}) ");
-        GD.Print($"[文化调试] 格级覆盖: {cgStr}");
+        LogService.Log("文化调试", $"格级覆盖: {cgStr}");
         // [临时调试] 文化群/宗教派别多样性（产生 vs 存活）
         var grpCount = new Dictionary<string, int>();
         var relCount = new Dictionary<string, int>();
@@ -290,8 +292,8 @@ public partial class CivSimDiag : DiagSceneBase
             string rk = World.CivSim.ShareField.DomKey(e.ReligionCultShare);
             if (rk != null) relCount[rk] = relCount.TryGetValue(rk, out var v2) ? v2 + 1 : 1;
         }
-        GD.Print($"[文化调试] 文化群存活={grpCount.Count} 宗教派别存活={relCount.Count} (CultureKeyCount={r1.Context.CultureKeyCount} ReligionKeyCount={r1.Context.ReligionKeyCount})");
-        GD.Print($"[CivSimDiag] 演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Tribes.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
+        LogService.Log("文化调试", $"文化群存活={grpCount.Count} 宗教派别存活={relCount.Count} (CultureKeyCount={r1.Context.CultureKeyCount} ReligionKeyCount={r1.Context.ReligionKeyCount})");
+        LogService.Log("CivSimDiag", $"演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Tribes.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
                  $" | 贸易 {r1.Context.TradeEvents} 次/{r1.Context.TradeVolume:F0} 量");
         return r1;
     }

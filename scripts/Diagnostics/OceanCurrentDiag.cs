@@ -1,6 +1,7 @@
 using Godot;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -33,7 +34,7 @@ public partial class OceanCurrentDiag : DiagSceneBase
                 else if (warmth[i] < -0.2f) cold++;
             }
         }
-        GD.Print($"[OceanCurrentDiag] {arch} n={map.Verts.Length} 海洋格={ocean} 洋流格={withDir} " +
+        LogService.Log("OceanCurrentDiag", $"{arch} n={map.Verts.Length} 海洋格={ocean} 洋流格={withDir} " +
                  $"({100f * withDir / Mathf.Max(1, ocean):F1}%) 暖流={warm} 寒流={cold}");
 
         // 强度分布（显示层筛选阈值校准；用重算的 strength——SOR 求解效果验证）
@@ -47,7 +48,7 @@ public partial class OceanCurrentDiag : DiagSceneBase
                 if (s > 0.30f) s030++;
                 if (s > 0.25f) s025++;
             }
-            GD.Print($"[OceanCurrentDiag] 强度分布(重算): >0.25={s025} >0.30={s030} >0.35={s035}");
+            LogService.Log("OceanCurrentDiag", $"强度分布(重算): >0.25={s025} >0.30={s030} >0.35={s035}");
         }
 
         // 温度/降水/biome 分布检查（biome 异常连带排查）
@@ -65,7 +66,7 @@ public partial class OceanCurrentDiag : DiagSceneBase
         var top = new System.Text.StringBuilder();
         for (int b = 0; b < biomeHist.Length; b++)
             if (biomeHist[b] * 100 >= land) top.Append($"{b}:{biomeHist[b]} ");
-        GD.Print($"[OceanCurrentDiag] 陆地={land} Temp[{tMin:F1},{tMax:F1}] Precip[{pMin:F0},{pMax:F0}] biome≥1%: {top}");
+        LogService.Log("OceanCurrentDiag", $"陆地={land} Temp[{tMin:F1},{tMax:F1}] Precip[{pMin:F0},{pMax:F0}] biome≥1%: {top}");
 
         // 月降水季节性：中纬度(30-60°)陆地格夏季(6-8月)降水占比——Dwa 冬干误判排查
         if (map.MonthPrecip != null && map.MonthPrecip.Length == 12)
@@ -84,7 +85,7 @@ public partial class OceanCurrentDiag : DiagSceneBase
                     if (m >= 5 && m <= 7) summer += r;   // 6-8月(索引5,6,7)
                 }
             }
-            GD.Print($"[OceanCurrentDiag] 中纬度格={midLat} 夏雨占比={(total > 0 ? summer / total : 0):F3}(正常≈0.4-0.6)");
+            LogService.Log("OceanCurrentDiag", $"中纬度格={midLat} 夏雨占比={(total > 0 ? summer / total : 0):F3}(正常≈0.4-0.6)");
 
             // ── biome 重算验证（新判据：DryP 比例→mm 换算 + D 带冬干检查）──
             //   ⚠️ 存档 biome 是旧判据固化（比例 0-1 恒<30 → D 带全 Dwa 误判）
@@ -111,7 +112,7 @@ public partial class OceanCurrentDiag : DiagSceneBase
             var top2 = new System.Text.StringBuilder();
             for (int b = 0; b < newBiome.Length; b++)
                 if (newBiome[b] * 100 >= land) top2.Append($"{b}:{newBiome[b]} ");
-            GD.Print($"[OceanCurrentDiag] 新判据 biome≥1%: {top2}");
+            LogService.Log("OceanCurrentDiag", $"新判据 biome≥1%: {top2}");
         }
         GetTree().Quit(0);
     }

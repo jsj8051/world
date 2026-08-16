@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.Biome;
+using World.Services;
 
 namespace World.MapGen;
 
@@ -57,7 +58,7 @@ public static class MapArchive
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
         if (f == null)
         {
-            GD.PrintErr($"[MapArchive] cannot open {path} for write: {FileAccess.GetOpenError()}");
+            LogService.LogErr("MapArchive", $"cannot open {path} for write: {FileAccess.GetOpenError()}");
             return false;
         }
         int n = verts.Length;
@@ -131,7 +132,7 @@ public static class MapArchive
             for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 foreach (var v in monthTemp[m]) f.Store8(v);
         if (log)
-            GD.Print($"[MapArchive] wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
+            LogService.Log("MapArchive", $"wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
                      $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}] prograde={prograde})");
         return true;
     }
@@ -142,19 +143,19 @@ public static class MapArchive
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
         if (f == null)
         {
-            GD.PrintErr($"[MapArchive] cannot open {path}: {FileAccess.GetOpenError()}");
+            LogService.LogErr("MapArchive", $"cannot open {path}: {FileAccess.GetOpenError()}");
             return false;
         }
         string magic = "" + (char)f.Get8() + (char)f.Get8() + (char)f.Get8() + (char)f.Get8();
         if (magic != Magic)
         {
-            GD.PrintErr($"[MapArchive] bad magic '{magic}' in {path}");
+            LogService.LogErr("MapArchive", $"bad magic '{magic}' in {path}");
             return false;
         }
         ushort ver = f.Get16();
         if (ver > Version)
         {
-            GD.PrintErr($"[MapArchive] unsupported version {ver} (expected ≤ {Version})");
+            LogService.LogErr("MapArchive", $"unsupported version {ver} (expected ≤ {Version})");
             return false;
         }
         map.Seed = (int)f.Get32();
@@ -275,7 +276,7 @@ public static class MapArchive
             }
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            GD.Print($"[MapArchive] read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")} monsoon={(map.MonsoonLevel != null ? "yes" : "no")})");
+            LogService.Log("MapArchive", $"read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")} monsoon={(map.MonsoonLevel != null ? "yes" : "no")})");
         }
         else
         {
@@ -300,7 +301,7 @@ public static class MapArchive
                 map.Biome = new byte[n];
                 for (int i = 0; i < n; i++) map.Biome[i] = f.Get8();
             }
-            GD.Print($"[MapArchive] read v{ver} {path} (planar {map.Width}x{map.Height})");
+            LogService.Log("MapArchive", $"read v{ver} {path} (planar {map.Width}x{map.Height})");
         }
         return true;
     }
@@ -388,7 +389,7 @@ public class MapData
             if (_buckets != null) return;      // 双检锁：锁内再查一次
             int tid = System.Environment.CurrentManagedThreadId;
             if (_bucketsBuildThread != -1 && tid != _bucketsBuildThread)
-                GD.PrintErr($"[MapArchive] ⚠️ 桶索引并发首建：线程(tid={tid}) 与首建线程(tid={_bucketsBuildThread}) 同时构建——并发修改集合崩溃前兆");
+                LogService.LogErr("MapArchive", $"⚠️ 桶索引并发首建：线程(tid={tid}) 与首建线程(tid={_bucketsBuildThread}) 同时构建——并发修改集合崩溃前兆");
             _bucketsBuildThread = tid;
         }
         // 目标每桶 ~30 顶点 → 总桶数 ≈ V/30；保持 lat:lon = 1:2（球面面积均匀分）。

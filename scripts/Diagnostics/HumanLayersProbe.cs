@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapView;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -23,12 +24,12 @@ public partial class HumanLayersProbe : DiagSceneBase
         if (args.TryGetValue("map", out var mapArg)) path = mapArg;
         if (!CivMapArchive.Read(path, out var grid, out var res))
         {
-            GD.PrintErr($"[HumanLayersProbe] 读取失败 {path}");
+            LogService.LogErr("HumanLayersProbe", $"读取失败 {path}");
             GetTree().Quit(1);
             return;
         }
         var ctx = res.Context;
-        GD.Print($"[HumanLayersProbe] {path} n={grid.N} 实体={ctx.Tribes.Count} tick={res.FinalTick} 人口={ctx.TotalPopulation():F0}");
+        LogService.Log("HumanLayersProbe", $"{path} n={grid.N} 实体={ctx.Tribes.Count} tick={res.FinalTick} 人口={ctx.TotalPopulation():F0}");
 
         var ownerCells = new Dictionary<int, int>();
         if (ctx.CellOwner != null)
@@ -60,7 +61,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         terrList.Sort((x, y) => y.Value.CompareTo(x.Value));
         var tSb = new System.Text.StringBuilder();
         foreach (var kv in terrList) tSb.Append($"{kv.Key}({kv.Value}b) ");
-        GD.Print($"[HumanLayersProbe] 领地（{terrList.Count} 个）: {tSb}");
+        LogService.Log("HumanLayersProbe", $"领地（{terrList.Count} 个）: {tSb}");
 
         ExportMap(grid, ctx, "culture", e => ShareField.KeyHash(ShareField.DomKey(e.CultureShare)));
         ExportMap(grid, ctx, "religion", e => ShareField.KeyHash(ShareField.DomKey(e.ReligionCultShare)));
@@ -86,7 +87,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             string k = ShareField.DomKey(o.CultureShare) ?? "无";
             cultCells[k] = cultCells.TryGetValue(k, out var c) ? c + 1 : 1;
         }
-        GD.Print($"[HumanLayersProbe] 显示统计（归属者统一）: 归属格={owned} | 文化数={cultCells.Count} | 分布: {JoinTop(cultCells)}");
+        LogService.Log("HumanLayersProbe", $"显示统计（归属者统一）: 归属格={owned} | 文化数={cultCells.Count} | 分布: {JoinTop(cultCells)}");
     }
 
     private static string JoinTop(Dictionary<string, int> d)
@@ -131,7 +132,7 @@ public partial class HumanLayersProbe : DiagSceneBase
                 if (PowerKey(o) != PowerKey(se)) powerDiff++;
             }
         }
-        GD.Print($"[HumanLayersProbe] 飞地诊断: 陆地格={land} 归属格={owned} | 定居自属={selfOwned} 他属={foreignOwned} | 他属中 文化异={cultDiff} 势力异={powerDiff}（他属+异 = 视觉飞地点）");
+        LogService.Log("HumanLayersProbe", $"飞地诊断: 陆地格={land} 归属格={owned} | 定居自属={selfOwned} 他属={foreignOwned} | 他属中 文化异={cultDiff} 势力异={powerDiff}（他属+异 = 视觉飞地点）");
         // ③ 文化图层最大连通同色区域（显示色 = 定居自身 or 归属者；确定性 BFS）
         int[] colorOf = new int[n];
         for (int v = 0; v < n; v++)
@@ -174,7 +175,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         var sb = new System.Text.StringBuilder();
         foreach (var kv in compList)
             sb.Append($"色{kv.Key}块{kv.Value}格({compCount[kv.Key]}块) ");
-        GD.Print($"[HumanLayersProbe] 文化连通块: 色数={compMax.Count} | 前8最大块: {sb}");
+        LogService.Log("HumanLayersProbe", $"文化连通块: 色数={compMax.Count} | 前8最大块: {sb}");
         // ④ 势力层连通性（显示色 = 定居自身 PowerKey or 归属者 PowerKey）
         int[] powOf = new int[n];
         for (int v = 0; v < n; v++)
@@ -185,7 +186,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             powOf[v] = bestByCell.TryGetValue(v, out var se) ? PowerKey(se).GetHashCode() : PowerKey(o).GetHashCode();
         }
         var (pMax, pCount) = BiggestComponents(powOf, n, ctx.Grid.Neighbors);
-        GD.Print($"[HumanLayersProbe] 势力连通块: 色数={pMax.Count} | 前5最大块: {FormatComps(pMax, pCount)}");
+        LogService.Log("HumanLayersProbe", $"势力连通块: 色数={pMax.Count} | 前5最大块: {FormatComps(pMax, pCount)}");
         // ⑤ 语言群层连通性（归属者群）
         int[] grpOf = new int[n];
         for (int v = 0; v < n; v++)
@@ -196,7 +197,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             grpOf[v] = ShareField.KeyHash(ShareField.DomKey(o.CultureGroupShare));
         }
         var (gMax, gCount) = BiggestComponents(grpOf, n, ctx.Grid.Neighbors);
-        GD.Print($"[HumanLayersProbe] 语言群连通块: 色数={gMax.Count} | 前5最大块: {FormatComps(gMax, gCount)}");
+        LogService.Log("HumanLayersProbe", $"语言群连通块: 色数={gMax.Count} | 前5最大块: {FormatComps(gMax, gCount)}");
     }
 
     private static string FormatComps(Dictionary<int, int> compMax, Dictionary<int, int> compCount)
@@ -284,7 +285,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             if (capLvl >= 0) capSum++;
             sb.Append($"国家{kv.Key}:{kv.Value.Bands}b/{kv.Value.Pop:F0}p/都城L{capLvl} ");
         }
-        GD.Print($"[HumanLayersProbe] 国家统计: {list.Count} 个国家（{capSum} 有都城）| {sb}");
+        LogService.Log("HumanLayersProbe", $"国家统计: {list.Count} 个国家（{capSum} 有都城）| {sb}");
         // 诊断：按酋邦打印未达标条件（前 10 大酋邦）
         var diag = new List<(int Chief, int Bands, float Pop, int CapLvl, float Pool, float Need, int Settles, bool Sub, int Dwell)>();
         var byId = new Dictionary<int, Tribe>();
@@ -326,7 +327,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             var d = diag[i];
             dSb.Append($"邦{d.Chief}:{d.Bands}b/{d.Pop:F0}p 都城L{d.CapLvl} 池{d.Pool:F0}/需{d.Need:F0} 聚落{d.Settles} 次级{d.Sub} 存续{d.Dwell} | ");
         }
-        GD.Print($"[HumanLayersProbe] 国家诊断(前10大酋邦): {dSb}");
+        LogService.Log("HumanLayersProbe", $"国家诊断(前10大酋邦): {dSb}");
     }
 
     /// <summary>势力色碰撞检查（2026-08-16 用户"所有势力颜色都要不一样"验证）：直接用 **生产代码**
@@ -354,7 +355,7 @@ public partial class HumanLayersProbe : DiagSceneBase
                 float d = PowerPalette.Dist(pal[list[i]], pal[list[j]]);
                 if (d < minDist) { minDist = d; minPair = $"{list[i]}vs{list[j]}"; }
             }
-        GD.Print($"[HumanLayersProbe] 势力色碰撞检查: {list.Count} 个势力 最小色距={minDist:F3}({minPair})（应 >0.05 肉眼可区分；0=完全同色）");
+        LogService.Log("HumanLayersProbe", $"势力色碰撞检查: {list.Count} 个势力 最小色距={minDist:F3}({minPair})（应 >0.05 肉眼可区分；0=完全同色）");
     }
 
     /// <summary>势力范围色碰撞检查（2026-08-16 用户"势力范围全是白的"验证）：同 PowerPalette 最远点采样
@@ -385,7 +386,7 @@ public partial class HumanLayersProbe : DiagSceneBase
                 if (d < minDist) { minDist = d; minPair = $"{list[i]}vs{list[j]}"; }
             }
         }
-        GD.Print($"[HumanLayersProbe] 势力范围色碰撞检查: {list.Count} 个领地 最小色距={minDist:F3}({minPair})（应 >0.05 肉眼可区分） 近白色={nearWhite}（应=0）");
+        LogService.Log("HumanLayersProbe", $"势力范围色碰撞检查: {list.Count} 个领地 最小色距={minDist:F3}({minPair})（应 >0.05 肉眼可区分） 近白色={nearWhite}（应=0）");
     }
 
     /// <summary>聚落统计（2026-08-19 阶段3）：等级分布（新村/村庄/城镇/城市）+ 废墟数 + 都城（至尊酋长聚落）。</summary>
@@ -393,7 +394,7 @@ public partial class HumanLayersProbe : DiagSceneBase
     {
         if (ctx.Settlements == null || ctx.Settlements.Count == 0)
         {
-            GD.Print("[HumanLayersProbe] 聚落: 无（旧档/无农业定居——v12 旧档仅新演化生成）");
+            LogService.Log("HumanLayersProbe", "聚落: 无（旧档/无农业定居——v12 旧档仅新演化生成）");
             return;
         }
         int[] levels = new int[4];
@@ -406,7 +407,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             if (s.Level >= 0 && s.Level < 4) levels[s.Level]++;
             if (byId.TryGetValue(s.OccupantId, out var occ) && occ.IsChief && occ.ChiefdomId == occ.Id) capitals++;
         }
-        GD.Print($"[HumanLayersProbe] 聚落: {ctx.Settlements.Count} 个 | 新村{levels[0]} 村庄{levels[1]} 城镇{levels[2]} 城市{levels[3]} 废墟{ruins} 都城{capitals}");
+        LogService.Log("HumanLayersProbe", $"聚落: {ctx.Settlements.Count} 个 | 新村{levels[0]} 村庄{levels[1]} 城镇{levels[2]} 城市{levels[3]} 废墟{ruins} 都城{capitals}");
     }
 
     /// <summary>生产方式 × 人均库存画像（2026-08-19 贸易专业化观测）：农/牧/猎主导部落的库存分布——
@@ -439,7 +440,7 @@ public partial class HumanLayersProbe : DiagSceneBase
                 }
                 sb.Append($"{CommodityTable.All[s].Id} {sum / kv.Value.Count:F2} ");
             }
-            GD.Print($"[HumanLayersProbe] 生产方式[{kv.Key}] {kv.Value.Count} 部落 人均库存(随身+粮仓): {sb}");
+            LogService.Log("HumanLayersProbe", $"生产方式[{kv.Key}] {kv.Value.Count} 部落 人均库存(随身+粮仓): {sb}");
         }
     }
 
@@ -465,7 +466,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         var sb = new System.Text.StringBuilder();
         foreach (var kv in cb)
             sb.Append($"酋邦{kv.Key}:{kv.Value}b({chiefPop[kv.Key]:F0}p) ");
-        GD.Print($"[HumanLayersProbe] 酋邦 {cb.Count} 个 | 最大: {sb}");
+        LogService.Log("HumanLayersProbe", $"酋邦 {cb.Count} 个 | 最大: {sb}");
         // 大领地（≥100 band）内酋邦数——语言网络 vs 政治统一
         var terrChiefs = new Dictionary<int, HashSet<int>>();
         foreach (var e in ctx.Tribes)
@@ -484,7 +485,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             sb2.Append($"领地{kv.Key}({kv.Value}b):{(terrChiefs.TryGetValue(kv.Key, out var s) ? s.Count : 0)}个酋邦 ");
             if (++shown >= 6) break;
         }
-        GD.Print($"[HumanLayersProbe] 大领地内酋邦数（语言网络 vs 政治统一）: {sb2}");
+        LogService.Log("HumanLayersProbe", $"大领地内酋邦数（语言网络 vs 政治统一）: {sb2}");
     }
 
     private void DumpLayer(CivSimContext ctx, Dictionary<int, int> ownerCells, string name, Func<Tribe, string> keyOf)
@@ -504,7 +505,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         var sb = new System.Text.StringBuilder();
         foreach (var kv in list)
             sb.Append($"{kv.Key}:{kv.Value.Ent}e/{kv.Value.Cells}格/{kv.Value.Pop:F0}p ");
-        GD.Print($"[HumanLayersProbe] {name}: {sb}");
+        LogService.Log("HumanLayersProbe", $"{name}: {sb}");
     }
 
     /// <summary>等距柱状导出（归属格主导：每像素→最近逻辑顶点→CellOwner→该 band 的 key 哈希→色）。</summary>
@@ -569,7 +570,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         }
         string outPath = $"user://maps/human_{tag}_diag.png";
         img.SavePng(outPath);
-        GD.Print($"[HumanLayersProbe] saved {outPath}");
+        LogService.Log("HumanLayersProbe", $"saved {outPath}");
     }
 
     private static Color FamilyColor(int groupHash, int itemHash, float lightBase, float lightSpan)

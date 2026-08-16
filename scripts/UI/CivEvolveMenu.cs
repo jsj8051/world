@@ -204,7 +204,7 @@ public partial class CivEvolveMenu : Control
         _bar.Value = 0;
         _evolveBtn.Disabled = _playBtn.Disabled = _backBtn.Disabled = true;
         _status.Text = $"演化中…（n={_grid.N}，{(_grid.N >= 10000 ? "约 30 秒" : "约 2 秒")}，{_evolveSeed} tick × 100 年）";
-        GD.Print($"[CivEvolveMenu] 演化开始 {_selectedName} seed={_evolveSeed} origins={_evolveOrigins}");
+        LogService.Log("CivEvolveMenu", $"演化开始 {_selectedName} seed={_evolveSeed} origins={_evolveOrigins}");
 
         // 后台线程：纯 C# 演化（无 Godot API 调用；TechTable 已加载；onProgress 写 volatile）
         var grid = _grid;
@@ -266,7 +266,7 @@ public partial class CivEvolveMenu : Control
                        $"→ 已保存 {_cmpOutPath}";
         _playBtn.Disabled = false;
         _evolveBtn.Disabled = _backBtn.Disabled = false;
-        GD.Print($"[CivEvolveMenu] 演化完成 → {_cmpOutPath} (tribes={c.Tribes.Count} pop={c.TotalPopulation():F0} agri={agri})");
+        LogService.Log("CivEvolveMenu", $"演化完成 → {_cmpOutPath} (tribes={c.Tribes.Count} pop={c.TotalPopulation():F0} agri={agri})");
     }
 
     private void OnPlayPressed()

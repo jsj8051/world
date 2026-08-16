@@ -2,6 +2,7 @@ using Godot;
 using System.Collections.Generic;
 using World.Biome;
 using World.MapGen;
+using World.Services;
 
 namespace World.LogicGrid;
 
@@ -264,7 +265,7 @@ public class GameGrid
             if (_buckets != null) return;
             int tid = System.Environment.CurrentManagedThreadId;
             if (_bucketsBuildThread != -1 && tid != _bucketsBuildThread)
-                GD.PrintErr($"[GameGrid] ⚠️ 桶索引并发首建：线程(tid={tid}) 与首建线程(tid={_bucketsBuildThread}) 同时构建——并发修改集合崩溃前兆");
+                LogService.LogErr("GameGrid", $"⚠️ 桶索引并发首建：线程(tid={tid}) 与首建线程(tid={_bucketsBuildThread}) 同时构建——并发修改集合崩溃前兆");
             _bucketsBuildThread = tid;
         }
         int targetPerBucket = 30;

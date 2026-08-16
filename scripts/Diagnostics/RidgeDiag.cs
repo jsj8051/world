@@ -1,5 +1,6 @@
 using Godot;
 using World.Biome;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -50,7 +51,7 @@ public partial class RidgeDiag : DiagSceneBase
             Vector3 dn = (p + wind * 0.12f).Normalized();   // 下风向
             float slope = ridgeElev(dn) - ridgeElev(up);    // 沿风向坡度（+ = 爬坡 = 迎风增雨）
             float score = Mathf.Clamp(slope * 5f, -0.45f, 0.45f);  // 同雨影公式
-            GD.Print($"[RidgeDiag] {name}: 上风向海拔={ridgeElev(up):F2} 下风向海拔={ridgeElev(dn):F2} 沿风向坡度={slope:F3} 雨影修正={score:+.2f}");
+            LogService.Log("RidgeDiag", $"{name}: 上风向海拔={ridgeElev(up):F2} 下风向海拔={ridgeElev(dn):F2} 沿风向坡度={slope:F3} 雨影修正={score:+.2f}");
         }
 
         // 球面东向（西风）、南向（南风）、西向（东风）

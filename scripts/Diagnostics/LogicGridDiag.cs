@@ -3,6 +3,7 @@ using System;
 using World.Biome;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -20,7 +21,7 @@ public partial class LogicGridDiag : DiagSceneBase
         string arch = ArchiveDiag.ResolveArchPath();
         if (arch == null)
         {
-            GD.PrintErr("[LogicGridDiag] 需要 --arch=user://maps/xxx.mpa（逻辑网格导出是存档直读工具）");
+            LogService.LogErr("LogicGridDiag", "需要 --arch=user://maps/xxx.mpa（逻辑网格导出是存档直读工具）");
             GetTree().Quit(1);
             return;
         }
@@ -36,7 +37,7 @@ public partial class LogicGridDiag : DiagSceneBase
 
         var map = ctx.Map;
         int n = map.Verts.Length;
-        GD.Print($"[LogicGridDiag] 读档 {arch} n={n} → 构建逻辑网格（格=模拟顶点胞，零重采样）");
+        LogService.Log("LogicGridDiag", $"读档 {arch} n={n} → 构建逻辑网格（格=模拟顶点胞，零重采样）");
 
         // ── 1. 构建 + 导出 ──
         var g1 = GameGrid.FromMapData(map);
@@ -97,14 +98,14 @@ public partial class LogicGridDiag : DiagSceneBase
         float areaTotal = g2.CellAreaKm2 * n;
         float expectTotal = 4f * Mathf.Pi * g2.RadiusKm * g2.RadiusKm;
 
-        GD.Print($"[LogicGridDiag] 校验: elev差={dElev:E1} temp差={dTemp:E1} precip差={dPrecip:E1} " +
+        LogService.Log("LogicGridDiag", $"校验: elev差={dElev:E1} temp差={dTemp:E1} precip差={dPrecip:E1} " +
                  $"biome差={dBio} 河流差={dRiv}/{dFlow} 流量差={dVol:E1} 湖泊差={dLake} 矿藏差={dMin} 土壤差={dSoil} " +
                  $"季风差={dMon} 月降水差={dMP} 月温差={dMT} 洋流差={dCur:E1}/{dWarm:E1}/{dStr:E1} 人文差={dProv}/{dCtry} → {(pass ? "PASS" : "FAIL")}");
-        GD.Print($"[LogicGridDiag] 源档数据: riverVolume NaN={nanVol}/{n}（NaN 为源档固有，往返位级一致）");
-        GD.Print($"[LogicGridDiag] 网格: n={g2.GridN} 格数={n} 邻接度[{degMin},{degMax}] 平均={degSum / (double)n:F2} " +
+        LogService.Log("LogicGridDiag", $"源档数据: riverVolume NaN={nanVol}/{n}（NaN 为源档固有，往返位级一致）");
+        LogService.Log("LogicGridDiag", $"网格: n={g2.GridN} 格数={n} 邻接度[{degMin},{degMax}] 平均={degSum / (double)n:F2} " +
                  $"(球面三角期望 ~6) | 陆地={land} 海洋={sea} | 面积 {areaTotal:F0} vs 4πR²={expectTotal:F0} km² (R={g2.RadiusKm})");
-        GD.Print($"[LogicGridDiag] 胞面积≈{g2.CellAreaKm2:F0} km²/格 | 人文层 province/country 全 0={dProv + dCtry == 0}");
-        GD.Print($"[LogicGridDiag] 导出 {(ok ? "成功" : "失败")} → {outPath}（{(pass ? "全部校验通过" : "有字段不一致!")}）");
+        LogService.Log("LogicGridDiag", $"胞面积≈{g2.CellAreaKm2:F0} km²/格 | 人文层 province/country 全 0={dProv + dCtry == 0}");
+        LogService.Log("LogicGridDiag", $"导出 {(ok ? "成功" : "失败")} → {outPath}（{(pass ? "全部校验通过" : "有字段不一致!")}）");
         GetTree().Quit(pass ? 0 : 1);
     }
 }

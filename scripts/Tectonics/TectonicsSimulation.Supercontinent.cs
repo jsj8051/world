@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using World.Services;
 
 namespace World.Tectonics
 {
@@ -78,7 +79,7 @@ namespace World.Tectonics
             Plates.Remove(pb);
             for (int p = 0; p < Plates.Count; p++)
                 if (Plates[p].Id == idA) { Plates[p] = merged; break; }
-            GD.Print($"[Tectonics] 碰撞缝合: 板块{idA}+{idB} → {idA}（板块数→{Plates.Count}）");
+            LogService.Log("Tectonics", $"碰撞缝合: 板块{idA}+{idB} → {idA}（板块数→{Plates.Count}）");
         }
 
         /// <summary>
@@ -171,7 +172,7 @@ namespace World.Tectonics
                 newPlates.Add(plate);
             }
             Plates = newPlates;
-            GD.Print($"[Tectonics] 超大陆裂解: 占比{frac:P0} → {splitK}块（板块数→{Plates.Count}）");
+            LogService.Log("Tectonics", $"超大陆裂解: 占比{frac:P0} → {splitK}块（板块数→{Plates.Count}）");
             return true;
         }
 
@@ -228,7 +229,7 @@ namespace World.Tectonics
                 if (len > maxAng) maxAng = len;
             }
             if (nzCount > 0) { avgAng /= nzCount; dirSpread = dirSum.Length() / nzCount; }
-            GD.Print($"[Tectonics] 角速度场: max={maxAng:E2} avg={avgAng:E2} 非零格={nzCount}/{n} 方向一致性={dirSpread:F2}(1=全同向)");
+            LogService.Log("Tectonics", $"角速度场: max={maxAng:E2} avg={avgAng:E2} 非零格={nzCount}/{n} 方向一致性={dirSpread:F2}(1=全同向)");
 
             // 3. 图像分割
             var plateMap = Tectonophysics.GuessPlateMap(GlobalGrid, angular, numPlates, minSegmentSize);
@@ -281,7 +282,7 @@ namespace World.Tectonics
                 }
                 Plates.Add(new Plate(pid, GlobalGrid, crust, mask));
             }
-            GD.Print($"[Tectonics] 超级大陆循环: 重新分割为 {Plates.Count} 块板（洋壳年龄已重置）");
+            LogService.Log("Tectonics", $"超级大陆循环: 重新分割为 {Plates.Count} 块板（洋壳年龄已重置）");
         }
     }
 }

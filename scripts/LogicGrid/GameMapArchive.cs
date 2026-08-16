@@ -1,6 +1,7 @@
 using Godot;
 using World.Biome;
 using World.HexPlanet;
+using World.Services;
 
 namespace World.LogicGrid;
 
@@ -40,7 +41,7 @@ public static class GameMapArchive
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
         if (f == null)
         {
-            GD.PrintErr($"[GameMapArchive] cannot open {path} for write: {FileAccess.GetOpenError()}");
+            LogService.LogErr("GameMapArchive", $"cannot open {path} for write: {FileAccess.GetOpenError()}");
             return false;
         }
         int n = g.N;
@@ -48,7 +49,7 @@ public static class GameMapArchive
         f.Store16(Version);
         WriteBody(f, g);
         if (log)
-            GD.Print($"[GameMapArchive] wrote v{Version} {path} (gridN={g.GridN} tiles={n} land={LandCount(g)} " +
+            LogService.Log("GameMapArchive", $"wrote v{Version} {path} (gridN={g.GridN} tiles={n} land={LandCount(g)} " +
                      $"elev[{g.MinElev:F0},{g.MaxElev:F0}] province={CountNonZero(g.Province)})");
         return true;
     }
@@ -104,18 +105,18 @@ public static class GameMapArchive
         using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
         if (f == null)
         {
-            GD.PrintErr($"[GameMapArchive] cannot open {path} for read: {FileAccess.GetOpenError()}");
+            LogService.LogErr("GameMapArchive", $"cannot open {path} for read: {FileAccess.GetOpenError()}");
             return false;
         }
         if (f.Get8() != 'G' || f.Get8() != 'M' || f.Get8() != 'P' || f.Get8() != '1')
         {
-            GD.PrintErr($"[GameMapArchive] bad magic in {path}");
+            LogService.LogErr("GameMapArchive", $"bad magic in {path}");
             return false;
         }
         ushort ver = f.Get16();
         if (ver < 1 || ver > Version)
         {
-            GD.PrintErr($"[GameMapArchive] unsupported version {ver} in {path} (need 1..{Version})");
+            LogService.LogErr("GameMapArchive", $"unsupported version {ver} in {path} (need 1..{Version})");
             return false;
         }
         var grid = new GameGrid();
@@ -143,7 +144,7 @@ public static class GameMapArchive
         long expectN = Icosahedron.VertexCountForLong(grid.GridN);
         if (grid.GridN < 8 || grid.GridN > 512 || (long)grid.N != expectN)
         {
-            GD.PrintErr($"[GameMapArchive] 结构校验失败：GridN={grid.GridN} N={grid.N}（期望 10n²+2={expectN}）。" +
+            LogService.LogErr("GameMapArchive", $"结构校验失败：GridN={grid.GridN} N={grid.N}（期望 10n²+2={expectN}）。" +
                         $"存档正文错位或损坏，请重新生成（旧中间态 v4 档同样拒绝）。");
             return false;
         }
@@ -188,7 +189,7 @@ public static class GameMapArchive
         long bodyLen = ArchiveLayout.BodyLength(n, ver);
         if ((long)(f.GetPosition() - startPos) != bodyLen)
         {
-            GD.PrintErr($"[GameMapArchive] 布局长度断言失败：读 {f.GetPosition() - startPos}B ≠ 布局 {bodyLen}B（n={n} ver={ver}）——" +
+            LogService.LogErr("GameMapArchive", $"布局长度断言失败：读 {f.GetPosition() - startPos}B ≠ 布局 {bodyLen}B（n={n} ver={ver}）——" +
                         $"写入器与布局表不同步，请检查 ArchiveLayout 字段表与 WriteBody 一致性");
             return false;
         }

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using World.HexPlanet;
 using World.MapGen;
+using World.Services;
 
 namespace World.Tectonics
 {
@@ -181,7 +182,7 @@ namespace World.Tectonics
                 maxNb = Math.Max(maxNb, nb.Length);
                 sumNb += nb.Length;
             }
-            GD.Print($"[SphereGrid] verts={Vertices.Length} faces={Faces.Count} " +
+            LogService.Log("SphereGrid", $"verts={Vertices.Length} faces={Faces.Count} " +
                      $"neighbors avg={sumNb / (double)Vertices.Length:F1} min={minNb} max={maxNb}");
         }
     }

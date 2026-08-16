@@ -1,4 +1,5 @@
 using Godot;
+using World.Services;
 
 namespace World.Tectonics
 {
@@ -94,7 +95,7 @@ namespace World.Tectonics
         public void InitializeOceanVolume(float averageOceanDepth = 2000f)
         {
             TotalOceanDepth = averageOceanDepth;
-            GD.Print($"[Tectonics] 海洋体积初始化: 平均深度 {TotalOceanDepth:F0} m（水量守恒常量）");
+            LogService.Log("Tectonics", $"海洋体积初始化: 平均深度 {TotalOceanDepth:F0} m（水量守恒常量）");
         }
 
         /// <summary>

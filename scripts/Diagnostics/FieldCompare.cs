@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using World.Biome;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -18,7 +19,7 @@ public static class FieldCompare
     public static bool Eq(string name, float a, float b)
     {
         if (Mathf.Abs(a - b) < 1e-6f) return true;
-        GD.PrintErr($"[FieldCompare] {name} 不一致: {a} vs {b}");
+        LogService.LogErr("FieldCompare", $"{name} 不一致: {a} vs {b}");
         return false;
     }
 
@@ -26,21 +27,21 @@ public static class FieldCompare
     public static bool Eq(string name, int a, int b)
     {
         if (a == b) return true;
-        GD.PrintErr($"[FieldCompare] {name} 不一致: {a} vs {b}");
+        LogService.LogErr("FieldCompare", $"{name} 不一致: {a} vs {b}");
         return false;
     }
 
     public static bool Eq(string name, int a, int b, int c, int d)
     {
         if (a == b && c == d) return true;
-        GD.PrintErr($"[FieldCompare] {name} 不一致: {a}/{b} vs {c}/{d}");
+        LogService.LogErr("FieldCompare", $"{name} 不一致: {a}/{b} vs {c}/{d}");
         return false;
     }
 
     public static bool Eq(string name, bool a, bool b)
     {
         if (a == b) return true;
-        GD.PrintErr($"[FieldCompare] {name} 不一致: {a} vs {b}");
+        LogService.LogErr("FieldCompare", $"{name} 不一致: {a} vs {b}");
         return false;
     }
 
