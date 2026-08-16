@@ -37,6 +37,9 @@
 CI 不下载 Godot 引擎（版本 4.7.1 无官方发布渠道保证），
 `scripts/verify.sh` 继续作为本地 headless 回归大门（GODOT_EXE 指向本地引擎）。
 **后果**：CI 防"编译级/单元级"回归；集成回归靠 verify.sh 手动/定时跑。
+**补充（2026-08-19）**：ci.yml 中已加"自托管 runner 的 headless 回归作业模板"
+（GODOT_EXE_PATH 经 secrets 注入；fast 组入默认 push，全量组用 workflow_dispatch 手动触发），
+有自托管 Windows 机器时取消注释即可启用。
 
 ## 备选方案与否决理由
 

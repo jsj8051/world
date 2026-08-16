@@ -26,3 +26,21 @@ jobs:
   # 说明：headless 回归（构造全流程/存档往返/全量 CivSim）由 scripts/verify.sh 承担，
   # 需要 Godot mono 控制台可执行文件，本地跑（GODOT_EXE 环境变量指定）；CI 暂不下载引擎。
   # 若以后需要 CI 冒烟，在此加一步下载官方 Godot mono 二进制并跑 verify.sh。
+  # ── headless 回归作业模板（2026-08-19，ADR-0001）──
+  #   自托管 runner（装有 Godot mono 的机器）上启用：
+  #   headless-regression:
+  #     runs-on: [self-hosted, windows]
+  #     steps:
+  #       - uses: actions/checkout@v4
+  #       - uses: actions/setup-dotnet@v4
+  #         with:
+  #           dotnet-version: '8.0.x'
+  #       - name: Build
+  #         run: dotnet build world.csproj --configuration Debug
+  #       - name: Headless regression (verify.sh fast)
+  #         shell: bash
+  #         env:
+  #           GODOT_EXE: ${{ secrets.GODOT_EXE_PATH }}
+  #         run: bash scripts/verify.sh --fast
+  #   说明：verify.sh 全量（含 CivSimDiag T 全套 ~10min）用 workflow_dispatch 手动触发，
+  #   不入 push 默认路径（时长成本）；GODOT_EXE_PATH 为自托管机上的 Godot mono 控制台路径。
