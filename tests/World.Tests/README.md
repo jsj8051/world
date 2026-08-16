@@ -3,7 +3,7 @@
 NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**单元测试**（单类纯函数/机制契约）与
 **模块测试**（跨类不变量：确定性、守恒、往返、结构性质）。
 
-> 当前规模（2026-08 实测）：**463 用例全部通过**（本地执行器，含全部模块）。
+> 当前规模（2026-08 实测）：**470 用例全部通过**（本地执行器，含全部模块）。
 
 ## 测试范围（重要）
 
@@ -58,6 +58,7 @@ NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**
 | `TectonicsTests.cs` | FieldOps 场运算/形态学/插值/梯度/扩散；MatrixOps 正交/逆/旋转向量；Crust 池访问/质量/厚度/密度/浮力/均衡位移/AddDelta/ModelErosion 等守恒；Plate 映射/重采样/Move；SphereGrid 邻接/最近邻；Tectonophysics 纯函数；TectonicsSimulation ctor/MergePlatesToMaster 守恒/ApplySurfaceProcesses/SyncWorldToPlates 模块测试 |
 | `GridFeatureVerifyTests.cs` | 演示验证：构造 n=2 演示网格（42 胞：北半球陆地/南半球海洋）→ **逐个功能单独验证**（邻接/海陆/距离面积/层1生产力/野生作物/畜牧/土壤/矿藏/河流/洋流/风场/存档布局/往返），每个功能一个独立 `[Test]` |
 | `CivSimMechanics2Tests.cs` | **CivSim 模拟补全**：CivEngine 纯静态（RefreshCellState 三部曲/AccumulateStorage 衰变与容量/RecomputeProduction/DeriveLeadership/SettleDerived 幂等）；单模型隔离 Harvest/Influence/Absorption/Mode/Invention/Spread/Prestige/Culture/Religion/Conflict/War 守卫；模块确定性 `CivEngine.Continue` 续跑 = 从头跑 N+k（T04） |
+| `CivSimWarTests.cs` | **国家战争机制**（阶段5）：会战（极端军力比→胜负与 Rng 无关的确定性）/败方损耗/超时停战/吞并（ConqueredBy 效忠+首领豁免+战利品入池）/朝贡（TributeTo 模式+边境割地 CedeCells）/朝贡转移归零移除/宣战负向门（冷却）。跳过：`BattleChanceOf`/`CanDeclare` internal 纯函数（无 InternalsVisibleTo）与宣战正门概率门控 |
 | `TectonicsScenariosTests.cs` | **Tectonics 深场景 + River 迭代模拟**：真实裂谷（洞 → 新洋壳/mask 扩展/Merge 一致）；UpdateSubducted 深埋变质与多板矿化事件计数（⚠️ 移除分支为死路径，见上缺陷记录）；ApplyAccretion 手工增生分派+复位；TryMergeCollidingPlates 阈值 NoOp；River ComputeIterative 多轮演化确定性/ApplyErosionDepositionV2 输沙上下限/MarkRiversLakes 关卡/ComputeWatersheds 三类归属 |
 | `ClimateSimTests.cs` | **气候模拟链**（注入纯托管 ZeroNoise）：ClimateGenerator 温度/降水/月基准公式（纬度带、海拔 6°C/km、倾角、辐照度、洋流修正）；MonsoonSystem.Compute 完整季风不变量（12 月 Σ=1、tHot≥tCold、季风∈[0,1]、确定性）；ClimateModel.Run 拓扑执行 17 场+8 环；管线端到端（42 顶点全场有限/无 NaN/minmax 序/确定性/物理合理性） |
 
