@@ -42,7 +42,7 @@ public sealed class InventionModel : CivModelBase
             float pressure = ctx.CellF[e.Cell] > 0f ? ctx.CellPop[e.Cell] / ctx.CellF[e.Cell] : 0f;
             bool pressureOk = pressure > CivSimContext.SeedPressure;
             bool soilOk = ctx.Grid.SoilLevel[e.Cell] >= 3;
-            bool grindOk = CapabilityTable.Has(ctx, e, "grinding");
+            bool grindOk = CapabilityTable.Has(ctx, e, CapabilityTable.Grinding);
             if (pressureOk && soilOk && grindOk)
             {
                 byte wild = ctx.WildCrops[e.Cell];

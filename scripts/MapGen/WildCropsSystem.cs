@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using World.Biome;
+using World.CivSim;   // DeterministicRandom（确定性随机工具，2026-08-19）
 using World.LogicGrid;
 
 namespace World.MapGen;
@@ -74,7 +75,7 @@ public static class WildCropsSystem
             if (zone.Count == 0) continue;
 
             // ── 群聚洒落：随机种子点 + BFS 邻域聚簇（斑块形态）──
-            var rng = new Random(seed * 97 + s * 131 + 17);
+            var rng = new DeterministicRandom(seed * 97 + s * 131 + 17);   // 2026-08-19：System.Random→DeterministicRandom
             int seedPoints = Mathf.Max(1, zone.Count / 12);
             int targetPer = Mathf.Max(3, zone.Count / seedPoints * 65 / 100);
             var marked = new bool[n];

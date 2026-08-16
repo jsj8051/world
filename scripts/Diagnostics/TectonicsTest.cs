@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.CivSim;   // DeterministicRandom（诊断导出也用确定性随机，2026-08-19）
 using World.Diagnostics;
 using World.HexPlanet;
 using World.Tectonics;
@@ -144,7 +145,7 @@ namespace World.Tectonics
         {
             const int w = 512, h = 256;
             var img = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
-            var rng = new Random(12345);
+            var rng = new DeterministicRandom(12345);
             // id → 颜色映射（id 可能不连续：ResetPlates 后从 1 开始）
             var colorByPlate = new System.Collections.Generic.Dictionary<int, Color>();
             foreach (var plate in sim.Plates)

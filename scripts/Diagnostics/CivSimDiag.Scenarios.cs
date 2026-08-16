@@ -247,6 +247,18 @@ public partial class CivSimDiag
             $"萨满份额={ShareField.RelFrac(e1.ReligionShare, ReligionStage.Shaman)} 祖先份额全0={noAncestor} 定居农业祖先={ancestorUnlocked}");
     }
 
+    /// <summary>S7：运行时不变量校验（2026-08-19 防隐晦 bug——数组长度/值域/索引/一格一实体/确定性纪律）。
+    /// 演化 20 tick（覆盖分裂/迁徙/冲突路径）后 ValidateInvariants 必须零错误。</summary>
+    private void S7_StateInvariants()
+    {
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx = MakeCtx(g, seed: 42, origins: 3);
+        RunTicks(ctx, 20);
+        var errs = ctx.ValidateInvariants();
+        Check("S7 状态不变量", errs.Count == 0,
+            errs.Count == 0 ? "数组/值域/索引/一格一实体 全部一致" : string.Join("; ", errs));
+    }
+
 
     /// <summary>T24 领地凝聚/断裂：邻格同语言群 → 同领地；语言群分歧 → 领地分裂（确定性，无地图依赖）。
     /// ⚠️ 2026-08-18 阶段2 一格一实体：凝聚边 = 邻格占据部落对（无同格对）——a/b 分置相邻格。</summary>
@@ -311,11 +323,11 @@ public partial class CivSimDiag
         var noCanoe = AddTribe(ctx, 1, 100f, TechTable.StoneCore);
         var withSeed = AddTribe(ctx, 0, 100f, TechTable.Grinding, TechTable.SeedWheat);
         CivEngine.RefreshCellState(ctx);   // 算 CapMask
-        bool canoeOk = CapabilityTable.Has(ctx, withCanoe, "canoe") && !CapabilityTable.Has(ctx, noCanoe, "canoe");
-        bool seedOk = CapabilityTable.Has(ctx, withSeed, "seed") && !CapabilityTable.Has(ctx, noCanoe, "seed");
+        bool canoeOk = CapabilityTable.Has(ctx, withCanoe, CapabilityTable.Canoe) && !CapabilityTable.Has(ctx, noCanoe, CapabilityTable.Canoe);
+        bool seedOk = CapabilityTable.Has(ctx, withSeed, CapabilityTable.Seed) && !CapabilityTable.Has(ctx, noCanoe, CapabilityTable.Seed);
         // 完整性：引用 id 全部注册（不漏不重）——2026-08-17 +pottery/settle（定居+存储缺口）
         var ids = new HashSet<string>(CapabilityTable.AllIds());
-        bool complete = ids.SetEquals(new HashSet<string> { "canoe", "microlith", "grinding", "fire", "clothing", "seed", "storage", "livestock", "pottery", "settle" });
+        bool complete = ids.SetEquals(new HashSet<string> { CapabilityTable.Canoe, CapabilityTable.Microlith, CapabilityTable.Grinding, CapabilityTable.Fire, CapabilityTable.Clothing, CapabilityTable.Seed, CapabilityTable.Storage, CapabilityTable.Livestock, CapabilityTable.Pottery, CapabilityTable.Settle });
         Check("T26 能力开关", canoeOk && seedOk && complete,
             $"canoe开关={canoeOk} seed开关={seedOk} 能力集={string.Join(",", ids)}");
     }
@@ -1187,7 +1199,7 @@ public partial class CivSimDiag
         var gB = AddTribe(ctx, 5, 100f, TechTable.StoneCore);
         gB.IsFarming = true;                                                       // 定居（r×1.5）
         CivEngine.RefreshCellState(ctx);   // CapMask（settle/pottery/storage）
-        bool settleOk = CapabilityTable.Has(ctx, farm, "settle") && !CapabilityTable.Has(ctx, hunter, "settle");
+        bool settleOk = CapabilityTable.Has(ctx, farm, CapabilityTable.Settle) && !CapabilityTable.Has(ctx, hunter, CapabilityTable.Settle);
         // ② 存储分层（2026-08-18 阶段3 新语义；2026-08-19 双池改造——粮仓测 techMult）：预置同量谷物
         //    入粮仓，AccumulateStorage 一 tick——陶器 techMult×0.3（衰变更慢）→ 粮仓剩余更多
         int gi = CommodityTable.Index(CommodityTable.Grain);

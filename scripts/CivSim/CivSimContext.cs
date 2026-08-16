@@ -367,7 +367,7 @@ public sealed class CivSimContext
     /// 决策用——草原畜牧抬高狩猎收益 → 抑制转农（史实：草原游牧不种地）。</summary>
     public float FHerdTerritory(Tribe e)
     {
-        if (!CapabilityTable.Has(this, e, "livestock")) return 0f;
+        if (!CapabilityTable.Has(this, e, CapabilityTable.Livestock)) return 0f;
         var wild = Grid.EnsureWildLivestock();
         var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
@@ -409,10 +409,10 @@ public sealed class CivSimContext
     public float ColdFloor(Tribe e)
     {
         if (!IsColdZone((BiomeType)Grid.Biome[e.Cell])) return 0f;
-        if (!CapabilityTable.Has(this, e, "fire")) return 0f;
+        if (!CapabilityTable.Has(this, e, CapabilityTable.Fire)) return 0f;
         float area = Grid.CellAreaKm2;
         float floor = 0.05f * area * 3f;
-        if (CapabilityTable.Has(this, e, "clothing")) floor *= 3f;
+        if (CapabilityTable.Has(this, e, CapabilityTable.Clothing)) floor *= 3f;
         return floor;
     }
 
@@ -430,7 +430,7 @@ public sealed class CivSimContext
         float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
         float A = Grid.CellAreaKm2 / NTribes(e.Cell);
         float pHunt = R[e.Cell] * A * m;
-        float pHerd = CapabilityTable.Has(this, e, "livestock") ? R[e.Cell] * HerdMult * A * m : 0f;
+        float pHerd = CapabilityTable.Has(this, e, CapabilityTable.Livestock) ? R[e.Cell] * HerdMult * A * m : 0f;
         float pFarm = e.IsFarming ? FFarmPotential(e) : 0f;
         float sw = pHunt + pHerd + pFarm;
         float floor = ColdFloor(e);
@@ -487,6 +487,37 @@ public sealed class CivSimContext
         for (int i = 0; i < Tribes.Count; i++)
             if (!Tribes[i].Dead) s += Tribes[i].P;
         return s;
+    }
+
+    /// <summary>运行时不变量校验（2026-08-19 防隐晦 bug：把"读档分叉才发现"提前到"运行即报"）。
+    /// 数组长度一致性、值域、归属索引、一格一实体、确定性纪律；返回错误列表（空 = 通过）。
+    /// 供诊断/测试路径调用（O(n)，非演化热路径）。</summary>
+    public List<string> ValidateInvariants()
+    {
+        var errs = new List<string>();
+        int n = Grid?.N ?? -1;
+        if (n < 0) { errs.Add("Grid 未初始化"); return errs; }
+        void CheckLen(string name, Array a)
+        {
+            if (a != null && a.Length != n) errs.Add($"{name}.Length={a.Length} != N={n}");
+        }
+        CheckLen("R", R); CheckLen("CellF", CellF); CheckLen("CellPop", CellPop); CheckLen("CellFarmPop", CellFarmPop);
+        CheckLen("Cultivation", Cultivation); CheckLen("CellOwner", CellOwner); CheckLen("CellBestOwner", CellBestOwner);
+        CheckLen("CellBestInf", CellBestInf); CheckLen("CellOwnerInf", CellOwnerInf); CheckLen("LockedUntil", LockedUntil);
+        CheckLen("BfsStamp", BfsStamp);
+        if (R != null) for (int i = 0; i < n; i++) if (R[i] < 0f) { errs.Add($"R[{i}]<0"); break; }
+        if (Cultivation != null) for (int i = 0; i < n; i++) if (Cultivation[i] < 0f || Cultivation[i] > 1f) { errs.Add($"Cultivation[{i}]={Cultivation[i]} 超出[0,1]"); break; }
+        if (CellOwner != null) for (int i = 0; i < n; i++) if (CellOwner[i] < -1 || CellOwner[i] >= NextTribeId) { errs.Add($"CellOwner[{i}]={CellOwner[i]} 越界(NextTribeId={NextTribeId})"); break; }
+        // 一格一实体：CellTribes 与 Tribe.Cell 双向一致（存活实体）
+        if (CellTribes != null) for (int i = 0; i < n; i++) { var e = CellTribes[i]; if (e != null && (e.Cell != i || e.Dead)) errs.Add($"CellTribes[{i}] 与实体不一致(e.Cell={e.Cell},Dead={e.Dead})"); }
+        if (Tribes != null) foreach (var e in Tribes)
+        {
+            if (e.Dead) continue;
+            if (e.Cell < 0 || e.Cell >= n) { errs.Add($"实体{e.Id} Cell={e.Cell} 越界"); continue; }
+            if (CellTribes != null && CellTribes[e.Cell] != e) errs.Add($"实体{e.Id} 不在 CellTribes[{e.Cell}]");
+        }
+        if (Rng != null && Rng is not DeterministicRandom) errs.Add("Rng 非 DeterministicRandom（确定性纪律被破坏）");
+        return errs;
     }
 
     // ══════════════════════════════════════════════════════════════════
@@ -722,7 +753,7 @@ public sealed class CivSimContext
         var dists = TerritoryDistsOf(e);
         float A = Grid.CellAreaKm2;
         bool isFarm = e.IsFarming;
-        bool canHerd = CapabilityTable.Has(this, e, "livestock");
+        bool canHerd = CapabilityTable.Has(this, e, CapabilityTable.Livestock);
         byte[] wild = canHerd ? Grid.EnsureWildLivestock() : null;
         // 第一遍：Σ 采集/牧场/农田潜在 + 浆果潜在（分配只需总量，逐格 n 按潜在比例）
         float sumPc = 0f, sumPh = 0f, sumPf = 0f, sumBerry = 0f;

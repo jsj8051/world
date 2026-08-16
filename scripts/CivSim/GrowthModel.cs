@@ -78,7 +78,7 @@ public sealed class GrowthModel : CivModelBase
             if (f <= 0f) continue;
             // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
             float rEff = r;
-            if (CapabilityTable.Has(ctx, e, "settle")) rEff *= CivSimContext.SettleGrowthMult;   // 1.5
+            if (CapabilityTable.Has(ctx, e, CapabilityTable.Settle)) rEff *= CivSimContext.SettleGrowthMult;   // 1.5
             // ⚠️ 2026-08-19 聚落城市化集聚：占据高等级聚落 → 增长加成（城镇 ×1.25、城市 ×1.5——集聚收益）
             if (st != null && st.Level > 0)
                 rEff *= 1f + CivSimContext.SettlementGrowthPerLevel * st.Level;

@@ -136,6 +136,7 @@ public partial class CivSimDiag : DiagSceneBase
         if (Want("S4")) S4_FissionInherit();
         if (Want("S5")) S5_SpreadDependency();
         if (Want("S6")) S6_ReligionLock();
+        if (Want("S7")) S7_StateInvariants();   // 运行时不变量（2026-08-19）
 
         // 无地图依赖的 T 测试（构造场景风格，S 段注册）
         if (Want("T24")) T24_TerritoryCohesion();

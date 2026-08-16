@@ -196,10 +196,10 @@ public static class CivEngine
             if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
             var s = ctx.SettlementOf(e);   // 粮仓（定居部落）；null = 游群
             if (s != null && (s.Stocks == null || s.Stocks.Length != CommodityTable.Count)) s.Stocks = CommodityTable.NewStocks();
-            bool hasStorage = CapabilityTable.Has(ctx, e, "storage");
-            bool hasPottery = CapabilityTable.Has(ctx, e, "pottery");
-            bool hasSettle = CapabilityTable.Has(ctx, e, "settle");
-            bool hasGrind = CapabilityTable.Has(ctx, e, "grinding");
+            bool hasStorage = CapabilityTable.Has(ctx, e, CapabilityTable.Storage);
+            bool hasPottery = CapabilityTable.Has(ctx, e, CapabilityTable.Pottery);
+            bool hasSettle = CapabilityTable.Has(ctx, e, CapabilityTable.Settle);
+            bool hasGrind = CapabilityTable.Has(ctx, e, CapabilityTable.Grinding);
             float techMult = !hasStorage ? 1f : (!hasPottery ? 0.6f : (!hasSettle ? 0.3f : 0.15f));
             if (hasGrind) techMult *= 0.7f;   // 加工态（磨盘去壳/鞣制）提升耐久
             // ── 衰变（随身基础年率 / 粮仓 ×techMult）──

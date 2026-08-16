@@ -24,7 +24,7 @@ public sealed class ModeModel : CivModelBase
         {
             var e = ctx.Tribes[i];
             if (e.Dead) continue;
-            bool hasSeed = CapabilityTable.Has(ctx, e, "seed");
+            bool hasSeed = CapabilityTable.Has(ctx, e, CapabilityTable.Seed);
             if (!hasSeed) { e.IsFarming = false; continue; }
             // ⚠️ 2026-08-17 决策领地化：yH/yF 用 Σ 领地格潜在（与产出层同口径）——
             //   旧版单格判定导致"领地有良田但驻扎格差 → 永不转农"（科技地图"好几块地只有一处新石器"的根因）；

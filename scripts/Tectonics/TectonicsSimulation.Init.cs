@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.CivSim;   // DeterministicRandom（确定性随机工具——跨 .NET 运行时序列稳定，2026-08-19）
 using World.MapGen;
 
 namespace World.Tectonics
@@ -64,7 +65,7 @@ namespace World.Tectonics
             Array.Sort(sortedIds, (a, b) => ranks[a].CompareTo(ranks[b]));
 
             // 2. 按 hypsography 采样真实海拔（正态分布：海洋 -4019±1113，大陆 +797±1169）
-            var rng = new Random(seed + 999);   // 独立于噪声排名，仅 hypsography 采样用
+            var rng = new DeterministicRandom(seed + 999);   // 独立于噪声排名，仅 hypsography 采样用（2026-08-19：System.Random→DeterministicRandom，防 .NET 跨版本序列漂移）
             var elevations = new float[n];
             for (int i = 0; i < n; i++)
             {
@@ -182,7 +183,7 @@ namespace World.Tectonics
         /// </summary>
         public void SplitIntoPlates(int numPlates, int seed)
         {
-            var rng = new Random(seed);
+            var rng = new DeterministicRandom(seed);   // 2026-08-19：System.Random→DeterministicRandom（跨运行时稳定）
             int n = GlobalGrid.VertexCount;
             Plates.Clear();
 

@@ -26,14 +26,14 @@ public sealed class ReligionModel : CivModelBase
             var e = ctx.Tribes[i];
             if (e.Dead) continue;
             // 泛灵 → 萨满：盈余 s>0 + 细石器
-            if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, "microlith"))
+            if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, CapabilityTable.Microlith))
             {
                 int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionUpgradeRate);
                 ShareField.RelTransfer(e.ReligionShare, ReligionStage.Animism, ReligionStage.Shaman, amt);
             }
             // 萨满 → 祖先：定居（=农业派生能力，2026-08-17 落地"定居+存储"缺口——
             //   谷物农业守田定居 → 祖先崇拜；旧石器无农 → settle 能力天然锁死）
-            if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, "settle"))
+            if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, CapabilityTable.Settle))
             {
                 int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionUpgradeRate);
                 ShareField.RelTransfer(e.ReligionShare, ReligionStage.Shaman, ReligionStage.Ancestor, amt);
