@@ -25,4 +25,4 @@ if ! dotnet run --project tests/World.Tests.Local/World.Tests.Local.csproj --no-
     echo "❌ 单元测试失败——提交已阻止（先修复测试）"
     exit 1
 fi
-echo "✓ 单元测试通过（48 用例）"
+echo "✓ 单元测试通过（463 用例）"
