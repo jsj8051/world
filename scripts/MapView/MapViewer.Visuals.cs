@@ -1,16 +1,16 @@
-﻿// Slice: MapViewer.Visuals.cs - verbatim member extraction from MapViewer.cs (pure refactor, 2026-08-19).
+// Slice: MapViewer.Visuals.cs - verbatim member extraction from MapViewer.cs (pure refactor, 2026-08-19).
 using Godot;
 using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using World.Biome;
-using World.MapGen;
+using World.Camera;
 using World.HexPlanet;
+using World.MapGen;
 using World.PlanetLOD;
 using World.Surface;
 using World.UI;
-using World.Camera;
 
 namespace World.MapView;
 

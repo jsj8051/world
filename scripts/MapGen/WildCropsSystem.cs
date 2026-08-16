@@ -42,10 +42,10 @@ public static class WildCropsSystem
                 mt[m] = FieldCodec.ByteToTemp(g.MonthTemp[m][i]);
                 mp[m] = FieldCodec.ByteToRatio(g.MonthPrecip[m][i]);
             }
-            suit[i, Wheat]  = WheatSuit(g, i, mt, mp);
+            suit[i, Wheat] = WheatSuit(g, i, mt, mp);
             suit[i, Millet] = MilletSuit(g, i, mt, mp);
-            suit[i, Rice]   = RiceSuit(g, i, mt, mp);
-            suit[i, Corn]   = CornSuit(g, i, mt, mp);
+            suit[i, Rice] = RiceSuit(g, i, mt, mp);
+            suit[i, Corn] = CornSuit(g, i, mt, mp);
             suit[i, Potato] = PotatoSuit(g, i, mt, mp);
         }
         return suit;
@@ -136,11 +136,11 @@ public static class WildCropsSystem
         }
         return seedIdx switch
         {
-            Wheat  => WheatSuit(g, cell, mt, mp),
+            Wheat => WheatSuit(g, cell, mt, mp),
             Millet => MilletSuit(g, cell, mt, mp),
-            Rice   => RiceSuit(g, cell, mt, mp),
-            Corn   => CornSuit(g, cell, mt, mp),
-            _      => PotatoSuit(g, cell, mt, mp),
+            Rice => RiceSuit(g, cell, mt, mp),
+            Corn => CornSuit(g, cell, mt, mp),
+            _ => PotatoSuit(g, cell, mt, mp),
         };
     }
 

@@ -39,8 +39,8 @@ public static class CivMapArchive
 {
     public const string Magic = "CMP1";
     public const ushort Version = 13;   // v13（2026-08-19 阶段3 聚落设计）：部落 +2 字段（SettledSince/PlaceId）
-                                       //   + 新段 Settlements[]（聚落实体：场所比人长寿——粮仓归聚落）。
-                                       //   v12 旧档可读可进（无聚落——仅新演化生成，用户拍板）。v9 及更旧拒绝。
+                                        //   + 新段 Settlements[]（聚落实体：场所比人长寿——粮仓归聚落）。
+                                        //   v12 旧档可读可进（无聚落——仅新演化生成，用户拍板）。v9 及更旧拒绝。
     private const int KeyMaxLen = 16;
 
     /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。

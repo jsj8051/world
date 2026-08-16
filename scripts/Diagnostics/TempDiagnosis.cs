@@ -1,6 +1,6 @@
 using Godot;
-using World.MapGen;
 using World.Biome;
+using World.MapGen;
 
 namespace World.Diagnostics;
 

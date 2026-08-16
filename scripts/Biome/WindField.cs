@@ -68,7 +68,7 @@ public static class WindField
         {
             case Belt.Hadley: towardPole = -1f; break;   // 向赤道（赤道辐合上升）
             case Belt.Ferrel: towardPole = 1f; break;    // 向极地（极锋辐合）
-            default:          towardPole = -1f; break;   // 极地：向赤道（极地下沉外流）
+            default: towardPole = -1f; break;   // 极地：向赤道（极地下沉外流）
         }
         float mer = north ? towardPole : -towardPole;    // 北/南半球镜像
 

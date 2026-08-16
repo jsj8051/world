@@ -1,7 +1,7 @@
 using Godot;
-using World.HexPlanet;
 using System;
 using World.Diagnostics;
+using World.HexPlanet;
 using World.Tectonics;
 
 namespace World.Tectonics

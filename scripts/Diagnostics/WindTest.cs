@@ -1,6 +1,6 @@
 using Godot;
-using World.Biome;
 using System;
+using World.Biome;
 using World.MapGen;
 using World.Tectonics;
 

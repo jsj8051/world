@@ -1,6 +1,6 @@
+using Godot;
 using System;
 using System.Collections.Generic;
-using Godot;
 
 namespace World.CivSim;
 
@@ -25,8 +25,8 @@ public sealed class TechDef
     public float AgriBase;       // agri:value → 种子基线倍数 ×Y_猎0（母科技=1）
     public float CarryMult;      // carry:value → 狩猎产量乘数链
     public float MilitMult;      // milit:value → 军事实力乘数链（2026-08-10 冲突机制：武器科技只进军事，与影响力解耦——"人口少但武器精良"的 band = 影响力弱但军事强）
-    public bool UnlockCold;      public float ColdMult;    // 火：寒冷区 K 下限 ×3
-    public bool UnlockCold2;     public float ColdMult2;   // 皮毛：再 ×3
+    public bool UnlockCold; public float ColdMult;    // 火：寒冷区 K 下限 ×3
+    public bool UnlockCold2; public float ColdMult2;   // 皮毛：再 ×3
     public bool UnlockSea;       // 独木舟：跨海
     public bool IsAgricultureConcept;   // agriculture 母科技·概念位（派生置位）
 }

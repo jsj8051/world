@@ -72,7 +72,7 @@ public partial class CivSimDiag : DiagSceneBase
         GD.Print($"[CivSimDiag] 地图 biome 化石值(4-11)存在={hasFossil}（旧档放弃策略：含化石 → 存档/演化拒绝）");
         RunMapTests(seed, origins, outPath);
 
-        GD.Print($"[CivSimDiag] 汇总：{_pass} PASS / {_fail} FAIL → {( _fail == 0 ? "全部PASS" : "有失败!")}");
+        GD.Print($"[CivSimDiag] 汇总：{_pass} PASS / {_fail} FAIL → {(_fail == 0 ? "全部PASS" : "有失败!")}");
         GetTree().Quit(_fail == 0 ? 0 : 1);
     }
 

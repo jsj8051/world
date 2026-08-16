@@ -1,7 +1,7 @@
-﻿// Responsibility: Territory cohesion (Order 45) - extracted from CivModels.cs verbatim (pure refactor).
+// Responsibility: Territory cohesion (Order 45) - extracted from CivModels.cs verbatim (pure refactor).
+using Godot;
 using System;
 using System.Collections.Generic;
-using Godot;
 using World.Biome;
 using World.LogicGrid;
 

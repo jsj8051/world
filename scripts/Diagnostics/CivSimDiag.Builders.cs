@@ -1,4 +1,4 @@
-﻿// Slice: CivSimDiag.Builders.cs - verbatim member extraction from CivSimDiag.cs (pure refactor, 2026-08-19).
+// Slice: CivSimDiag.Builders.cs - verbatim member extraction from CivSimDiag.cs (pure refactor, 2026-08-19).
 using Godot;
 using System;
 using System.Collections.Generic;

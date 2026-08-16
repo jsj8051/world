@@ -1,4 +1,4 @@
-﻿// Slice: CivSimDiag.MapTests.cs - verbatim member extraction from CivSimDiag.cs (pure refactor, 2026-08-19).
+// Slice: CivSimDiag.MapTests.cs - verbatim member extraction from CivSimDiag.cs (pure refactor, 2026-08-19).
 using Godot;
 using System;
 using System.Collections.Generic;

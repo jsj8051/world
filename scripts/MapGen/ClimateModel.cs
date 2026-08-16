@@ -1,6 +1,6 @@
+using Godot;
 using System;
 using System.Text;
-using Godot;
 
 namespace World.MapGen;
 

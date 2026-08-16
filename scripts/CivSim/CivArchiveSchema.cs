@@ -1,6 +1,6 @@
+using Godot;
 using System;
 using System.Reflection;
-using Godot;
 
 namespace World.CivSim;
 

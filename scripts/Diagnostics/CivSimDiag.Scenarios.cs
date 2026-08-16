@@ -411,7 +411,7 @@ public partial class CivSimDiag
         int li = CommodityTable.Index(CommodityTable.Leather);
         int wi = CommodityTable.Index(CommodityTable.Wool);
         a.Stocks[li] = 100f; a.Stocks[wi] = 10f;   // A 人均 1.0 皮革 / 0.1 羊毛
-        b.Stocks[li] = 10f;  b.Stocks[wi] = 100f;  // B 人均 0.1 皮革 / 1.0 羊毛
+        b.Stocks[li] = 10f; b.Stocks[wi] = 100f;  // B 人均 0.1 皮革 / 1.0 羊毛
         var trade = new TradeModel();
         trade.Execute(ctx);
         float expected = 0.9f * CivSimContext.TradeRate * 100f * (1f / 1.5f);   // 6.0
@@ -551,9 +551,9 @@ public partial class CivSimDiag
         a.IsChief = true; a.Prestige = 5f; a.TerritoryId = 1; a.TerritorySize = 1;
         var b = AddTribe(ctx, 10, 100f, TechTable.StoneCore);
         b.IsChief = true; b.Prestige = 3f; b.TerritoryId = 2; b.TerritorySize = 1;
-        var x = AddTribe(ctx, 5, 100f, TechTable.StoneCore);   x.TerritoryId = 3; x.TerritorySize = 1;
-        var y = AddTribe(ctx, 16, 100f, TechTable.StoneCore);  y.TerritoryId = 4; y.TerritorySize = 1;
-        var z = AddTribe(ctx, 25, 100f, TechTable.StoneCore);  z.TerritoryId = 5; z.TerritorySize = 1;
+        var x = AddTribe(ctx, 5, 100f, TechTable.StoneCore); x.TerritoryId = 3; x.TerritorySize = 1;
+        var y = AddTribe(ctx, 16, 100f, TechTable.StoneCore); y.TerritoryId = 4; y.TerritorySize = 1;
+        var z = AddTribe(ctx, 25, 100f, TechTable.StoneCore); z.TerritoryId = 5; z.TerritorySize = 1;
         foreach (var e in ctx.Tribes) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
         ctx.ChiefdomLastEval = -100;
         new ChiefdomModel().Execute(ctx);
@@ -581,7 +581,7 @@ public partial class CivSimDiag
         int li = CommodityTable.Index(CommodityTable.Leather);
         int wi = CommodityTable.Index(CommodityTable.Wool);
         a.Stocks[li] = 100f; a.Stocks[wi] = 10f;
-        b.Stocks[li] = 10f;  b.Stocks[wi] = 100f;
+        b.Stocks[li] = 10f; b.Stocks[wi] = 100f;
         var trade = new TradeModel();
         trade.Execute(ctx);
         float expected = 0.9f * CivSimContext.TradeRate * 100f * (1f / 1.5f);   // 6.0

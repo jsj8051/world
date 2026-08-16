@@ -1,7 +1,7 @@
-﻿// Responsibility: Border conflict (Order 75) - extracted from CivModels.cs verbatim (pure refactor).
+// Responsibility: Border conflict (Order 75) - extracted from CivModels.cs verbatim (pure refactor).
+using Godot;
 using System;
 using System.Collections.Generic;
-using Godot;
 using World.Biome;
 using World.LogicGrid;
 

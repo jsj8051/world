@@ -4,13 +4,13 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using World.Biome;
-using World.MapGen;
+using World.Camera;
 using World.HexPlanet;
+using World.MapGen;
 using World.PlanetLOD;
 using World.Services;
 using World.Surface;
 using World.UI;
-using World.Camera;
 
 namespace World.MapView;
 
@@ -656,7 +656,7 @@ public partial class MapViewer : Node3D
                 if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地（与模拟一致）
                 _tilePop[ce.Cell] += ce.P;   // 驻扎格实有人口（营地）——只有人的格显示人
             }
-            }   // end if(hasCiv)
+        }   // end if(hasCiv)
         // 人口图层自适应归一化（相对本图分布——分位数模型，用户拍板风格）：
         // log(p+1) 压缩重尾 + 有人陆地格 P1/P99 分位为色带端点 → 单格超大城市不拉爆、
         // 最小聚落也有可见色（旧版 log(全局max) 归一：全球最大值单点把其余全压成近黑色）

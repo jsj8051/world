@@ -1,6 +1,6 @@
+using Godot;
 using System;
 using System.Collections.Generic;
-using Godot;
 using World.Biome;
 using World.LogicGrid;
 
@@ -128,19 +128,19 @@ public sealed class CivSimContext
     public const int ChiefReach = 12;   // 至尊酋长个人再分配半径（格步；酋长只能庇护半径内成员——史实：再分配有物理半径，
                                         //   Earle ahupua'a；语言网络照常大，政治体只能长到个人声望够得着的大小；
                                         //   史实对照：酋邦数万人口量级；★ 待校准）
-    // ── 国家涌现参数（2026-08-16 阶段4，docs/阶段4设计-国家涌现.md；用户拍板 1A2A3A4A）──
-    //   国家 = 酋邦的制度化：都城（权力中心）+ 决策层级 + 贡赋盈余 + 存续 → 涌现；
-    //   机制差异：税制化（贡赋率×2）、官僚供养↑（精英比例）、继承制度化（王朝豁免危机）、
-    //   内部秩序（Weber 强制力垄断——同邦冲突概率减半）。全部条件用已入档字段 → 纯派生不存档。
+                                        // ── 国家涌现参数（2026-08-16 阶段4，docs/阶段4设计-国家涌现.md；用户拍板 1A2A3A4A）──
+                                        //   国家 = 酋邦的制度化：都城（权力中心）+ 决策层级 + 贡赋盈余 + 存续 → 涌现；
+                                        //   机制差异：税制化（贡赋率×2）、官僚供养↑（精英比例）、继承制度化（王朝豁免危机）、
+                                        //   内部秩序（Weber 强制力垄断——同邦冲突概率减半）。全部条件用已入档字段 → 纯派生不存档。
     public const float StateTributeRate = 0.2f;        // 国家贡赋率（酋邦 TributeRate=0.1 翻倍——税制化，Earle）
     public const float StateEliteFrac = 0.25f;         // 国家官僚/精英比例（酋邦 EliteFrac=0.1——官僚化）
     public const float StateInternalConflictMult = 0.25f; // 国家内部冲突概率倍率（酋邦 0.5——Weber 强制力垄断）
     public const int StateCapitalLevel = 2;            // 都城最低聚落等级（城镇+；都城判定本就放宽一档——首都更易达标，Childe 权力中心）
     public const int StateSubCenterLevel = 1;          // 次级中心最低聚落等级（村庄+；Wright-Johnson 决策层级第 2 级）
     public const float StateTributePerCap = 0.01f;     // 贡赋盈余线：贡赋池 ≥ 酋邦总人口×此值（剩余集中，Childe）
-                                                        //   ★ 校准（0.1→0.01，2026-08-16 探针）：Contributed 是互惠记录且被
-                                                        //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
-                                                        //   0.1 线下全图 0 国家；0.01 线匹配"少数国家涌现"（史实：早期国家稀少）
+                                                       //   ★ 校准（0.1→0.01，2026-08-16 探针）：Contributed 是互惠记录且被
+                                                       //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
+                                                       //   0.1 线下全图 0 国家；0.01 线匹配"少数国家涌现"（史实：早期国家稀少）
     public const int StateDwellTicks = 20;             // 都城实体存续时长（制度化需要时间；对应城市阈值 Dwell 20 tick 量级；★ 待校准）
     // ── 聚落实体参数（2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md §2.3）──
     public const int SettlementLevelTicks1 = 3;    // 新村→村庄 Dwell ticks（★ 待校准）
@@ -257,7 +257,7 @@ public sealed class CivSimContext
             case BiomeType.IceCap:
                 if (!keys.Contains(TechTable.Fire)) return 0f;              // 无火不可穿
                 return keys.Contains(TechTable.Clothing) ? 0.3f : 0.1f;     // 火 0.1 / 火+皮毛 0.3
-            case BiomeType.Alpine:   return 0.2f;    // 山脉难翻越
+            case BiomeType.Alpine: return 0.2f;    // 山脉难翻越
             case BiomeType.HotDesert:
             case BiomeType.ColdDesertKoppen: return 0.3f;   // 沙漠难穿越
             default: return 1f;                      // 平原/草原/森林/湿地畅通
@@ -456,12 +456,14 @@ public sealed class CivSimContext
                 case "coast": if (Grid.IsCoast(cell)) return true; break;
                 case "river": if (b == BiomeType.Riparian) return true; break;
                 case "grass": if (b is BiomeType.HotSteppe or BiomeType.ColdSteppe or BiomeType.TropicalSavanna) return true; break;
-                case "plain": if (b is BiomeType.ContinentalHot or BiomeType.ContinentalWarm or BiomeType.ContinentalDry
+                case "plain":
+                    if (b is BiomeType.ContinentalHot or BiomeType.ContinentalWarm or BiomeType.ContinentalDry
                         or BiomeType.HotSteppe or BiomeType.ColdSteppe) return true; break;
                 case "mediterranean": if (b is BiomeType.MediterraneanHot or BiomeType.MediterraneanCool) return true; break;
                 case "monsoon": if (b is BiomeType.TropicalMonsoon or BiomeType.MonsoonSubtropical) return true; break;
                 case "humidsubtrop": if (b is BiomeType.HumidSubtropical or BiomeType.Oceanic or BiomeType.TropicalRainforest) return true; break;
-                case "coldtemperate": if (b is BiomeType.ContinentalHot or BiomeType.ContinentalWarm or BiomeType.ContinentalDry
+                case "coldtemperate":
+                    if (b is BiomeType.ContinentalHot or BiomeType.ContinentalWarm or BiomeType.ContinentalDry
                         or BiomeType.Subarctic or BiomeType.Alpine) return true; break;
                 case "coldzone": if (IsColdZone(b)) return true; break;
                 case "irrigation": if (b == BiomeType.Riparian || Grid.LakeLevel[cell] > 0) return true; break;

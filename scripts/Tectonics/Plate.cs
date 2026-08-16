@@ -178,9 +178,9 @@ namespace World.Tectonics
             float x = axis.X, y = axis.Y, z = axis.Z;
             float vx = v * x, vy = v * y;
             var m = new float[9];
-            m[0] = vx * x + c;     m[3] = vx * y + s * z;  m[6] = vx * z - s * y;
-            m[1] = vx * y - s * z; m[4] = vy * y + c;      m[7] = vy * z + s * x;
-            m[2] = vx * z + s * y; m[5] = vy * z - s * x;  m[8] = v * z * z + c;
+            m[0] = vx * x + c; m[3] = vx * y + s * z; m[6] = vx * z - s * y;
+            m[1] = vx * y - s * z; m[4] = vy * y + c; m[7] = vy * z + s * x;
+            m[2] = vx * z + s * y; m[5] = vy * z - s * x; m[8] = v * z * z + c;
             return m;
         }
 
