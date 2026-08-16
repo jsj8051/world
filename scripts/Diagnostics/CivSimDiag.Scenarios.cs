@@ -1,4 +1,4 @@
-﻿// Slice: CivSimDiag.Scenarios.cs - verbatim member extraction from CivSimDiag.cs (pure refactor, 2026-08-19).
+// Slice: CivSimDiag.Scenarios.cs - verbatim member extraction from CivSimDiag.cs (pure refactor, 2026-08-19).
 using Godot;
 using System;
 using System.Collections.Generic;
@@ -693,7 +693,7 @@ public partial class CivSimDiag
         cap.Level = 2; cap.BornTick = 0;                      // 都城：城镇 + 存续 50 ≥ 20
         var sub = AddSettlement(ctx, b);
         sub.Level = 1;                                        // 次级中心：村庄
-        a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;   // 池 150 ≥ 总人口1000×0.1=100
+        a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;   // 池 150 ≥ 阈值 1000×StateTributePerCap(0.01)=10
         StateModel.Rebuild(ctx);
         bool emerged = a.StateId == a.Id && b.StateId == a.Id && c.StateId == a.Id && a.StateSize == 3;
         // 反例①：贡赋不足（池 50 < 100）→ 非国家
@@ -708,7 +708,7 @@ public partial class CivSimDiag
         cap2.Level = 2; cap2.BornTick = 0;
         var sub2 = AddSettlement(ctx2, b2);
         sub2.Level = 1;
-        a2.Contributed = 20f; b2.Contributed = 20f; c2.Contributed = 10f;   // 池 50 < 100
+        a2.Contributed = 2f; b2.Contributed = 2f; c2.Contributed = 1f;   // 池 5 < 阈值 10（2026-08-19 同步 0.1→0.01 校准；旧值 50 已足额）
         StateModel.Rebuild(ctx2);
         bool noTribute = a2.StateId < 0 && b2.StateId < 0;
         // 反例②：无次级中心（B 聚落 L0）→ 非国家
@@ -822,8 +822,8 @@ public partial class CivSimDiag
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;
         StateModel.Rebuild(ctx);
         bool emerged = a.StateId == a.Id;
-        // ① 贡赋断流：饥荒消耗池 → 跌破线（池 50 < 100）→ 退化
-        a.Contributed = 20f; b.Contributed = 20f; c.Contributed = 10f;
+        // ① 贡赋断流：饥荒消耗池 → 跌破线（池 5 < 阈值 1000×0.01=10）→ 退化
+        a.Contributed = 2f; b.Contributed = 2f; c.Contributed = 1f;   // 2026-08-19 同步校准（旧值 20/20/10 仍足额）
         StateModel.Rebuild(ctx);
         bool collapseTribute = a.StateId < 0 && b.StateId < 0 && c.StateId < 0;
         // ② 都城失守：酋长迁徙（PlaceId 清）→ 退化
