@@ -22,7 +22,9 @@ namespace World.Tectonics
         public void UpdateRifting()
         {
             int n = GlobalGrid.VertexCount;
-            const float RiftMafic = 7100f * 2890f;   // mafic_volcanic 质量面密度（kg/m²）
+            // ⚠️ 2026-08-20 行星标度：裂谷新洋壳厚度随 sqrt(R) 缩（小星球洋壳薄 → 洋中脊/洋底
+            //   地形幅度与初始洋壳一致；地球档 RadiusScale=1 不变）。
+            float riftMafic = 7100f * 2890f * RadiusScale;   // mafic_volcanic 质量面密度（kg/m²）
 
             // 全局：is_riftable = (count==0) || (count==1 && top==i)
             // ⚠️ 2026-08-02：并行版已回滚——n=64 实测更慢（82s/段 vs 33s）+ 模拟结果改变
@@ -63,7 +65,7 @@ namespace World.Tectonics
                     // ⚠️ 2026-08-03 矿藏模拟化：裂谷新洋壳 = 洋中脊热液活动（铜硫化物矿化）
                     int gi = plate.GlobalIdsOfLocalCells[i];
                     if (gi >= 0 && gi < n) MineralHydro[gi] += 1f;
-                    plate.Crust.MaficVolcanic[i] = RiftMafic;
+                    plate.Crust.MaficVolcanic[i] = riftMafic;
                     plate.Crust.MaficPlutonic[i] = 0;
                     plate.Crust.Sediment[i] = 0;
                     plate.Crust.Sedimentary[i] = 0;

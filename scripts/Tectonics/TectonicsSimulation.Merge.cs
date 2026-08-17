@@ -79,7 +79,9 @@ namespace World.Tectonics
             // 简化俯冲：每格地壳厚度上限（70km，地球大陆根 ~70km），超出削减。
             // ⚠️ GetThickness 返回米（kg/m² ÷ kg/m³ = m）——上限必须 70000 而非 70，
             //   否则全图地壳被削减到 70m（disp[4,11] 崩盘，2026-08-02 修复）。
-            float maxThickness = 70000f;   // 70km，单位米
+            // ⚠️ 2026-08-20 行星标度：上限随 sqrt(R) 缩（小星球地壳薄，碰撞叠加后相对上限
+            //   比例与地球一致；地球档 RadiusScale=1 不变）。
+            float maxThickness = 70000f * RadiusScale;   // 70km×行星标度，单位米
             var thickness = WorldCrust.GetThickness(Material);
             for (int i = 0; i < n; i++)
             {

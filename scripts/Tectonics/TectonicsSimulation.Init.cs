@@ -29,8 +29,14 @@ namespace World.Tectonics
             Seed = seed;
             // ⚠️ 2026-08-18 行星标度（用户拍板 A：初始地壳按 R——自然涌现非固定缩放）：
             //   hypsography 模板是地球标定（大陆 +797±1169m）——小星球地壳薄/分异弱，
-            //   均衡山高按 sqrt(R/R⊕) 一阶标度（行星冷却/分异尺度律）——R=128km → ×0.142
+            //   均衡山高按 sqrt(R/R⊕) 一阶标度（行星冷却/分异尺度律）——R=128km → ×0.142。
+            // ⚠️ 2026-08-20 标度补全（原只缩陆地采样——厚度映射阈值/厚度值/海洋采样/水量/洋壳
+            //   厚度未缩 → 小星球陆地塌缩成 500~1000m 单峰台地、海洋保持 -3km 深、陆架消失，
+            //   海陆高差集中到 2km 格距 → 全星球陡峭如山地）。现同步缩：采样分布与映射阈值
+            //   一起缩（相对位置不变 → 海洋格仍落洋壳档，不会全陆），厚度值/洋壳/水量缩 →
+            //   均衡位移幅度整体 ∝ sqrt(R)，地形梯度（低地→丘陵→高山）在小星球上恢复。
             float hypsoscale = Mathf.Sqrt(radiusKm / MapArchive.DefaultRadiusKm);
+            RadiusScale = hypsoscale;
 
             // 1. 每格高度排名：球面低频噪声（多路独立求和，块形完整）
             //    对应 JS World 初始化的 height_ranks（噪声驱动，非逐格随机）
@@ -65,16 +71,17 @@ namespace World.Tectonics
             for (int i = 0; i < n; i++) sortedIds[i] = i;
             Array.Sort(sortedIds, (a, b) => ranks[a].CompareTo(ranks[b]));
 
-            // 2. 按 hypsography 采样真实海拔（正态分布：海洋 -4019±1113，大陆 +797±1169）
+            // 2. 按 hypsography 采样真实海拔（正态分布：海洋 -4019±1113，大陆 +797±1169；行星标度同步缩）
             var rng = new DeterministicRandom(seed + 999);   // 独立于噪声排名，仅 hypsography 采样用（2026-08-19：System.Random→DeterministicRandom，防 .NET 跨版本序列漂移）
             var elevations = new float[n];
             for (int i = 0; i < n; i++)
             {
                 bool ocean = rng.NextDouble() < oceanFraction;
-                // ⚠️ 2026-08-18：海洋采样不缩（物质厚度映射阈值 -1500/-950/840 是地球标定——
-                //   海洋采样缩到 -571m 会落入陆壳映射区间 → 全陆）；只缩大陆（薄陆壳→均衡山低）
+                // ⚠️ 2026-08-20：海洋采样随标度缩（原 08-18 版"海洋采样不缩"是因为映射阈值
+                //   未缩——采样缩到 -571m 会落入陆壳区间 → 全陆；现在阈值同步缩，相对位置
+                //   不变 → 海洋格仍映射洋壳，且深海深度/陆架过渡带随 sqrt(R) 正确缩小）。
                 elevations[i] = ocean
-                    ? (float)Normal(rng, -4019, 1113)
+                    ? (float)Normal(rng, -4019 * hypsoscale, 1113 * hypsoscale)
                     : (float)Normal(rng, 797 * hypsoscale, 1169 * hypsoscale);
             }
             Array.Sort(elevations);
@@ -95,22 +102,22 @@ namespace World.Tectonics
             {
                 float d = elevations[i];
                 Vector3 p = GlobalGrid.Vertices[i];   // 单位球坐标（age 噪声用，频率同 N/2π 标定）
-                // 洋壳：mafic_volcanic 在 -1500..-950 之间线性
+                // 洋壳：mafic_volcanic 在 -1500..-950 之间线性（阈值与厚度随行星标度缩）
                 // ⚠️ 2026-08-02 观察：深海全 7100m 恒定 → isostasy 位移 -455~+427m（真实洋底 -2000~-6000m）。
                 //   洋壳厚度需"距中脊越远越厚"梯度，此处先统计确认。
-                float mv = FieldOps.Lerp(new[] { -1500f, -950f }, new[] { 2890f * 7100f, 0f }, d);
+                float mv = FieldOps.Lerp(new[] { -1500f * hypsoscale, -950f * hypsoscale }, new[] { 2890f * 7100f * hypsoscale, 0f }, d);
                 crust.MaficVolcanic[i] = mv;
-                if (d < -950f) { if (mv < maficMin) maficMin = mv; if (mv > maficMax) maficMax = mv; }
-                // 陆壳：felsic 在 -1500..8848 之间线性（85% 深成 + 15% 火山）
+                if (d < -950f * hypsoscale) { if (mv < maficMin) maficMin = mv; if (mv > maficMax) maficMax = mv; }
+                // 陆壳：felsic 在 -1500..8848 之间线性（85% 深成 + 15% 火山；阈值与厚度随行星标度缩）
                 crust.FelsicPlutonic[i] = FieldOps.Lerp(
-                    new[] { -1500f, -950f, 840f, 8848f },
-                    new[] { 0f, 2700f * 0.85f * 28300f, 2700f * 0.85f * 36900f, 2700f * 0.85f * 70000f }, d);
+                    new[] { -1500f * hypsoscale, -950f * hypsoscale, 840f * hypsoscale, 8848f * hypsoscale },
+                    new[] { 0f, 2700f * 0.85f * 28300f * hypsoscale, 2700f * 0.85f * 36900f * hypsoscale, 2700f * 0.85f * 70000f * hypsoscale }, d);
                 crust.FelsicVolcanic[i] = FieldOps.Lerp(
-                    new[] { -1500f, -950f, 840f, 8848f },
-                    new[] { 0f, 2700f * 0.15f * 28300f, 2700f * 0.15f * 36900f, 2700f * 0.15f * 70000f }, d);
-                // 沉积物：深海 -3200..-1500
+                    new[] { -1500f * hypsoscale, -950f * hypsoscale, 840f * hypsoscale, 8848f * hypsoscale },
+                    new[] { 0f, 2700f * 0.15f * 28300f * hypsoscale, 2700f * 0.15f * 36900f * hypsoscale, 2700f * 0.15f * 70000f * hypsoscale }, d);
+                // 沉积物：深海 -3200..-1500（阈值与厚度随行星标度缩）
                 crust.Sediment[i] = FieldOps.Lerp(
-                    new[] { -3200f, -1500f }, new[] { 0f, 2500f * 5f }, d);
+                    new[] { -3200f * hypsoscale, -1500f * hypsoscale }, new[] { 0f, 2500f * 5f * hypsoscale }, d);
                 // 年龄：按海拔（老地壳海拔高）+ 洋壳年龄噪声梯度
                 // ⚠️ 2026-08-02：原版 age 映射海洋 -4000~-2000 全 0（年轻洋壳），
                 //   无裂谷时 300My 后所有洋壳老化到密度上限 3300 → 位移全部相同
@@ -118,9 +125,9 @@ namespace World.Tectonics
                 //   改为：洋壳 age = 0~200My 噪声梯度（真实洋壳年龄不均匀），
                 //   陆壳保持 1000My。这样即使无裂谷，模拟 150My 后洋壳密度仍有梯度。
                 float landAge = FieldOps.Lerp(
-                    new[] { -11000f, -5000f, -4000f, -2000f, -1500f, -900f, 840f },
+                    new[] { -11000f * hypsoscale, -5000f * hypsoscale, -4000f * hypsoscale, -2000f * hypsoscale, -1500f * hypsoscale, -900f * hypsoscale, 840f * hypsoscale },
                     new[] { 250f, 100f, 0f, 0f, 100f, 1000f, 1000f }, d);
-                if (d < 840f)
+                if (d < 840f * hypsoscale)
                 {
                     // 海洋：0~200My 球面噪声梯度（低频）
                     float t = 0.5f * (noise1.GetNoise3D(p.X, p.Y, p.Z) * 0.5f + 0.5f)

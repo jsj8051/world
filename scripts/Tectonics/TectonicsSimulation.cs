@@ -34,6 +34,11 @@ namespace World.Tectonics
         public SphereGrid GlobalGrid;
         public MaterialDensity Material = new MaterialDensity();
         public float SurfaceGravity = 9.8f;      // m/s²
+        /// <summary>行星标度因子 = √(R/R⊕)（2026-08-18 拍板 A：地形幅度按 sqrt(R) 一阶标度）。
+        /// GenerateInitialCrust 赋值；R=6371km → 1（地球档行为逐位不变）。
+        /// 所有"地球标定的绝对米数"常量（采样均值/厚度映射阈值与厚度值/洋壳厚度/海平面水量/
+        /// 地壳厚度上限）统一乘此因子——小星球地壳薄、均衡山低、海洋浅，坡度保持与地球相当。</summary>
+        public float RadiusScale = 1f;
         public float SeaLevel = 0f;
         public List<Plate> Plates = new List<Plate>();
         public Crust WorldCrust;                 // 合并后的全局地壳
@@ -140,7 +145,7 @@ namespace World.Tectonics
         {
             if (_continentalRiftMask == null) InitContinentalRiftMask();   // 大陆裂谷带（2026-08-18）
             ComputeDisplacement();         // 先算初始位移场
-            InitializeOceanVolume(2000f * OceanScale);  // M3-5：水量守恒常量（原版 average_ocean_depth；用户可调水量）
+            InitializeOceanVolume(2000f * OceanScale * RadiusScale);  // M3-5：水量守恒常量（原版 average_ocean_depth；用户可调水量；行星标度：小星球总水量按 sqrt(R) 缩）
             int steps = (int)(megayears / stepMy);
             // 矿化强度初始化（矿藏模拟化：事件累积）
             if (MineralHydro == null || MineralHydro.Length != GlobalGrid.VertexCount)

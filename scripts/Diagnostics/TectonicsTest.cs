@@ -3,6 +3,7 @@ using System;
 using World.CivSim;   // DeterministicRandom（诊断导出也用确定性随机，2026-08-19）
 using World.Diagnostics;
 using World.HexPlanet;
+using World.MapGen;
 using World.Services;
 using World.Tectonics;
 
@@ -19,6 +20,7 @@ namespace World.Tectonics
     ///   --run N / --r N           模拟时长（百万年）
     ///   --step N                  步长（百万年）
     ///   --n N / --grid N          网格细分
+    ///   --radius R                星球半径 km（默认 6371 地球；行星标度 √(R/R⊕)）
     ///   --init                    只看初始地壳（分割不移动）
     ///   --compare                 侵蚀 开/关 各跑一次，对比导出
     /// </summary>
@@ -27,6 +29,7 @@ namespace World.Tectonics
         [Export] public int GridN = 16;        // Icosahedron 细分（verts≈10n²+2）
         [Export] public int NumPlates = 8;
         [Export] public int Seed = 42;
+        [Export] public float RadiusKm = MapArchive.DefaultRadiusKm;   // 星球半径（行星标度验证，2026-08-20）
         [Export] public float RunMy = 30f;     // 模拟总时长（百万年）
         [Export] public float StepMy = 2f;     // 步长（百万年）
         [Export] public bool InitOnly = false; // true=只看初始地壳（不分割/不移动）
@@ -42,6 +45,7 @@ namespace World.Tectonics
             if ((args.TryGetValue("run", out sv) || args.TryGetValue("r", out sv)) && float.TryParse(sv, out float f1)) RunMy = f1;
             if (args.TryGetValue("step", out sv) && float.TryParse(sv, out float f2)) StepMy = f2;
             if ((args.TryGetValue("n", out sv) || args.TryGetValue("grid", out sv)) && int.TryParse(sv, out int s3)) GridN = s3;
+            if (args.TryGetValue("radius", out sv) && float.TryParse(sv, out float rf)) RadiusKm = rf;
             if (args.ContainsKey("init")) InitOnly = true;
             if (args.ContainsKey("compare")) Compare = true;
             if (args.TryGetValue("rift", out sv))
@@ -50,7 +54,7 @@ namespace World.Tectonics
                 else Rift = true;
             }
 
-            LogService.Log("TectonicsTest", $"gridN={GridN} plates={NumPlates} seed={Seed} run={RunMy}My step={StepMy}My compare={Compare}");
+            LogService.Log("TectonicsTest", $"gridN={GridN} plates={NumPlates} seed={Seed} radius={RadiusKm}km run={RunMy}My step={StepMy}My compare={Compare}");
 
             if (InitOnly) { RunInitOnly(); return; }
             if (Compare) { RunCompare(); return; }
@@ -63,7 +67,7 @@ namespace World.Tectonics
         {
             var sim = new TectonicsSimulation(GridN);
             sim.GlobalGrid.PrintDiagnostics();
-            sim.GenerateInitialCrust(Seed);
+            sim.GenerateInitialCrust(Seed, 0.6f, RadiusKm);
             sim.SplitIntoPlates(NumPlates, Seed);
             sim.MergePlatesToMaster();
             sim.ComputeDisplacement();
@@ -100,7 +104,7 @@ namespace World.Tectonics
             sim.EnableRifting = Rift;
             sim.GlobalGrid.PrintDiagnostics();
 
-            sim.GenerateInitialCrust(Seed);
+            sim.GenerateInitialCrust(Seed, 0.6f, RadiusKm);
             LogService.Log("TectonicsTest", $"initial crust ok");
             sim.SplitIntoPlates(NumPlates, Seed);
             LogService.Log("TectonicsTest", $"plates={sim.Plates.Count}, sizes={string.Join(",", sim.Plates.ConvertAll(p => p.TileCount))}");
