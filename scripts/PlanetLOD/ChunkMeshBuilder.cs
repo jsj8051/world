@@ -166,6 +166,61 @@ namespace World.PlanetLOD
             return colors;
         }
 
+        /// <summary>
+        /// 带势力边界 A 通道的颜色构建（纯数据，后台线程安全）。
+        /// 对每条边检查邻居势力值，若不同则该边对应的两个角点 A=0（中心点 A=1）。
+        /// Shader 中根据 COLOR.a 做边缘暗化 → 势力边界处显示黑线，非边界处无暗化。
+        /// </summary>
+        public static Color[] BuildColorsWithPowerBorders(
+            List<HexTile> tiles,
+            Func<HexTile, Color> colorFn,
+            GeometryData g,
+            int[] tilePower,
+            Action<float> progress = null)
+        {
+            var colors = new Color[g.TotalVerts];
+            int done = 0;
+            Parallel.For(0, tiles.Count, i =>
+            {
+                var tile = tiles[i];
+                int n = tile.Corners.Length;
+                if (n >= 3)
+                {
+                    Color c = colorFn(tile);
+                    int off = g.VertOffsets[i];
+                    // 中心点始终 A=1
+                    colors[off] = new Color(c.R, c.G, c.B, 1.0f);
+
+                    int myPower = (tilePower != null && i < tilePower.Length) ? tilePower[i] : 0;
+                    // 检查每条边是否是势力边界：仅当双方都有势力且不同时才标记
+                    bool[] edgeIsBorder = new bool[n];
+                    for (int k = 0; k < n; k++)
+                    {
+                        int nb = (tile.Neighbors != null && k < tile.Neighbors.Length) ? tile.Neighbors[k] : -1;
+                        if (nb < 0 || nb >= tiles.Count) continue;
+                        int nbPower = (tilePower != null && nb < tilePower.Length) ? tilePower[nb] : 0;
+                        // ⚠️ 2026-08-20：仅双方都有势力(id!=0)且不同才算势力边界
+                        edgeIsBorder[k] = (myPower != 0 && nbPower != 0 && myPower != nbPower);
+                    }
+
+                    // 角点 k 属于边 k 和边 (k+1)%n（而非 k-1）
+                    // 因为边 k = Corners[k]→Corners[k+1]，角点 k 是边 k 的起点、边 k-1 的终点
+                    // 但实际测试发现 Goldberg dual 中 Neighbors[k] 对应的是边 (k-1+n)%n
+                    // 所以角点 k 应检查 edgeIsBorder[k] 和 edgeIsBorder[(k+1)%n]
+                    for (int k = 0; k < n; k++)
+                    {
+                        bool isBorder = edgeIsBorder[k] || edgeIsBorder[(k + 1) % n];
+                        colors[off + 1 + k] = new Color(c.R, c.G, c.B, isBorder ? 0.0f : 1.0f);
+                    }
+                }
+
+                if (progress != null && Interlocked.Increment(ref done) % 64 == 0)
+                    progress(done / (float)tiles.Count);
+            });
+            progress?.Invoke(1f);
+            return colors;
+        }
+
         /// <summary>Wraps pre-built data into an ArrayMesh. Main thread only.</summary>
         public static ArrayMesh CreateMesh(MeshData d)
         {

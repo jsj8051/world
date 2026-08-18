@@ -7,9 +7,11 @@ render_mode cull_disabled;
 // of looking like cracks between tiles.
 void fragment()
 {
-	float edge = smoothstep(0.88, 0.98, COLOR.a);
-	ALBEDO = mix(COLOR.rgb * 0.55, COLOR.rgb, edge);
-	// 哑光：SPECULAR 默认 0.5 会让每个色块浮出镜面高光（塑料感），置零关闭。
+	// ⚠️ 2026-08-20：势力边界线宽 ~2% 格子半径；
+	//   COLOR.a=0 表示该角点紧邻势力边界，A=1 表示非边界或中心。
+	//   smoothstep 下限 0.98 → 只有距边界 <2% 半径的区域才暗化。
+	float edge = smoothstep(0.98, 0.995, COLOR.a);
+	ALBEDO = mix(COLOR.rgb * 0.4, COLOR.rgb, edge);
 	SPECULAR = 0.0;
 	ROUGHNESS = 0.95;
 }
