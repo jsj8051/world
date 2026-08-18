@@ -12,6 +12,7 @@ using World.PlanetLOD;
 using World.Services;
 using World.Surface;
 using World.UI;
+using static World.MapView.MapLayerColors;
 
 namespace World.MapView;
 
@@ -89,7 +90,7 @@ public partial class MapViewer
             };
             btn.Pressed += () =>
             {
-                _category = (LayerCat)cat;
+                _category = (LayerCategory)cat;
                 ShowCategoryButtons();   // 只切显示，不改 _layer（用户拍板）
                 LogService.Log("MapViewer", $"category={CatNames[cat]} layer仍={LayerName(_layer)}");
             };
@@ -104,18 +105,18 @@ public partial class MapViewer
         var group = new ButtonGroup();
         var hbox = new HBoxContainer();
         hbox.SetAnchorsPreset(Control.LayoutPreset.CenterBottom); // 锚点底部居中
-        hbox.Position = new Vector2(-21f * LayerNames.Length, -84); // 占位，SyncLayerButtons 重算
+        hbox.Position = new Vector2(-21f * LayerRegistry.All.Count, -84); // 占位，SyncLayerButtons 重算
         _uiLayer.AddChild(hbox);
         _layerRow = hbox;
 
-        _layerButtons = new Button[LayerNames.Length];
-        for (int i = 0; i < LayerNames.Length; i++)
+        _layerButtons = new Button[LayerRegistry.All.Count];
+        for (int i = 0; i < LayerRegistry.All.Count; i++)
         {
             int idx = i; // 闭包捕获
             var btn = new Button
             {
                 Icon = MakeLayerIcon(i),
-                TooltipText = LayerNames[i],
+                TooltipText = LayerRegistry.All[i].Name,
                 ToggleMode = true,
                 ButtonGroup = group,
                 CustomMinimumSize = new Vector2(42, 38),
@@ -152,10 +153,14 @@ public partial class MapViewer
             if (m == _month) return;
             _month = m;
             _monthLabel.Text = $"{m + 1} 月";
-            // 风场图层：重建箭头；月降水/月温度图层：刷新缓存 + 重算颜色
-            if (Layer == 4) BuildMonsoonArrows();
-            else if (Layer == 10) { RefreshMonthPrecip(); RebuildColors(); }
-            else if (Layer == 11) { RefreshMonthTemp(); RebuildColors(); }
+            // 2026-08-21 M3 策略化：UsesMonth 层的 OnMonthChanged 处理（风场重建箭头/月降水/月温度刷新+重算）
+            if (_ctx != null)
+            {
+                _ctx.Month = m;   // ⚠️ 上下文快照同步（策略 BuildOverlay/刷新方法读 ctx.Month）
+                var strat = LayerRegistry.Of(Layer);
+                if (strat.UsesMonth)
+                    strat.OnMonthChanged(_ctx, m);
+            }
         };
         monthRow.AddChild(_monthSlider);
 
@@ -199,7 +204,7 @@ public partial class MapViewer
 
         _legendTitle = new Label
         {
-            Text = LayerNames[0],
+            Text = LayerRegistry.Of(0).Name,
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             CustomMinimumSize = new Vector2(0, 26),
@@ -253,7 +258,7 @@ public partial class MapViewer
         if (_layerButtons == null)
             return;
         // 外部改 Layer → 分类跟随（选中按钮必须在可见集合内）
-        _category = LayerCats[_layer];
+        _category = LayerRegistry.Of(_layer).Category;
         for (int i = 0; i < _layerButtons.Length; i++)
             _layerButtons[i].ButtonPressed = i == _layer;
         ShowCategoryButtons();
@@ -268,7 +273,7 @@ public partial class MapViewer
         int visible = 0;
         for (int i = 0; i < _layerButtons.Length; i++)
         {
-            bool show = LayerCats[i] == _category;
+            bool show = LayerRegistry.All[i].Category == _category;
             _layerButtons[i].Visible = show;
             if (show) visible++;
         }
@@ -300,142 +305,15 @@ public partial class MapViewer
                 _legendFooter.RemoveChild(c);
                 c.QueueFree();
             }
-        _legendTitle.Text = LayerNames[_layer];
+        // 2026-08-21 M3 策略化：图例条目由当前层策略 BuildLegend 提供（原 20 分支 switch 删除）
+        var strat = LayerRegistry.Of(_layer);
+        _legendTitle.Text = strat.Name;
+        var builder = new LegendBuilder(_legendBox, _legendFooter);
+        if (_ctx != null)
+            strat.BuildLegend(builder, _ctx);
+        else
+            builder.Text("（生成中…）");   // ⚠️ M1 回归防护：构建前 _ctx/_cache 未就绪（原 case 13/16 的 NRE 隐患统一在此挡）
 
-        switch (_layer)
-        {
-            case 0: // 海拔（2026-08-18）：海 <-200m 深海 / -200~0m 浅海；陆地连续色带
-                AddLegendGradient(
-                    new[] { new Color(0.01f, 0.05f, 0.18f), new Color(0.20f, 0.45f, 0.68f),
-                            new Color(0.70f, 0.65f, 0.40f), new Color(0.30f, 0.65f, 0.10f),
-                            new Color(0.60f, 0.50f, 0.35f), new Color(0.95f, 0.97f, 1.00f) },
-                    "深海<-200m", "最高");
-                AddLegendText("海：<-200m 深海 / -200~0m 浅海（大陆架）；陆：连续色带（实际米）");
-                break;
-            case 1: // 温度：分段色带
-                AddLegendGradient(
-                    new[] { new Color(0.08f, 0.12f, 0.45f), new Color(0.22f, 0.52f, 0.72f), new Color(0.38f, 0.72f, 0.42f), new Color(0.92f, 0.78f, 0.28f), new Color(0.88f, 0.30f, 0.15f) },
-                    "-85°C", "+45°C");
-                AddLegendText("分段色带：极寒/冰点/0-15°/宜居/高温");
-                break;
-            case 2: // 降水
-                AddLegendGradient(
-                    new[] { new Color(0.90f, 0.80f, 0.40f), new Color(0.10f, 0.30f, 0.70f) },
-                    $"{_precipMin:F0}mm", $"{_precipMax:F0}mm");
-                AddLegendText("陆地自适应色带（随地图分布）");
-                break;
-            case 3: // 生物群系
-                for (int b = 0; b < BiomeNames.Length; b++)
-                {
-                    if (string.IsNullOrEmpty(BiomeNames[b])) continue;
-                    AddLegendRow(BiomeColors.BiomeToColor((BiomeType)b), BiomeNames[b]);
-                }
-                break;
-            case 4: // 风场
-                AddLegendText("→ 箭头 = 盛行风向（月风场）");
-                AddLegendText("疏密 = 风速强度");
-                AddLegendText("月份滑块切换 1-12 月");
-                break;
-            case 5: // 洋流
-                AddLegendRow(new Color(0.95f, 0.35f, 0.25f), "暖流");
-                AddLegendRow(new Color(0.25f, 0.55f, 0.95f), "寒流");
-                AddLegendText("箭头大小 = 流速");
-                break;
-            case 6: // 河流
-                AddLegendRow(new Color(0.25f, 0.45f, 0.75f), "湖泊");
-                AddLegendRow(new Color(0.35f, 0.70f, 1.00f), "河流");
-                AddLegendText("干涸盆地（盐湖）不显示");
-                break;
-            case 7: // 流域
-                AddLegendText("每流域独立颜色");
-                AddLegendText("海洋/边缘排水区 = 浅蓝/灰绿");
-                break;
-            case 8: // 矿藏
-                for (int m = 1; m < MineralSystem.Names.Length; m++)
-                    AddLegendRow(MineralColors[m], MineralSystem.Names[m]);
-                AddLegendText("明度 = 富度（贫暗/富中/巨型亮）");
-                break;
-            case 9: // 土壤
-                for (int s = 1; s <= 5; s++)
-                    AddLegendRow(SoilColors[s], SoilNames[s]);
-                break;
-            case 10: // 月降水
-                AddLegendGradient(
-                    new[] { new Color(0.90f, 0.80f, 0.40f), new Color(0.10f, 0.30f, 0.70f) },
-                    $"{_monthPrecipMin:F0}mm", $"{_monthPrecipMax:F0}mm");
-                AddLegendText("当月降水（×12 年尺度色带）");
-                break;
-            case 11: // 月温度
-                AddLegendGradient(
-                    new[] { new Color(0.08f, 0.12f, 0.45f), new Color(0.22f, 0.52f, 0.72f), new Color(0.38f, 0.72f, 0.42f), new Color(0.92f, 0.78f, 0.28f), new Color(0.88f, 0.30f, 0.15f) },
-                    "-60°C", "+60°C");
-                AddLegendText("当月均温");
-                break;
-            case 12: // 人口：无人（采集格）+ 16 档等比色块（log 分位，与地图同色；驻扎格人口）
-                {
-                    var lo = new Color(0.95f, 0.75f, 0.25f);
-                    var hi = new Color(0.80f, 0.15f, 0.05f);
-                    AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人（采集格 / 海洋）");
-                    if (_popMax <= 0f)
-                    {
-                        AddLegendText("（无人口数据）");
-                        break;
-                    }
-                    for (int i = 0; i <= 15; i++)
-                    {
-                        float x = i / 15f;
-                        float p = Mathf.Exp(_popLogMin + x * (_popLogMax - _popLogMin)) - 1f;
-                        // ⚠️ 2026-08-17 用户反馈"人口怎么还能是小数"：人口物理上是整数——
-                        //   模型层 P 是 float（连续宏观增长），显示层取整（<1 显示 "<1" 防与无人灰混淆）
-                        string label = i == 15 ? $"≥ {FmtPop(p)}（最高 {FmtPop(_popMax)}）" : FmtPop(p);
-                        AddLegendRow(lo.Lerp(hi, x), label);
-                    }
-                    AddLegendText("驻扎格人口（人/格）· log 分位自适应");
-                    break;
-                }
-            case 13: // 文化：动态条目（同语言群同色系——族色相 + 文化深浅；按覆盖格数排序，滚动查看）
-                AddLegendText("同语言群同色系（深浅=具体文化，族域连贯）");
-                BuildIdentityCaches();
-                AddLegendDynamic(_tileCulture, c => FamilyColor(_cultGroup.TryGetValue(c, out var g) ? g : c, c, 0.60f, 0.25f), "文化");
-                break;
-            case 14: // 独立势力（2026-08-17）：每势力独立色——最高聚合层（酋邦>部落>band）
-                AddLegendRow(new Color(0.25f, 0.25f, 0.28f), "无人 / 海洋");
-                AddLegendText("每独立势力一种颜色（两两可区分）");
-                AddLegendText("酋邦（跨部落联盟）> 部落（领地≥2）> 独立 band");
-                break;
-            case 15: // 科技
-                for (int e = 0; e <= 4; e++)
-                {
-                    var col = e == 0 ? new Color(0.55f, 0.42f, 0.28f) : TechEpochColors[e - 1];
-                    AddLegendRow(col, TechEpochNames[e]);
-                }
-                break;
-            case 16: // 宗教：动态条目（同语言群同色系——族色相 + 派别深浅）
-                AddLegendText("同语言群同色系（深浅=具体派别）");
-                BuildIdentityCaches();
-                AddLegendDynamic(_tileReligion, r => FamilyColor(_sectGroup.TryGetValue(r, out var g) ? g : r, r, 0.60f, 0.25f), "派别");
-                break;
-            case 17: // 势力范围：静态说明（每领地独立色，动态条目过多故仅说明）
-                AddLegendRow(new Color(0.30f, 0.32f, 0.36f), "无领地");
-                AddLegendText("每领地独立颜色（两两可区分）");
-                AddLegendText("同领地必同语言群 → 同领地同色");
-                break;
-            case 18: // 政体（2026-08-17）：独立势力基础上按政体类型分色
-                AddLegendRow(HslToRgb(0.60f, 0.30f, 0.55f), "独立 band（无组织）");
-                AddLegendRow(HslToRgb(0.35f, 0.50f, 0.55f), "部落（领地凝聚）");
-                AddLegendRow(HslToRgb(0.045f, 0.58f, 0.55f), "酋邦（联盟+酋长）");
-                AddLegendRow(HslToRgb(0.12f, 0.45f, 0.55f), "国家（都城+官僚，2026-08-16 阶段4）");
-                AddLegendText("同类政体同色系；势力间色相微扰可辨");
-                break;
-            case 19: // 聚落（2026-08-19 阶段3 聚落设计）
-                AddLegendRow(SettlementLevelColors[0], "新村/营地");
-                AddLegendRow(SettlementLevelColors[1], "村庄");
-                AddLegendRow(SettlementLevelColors[2], "城镇");
-                AddLegendRow(SettlementLevelColors[3], "城市");
-                AddLegendRow(SettlementLevelColors[4], "废墟");
-                AddLegendText("农业部落（settle）驻扎点固化；场所比人长寿，新部落可接管");
-                break;
-        }
         // ⚠️ 2026-08-17 用户拍板：图例数量不足时面板高度自适应缩短（上限 250，贴底锚定）。
         //   内容高 = 色块行 min 高 + 行间隙；footer 常驻文字也计入；clamp [120, 250]。
         float contentH = 0f;
@@ -457,116 +335,7 @@ public partial class MapViewer
     private static string FmtPop(float p) => p < 1f ? "<1" : $"{p:F0}";
 
 
-    /// <summary>图例条目：色块 + 文字（横向）。</summary>
-    private void AddLegendRow(Color c, string text)
-    {
-        var row = new HBoxContainer();
-        row.AddThemeConstantOverride("separation", 6);
-        var swatch = new ColorRect
-        {
-            Color = c,
-            CustomMinimumSize = new Vector2(16, 16),
-            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
-        };
-        row.AddChild(swatch);
-        var lab = new Label { Text = text, VerticalAlignment = VerticalAlignment.Center };
-        lab.AddThemeFontSizeOverride("font_size", 13);
-        row.AddChild(lab);
-        _legendBox.AddChild(row);
-    }
-
-
-    /// <summary>图例条目：渐变色带 + 两端标注。</summary>
-    private void AddLegendGradient(Color[] stops, string low, string high)
-    {
-        // Offsets 动态生成（段数任意；均匀分布）
-        var offs = new float[stops.Length];
-        for (int i = 0; i < stops.Length; i++)
-            offs[i] = stops.Length > 1 ? i / (float)(stops.Length - 1) : 0f;
-        var bar = new GradientTexture2D
-        {
-            Gradient = new Gradient { Offsets = offs, Colors = stops },
-            Fill = GradientTexture2D.FillEnum.Linear,
-            FillFrom = new Vector2(0, 0),
-            FillTo = new Vector2(1, 0),
-            Width = 180,
-            Height = 14,
-        };
-        var tr = new TextureRect
-        {
-            Texture = bar,
-            CustomMinimumSize = new Vector2(180, 14),
-            StretchMode = TextureRect.StretchModeEnum.Scale,
-            SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter,
-        };
-        _legendBox.AddChild(tr);
-        var labels = new HBoxContainer();
-        var lo = new Label { Text = low }; lo.AddThemeFontSizeOverride("font_size", 12);
-        var hi = new Label { Text = high, HorizontalAlignment = HorizontalAlignment.Right, SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
-        hi.AddThemeFontSizeOverride("font_size", 12);
-        labels.AddChild(lo);
-        labels.AddChild(hi);
-        _legendBox.AddChild(labels);
-    }
-
-
-    /// <summary>图例条目：纯说明文字（小字号、浅灰）——输出到滚动区外的常驻底部区
-    /// （2026-08-17 用户拍板：说明文字固定显示，不随条目滚动）。</summary>
-    private void AddLegendText(string text)
-    {
-        if (_legendFooter == null) return;
-        var lab = new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-        lab.AddThemeFontSizeOverride("font_size", 12);
-        lab.AddThemeColorOverride("font_color", new Color(0.75f, 0.78f, 0.85f));
-        _legendFooter.AddChild(lab);
-    }
-
-
-    /// <summary>图例动态条目：统计数组中出现过的 key，按覆盖格数降序显示前 12 个（超出滚动查看）。</summary>
-    private void AddLegendDynamic(int[] tileKeys, System.Func<int, Color> colorOf, string kind)
-    {
-        if (tileKeys == null)
-        {
-            AddLegendText($"（{kind}数据未加载）");
-            return;
-        }
-        var counts = new System.Collections.Generic.Dictionary<int, int>();
-        for (int i = 0; i < tileKeys.Length; i++)
-        {
-            int k = tileKeys[i];
-            if (k == 0) continue;
-            counts[k] = counts.TryGetValue(k, out int v) ? v + 1 : 1;
-        }
-        if (counts.Count == 0)
-        {
-            AddLegendText("（无）");
-            return;
-        }
-        var sorted = new System.Collections.Generic.List<KeyValuePair<int, int>>(counts);
-        sorted.Sort((a, b) => b.Value.CompareTo(a.Value));
-        int shown = Mathf.Min(12, sorted.Count);
-        for (int i = 0; i < shown; i++)
-            AddLegendRow(colorOf(sorted[i].Key), $"{kind} {sorted[i].Key}（{sorted[i].Value}格）");
-        if (sorted.Count > shown)
-            AddLegendText($"…共 {sorted.Count} 个{kind}（滚动查看）");
-    }
-
-
-    /// <summary>文化/宗教派别 → 语言群 映射（图例族系取色用；惰性建一次——实体表只读）。</summary>
-    private void BuildIdentityCaches()
-    {
-        if (_cultGroup != null || _civCtx == null) return;
-        _cultGroup = new Dictionary<int, int>();
-        _sectGroup = new Dictionary<int, int>();
-        foreach (var e in _civCtx.Tribes)
-        {
-            if (e.Dead) continue;
-            int c = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.CultureShare));
-            int r = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.ReligionCultShare));
-            int g = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.CultureGroupShare));
-            if (c != 0 && !_cultGroup.ContainsKey(c)) _cultGroup[c] = g;
-            if (r != 0 && !_sectGroup.ContainsKey(r)) _sectGroup[r] = g;
-        }
-    }
+    /// <summary>文化/宗教派别 → 语言群 映射（2026-08-21 M2：实现迁移至 LayerContext.EnsureIdentityCaches）。</summary>
+    private void BuildIdentityCaches() => _ctx?.EnsureIdentityCaches();
 
 }

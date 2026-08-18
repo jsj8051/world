@@ -9,9 +9,12 @@ public partial class StreamlineDiag : DiagSceneBase
 {
     public override void _Ready()
     {
-        if (!MapArchive.Read("user://maps/map1.mpa", out var map) || map.CurrentDirs == null)
+        // 存档直读（-- --arch=...）：指定地图；默认 user://maps/map1.mpa（开发规范 §4 约定）
+        string arch = ArchiveDiag.ResolveArchPath();
+        string path = arch ?? "user://maps/map1.mpa";
+        if (!MapArchive.Read(path, out var map) || map.CurrentDirs == null)
         {
-            LogService.LogErr("StreamlineDiag", "存档无洋流段");
+            LogService.LogErr("StreamlineDiag", $"存档无洋流段: {path}");
             GetTree().Quit();
             return;
         }

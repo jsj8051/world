@@ -11,6 +11,7 @@ using World.PlanetLOD;
 using World.Services;
 using World.Surface;
 using World.UI;
+using static World.MapView.MapLayerColors;
 
 namespace World.MapView;
 
@@ -24,6 +25,11 @@ namespace World.MapView;
 /// 生成异步化：纯数据部分（细分/Goldberg/采样/顶点构建）跑后台线程，
 /// 进度通过 volatile 字段汇报给主线程 _Process 驱动进度条 UI；
 /// 只有 ArrayMesh 创建和节点挂载在主线程。改 GridN 时旧任务由版本号丢弃。
+///
+/// 2026-08-21 策略模式重构（M1-M4）：图层逻辑（颜色/图例/覆盖层/月份回调）全部
+/// 内聚到 LayerRegistry 的策略类（MapLayer 子类）；本类降级为上下文/导演——
+/// 只做流程编排（加载/几何/预计算/构建/切换），不再有图层 switch。
+/// 新增图层 = 新建 Layers/ 下策略类 + LayerRegistry 注册一行。数据通道见 LayerContext/TileDataCache。
 /// </summary>
 public partial class MapViewer : Node3D
 {
@@ -87,18 +93,16 @@ public partial class MapViewer : Node3D
             }
             SyncLayerButtons();
             RebuildLegend();   // 图例跟随图层（null 保护在方法内）
-            if (_monsoonArrows != null)
-                _monsoonArrows.Visible = (value == 4);
-            if (_currentArrows != null)
-                _currentArrows.Visible = (value == 5);
-            if (_riverMesh != null)
-                _riverMesh.Visible = (value == 6);
+            // 2026-08-21 M3 策略化：覆盖层节点由策略自持（OverlayNode）——已建则切 Visible；
+            //   未建且当前层 HasOverlay → 懒建（EnsureOverlayFor 内部幂等/异步就绪判断）
+            foreach (var l in LayerRegistry.All)
+                if (l.OverlayNode != null)
+                    l.OverlayNode.Visible = (l.Id == _layer);
+            if (LayerRegistry.Of(value).HasOverlay)
+                EnsureOverlayFor(value);
+            // 月份滑块可见性 = 策略 UsesMonth（原硬编码 4/10/11）
             if (_monthSlider != null)
-                _monthSlider.Visible = (value == 4 || value == 10 || value == 11);
-            // ⚠️ 2026-08-16：季风月风场异步化后，FinishGenerate 时箭头可能还没建；
-            //   切到风场/月降水/月温度图层时若已就绪则补建（ApplyMonthWind 也会补）
-            if ((value == 4 || value == 10 || value == 11) && _monsoonArrows == null && _monthWind != null)
-                BuildMonsoonArrows();
+                _monthSlider.Visible = LayerRegistry.Of(value).UsesMonth;
         }
     }
     private int _layer;
@@ -112,55 +116,54 @@ public partial class MapViewer : Node3D
     // ── 每格图层值缓存（v3 球面：构建时每格采样一次，切图层 O(1) 查表）──
     // ⚠️ 2026-08-02：旧版每格每次采样都线性扫描 10242 顶点（65 万格 × 2×10242 ≈ 1300 亿次），
     //   进入游戏/切图层极慢。预计算后切图层只查数组 → 秒级。
-    private float[] _tileElev;    // 每格归一化海拔 0..1
-    private float[] _tileTemp;    // 每格温度 °C
-    private float[] _tilePrecip;  // 每格降水 mm
-    private byte[] _tileBiome;    // 每格 biome
-    private Vector3[] _tileWind;  // 每格盛行风向（单位切向量，盛行风图层用）
-    private byte[] _tileLake;     // 每格湖泊标记（0/1；最近顶点直读）
-    private int[] _tileWatershed; // 每格流域 id（-1=海洋；读档后从 flow 现场算，不存档）
+
+
+
+
+
+
+
     private int[] _vertexWatershed; // 每模拟顶点流域 id（现场算）
-    private byte[] _tileMineral;  // 每格矿藏（(富度<<4)|矿种；0=无）
-    private byte[] _tileSoil;     // 每格土壤肥力 1-5（0=海洋）
-    private byte[] _tileMonsoon;  // 每格季风强度 0-255（v3.7；0=无/海洋）
-    private byte[] _tileMonthPrecip; // 每格当月降水比例 0-255（v3.8 月降水图层；月份切换时刷新）
-    private byte[] _tileMonthTemp;   // 每格当月温度 −60~60°C→0-255（v3.8 月温度图层；月份切换时刷新）
+
+
+
+
+
+    // ── 每格图层值缓存与策略上下文（2026-08-21 策略模式重构 M1）──
+    // 原 20 个 _tile* 数组/色带端点/调色板已迁移至 TileDataCache（本类经 _cache 访问；
+    // 策略类经 _ctx（LayerContext）访问——数据通道收敛，后续图层策略化铺垫）。
+    private TileDataCache _cache;   // 每格图层值缓存（预计算一次，切图层 O(1) 查表）
+    private LayerContext _ctx;      // 图层策略上下文（IsSea 等共享判定在此）
+
     private TileIndex _tileIndex;   // ⚠️ 2026-08-19：显示格↔逻辑格映射收敛（原散落 _tileVerts 数组；63km 错位案根治）
     // 文明图层（.cmp 游玩地图；v2 部落模型：人口/文化/部落/科技）
     private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
-    private float[] _tilePop;       // 每格总人口（Σ 部落，0=无人/海洋）
-    private int[] _tileCulture;     // 每格主导文化 key 的 FNV 哈希（0=无；完整 32 位 → 每文化独立色）
-    private byte[] _tileCultureGroup; // 每格主导文化群（0=无）
-    private int[] _tileReligion;    // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
-    private int[] _tileTribe;       // 每格主导部落 id（-1=无）
-    private int[] _tilePower;       // 每格主导势力 id（2026-08-17：最高聚合——酋邦>部落>band；高位域标记）
-    private Dictionary<int, Color> _powerPalette; // 独立势力调色板（2026-08-16 终版：最远点采样——任意两势力色距有下界，见 PowerPalette）
-    private Dictionary<int, Color> _territoryPalette; // 势力范围调色板（2026-08-16：同 PowerPalette 最远点采样——旧版明度 0.85 全白 + 散列近撞色）
-    private byte[] _tilePolity;     // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
-    private byte[] _tileTechEpoch;  // 每格主导部落最高技术时代 0-4
-    private int[] _tileTerritory;   // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
-    private byte[] _tileSettlement; // 每格聚落（2026-08-19 阶段3：0=无 1=新村 2=村庄 3=城镇 4=城市 5=废墟）
+
+
+
+
+
+
+
+
+
+
+
+
     // 身份族系映射（2026-08-19 族系分色图例：文化/派别 → 语言群 hash；惰性建一次）
-    private Dictionary<int, int> _cultGroup;
-    private Dictionary<int, int> _sectGroup;
-    private float _popLogMin, _popLogMax;   // 人口图层自适应色带端点（log 压缩 + 分位数裁剪）
-    private float _popMax;                  // 驻扎格人口最大值（图例"最高"标注；0=无人口数据）
+
+
+
+
     // 自适应色带（用户拍板：最低到最高归一化，不用固定 2000mm）：年降水 / 当月月降水
-    private float _precipMin, _precipMax;         // 陆地年降水 min/max（加载时统计）
-    private float _monthPrecipMin, _monthPrecipMax; // 陆地当月月降水 min/max（RefreshMonthPrecip 统计）
+
+
 
     // 季风月风场（现场重算，不存档；箭头图数据源）
     private Vector3[][] _monthWind;  // [12][n] 顶点级月风（切向量，长度=强度；0=无风）
-    private float[] _monsoonVerts;   // 顶点级季风强度 0-1
     private int _month = 6;          // 当前月份 0-11（默认 7 月）
 
-    // 统一风场箭头（图层 4 显示；热成风月风场，月份滑块切换）
-    private MeshInstance3D _monsoonArrows;
-    // 洋流箭头（图层 5 显示；红=暖流 蓝=寒流）
-    private MeshInstance3D _currentArrows;
-    // 河流（图层 6 显示；每条河独立颜色，支流汇合截断）
-    private MeshInstance3D _riverMesh;
-    // 月份滑块（图层 4/11/12 显示；1-12 月）
+    // 月份滑块（图层 4/10/11 显示；1-12 月）——可见性由策略 UsesMonth 决定（2026-08-21 M3）
     private HSlider _monthSlider;
     private Label _monthLabel;
 
@@ -179,41 +182,13 @@ public partial class MapViewer : Node3D
     private Label _label;
     private Button[] _layerButtons;
 
-    /// <summary>图层分类（用户拍板 2026-08：17 图层分 地理/气候/人文 三类；切换分类不改当前图层）。</summary>
-    private enum LayerCat { Geo, Climate, Human }
-    private static readonly LayerCat[] LayerCats =
-    {
-        LayerCat.Geo,       // 0 海拔
-        LayerCat.Climate,   // 1 温度
-        LayerCat.Climate,   // 2 降水
-        LayerCat.Climate,   // 3 生物群系
-        LayerCat.Climate,   // 4 风场
-        LayerCat.Climate,   // 5 洋流
-        LayerCat.Geo,       // 6 河流
-        LayerCat.Geo,       // 7 流域
-        LayerCat.Geo,       // 8 矿藏
-        LayerCat.Geo,       // 9 土壤
-        LayerCat.Climate,   // 10 月降水
-        LayerCat.Climate,   // 11 月温度
-        LayerCat.Human,     // 12 人口
-        LayerCat.Human,     // 13 文化
-        LayerCat.Human,     // 14 独立势力
-        LayerCat.Human,     // 15 科技
-        LayerCat.Human,     // 16 宗教
-        LayerCat.Human,     // 17 势力范围
-        LayerCat.Human,     // 18 政体
-        LayerCat.Human,     // 19 聚落（2026-08-19 阶段3 聚落设计）
-    };
-
-    private static readonly string[] LayerNames = { "海拔", "温度", "降水", "生物群系", "风场", "洋流", "河流", "流域", "矿藏", "土壤", "月降水", "月温度", "人口", "文化", "独立势力", "科技", "宗教", "势力范围", "政体", "聚落" };
-
     /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
     private static int PowerIdOf(World.CivSim.Tribe e)
     {
         if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
         if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
         // ⚠️ 2026-08-18 修复：band 也进独立域（0x20000000）——实体 Id 从 0 分配（NextTribeId 起始 0），
-        //   Id=0 的起源 band 若返回原值 0，与 _tilePower==0 的"无势力"哨兵冲突 →
+        //   Id=0 的起源 band 若返回原值 0，与 _cache.TilePower==0 的"无势力"哨兵冲突 →
         //   独立势力/政体图层把它显示成灰色（无势力），人口图层却正常 → 两层冲突。
         //   域值非 0 保证与哨兵彻底隔离（部落 0x40000000 / 酋邦 0x80000000 之上再分一层）。
         return unchecked((int)0x20000000) | (e.Id & 0x3FFFFFFF);
@@ -228,7 +203,7 @@ public partial class MapViewer : Node3D
         return 0;
     }
     private static readonly string[] CatNames = { "地理", "气候", "人文" };
-    private LayerCat _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
+    private LayerCategory _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
     private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
     private HBoxContainer _layerRow; // 图层按钮行容器（分类切换时重算居中）
 
@@ -237,38 +212,6 @@ public partial class MapViewer : Node3D
     private Label _legendTitle;      // 图例标题（图层名）
     private VBoxContainer _legendBox; // 图例条目容器（ScrollContainer 内）
     private VBoxContainer _legendFooter; // 图例说明文字区（滚动区外，常驻面板底部——2026-08-17 用户拍板）
-
-    /// <summary>部落图层调色板（部落标签取色；高区分度 8 色循环——文化层已改每文化独立色，勿复用）。</summary>
-    private static readonly Color[] CulturePalette =
-    {
-        new(0.95f, 0.30f, 0.25f),  // 红
-        new(0.25f, 0.55f, 0.95f),  // 蓝
-        new(0.30f, 0.80f, 0.35f),  // 绿
-        new(0.95f, 0.70f, 0.20f),  // 橙
-        new(0.70f, 0.40f, 0.90f),  // 紫
-        new(0.20f, 0.80f, 0.80f),  // 青
-        new(0.90f, 0.50f, 0.70f),  // 粉
-        new(0.60f, 0.60f, 0.20f),  // 橄榄
-    };
-
-    /// <summary>科技图层时代色带（索引 0=新石器 1=青铜 2=铁器 3=古典+）。</summary>
-    private static readonly Color[] TechEpochColors =
-    {
-        new(0.35f, 0.75f, 0.35f),  // 新石器：绿（农业）
-        new(0.90f, 0.60f, 0.20f),  // 青铜：橙（冶金）
-        new(0.30f, 0.50f, 0.85f),  // 铁器：蓝（铁兵）
-        new(0.65f, 0.40f, 0.85f),  // 古典/中世纪：紫（帝国）
-    };
-
-    /// <summary>聚落图层色（2026-08-19 阶段3：索引 = _tileSettlement 值 − 1——0 新村 1 村庄 2 城镇 3 城市 4 废墟）。</summary>
-    private static readonly Color[] SettlementLevelColors =
-    {
-        new(0.72f, 0.55f, 0.35f),  // 新村/营地：棕
-        new(0.35f, 0.72f, 0.35f),  // 村庄：绿
-        new(0.95f, 0.65f, 0.25f),  // 城镇：橙
-        new(0.85f, 0.25f, 0.20f),  // 城市：红
-        new(0.45f, 0.45f, 0.50f),  // 废墟：灰
-    };
 
 
     public override void _Ready()
@@ -292,30 +235,8 @@ public partial class MapViewer : Node3D
         Generate();
     }
 
-    private static string LayerName(int l) => l switch
-    {
-        0 => "海拔",
-        1 => "温度",
-        2 => "降水",
-        3 => "生物群系",
-        4 => "风场",
-        5 => "洋流",
-        6 => "河流",
-        7 => "流域",
-        8 => "矿藏",
-        9 => "土壤",
-        10 => "月降水",
-        11 => "月温度",
-        12 => "人口",
-        13 => "文化",
-        14 => "独立势力",
-        15 => "科技",
-        16 => "宗教",
-        17 => "势力范围",
-        18 => "政体",
-        19 => "聚落",
-        _ => "风场",
-    };
+    /// <summary>图层名（2026-08-21 M3：查策略注册表——单一事实来源）。</summary>
+    private static string LayerName(int l) => LayerRegistry.Of(l).Name;
     public override void _Process(double delta)
     {
         // 生成中：每帧把后台进度同步到进度条
@@ -471,13 +392,29 @@ public partial class MapViewer : Node3D
         _diag.Append($"预计算={sw.ElapsedMilliseconds}ms ");
 
         _phase = "采样并着色";
-        var colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(layer), geometry,
-            p =>
-            {
-                if (token.IsCancellationRequested)
-                    throw new OperationCanceledException(token);
-                _progress = 0.65f + p * 0.25f;
-            });
+        Color[] colors;
+        // ⚠️ 2026-08-20：独立势力图层（14）用带边界 A 通道的颜色构建（M3：NeedsPowerBorders 策略属性）
+        if (LayerRegistry.Of(layer).NeedsPowerBorders && _cache.TilePower != null)
+        {
+            colors = ChunkMeshBuilder.BuildColorsWithPowerBorders(tiles, MakeColorFn(layer), geometry,
+                _cache.TilePower,
+                p =>
+                {
+                    if (token.IsCancellationRequested)
+                        throw new OperationCanceledException(token);
+                    _progress = 0.65f + p * 0.25f;
+                });
+        }
+        else
+        {
+            colors = ChunkMeshBuilder.BuildColors(tiles, MakeColorFn(layer), geometry,
+                p =>
+                {
+                    if (token.IsCancellationRequested)
+                        throw new OperationCanceledException(token);
+                    _progress = 0.65f + p * 0.25f;
+                });
+        }
         _progress = 0.90f;
         _diag.Append($"着色={sw.ElapsedMilliseconds}ms 总计={sw.ElapsedMilliseconds}ms");
         _buildDiag = _diag.ToString();
@@ -497,30 +434,31 @@ public partial class MapViewer : Node3D
     private void PrecomputeTileValues(MapData map, List<HexTile> tiles, System.Threading.CancellationToken token, Action<float> progress = null)
     {
         int n = tiles.Count;
-        _tileElev = new float[n];
-        _tileTemp = new float[n];
-        _tilePrecip = new float[n];
-        _tileBiome = new byte[n];
-        _tileWind = new Vector3[n];
-        _tileLake = new byte[n];
-        _tileWatershed = new int[n];
-        System.Array.Fill(_tileWatershed, -1);
-        _tileMineral = new byte[n];
-        _tileSoil = new byte[n];
-        _tileMonsoon = new byte[n];
-        _tileMonthPrecip = new byte[n];
-        _tileMonthTemp = new byte[n];
-        _tilePop = new float[n];
-        _tileCulture = new int[n];
-        _tileCultureGroup = new byte[n];
-        _tileReligion = new int[n];
-        _tileTribe = new int[n];
-        _tilePower = new int[n];     // 独立势力 id（2026-08-17；0=无）
-        _tilePolity = new byte[n];   // 政体类型（2026-08-17；0=band 1=部落 2=酋邦）
-        _tileTechEpoch = new byte[n];
-        _tileTerritory = new int[n];
-        _tileSettlement = new byte[n];
-        System.Array.Fill(_tileTribe, -1);
+        _cache = new TileDataCache();   // 2026-08-21 M1：每格图层值缓存束
+        _cache.TileElev = new float[n];
+        _cache.TileTemp = new float[n];
+        _cache.TilePrecip = new float[n];
+        _cache.TileBiome = new byte[n];
+        _cache.TileWind = new Vector3[n];
+        _cache.TileLake = new byte[n];
+        _cache.TileWatershed = new int[n];
+        System.Array.Fill(_cache.TileWatershed, -1);
+        _cache.TileMineral = new byte[n];
+        _cache.TileSoil = new byte[n];
+        _cache.TileMonsoon = new byte[n];
+        _cache.TileMonthPrecip = new byte[n];
+        _cache.TileMonthTemp = new byte[n];
+        _cache.TilePop = new float[n];
+        _cache.TileCulture = new int[n];
+        _cache.TileCultureGroup = new byte[n];
+        _cache.TileReligion = new int[n];
+        _cache.TileTribe = new int[n];
+        _cache.TilePower = new int[n];     // 独立势力 id（2026-08-17；0=无）
+        _cache.TilePolity = new byte[n];   // 政体类型（2026-08-17；0=band 1=部落 2=酋邦）
+        _cache.TileTechEpoch = new byte[n];
+        _cache.TileTerritory = new int[n];
+        _cache.TileSettlement = new byte[n];
+        System.Array.Fill(_cache.TileTribe, -1);
         bool hasCiv = _civCtx != null;
         // 2026-08-10 影响力场模型（v8）：band 实体只在驻扎点格，领地=归属格——文明图层改为
         // **归属格主导**（每格查 CellOwner → 该 band 的文化/宗教/部落/科技；人口=领地均摊，5 km² 量级）
@@ -531,22 +469,36 @@ public partial class MapViewer : Node3D
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
         float hSea = range > 1e-6f ? -map.MinElev / range : 0.5f;
-        var elevArr = _tileElev;   // 局部引用（后台线程安全：不同下标不同位置）
-        var tempArr = _tileTemp;
-        var precipArr = _tilePrecip;
-        var biomeArr = _tileBiome;
-        var windArr = _tileWind;
-        var lakeArr = _tileLake;
-        var wsArr = _tileWatershed;
-        var minArr = _tileMineral;
-        var soilArr = _tileSoil;
-        var monsoonArr = _tileMonsoon;
+        var elevArr = _cache.TileElev;   // 局部引用（后台线程安全：不同下标不同位置）
+        var tempArr = _cache.TileTemp;
+        var precipArr = _cache.TilePrecip;
+        var biomeArr = _cache.TileBiome;
+        var windArr = _cache.TileWind;
+        var lakeArr = _cache.TileLake;
+        var wsArr = _cache.TileWatershed;
+        var minArr = _cache.TileMineral;
+        var soilArr = _cache.TileSoil;
+        var monsoonArr = _cache.TileMonsoon;
         bool hasLake = map.LakeLevel != null;
         bool hasMineral = map.MineralLevel != null;
         var centers = new Vector3[n];
         for (int i = 0; i < n; i++) centers[i] = tiles[i].Center;
         // ⚠️ 2026-08-19：映射收敛——TileIndex 主线程预构建（面→顶点 + 顶点→面反查；63km 错位案根治）
         _tileIndex = new TileIndex(map, centers);
+        // 2026-08-21 策略模式重构 M1：填充图层上下文（策略类数据通道；引用赋值后只读）
+        // ⚠️ M3：回调闭包捕获 this——只在主线程被触发（滑块回调/ApplyMonthWind），后台只读字段
+        _ctx = new LayerContext
+        {
+            Map = map,
+            Tiles = tiles,
+            TileIndex = _tileIndex,
+            CivCtx = _civCtx,
+            Cache = _cache,
+            RadiusKm = RadiusKm,
+            Month = _month,
+            RequestOverlayRebuild = RecreateOverlay,
+            RequestRecolor = () => RebuildColors(),
+        };
         // 聚落索引（2026-08-19 阶段3：Cell → 聚落；按逻辑格查——平行循环内 FaceToVertex 后查）
         var settlementByCell = new Dictionary<int, byte>();
         if (hasCiv && _civCtx.Settlements != null)
@@ -591,23 +543,23 @@ public partial class MapViewer : Node3D
                     // ⚠️ 2026-08-17：人口图层不在这里写——领地格 = 采集格（无常住人口），
                     //   人口只在驻扎格（Tribe.Cell）显示该 band 的 P（并行循环后实体表直写）。
                     //   旧"领地均摊 P/领地格数"让每个归属格都有人口，与"大部分是采集格"矛盾（用户反馈）。
-                    _tileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
-                    _tileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
+                    _cache.TileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
+                    _cache.TileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
                     // ⚠️ 2026-08-07 宗教图层改显示"具体派别"（relig_N，每摇篮/每次漂变独立）——
                     //    旧版显示 5 段发展带（万物有灵→一神教），石器时代全在段 0 → 全图一色（用户反馈）
-                    _tileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
-                    _tileTribe[i] = dom.Id;
-                    _tileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
+                    _cache.TileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
+                    _cache.TileTribe[i] = dom.Id;
+                    _cache.TileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
                     // 独立势力（2026-08-18 v4 回影响力场——用户确认：按影响力算难出飞地、
                     //   且不可能被中立隔离（中立只在圈外——同势力格都在圈内）。v3 的 BFS 2 跳
                     //   人为切圈是魔法数字——废弃。飞地=强邻切通道的少数构型——统计验证）
-                    _tilePower[i] = PowerIdOf(dom);
-                    _tilePolity[i] = PolityOf(dom);
+                    _cache.TilePower[i] = PowerIdOf(dom);
+                    _cache.TilePolity[i] = PolityOf(dom);
                     // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
-                    //    与 byte 截断的 _tileCultureGroup 区分，防 8 位撞色）
-                    _tileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
+                    //    与 byte 截断的 _cache.TileCultureGroup 区分，防 8 位撞色）
+                    _cache.TileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
                     // 聚落（2026-08-19 阶段3：Cell → 等级/废墟；1-4=新村~城市 5=废墟）
-                    if (settlementByCell.TryGetValue(vid2, out byte slevel)) _tileSettlement[i] = slevel;
+                    if (settlementByCell.TryGetValue(vid2, out byte slevel)) _cache.TileSettlement[i] = slevel;
                 }
             }
             // ⚠️ 2026-08-16：每 64 格报一次进度（并行 For 内；不调取消——检查在外部）
@@ -620,21 +572,21 @@ public partial class MapViewer : Node3D
         //   探针实测散列最小色距 0.011、排序秩 0.039（均 <0.05 肉眼阈值，两势力看似同色）。
         //   最远点采样：候选网格避开海蓝相 + 海色/无势力灰为锚点 → 任意两势力色距有下界（291 势力实测 ≥0.1）。
         //   确定性：同档 → 同 id 集 → 同秩 → 同色（候选顺序固定 + 并列取小索引）。
-        if (_tilePower != null)
+        if (_cache.TilePower != null)
         {
             var set = new HashSet<int>();
-            for (int i = 0; i < n; i++) if (_tilePower[i] != 0) set.Add(_tilePower[i]);
-            _powerPalette = PowerPalette.Build(set);
+            for (int i = 0; i < n; i++) if (_cache.TilePower[i] != 0) set.Add(_cache.TilePower[i]);
+            _cache.PowerPalette = PowerPalette.Build(set);
         }
         // ⚠️ 2026-08-16 势力范围调色板（同 PowerPalette 最远点采样）：旧版 HslToRgb(GoldenHue,0.55,0.85)
         //   明度 0.85 → 所有领地色 RGB 挤在 0.77-0.93 近白区间（用户反馈"势力范围地图全是白的"）；
         //   且黄金角散列在 ~1500 领地规模下斐波那契距 key 对近撞色相。改为最远点采样调色板
         //   （任意两领地色距有下界 + 与海色/无领地灰可分）。
-        if (_tileTerritory != null)
+        if (_cache.TileTerritory != null)
         {
             var tset = new HashSet<int>();
-            for (int i = 0; i < n; i++) if (_tileTerritory[i] != 0) tset.Add(_tileTerritory[i]);
-            _territoryPalette = PowerPalette.Build(tset);
+            for (int i = 0; i < n; i++) if (_cache.TileTerritory[i] != 0) tset.Add(_cache.TileTerritory[i]);
+            _cache.TerritoryPalette = PowerPalette.Build(tset);
         }
         // ⚠️ 2026-08-17：人口 = 驻扎格人口（实体表直写，每 band 只点亮 1 格）。
         //   并行循环按归属格走无法区分驻扎格（冲突边缘：驻扎格归属可能与驻扎者不同），
@@ -655,42 +607,42 @@ public partial class MapViewer : Node3D
                 var ce = _civCtx.Tribes[e];
                 if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
                 if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地（与模拟一致）
-                _tilePop[ce.Cell] += ce.P;   // 驻扎格实有人口（营地）——只有人的格显示人
+                _cache.TilePop[ce.Cell] += ce.P;   // 驻扎格实有人口（营地）——只有人的格显示人
             }
         }   // end if(hasCiv)
         // 人口图层自适应归一化（相对本图分布——分位数模型，用户拍板风格）：
         // log(p+1) 压缩重尾 + 有人陆地格 P1/P99 分位为色带端点 → 单格超大城市不拉爆、
         // 最小聚落也有可见色（旧版 log(全局max) 归一：全球最大值单点把其余全压成近黑色）
         var popLog = new System.Collections.Generic.List<float>();
-        _popMax = 0f;
+        _cache.PopMax = 0f;
         for (int i = 0; i < n; i++)
         {
-            if (_tilePop[_tileIndex.FaceToVertex(i)] <= 0f) continue;     // 无人格不入带（人口按顶点写——显示格 i 读其顶点）
-            popLog.Add(Mathf.Log(_tilePop[_tileIndex.FaceToVertex(i)] + 1f));
-            if (_tilePop[_tileIndex.FaceToVertex(i)] > _popMax) _popMax = _tilePop[_tileIndex.FaceToVertex(i)];
+            if (_cache.TilePop[_tileIndex.FaceToVertex(i)] <= 0f) continue;     // 无人格不入带（人口按顶点写——显示格 i 读其顶点）
+            popLog.Add(Mathf.Log(_cache.TilePop[_tileIndex.FaceToVertex(i)] + 1f));
+            if (_cache.TilePop[_tileIndex.FaceToVertex(i)] > _cache.PopMax) _cache.PopMax = _cache.TilePop[_tileIndex.FaceToVertex(i)];
         }
         if (popLog.Count >= 2)
         {
             popLog.Sort();
             int p1 = popLog.Count / 100;
             int p99 = popLog.Count - 1 - popLog.Count / 100;
-            _popLogMin = popLog[p1];
-            _popLogMax = Mathf.Max(_popLogMin + 1f, popLog[p99]);   // 防退化（全同值）
+            _cache.PopLogMin = popLog[p1];
+            _cache.PopLogMax = Mathf.Max(_cache.PopLogMin + 1f, popLog[p99]);   // 防退化（全同值）
         }
-        else { _popLogMin = 0f; _popLogMax = 1f; }   // 无人口数据 → 全图灰
+        else { _cache.PopLogMin = 0f; _cache.PopLogMax = 1f; }   // 无人口数据 → 全图灰
         // ⚠️ 2026-08-16：年降水自适应色带 min/max（用户拍板：最低到最高归一化，不用固定 2000mm）
-        _precipMin = float.MaxValue;
-        _precipMax = float.MinValue;
+        _cache.PrecipMin = float.MaxValue;
+        _cache.PrecipMax = float.MinValue;
         for (int i = 0; i < n; i++)
         {
-            if (IsDisplaySea(i)) continue;   // ⚠️ 2026-08-17：统一海陆判定（只统计陆地格）
-            _precipMin = Mathf.Min(_precipMin, precipArr[i]);
-            _precipMax = Mathf.Max(_precipMax, precipArr[i]);
+            if (_ctx.IsSea(i)) continue;   // ⚠️ 2026-08-17：统一海陆判定（只统计陆地格）
+            _cache.PrecipMin = Mathf.Min(_cache.PrecipMin, precipArr[i]);
+            _cache.PrecipMax = Mathf.Max(_cache.PrecipMax, precipArr[i]);
         }
-        if (_precipMax <= _precipMin) _precipMax = _precipMin + 1f;
-        _hSea = hSea;
+        if (_cache.PrecipMax <= _cache.PrecipMin) _cache.PrecipMax = _cache.PrecipMin + 1f;
+        _cache.HSea = hSea;
     }
-    private float _hSea = 0.5f;
+
     private volatile bool _pendingRecolor;   // 构建中切图层 → 完成后自动重算
 
     /// <summary>主线程：把后台构建好的数据包成 ArrayMesh 并挂载。
@@ -732,30 +684,19 @@ public partial class MapViewer : Node3D
             LogService.Log("MapViewer", $"sphere ready: {data.Indices.Length / 3} tris (tiles={_tiles?.Count ?? 0}) (CreateMesh {sw.ElapsedMilliseconds}ms)");
             LogService.Log("MapViewer", $"BuildAll 阶段耗时: {_buildDiag}");
 
-            // 统一风场箭头网格（图层 4 显示；热成风：信风/西风/季风一体，月份滑块切换）
-            // ⚠️ 2026-08-16：EnsureMonthWind 已异步化——此调用只触发后台计算，不阻塞主线程
-            _phase = "构建季风风场（后台）";
+            // 覆盖层（风场箭头/洋流/河流；2026-08-21 M3 策略化——BuildOverlay 由策略实现）
+            // ⚠️ 2026-08-16：EnsureMonthWind 已异步化——风场层此刻可能未就绪（ApplyMonthWind 补建）
+            _phase = "构建覆盖层";
             _progress = 0.94f;
             sw.Restart();
-            BuildMonsoonArrows();
-            LogService.Log("MapViewer", $"收尾: 季风箭头 {sw.ElapsedMilliseconds}ms");
-            // 月降水缓存（图层 11 显示；当前月）
-            RefreshMonthPrecip();
-            // 月温度缓存（图层 12 显示；当前月）
-            RefreshMonthTemp();
+            foreach (var l in LayerRegistry.All)
+                if (l.HasOverlay)
+                    EnsureOverlayFor(l.Id);
+            LogService.Log("MapViewer", $"收尾: 覆盖层 {sw.ElapsedMilliseconds}ms");
+            // 月降水/月温度缓存（当前月；M3：迁至 LayerContext）
+            _ctx.RefreshMonthPrecip();
+            _ctx.RefreshMonthTemp();
             LogService.Log("MapViewer", $"收尾: 月缓存 {sw.ElapsedMilliseconds}ms");
-            // 洋流箭头网格（图层 5 显示；暖流红/寒流蓝）
-            _phase = "构建洋流箭头";
-            _progress = 0.97f;
-            sw.Restart();
-            BuildCurrentArrows();
-            LogService.Log("MapViewer", $"收尾: 洋流箭头 {sw.ElapsedMilliseconds}ms");
-            // 河流网格（图层 6 显示；每条河独立颜色，支流汇合截断）
-            _phase = "构建河流";
-            _progress = 0.99f;
-            sw.Restart();
-            BuildRivers();
-            LogService.Log("MapViewer", $"收尾耗时: 河流 {sw.ElapsedMilliseconds}ms");
 
             // 构建中切了图层 → 自动应用最新图层（几何已就绪，走快速重算）
             if (_pendingRecolor)
@@ -767,6 +708,9 @@ public partial class MapViewer : Node3D
             _phase = "完成";
             // 图例动态条目（文化/宗教）在 BuildAll 后才就绪 → 生成完成补刷一次
             RebuildLegend();
+            // ⚠️ 2026-08-03：headless 验证构建完成即退（原 BuildRivers 尾部；M3 策略化后统一收尾退出）
+            if (OS.HasFeature("headless"))
+                GetTree().Quit();
         }
         catch (Exception e)
         {
@@ -785,118 +729,44 @@ public partial class MapViewer : Node3D
         }
     }
 
+    /// <summary>构建指定图层覆盖层（懒建幂等；风场异步未就绪则等待 ApplyMonthWind 补建）。
+    /// 2026-08-21 M3 策略化：BuildOverlay 由策略实现，节点由策略自持（OverlayNode），切图层只切 Visible。</summary>
+    private void EnsureOverlayFor(int layerId)
+    {
+        if (_ctx == null) return;   // 构建前（_Ready 早期）不建
+        var strat = LayerRegistry.Of(layerId);
+        if (!strat.HasOverlay || strat.OverlayNode != null) return;
+        var node = strat.BuildOverlay(_ctx, this);
+        if (node == null) return;   // 数据未就绪（如风场异步中）→ 等回调补建
+        strat.OverlayNode = node;
+        node.Visible = (layerId == _layer);
+        AddChild(node);
+        LogService.Log("MapViewer", $"overlay built: {strat.Name} (id={layerId})");
+    }
+
+    /// <summary>销毁当前层覆盖层并重建（月份切换等；策略 OnMonthChanged 经 ctx.RequestOverlayRebuild 回调）。</summary>
+    private void RecreateOverlay()
+    {
+        if (_ctx == null) return;
+        var s = LayerRegistry.Of(_layer);
+        if (s.OverlayNode != null)
+        {
+            s.OverlayNode.QueueFree();
+            s.OverlayNode = null;
+        }
+        if (s.HasOverlay)
+            EnsureOverlayFor(_layer);
+    }
+
     /// <summary>懒算季风月风场（读档后第一次进风场/月降水/月温度图层时算一次；不存档）。
     /// 用存档的海陆/年温/年降水 + 倾角（v3.8 头部）现场跑 MonsoonSystem。
     /// ⚠️ 2026-08-16：异步化（后台 Task.Run）——n=128 时 MonsoonSystem 数亿次主线程计算
     ///   让 FinishGenerate 卡 100% 几十秒。MonsoonSystem 是纯计算（不碰引擎 API，线程安全）；
-    ///   完成后 CallDeferred 回主线程应用。</summary>
+    ///   完成后 CallDeferred 回主线程应用。实现见 MapViewer.Visuals.cs（M3：internal 供 WindLayer 触发）。</summary>
     private bool _monthWindStarted;                 // 防重复启动
     private volatile Vector3[][] _monthWindPending; // 后台写、主线程 ApplyMonthWind 读
 
-    static Color HslToRgb(float h, float s, float l)
-    {
-        float q = l < 0.5f ? l * (1f + s) : l + s - l * s;
-        float p = 2f * l - q;
-        float H2R(float t)
-        {
-            if (t < 0f) t += 1f;
-            if (t > 1f) t -= 1f;
-            if (t < 1f / 6f) return p + (q - p) * 6f * t;
-            if (t < 1f / 2f) return q;
-            if (t < 2f / 3f) return p + (q - p) * (2f / 3f - t) * 6f;
-            return p;
-        }
-        return new Color(H2R(h + 1f / 3f), H2R(h), H2R(h - 1f / 3f));
-    }
-
-    /// <summary>海洋统一色（2026-08-18 用户要求与势力色区分）：深蓝——明确海，
-    /// 与势力色（亮色/避开蓝相）一眼可分。各图层判海返回统一用此色。</summary>
-    private static readonly Color SeaColor = new Color(0.10f, 0.22f, 0.48f);
-
-    /// <summary>势力色避开海洋蓝（2026-08-18 用户要求）：蓝-青相区间（0.48-0.72）映射到
-    /// 暖色/绿黄——势力色块与海色不撞（黄金角散列原可能出亮蓝——7401 #69a6d3 与海混淆）。</summary>
-    static float AvoidSeaHue(float hue)
-    {
-        if (hue >= 0.48f && hue <= 0.72f)
-            return hue < 0.60f ? hue + 0.35f : hue - 0.35f;   // 0.48-0.60→0.83-0.95（紫红）; 0.60-0.72→0.25-0.37（绿黄）
-        return hue;
-    }
-
-    /// <summary>整数 key/流域 id → 黄金角色相（double 计算防 float 精度坍缩——int 32 位 × float 在 2^31 量级
-    /// 只剩 22 档色相，不同 key 同色；double 52 位尾数全展开 360 档，2026-08-07）。</summary>
-    static float GoldenHue(long id)
-    {
-        return (float)((id * 0.6180339887498949) % 1.0);
-    }
-
-    /// <summary>矿种固定色（索引 = MineralSystem 矿种：1铁 2铜 3锡 4金 5煤 6盐 7石料 8宝石）。
-    /// 显示时 × 富度明度（贫 0.55 / 富 0.78 / 巨型 1.0）——用户确认：固定色 + 富度深浅。</summary>
-    private static readonly Color[] MineralColors =
-    {
-        Colors.Gray,                                       // 0 无（不使用）
-        new Color(0.55f, 0.50f, 0.45f),                    // 1 铁：灰褐
-        new Color(0.75f, 0.45f, 0.20f),                    // 2 铜：铜橙
-        new Color(0.75f, 0.75f, 0.80f),                    // 3 锡：银白
-        new Color(0.95f, 0.75f, 0.15f),                    // 4 金：金黄
-        new Color(0.18f, 0.18f, 0.20f),                    // 5 煤：黑
-        new Color(0.95f, 0.95f, 0.90f),                    // 6 盐：白
-        new Color(0.70f, 0.68f, 0.62f),                    // 7 石料：石灰
-        new Color(0.62f, 0.30f, 0.78f),                    // 8 宝石：紫
-    };
-
-    /// <summary>土壤肥力 5 档色带（索引 1-5：深绿=肥沃 → 灰=贫瘠；0 不用）。</summary>
-    private static readonly Color[] SoilColors =
-    {
-        Colors.Gray,                                       // 0 海洋（不使用）
-        new Color(0.55f, 0.48f, 0.38f),                    // 1 贫瘠：灰棕
-        new Color(0.62f, 0.52f, 0.36f),                    // 2 差：棕
-        new Color(0.72f, 0.62f, 0.35f),                    // 3 中：黄
-        new Color(0.45f, 0.68f, 0.35f),                    // 4 好：绿
-        new Color(0.20f, 0.55f, 0.25f),                    // 5 肥沃：深绿
-    };
-
     /// <summary>图层按钮 SVG 图标（纯直线 M/L/H/V/Z——thorvg 不支持 Q/T/A 曲线）。</summary>
-    private static readonly string[] LayerIcons =
-    {
-        // 0 海拔：两座山（直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M3 23 L11 8 L16 17 L19 12 L25 23 Z' fill='#eee'/></svg>",
-        // 1 温度：温度计（杆+刻度+圆泡，直线近似）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L14 14 L18 14 L18 20 L10 20 L10 14 L14 14 M10 20 L18 20 M10 17 L18 17' stroke='#eee' stroke-width='2.5' fill='none'/><path d='M11 21 L17 21 L17 24 L11 24 Z' fill='#eee'/></svg>",
-        // 2 降水：菱形雨滴 + 两侧小滴（直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L19 13 L14 23 L9 13 Z' fill='#eee'/><path d='M6 20 L4 25 M22 20 L24 25' stroke='#eee' stroke-width='2'/></svg>",
-        // 3 生物群系：树（三角冠+干，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L20 12 L17 12 L22 20 L6 20 L11 12 L8 12 Z' fill='#eee'/><rect x='12.5' y='20' width='3' height='6' fill='#eee'/></svg>",
-        // 4 盛行风：三条横线 + 箭头（直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M4 8 L18 8 M4 14 L22 14 M4 20 L14 20' stroke='#eee' stroke-width='2'/><path d='M20 4 L25 8 L20 12 Z' fill='#eee'/></svg>",
-        // 5 洋流：锯齿波浪（直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M2 10 L6 6 L10 10 L14 6 L18 10 L22 6 L26 10 M2 18 L6 14 L10 18 L14 14 L18 18 L22 14 L26 18' stroke='#eee' stroke-width='2' fill='none'/></svg>",
-        // 6 河流：折线河道（直线，蓝色）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M6 2 L10 6 L8 10 L14 14 L12 18 L15 22 L14 26' stroke='#6cf' stroke-width='3' fill='none' stroke-linecap='round'/></svg>",
-        // 7 流域：分水岭+两支流（直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L7 13 L4 24 M14 3 L21 13 L24 24 M14 3 L14 24' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
-        // 8 矿藏：矿石晶体（菱形，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 2 L24 9 L22 20 L14 26 L6 20 L4 9 Z M14 2 L14 26 M4 9 L14 14 L24 9 M6 20 L14 14 L22 20' stroke='#fd8' stroke-width='1.5' fill='none'/></svg>",
-        // 9 土壤：层状土层（横线，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M3 6 H25 M3 12 H25 M3 18 H25 M3 24 H25' stroke='#8a6' stroke-width='3' fill='none'/></svg>",
-        // 10 月降水：日历（框+挂环+月份点，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><rect x='4' y='6' width='20' height='18' fill='none' stroke='#7cf' stroke-width='2'/><path d='M4 12 H24 M9 3 V9 M19 3 V9' stroke='#7cf' stroke-width='2'/><path d='M8 18 H14 M8 22 H20' stroke='#7cf' stroke-width='2'/></svg>",
-        // 11 月温度：温度计+月相环（直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L14 14 L18 14 L18 20 L10 20 L10 14 L14 14 M10 20 L18 20 M10 17 L18 17' stroke='#fa6' stroke-width='2.5' fill='none'/><circle cx='14' cy='23' r='4' fill='none' stroke='#fa6' stroke-width='2'/><path d='M14 20 A4 4 0 0 1 14 26 Z' fill='#fa6'/></svg>",
-        // 12 人口：人群（三个圆头+身线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='9' cy='7' r='3' fill='#fd8'/><circle cx='19' cy='7' r='3' fill='#fd8'/><circle cx='14' cy='15' r='3' fill='#fd8'/><path d='M9 13 L9 25 M19 13 L19 25 M14 21 L14 25' stroke='#fd8' stroke-width='2.5' stroke-linecap='round'/></svg>",
-        // 13 文化：旗帜（旗杆+飘旗，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M12 3 L12 25 M12 6 L24 6 L21 11 L24 16 L12 16' fill='#fa6' stroke='#fa6' stroke-width='1.5' stroke-linejoin='miter'/></svg>",
-        // 14 独立势力：王冠（三个尖顶+底座，直线）——势力最高聚合
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M6 20 L6 9 L11 14 L14 6 L17 14 L22 9 L22 20 Z M4 23 H24' stroke='#fd8' stroke-width='2' fill='none' stroke-linejoin='miter' stroke-linecap='round'/></svg>",
-        // 15 科技：灯泡（灯丝+底座，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><circle cx='14' cy='11' r='7' fill='none' stroke='#8f8' stroke-width='2'/><path d='M11 19 H17 M12.5 23 H15.5 M14 16 V19' stroke='#8f8' stroke-width='2' stroke-linecap='round'/></svg>",
-        // 16 宗教：神庙（三角顶+立柱，直线）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 4 L24 22 L4 22 Z M8 22 L8 26 M12 22 L12 26 M16 22 L16 26 M20 22 L20 26' stroke='#8f8' stroke-width='2' fill='none' stroke-linecap='round'/></svg>",
-        // 17 势力范围：领地边界（六边形 + 内部边界线，直线；每领地独立色）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M14 3 L24 9 L24 19 L14 25 L4 19 L4 9 Z' stroke='#fd8' stroke-width='2' fill='none' stroke-linejoin='miter'/><path d='M14 3 L14 25 M4 9 L24 19 M24 9 L4 19' stroke='#fd8' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>",
-        // 18 政体：上升阶梯（组织化程度递增——band→部落→酋邦）
-        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 28 28'><path d='M4 24 H24 M4 24 V19 H13 V14 H20 V9 H24 V5' stroke='#f8a' stroke-width='2.5' fill='none' stroke-linejoin='miter' stroke-linecap='round'/><path d='M4 22 H24' stroke='#f8a' stroke-width='1' opacity='0.4'/></svg>",
-    };
 
     /// <summary>点击诊断（2026-08-17 用户要求）：左键点击地图格 → 日志打印位置/颜色/势力/人口等
     /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
@@ -935,18 +805,18 @@ public partial class MapViewer : Node3D
     /// <summary>格诊断打印（位置/颜色/势力/人口/实体——逐字段全量）。</summary>
     private void ClickDebug(int i)
     {
-        var col = MakeColorFn(_layer)(_tiles[i]);
-        LogService.Log("CLICK", $"格={i} 图层={LayerNames[_layer]} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
+        var col = _ctx != null ? LayerRegistry.Of(_layer).ColorOf(_ctx, _tiles[i]) : Colors.Magenta;   // 2026-08-21 M3：策略取色
+        LogService.Log("CLICK", $"格={i} 图层={LayerRegistry.Of(_layer).Name} 颜色=#{col.ToHtml()} pos=({_tiles[i].Center.X:F2},{_tiles[i].Center.Y:F2},{_tiles[i].Center.Z:F2})");
         int vid = _tileIndex != null ? _tileIndex.FaceToVertex(i) : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射（2026-08-19 收敛 TileIndex）
-        float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_tileElev[i] - _hSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
+        float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_cache.TileElev[i] - _cache.HSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
         // 续行诊断：保持 GD.Print 直调（[CLICK] 主行的格式续行，非日志，ADR-0004 §决策5）
-        GD.Print($"  elev={_tileElev[i]:F3} 海拔={elevM2:F0}m pop={_tilePop[vid]:F1} power={_tilePower[i]} polity={_tilePolity[i]} tribe={_tileTribe[i]} terr={_tileTerritory[i]} culture={_tileCulture[i]} religion={_tileReligion[i]}");
+        GD.Print($"  elev={_cache.TileElev[i]:F3} 海拔={elevM2:F0}m pop={_cache.TilePop[vid]:F1} power={_cache.TilePower[i]} polity={_cache.TilePolity[i]} tribe={_cache.TileTribe[i]} terr={_cache.TileTerritory[i]} culture={_cache.TileCulture[i]} religion={_cache.TileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
-        if (_tilePower[i] != 0)
+        if (_cache.TilePower[i] != 0)
         {
-            int pow = _tilePower[i], pCells = 0, pPop = 0;
+            int pow = _cache.TilePower[i], pCells = 0, pPop = 0;
             for (int j = 0; j < _tiles.Count; j++)
-                if (_tilePower[j] == pow) { pCells++; if (_tilePop[_tileIndex.FaceToVertex(j)] > 0f) pPop++; }
+                if (_cache.TilePower[j] == pow) { pCells++; if (_cache.TilePop[_tileIndex.FaceToVertex(j)] > 0f) pPop++; }
             GD.Print($"  势力{pow}: 共{pCells}格 / 有人口{pPop}格（pPop=0 ⇒ 无人口势力=异常；pPop>0 ⇒ 本格是采集格=设计）");
         }
         if (_civCtx != null)
@@ -992,24 +862,6 @@ public partial class MapViewer : Node3D
 
     // ── 图例 ──
 
-    /// <summary>生物群系显示名（索引=BiomeType 值；0-31 全覆盖）。</summary>
-    private static readonly string[] BiomeNames =
-    {
-        "深海", "海洋", "冰原(EF)", "苔原(ET)", "", "", "", "", "", "", "", "",
-        "高山", "河岸带",
-        "热带雨林(Af)", "热带季风林(Am)", "热带稀树草原(Aw)",
-        "热沙漠(BWh)", "冷沙漠(BWk)", "热半干旱草原(BSh)", "冷半干旱草原(BSk)",
-        "湿润亚热带(Cfa)", "海洋性温带(Cfb)", "冬干亚热带(Cwa)",
-        "地中海热夏(Csa)", "地中海凉夏(Csb)",
-        "湿润大陆热夏(Dfa)", "湿润大陆暖夏(Dfb)", "亚寒带针叶林(Dfc)", "冬干大陆(Dwa)",
-        "极地海洋", "热带海洋",
-    };
-
-    /// <summary>土壤肥力名（索引 1-5）。</summary>
-    private static readonly string[] SoilNames = { "", "贫瘠", "差", "中", "好", "肥沃" };
-
-    /// <summary>科技时代名（索引 0=石器 1-4=TechEpochColors）。</summary>
-    private static readonly string[] TechEpochNames = { "石器", "新石器", "青铜", "铁器", "古典" };
 }
 
 // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
