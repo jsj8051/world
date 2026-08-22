@@ -305,6 +305,43 @@ public static class MapArchive
         }
         return true;
     }
+
+    /// <summary>轻量头部摘要读取（MapSelectMenu 存档列表用）：只读 magic/version/seed/radiusKm/顶点数与海拔范围，
+    /// 顶点数组用 Seek 跳过（不分配、不读取、不建桶索引、不打日志）——n=163842 档从全量 Read 的 ~54MB 降到 ~30 字节。
+    /// ⚠️ 2026-08-23：原列表 Describe 全量 Read 每个档（42 档共 532MB 主线程同步反序列化 + 42 次 EnsureBuckets）
+    ///   → 进存档界面卡 10s+。此方法只读头部，毫秒级。
+    /// 球面(v3+)：vertexCount=顶点数、height=0；平面(v1/v2)：vertexCount=width、height=height。
+    /// 失败（打不开/坏 magic/版本过新）→ false。与 CivMapArchive.Peek 同构。</summary>
+    public static bool Peek(string path, out int seed, out int vertexCount, out int height,
+                            out float minElev, out float maxElev, out ushort version)
+    {
+        seed = 0; vertexCount = 0; height = 0; minElev = 0f; maxElev = 0f; version = 0;
+        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
+        if (f == null) return false;
+        string magic = "" + (char)f.Get8() + (char)f.Get8() + (char)f.Get8() + (char)f.Get8();
+        if (magic != Magic) return false;
+        version = f.Get16();
+        if (version > Version) return false;   // 版本过新：布局未知（旧版本可读，读端有兼容分支）
+        seed = (int)f.Get32();
+        if (version >= 3)
+        {
+            if (version >= 5) f.GetFloat();   // v5 radiusKm（列表不需要，跳过）
+            vertexCount = (int)f.Get32();
+            // 关键优化：Seek 跳过顶点数组（12n 字节），不读不分配
+            f.Seek(f.GetPosition() + (ulong)vertexCount * 12u);
+            minElev = f.GetFloat();
+            maxElev = f.GetFloat();
+        }
+        else
+        {
+            // v1/v2 平面：seed 后直接 width/height/minElev/maxElev（布局见 Read）
+            vertexCount = (int)f.Get32();   // width
+            height = (int)f.Get32();
+            minElev = f.GetFloat();
+            maxElev = f.GetFloat();
+        }
+        return true;
+    }
 }
 
 /// <summary>加载后的地图数据。v3 = 球面顶点场；v1/v2 = 等距柱状平面场。

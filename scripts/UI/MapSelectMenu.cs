@@ -107,14 +107,17 @@ public partial class MapSelectMenu : Control
         }
     }
 
-    /// <summary>读取存档头信息（seed/顶点数/海拔范围），失败返回空。</summary>
+    /// <summary>读取存档头信息（seed/顶点数/海拔范围），失败返回空。
+    /// 2026-08-23：改 MapArchive.Peek 轻量读——原来全量 Read 每个档几十 MB（42 档 532MB 主线程反序列化
+    /// + 每档建桶索引）→ 进界面卡 10s+；Peek 只读头部毫秒级。</summary>
     private string Describe(string path)
     {
-        if (!MapArchive.Read(path, out var map))
+        if (!MapArchive.Peek(path, out int seed, out int vertexCount, out int height,
+                             out float minElev, out float maxElev, out ushort ver))
             return "(读取失败)";
-        return map.IsSpherical
-            ? $"seed={map.Seed} · {map.Elev.Length} 顶点 · elev[{map.MinElev:F0},{map.MaxElev:F0}]m"
-            : $"seed={map.Seed} · {map.Width}×{map.Height} · elev[{map.MinElev:F0},{map.MaxElev:F0}]m";
+        return ver >= 3
+            ? $"seed={seed} · {vertexCount} 顶点 · elev[{minElev:F0},{maxElev:F0}]m"
+            : $"seed={seed} · {vertexCount}×{height} · elev[{minElev:F0},{maxElev:F0}]m";
     }
 
     private void EnterViewer(string path)
