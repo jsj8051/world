@@ -162,14 +162,17 @@ public static class OceanCurrent
             Vector3 gyre = grad.Cross(verts[i]);
             // 环流权重：边界/转向带强（|grad| 大），开阔大洋弱；|grad| ∝ 格距 → 按分辨率补偿
             float gyreW = Mathf.Min(1f, grad.Length() * 8f * gridRatio);
-            if (gyre.LengthSquared() > 1e-12f && gyreW > 0.03f)
+            // ⚠️ 2026-08-21 去掉弱流截断（原 gyreW > 0.03f）：v3 流线时代"真实洋流图不铺满"
+            //   的审美——开阔大洋空白；v4 粒子动画（earth 风格）需要全场流动（弱区慢速方向），
+            //   弱流区方向 = ψ 梯度切向（平滑解，物理可信）→ 保留；涡旋中心 |∇ψ|≈0 仍为零（物理）
+            if (gyre.LengthSquared() > 1e-12f)
             {
                 dirs[i] = gyre.Normalized();
                 // 强度：0.3（弱环流）~ 1.0（西边界强化强流）——2026-08-02 新增，
                 //   修正系数动态化的输入（强流带影响大、开阔弱流影响小）
                 strength[i] = 0.3f + gyreW * 0.7f;
             }
-            // else：|∇ψ|≈0（开阔大洋/环流中心）→ dirs 保持 zero → 流线空白（不铺满）
+            // else：|∇ψ|≈0（涡旋中心——解析零）→ dirs 保持 zero（物理无流）
         }
 
         // ── 4. 冷暖 = 洋流经向分量（向极 = 暖流，向赤道 = 寒流）──
