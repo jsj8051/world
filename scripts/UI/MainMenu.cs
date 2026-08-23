@@ -4,93 +4,37 @@ using World.Services;
 namespace World.UI;
 
 /// <summary>
-/// 主菜单：生成地图 / 进入游戏 两个入口。
-/// 纯代码构建 UI。布局：直接锚点定位（不嵌套容器，避免布局/鼠标过滤问题）。
+/// 主菜单：生成地图 / 读取自然地图 / 文明演化 / 读取文明存档 四个入口。
+/// 静态骨架（背景/窗口框/logo/标题/4 个卡片按钮/版本信息）在 MainMenu.tscn 场景中定义
+/// （与存档/生成/演化界面同一深空卡片风格 + 动态分辨率锚点）；脚本只做入口跳转绑定。
+/// 2026-08-23：由纯代码构建改为场景版（原 _Ready 全量 new 控件）。
 /// </summary>
 public partial class MainMenu : Control
 {
     public override void _Ready()
     {
-        // 背景（铺满全屏，MouseFilter.Ignore 不拦截任何点击）
-        var bg = new ColorRect { Color = new Color(0.06f, 0.08f, 0.12f) };
-        bg.SetAnchorsPreset(LayoutPreset.FullRect);
-        bg.MouseFilter = MouseFilterEnum.Ignore;
-        AddChild(bg);
+        // 根 Control 强制全屏（防场景根未自动拉伸）
+        SetAnchorsPreset(LayoutPreset.FullRect);
 
-        // 标题：居中顶部
-        var title = new Label
-        {
-            Text = "🌍 世界生成器",
-            HorizontalAlignment = HorizontalAlignment.Center,
-            CustomMinimumSize = new Vector2(0, 120),
-            MouseFilter = MouseFilterEnum.Ignore,
-        };
-        title.AddThemeFontSizeOverride("font_size", 64);
-        title.AddThemeColorOverride("font_color", new Color(0.85f, 0.9f, 1f));
-        title.SetAnchorsPreset(LayoutPreset.FullRect);
-        AddChild(title);
-
-        // 生成地图按钮：屏幕中央上方
-        var genBtn = MakeButton("🛠  生成地图");
-        genBtn.SetAnchorsPreset(LayoutPreset.Center);
-        genBtn.Position = new Vector2(-200, -240);
-        genBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapGenMenu.tscn");
-        AddChild(genBtn);
+        GetNode<Button>("%GenBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapGenMenu.tscn");
 
         // 读取自然地图按钮（读 .mpa/.gmp 用 MapViewer 查看自然图层；原"进入游戏"改名——它读的是自然地图）
-        var viewBtn = MakeButton("🗺  读取自然地图");
-        viewBtn.SetAnchorsPreset(LayoutPreset.Center);
-        viewBtn.Position = new Vector2(-200, -120);
-        viewBtn.Pressed += () =>
+        GetNode<Button>("%ViewBtn").Pressed += () =>
         {
             SaveSelectMenu.InitialTab = "map";   // 合并界面：默认地图标签
             GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
         };
-        AddChild(viewBtn);
 
         // 文明演化按钮（选自然地图 → 演化 → 生成 .cmp 游玩存档）
-        var evolveBtn = MakeButton("🌱  文明演化");
-        evolveBtn.SetAnchorsPreset(LayoutPreset.Center);
-        evolveBtn.Position = new Vector2(-200, 0);
-        evolveBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/CivEvolveMenu.tscn");
-        AddChild(evolveBtn);
+        GetNode<Button>("%EvolveBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/CivEvolveMenu.tscn");
 
         // 读取文明存档按钮（读 .cmp 游玩地图 → 开始游戏：MapViewer 显示文明图层）
-        var civBtn = MakeButton("🎮  读取文明存档");
-        civBtn.SetAnchorsPreset(LayoutPreset.Center);
-        civBtn.Position = new Vector2(-200, 120);
-        civBtn.Pressed += () =>
+        GetNode<Button>("%CivBtn").Pressed += () =>
         {
             SaveSelectMenu.InitialTab = "cmp";   // 合并界面：文明存档标签
             GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
         };
-        AddChild(civBtn);
-
-        // 底部版本信息
-        var footer = new Label
-        {
-            Text = "板块构造模拟 v3 · 球面直通存档 · 2026-08-02",
-            HorizontalAlignment = HorizontalAlignment.Center,
-            MouseFilter = MouseFilterEnum.Ignore,
-        };
-        footer.AddThemeFontSizeOverride("font_size", 14);
-        footer.AddThemeColorOverride("font_color", new Color(0.4f, 0.45f, 0.55f));
-        footer.SetAnchorsPreset(LayoutPreset.BottomWide);
-        footer.Position = new Vector2(0, -60);
-        AddChild(footer);
 
         LogService.Log("MainMenu", "ready");
-    }
-
-    private Button MakeButton(string text)
-    {
-        var btn = new Button
-        {
-            Text = text,
-            CustomMinimumSize = new Vector2(400, 76),
-            MouseFilter = MouseFilterEnum.Stop,
-        };
-        btn.AddThemeFontSizeOverride("font_size", 28);
-        return btn;
     }
 }

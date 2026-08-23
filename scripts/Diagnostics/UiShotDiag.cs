@@ -40,6 +40,7 @@ public partial class UiShotDiag : Node
         {
             "mapgen" => "res://scenes/core/MapGenMenu.tscn",
             "civ" => "res://scenes/core/CivEvolveMenu.tscn",
+            "main" => "res://scenes/core/MainMenu.tscn",
             _ => "res://scenes/core/SaveSelectMenu.tscn",
         };
         var menu = GD.Load<PackedScene>(scenePath).Instantiate<Control>();
