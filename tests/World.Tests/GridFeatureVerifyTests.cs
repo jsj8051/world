@@ -197,7 +197,7 @@ public class GridFeatureVerifyTests
     // ─── 功能 6：野生畜牧（草原 biome × 降水带）───
 
     [Test]
-    public void Grid_WildLivestock_SteppeRainBand()
+    public void Grid_WildLivestock_SteppeRainPolity()
     {
         var g = BuildDemoGrid();
         byte[] bits = WildCropsSystem.ComputeLivestock(g, g.Seed);
@@ -206,8 +206,8 @@ public class GridFeatureVerifyTests
         for (int i = 0; i < g.N; i++)
         {
             bool land = g.IsLandCell(i);
-            bool inBand = g.Precip[i] >= 300f && g.Precip[i] <= 1200f;   // HotSteppe 全部陆地
-            Assert.AreEqual(land && inBand ? (byte)1 : (byte)0, bits[i], $"格 {i}（precip={g.Precip[i]}）");
+            bool inPolity = g.Precip[i] >= 300f && g.Precip[i] <= 1200f;   // HotSteppe 全部陆地
+            Assert.AreEqual(land && inPolity ? (byte)1 : (byte)0, bits[i], $"格 {i}（precip={g.Precip[i]}）");
         }
     }
 

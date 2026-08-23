@@ -162,7 +162,7 @@ public class ArchiveChunkTests
     {
         var grid = MakeMinGrid();
         int n = grid.N;
-        var band = new Band
+        var polity = new Polity
         {
             Id = 3,
             Cell = 1,
@@ -173,9 +173,9 @@ public class ArchiveChunkTests
         {
             Grid = grid,
             Seed = 7,
-            Bands = new System.Collections.Generic.List<Band> { band },
-            CellBands = new Band[n],
-            NextBandId = 4,
+            Polities = new System.Collections.Generic.List<Polity> { polity },
+            CellPolities = new Polity[n],
+            NextPolityId = 4,
             CultureKeyCount = 2,
             CultureGroupKeyCount = 1,
             ReligionKeyCount = 1,
@@ -225,10 +225,10 @@ public class ArchiveChunkTests
         Assert.IsNotNull(back);
         Assert.AreEqual(100, back.FinalTick);
         Assert.AreEqual(7, back.Context.Seed);
-        Assert.AreEqual(1, back.Context.Bands.Count);
-        Assert.AreEqual(3, back.Context.Bands[0].Id);
-        Assert.AreEqual(42f, back.Context.Bands[0].P);
-        Assert.AreEqual(4, back.Context.NextBandId);
+        Assert.AreEqual(1, back.Context.Polities.Count);
+        Assert.AreEqual(3, back.Context.Polities[0].Id);
+        Assert.AreEqual(42f, back.Context.Polities[0].P);
+        Assert.AreEqual(4, back.Context.NextPolityId);
         Assert.AreEqual(2, back.Context.CultureKeyCount);
         Assert.AreEqual(9, back.Context.NextSettlementId);
         Assert.AreEqual(1, back.Context.Settlements.Count);

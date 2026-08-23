@@ -33,14 +33,14 @@ public sealed class TradeModel : CivModelBase
         // 空间预过滤：领地 = 驻扎点影响圈 R 内格——两领地可能接触仅当驻扎点距 ≤ 2R+1 格
         // （确定性：纯几何；把 O(对²×领地格) 降为 O(对²) 距离检查——全量演化性能防线）
         float reachKm = (2 * CivSimContext.InfluenceRadius + 1) * Mathf.Sqrt(ctx.Grid.CellAreaKm2);
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var a = ctx.Bands[i];
+            var a = ctx.Polities[i];
             if (a.Dead || a.P <= 0f) continue;
             EnsureStocks(a);
-            for (int j = i + 1; j < ctx.Bands.Count; j++)
+            for (int j = i + 1; j < ctx.Polities.Count; j++)
             {
-                var b = ctx.Bands[j];
+                var b = ctx.Polities[j];
                 if (b.Dead || b.P <= 0f) continue;
                 EnsureStocks(b);
                 if (ctx.Grid.DistKm(a.Cell, b.Cell) > reachKm) continue;   // 远隔两地无接触可能
@@ -57,7 +57,7 @@ public sealed class TradeModel : CivModelBase
     }
 
     /// <summary>部落商品池 = 随身 + 占据聚落粮仓（2026-08-19 双池：正式存储归聚落——贸易互通含其仓）。</summary>
-    private static float PoolOf(CivSimContext ctx, Band e, int s)
+    private static float PoolOf(CivSimContext ctx, Polity e, int s)
     {
         float v = e.Stocks != null && s < e.Stocks.Length ? e.Stocks[s] : 0f;
         var st = ctx.SettlementOf(e);
@@ -66,7 +66,7 @@ public sealed class TradeModel : CivModelBase
     }
 
     /// <summary>逐商品等量交换（固定商品序 = 目录序，确定性；跨商品天然成对——A 出 X、B 出 Y 即双重巧合）。</summary>
-    private static void Exchange(CivSimContext ctx, Band a, Band b, float mult)
+    private static void Exchange(CivSimContext ctx, Polity a, Polity b, float mult)
     {
         for (int s = 0; s < CommodityTable.Count; s++)
         {
@@ -82,7 +82,7 @@ public sealed class TradeModel : CivModelBase
     /// <summary>单商品转移 from → to（等量守恒；食物出口保底——出口后总池人均不低于 TradeFoodFloor×P；
     /// 出方：粮仓先出（卖存粮）→ 随身后出；入方：粮仓先收（定居）→ 随身（游群）。
     /// 演化级统计：TradeEvents/TradeVolume 累计——2026-08-19 贸易量级观测）。</summary>
-    private static void Transfer(CivSimContext ctx, Band from, Band to, int s, float amount)
+    private static void Transfer(CivSimContext ctx, Polity from, Polity to, int s, float amount)
     {
         var def = CommodityTable.All[s];
         if (def.Kind == CommodityKind.Food)
@@ -115,7 +115,7 @@ public sealed class TradeModel : CivModelBase
         ctx.TradeEvents++;
     }
 
-    private static void EnsureStocks(Band e)
+    private static void EnsureStocks(Polity e)
     {
         if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
     }

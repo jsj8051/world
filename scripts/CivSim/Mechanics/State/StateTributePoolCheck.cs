@@ -11,14 +11,14 @@ namespace World.CivSim.Mechanics.State;
 public static class StateTributePoolCheck
 {
     /// <summary>③ 贡赋盈余判定：贡赋池 ≥ 人口 × 线。</summary>
-    public static bool Check(List<int> members, Band[] byId)
+    public static bool Check(List<int> members, Polity[] byId)
     {
         float pop = 0f, pool = 0f;
         for (int k = 0; k < members.Count; k++)
         {
             int mid = members[k];
             if (mid >= byId.Length) continue;
-            Band m = byId[mid];
+            Polity m = byId[mid];
             if (m == null || m.Dead) continue;
             pop += m.P;
             pool += m.Contributed;

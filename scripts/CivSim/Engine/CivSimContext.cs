@@ -15,8 +15,8 @@ namespace World.CivSim;
 public sealed class CivSimContext
 {
     public GameGrid Grid;
-    public Band[] CellBands;   // 每格唯一驻留部落（一格一实体；null=空格；阶段2 由 List<Band>[] 简化而来）
-    public List<Band> Bands;       // 全部存活实体
+    public Polity[] CellPolities;   // 每格唯一驻留部落（一格一实体；null=空格；阶段2 由 List<Polity>[] 简化而来）
+    public List<Polity> Polities;       // 全部存活实体
     public int Tick;
     public int Seed;
     public int OriginCount = 3;
@@ -66,7 +66,7 @@ public sealed class CivSimContext
     public int TerritoryLastRebuild = -1;   // 最近凝聚重算 tick（TerritoryModel 频率守卫）
     public int[] BfsStamp;
     public int BfsStampValue;
-    public int NextBandId;   // 实体 Id 分配计数器（2026-08-10：独立于 Bands.Count——存档只存活实体，Count 会分叉）
+    public int NextPolityId;   // 实体 Id 分配计数器（2026-08-10：独立于 Polities.Count——存档只存活实体，Count 会分叉）
     public string[] KeyBuf;    // 科技遍历排序缓冲（SpreadTech 复用，无分配；2026-08-10 确定性）
     public int[] LockedUntil;  // 武力夺取格锁定到期 tick（-1=无锁定；2026-08-10 冲突机制——锁定内场不重算）
 
@@ -81,7 +81,7 @@ public sealed class CivSimContext
     public int WarsAnnexed;    // 演化统计：吞并场次
 
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
-    public Settlement SettlementOf(Band e)
+    public Settlement SettlementOf(Polity e)
     {
         if (e == null || e.PlaceId < 0 || Settlements == null) return null;
         for (int i = 0; i < Settlements.Count; i++)
@@ -106,7 +106,7 @@ public sealed class CivSimContext
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
     public const float Hysteresis = 0.02f;            // 滞回带（必须 < 农业稳态差 0.03，否则锁死切换）
     public const float SplitPop = 25f;               // 分裂阈值（2026-08 史实标定：band 25-50 人[考古群规模]→长到史实下限才分裂殖民；原 12 偏早致部落过小）
-    public const int MaxBandsPerCell = 8;            // 格内实体上限（遗留：一格一实体后恒 1，保留兼容诊断显示）
+    public const int MaxPolitiesPerCell = 8;            // 格内实体上限（遗留：一格一实体后恒 1，保留兼容诊断显示）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
     public const float FissionTensionStart = SplitPop;   // 规模张力起算点（跟随 SplitPop——band 量级，2026-08-17 土地挂钩；原硬编码 12 与 SplitPop 断链）
     public const float FissionTensionSpan = 8f;    // 张力封顶跨度（12+8=20 → 张力 1.0）
@@ -128,7 +128,7 @@ public sealed class CivSimContext
     public const float PrestigeDecay = 0.001f;         // 无盈余衰减/tick（声望可逆——Big Man 个人化，Sahlins）
     public const float BigManPrestigeThreshold = 1.0f; // 声望阈值 → BigMan
     public const int ChiefdomEvalEvery = TerritoryRebuildEvery;   // 凝聚评估频率（跟随领地重建同频；原硬编码 10 与 TerritoryRebuildEvery 断链）
-    public const int ChiefdomMinBands = 2;            // 酋邦最小部落数（<2 → 解散）
+    public const int ChiefdomMinPolities = 2;            // 酋邦最小部落数（<2 → 解散）
     public const float TributeRate = 0.1f;             // 盈余贡赋率（实物税——夏威夷 ahupua'a 土地分区，Earle）
     public const float TributeRelief = 0.5f;           // 灾年开仓缓冲（互惠：贡献过才受赈，Halstead-O'Shea）
     public const float EliteFrac = 0.1f;               // 酋长 band 精英比例（非生产者——祭司/战士/亲信，贡赋供养）
@@ -180,7 +180,7 @@ public sealed class CivSimContext
     public const float SettlementStoragePerLevel = 0.5f;   // 每级存储容量加成（×0.5/级——村庄 1.5×、城市 2.5×）
     public const float SettlementGrowthPerLevel = 0.25f;   // 每级增长倍率加成（×0.25/级——城市化集聚）
     public const int SettlementLevelCooldown = 2;  // 升级冷却 ticks（防跳级抖动；须 < 最小时限阈值 3）
-    // 随身池（Band.Stocks 新语义 2026-08-19：正式存储迁聚落，部落只剩随身）——
+    // 随身池（Polity.Stocks 新语义 2026-08-19：正式存储迁聚落，部落只剩随身）——
     //   容量沿用原游群档（游群即随身；定居部落也随身基础量——行囊/工具/日粮）
     public const float CarryFoodCap = 0.06f;   // 随身食物容量（×P）
     public const float CarryMatCap = 0.02f;    // 随身材料容量（×P）
@@ -319,7 +319,7 @@ public sealed class CivSimContext
     /// 实际产出 = Y_pot × min(1, P_i / P_劳动)，P_劳动 = LaborFrac × Y_pot（劳动力爬坡，同农业 Boserup——
     ///   新分裂的小部落劳动不足产出受限，需长大）。
     /// CarryMult 走实体缓存（RefreshCellState 每 tick 算；测试构造未算时 fallback 实时）。</summary>
-    public float FHunt(Band e)
+    public float FHunt(Polity e)
     {
         float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
         // 一格一实体：格产出归其唯一驻留部落独占（不再按同格部落数均分）
@@ -331,7 +331,7 @@ public sealed class CivSimContext
 
     /// <summary>农业潜在产出（单格，驻扎点；生产方式选择用——防小部落开垦不足永不转农死锁）。
     /// ⚠️ 2026-08-17 决策领地化：ModeModel 已改用 FFarmPotentialTerritory（领地版），本方法保留供测试/单格语义。</summary>
-    public float FFarmPotential(Band e)
+    public float FFarmPotential(Polity e)
     {
         float rAgri = R[e.Cell] * IrrigFactor(e.Cell) * AlluvFactor(Grid.SoilLevel[e.Cell]);
         if (rAgri <= 0f) return 0f;
@@ -350,7 +350,7 @@ public sealed class CivSimContext
     /// <summary>领地采集潜在（2026-08-17 决策领地化：ModeModel 转农判据与产出层同口径——
     /// band 决定"种不种"看整个领地，不是驻扎点单格。不含开垦（决策时田还没开垦，
     /// 比较"原始土地条件"值不值得种；猎物+浆果占比合计 1）。</summary>
-    public float FHuntTerritory(Band e)
+    public float FHuntTerritory(Polity e)
     {
         var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
@@ -367,7 +367,7 @@ public sealed class CivSimContext
 
     /// <summary>领地农业潜在（2026-08-17 决策领地化，劳动因子=1——防小部落开垦不足死锁；
     /// Σ 领地格 max种子(AgriBase×φ)×R×A×Irrig×Alluv×w，不含开垦）。</summary>
-    public float FFarmPotentialTerritory(Band e)
+    public float FFarmPotentialTerritory(Polity e)
     {
         var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
@@ -393,7 +393,7 @@ public sealed class CivSimContext
     /// <summary>领地牧场潜在（2026-08-17 畜牧落地：草原格 WildLivestock 位 + livestock 能力 →
     /// 牧场潜在 = R×A×HerdMult×w（HerdMult=2：草原牧畜单位土地产出 2×采集）。
     /// 决策用——草原畜牧抬高狩猎收益 → 抑制转农（史实：草原游牧不种地）。</summary>
-    public float FHerdTerritory(Band e)
+    public float FHerdTerritory(Polity e)
     {
         if (!CapabilityTable.Has(this, e, CapabilityTable.Livestock)) return 0f;
         var wild = Grid.EnsureWildLivestock();
@@ -412,7 +412,7 @@ public sealed class CivSimContext
 
     /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限；
     /// ×开垦率 Cultivation——2026-08-17 土地挂钩：田是逐步开垦的，0 开垦 0 农业产出，转农当 tick 靠领地采集兜底）。</summary>
-    public float FFarmActual(Band e)
+    public float FFarmActual(Polity e)
     {
         float potential = FFarmPotential(e);
         if (potential <= 0f) return 0f;
@@ -434,7 +434,7 @@ public sealed class CivSimContext
         yFarm > 0f ? yFarm / Mathf.Max(0.001f, pop) - W : 0f;
 
     /// <summary>寒冷区 F 下限（§4.5：火 → 0.05·面积×3；皮毛 → 再 ×3——空间层被技术解锁；能力查询 2026-08-09）。</summary>
-    public float ColdFloor(Band e)
+    public float ColdFloor(Polity e)
     {
         if (!IsColdZone((BiomeType)Grid.Biome[e.Cell])) return 0f;
         if (!CapabilityTable.Has(this, e, CapabilityTable.Fire)) return 0f;
@@ -445,7 +445,7 @@ public sealed class CivSimContext
     }
 
     /// <summary>格内独驻部落数（一格一实体恒 1：格产出归唯一驻留部落独占，无均分）。</summary>
-    private int NBands(int cell) => 1;
+    private int NPolities(int cell) => 1;
 
     /// <summary>生产方式并行产出（2026-08-09 用户拍板：混合经济 + 收益权重土地分配，Vic3/EU5 PM 参考）：
     /// 部落方式集 M = {hunt} ∪ {herd if livestock能力+生态位} ∪ {farm if IsFarming}；
@@ -453,10 +453,10 @@ public sealed class CivSimContext
     /// 实际 F_k = w_k×s_k×min(1, P/(LaborFrac×w_k×s_k))（份额劳动爬坡）；
     /// 总产出 = ΣF_k。单方式时退化为原公式（纯猎含劳动 ✓ 兼容）。
     /// 分量缓存 FHuntLast/FHerdLast/FFarmLast（货物分解用）。</summary>
-    public float FOf(Band e)
+    public float FOf(Polity e)
     {
         float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
-        float A = Grid.CellAreaKm2 / NBands(e.Cell);
+        float A = Grid.CellAreaKm2 / NPolities(e.Cell);
         float pHunt = R[e.Cell] * A * m;
         float pHerd = CapabilityTable.Has(this, e, CapabilityTable.Livestock) ? R[e.Cell] * HerdMult * A * m : 0f;
         float pFarm = e.IsFarming ? FFarmPotential(e) : 0f;
@@ -512,8 +512,8 @@ public sealed class CivSimContext
     public float TotalPopulation()
     {
         float s = 0f;
-        for (int i = 0; i < Bands.Count; i++)
-            if (!Bands[i].Dead) s += Bands[i].P;
+        for (int i = 0; i < Polities.Count; i++)
+            if (!Polities[i].Dead) s += Polities[i].P;
         return s;
     }
 
@@ -535,14 +535,14 @@ public sealed class CivSimContext
         CheckLen("BfsStamp", BfsStamp);
         if (R != null) for (int i = 0; i < n; i++) if (R[i] < 0f) { errs.Add($"R[{i}]<0"); break; }
         if (Cultivation != null) for (int i = 0; i < n; i++) if (Cultivation[i] < 0f || Cultivation[i] > 1f) { errs.Add($"Cultivation[{i}]={Cultivation[i]} 超出[0,1]"); break; }
-        if (CellOwner != null) for (int i = 0; i < n; i++) if (CellOwner[i] < -1 || CellOwner[i] >= NextBandId) { errs.Add($"CellOwner[{i}]={CellOwner[i]} 越界(NextBandId={NextBandId})"); break; }
-        // 一格一实体：CellBands 与 Band.Cell 双向一致（存活实体）
-        if (CellBands != null) for (int i = 0; i < n; i++) { var e = CellBands[i]; if (e != null && (e.Cell != i || e.Dead)) errs.Add($"CellBands[{i}] 与实体不一致(e.Cell={e.Cell},Dead={e.Dead})"); }
-        if (Bands != null) foreach (var e in Bands)
+        if (CellOwner != null) for (int i = 0; i < n; i++) if (CellOwner[i] < -1 || CellOwner[i] >= NextPolityId) { errs.Add($"CellOwner[{i}]={CellOwner[i]} 越界(NextPolityId={NextPolityId})"); break; }
+        // 一格一实体：CellPolities 与 Polity.Cell 双向一致（存活实体）
+        if (CellPolities != null) for (int i = 0; i < n; i++) { var e = CellPolities[i]; if (e != null && (e.Cell != i || e.Dead)) errs.Add($"CellPolities[{i}] 与实体不一致(e.Cell={e.Cell},Dead={e.Dead})"); }
+        if (Polities != null) foreach (var e in Polities)
         {
             if (e.Dead) continue;
             if (e.Cell < 0 || e.Cell >= n) { errs.Add($"实体{e.Id} Cell={e.Cell} 越界"); continue; }
-            if (CellBands != null && CellBands[e.Cell] != e) errs.Add($"实体{e.Id} 不在 CellBands[{e.Cell}]");
+            if (CellPolities != null && CellPolities[e.Cell] != e) errs.Add($"实体{e.Id} 不在 CellPolities[{e.Cell}]");
         }
         if (Rng != null && Rng is not DeterministicRandom) errs.Add("Rng 非 DeterministicRandom（确定性纪律被破坏）");
         return errs;
@@ -604,16 +604,16 @@ public sealed class CivSimContext
         Array.Fill(CellBestOwner, -1);
         Array.Clear(CellBestInf, 0, n);
         Array.Clear(CellOwnerInf, 0, n);
-        // ⚠️ 2026-08-17 修复：活实体 Id 集（死残留清理的正确映射——旧版 Bands[CellOwner[c]]
-        //   用 Id 当索引——读档后 Id 有空洞（Bands 只含存活）→ 错位访问 → 死 band 的影响力
+        // ⚠️ 2026-08-17 修复：活实体 Id 集（死残留清理的正确映射——旧版 Polities[CellOwner[c]]
+        //   用 Id 当索引——读档后 Id 有空洞（Polities 只含存活）→ 错位访问 → 死 band 的影响力
         //   残留 → 幽灵势力色块（用户怀疑成立：band 消失但影响力没清）
         _liveIdSet ??= new HashSet<int>();
         _liveIdSet.Clear();
-        for (int i = 0; i < Bands.Count; i++)
-            if (!Bands[i].Dead) _liveIdSet.Add(Bands[i].Id);
-        for (int i = 0; i < Bands.Count; i++)
+        for (int i = 0; i < Polities.Count; i++)
+            if (!Polities[i].Dead) _liveIdSet.Add(Polities[i].Id);
+        for (int i = 0; i < Polities.Count; i++)
         {
-            var e = Bands[i];
+            var e = Polities[i];
             if (e.Dead) continue;
             float M = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
             float strength = e.P * M;
@@ -652,7 +652,7 @@ public sealed class CivSimContext
 
     /// <summary>领地格数组安全访问（Id 索引——按 MaxId 动态扩容；2026-08-17 索引体系修复：
     /// 读档/分裂后实体 Id 递增有空洞——固定 4096 容量在 Id 超限时越界，统一走安全访问）。</summary>
-    public List<int> TerritoryOf(Band e)
+    public List<int> TerritoryOf(Polity e)
     {
         if (TerritoryCells == null) EnsureTerritory();
         if (e.Id >= TerritoryCells.Length) EnsureTerritoryCapacity(e.Id + 256);
@@ -660,7 +660,7 @@ public sealed class CivSimContext
     }
 
     /// <summary>领地距离数组安全访问（同 TerritoryOf 扩容语义）。</summary>
-    public List<byte> TerritoryDistsOf(Band e)
+    public List<byte> TerritoryDistsOf(Polity e)
     {
         if (TerritoryDists == null) EnsureTerritory();
         if (e.Id >= TerritoryDists.Length) EnsureTerritoryCapacity(e.Id + 256);
@@ -669,7 +669,7 @@ public sealed class CivSimContext
 
     /// <summary>两部落领地**最小边界格距**（格步数近似：大圆 km ÷ 胞边长；不相接触返回 int.MaxValue）。
     /// 确定性：固定遍历序（领地格列表序 × 邻格表序）。贸易运输成本用（黑曜石随距衰减史实）。</summary>
-    public static int BoundaryDist(CivSimContext ctx, Band a, Band b)
+    public static int BoundaryDist(CivSimContext ctx, Polity a, Polity b)
     {
         var terrA = ctx.TerritoryOf(a);
         var terrB = ctx.TerritoryOf(b);
@@ -689,7 +689,7 @@ public sealed class CivSimContext
     /// <summary>领地边界接触（边界格距 == 1：A 领地格有**邻格**属 B 领地——直接邻接）。
     /// ⚠️ 2026-08-18 共享判定：酋邦凝聚（ChiefdomModel）与贸易（TradeModel）同用——防"两套实现分叉"
     ///   （T04 类缺陷根治惯例）。确定性：固定遍历序；HashSet 仅做 Contains 查询（遍历序无关）。</summary>
-    public static bool TerritoryTouches(CivSimContext ctx, Band a, Band b)
+    public static bool TerritoryTouches(CivSimContext ctx, Polity a, Polity b)
     {
         var terrA = ctx.TerritoryOf(a);
         var terrB = ctx.TerritoryOf(b);
@@ -705,7 +705,7 @@ public sealed class CivSimContext
     public void EnsureTerritory()
     {
         if (TerritoryCells != null) return;
-        int cap = Math.Max(4096, Bands.Count + 256);
+        int cap = Math.Max(4096, Polities.Count + 256);
         TerritoryCells = new List<int>[cap];
         TerritoryDists = new List<byte>[cap];
         for (int i = 0; i < cap; i++)
@@ -722,17 +722,17 @@ public sealed class CivSimContext
     public void RebuildTerritory()
     {
         EnsureTerritory();
-        for (int i = 0; i < Bands.Count; i++)
+        for (int i = 0; i < Polities.Count; i++)
         {
-            var e = Bands[i];
+            var e = Polities[i];
             if (e.Dead) continue;
             if (e.Id >= TerritoryCells.Length) EnsureTerritoryCapacity(e.Id + 256);
             TerritoryCells[e.Id].Clear();
             TerritoryDists[e.Id].Clear();
         }
-        for (int i = 0; i < Bands.Count; i++)
+        for (int i = 0; i < Polities.Count; i++)
         {
-            var e = Bands[i];
+            var e = Polities[i];
             if (e.Dead) continue;
             var terr = TerritoryOf(e);
             var dists = TerritoryDistsOf(e);
@@ -779,7 +779,7 @@ public sealed class CivSimContext
     /// 牧场潜在 = R·A·HerdMult·w·(1−开垦)（草原位——草场被农田直接替代，与浆果同敏感度；
     ///   2026-08-17 用户拍板：畜牧也是占用土地的建筑，无"游牧与田不冲突"豁免）；
     /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w。</summary>
-    public float AllocateAndProduce(Band e)
+    public float AllocateAndProduce(Polity e)
     {
         var terr = TerritoryOf(e);
         if (terr == null || terr.Count == 0) return 0f;
@@ -913,5 +913,5 @@ public sealed class CivSimContext
     }
 
     /// <summary>本 tick 归属是否可迁移：饿（F<D）且领地内无可扩（领地格数已达影响圈内无主格上限）——简化：F<P 且连续饿。</summary>
-    public bool IsStarving(Band e) => e.FLast < e.P * 0.999f;
+    public bool IsStarving(Polity e) => e.FLast < e.P * 0.999f;
 }

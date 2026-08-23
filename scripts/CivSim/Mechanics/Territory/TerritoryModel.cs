@@ -38,17 +38,17 @@ public sealed class TerritoryModel : CivModelBase
         int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
         void Union(int a, int b) { int ra = Find(a), rb = Find(b); if (ra != rb) parent[ra] = rb; }
 
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
             if (!e.Dead) parent[e.Id] = e.Id;
         // 邻格凝聚边（一格一实体：无同格对）：相邻占据格的部落，同语言群 → 凝聚
         for (int i = 0; i < ctx.Grid.N; i++)
         {
-            var ea = ctx.CellBands[i];
+            var ea = ctx.CellPolities[i];
             if (ea == null || ea.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
-                var eb = ctx.CellBands[nb];
+                var eb = ctx.CellPolities[nb];
                 if (eb == null || eb.Dead) continue;
                 if (ShareField.DomKey(ea.CultureGroupShare) == ShareField.DomKey(eb.CultureGroupShare))
                     Union(ea.Id, eb.Id);
@@ -57,14 +57,14 @@ public sealed class TerritoryModel : CivModelBase
         // 填分量：标号 = 分量最小实体 Id（确定性）；size = 分量实体数
         var sizes = new Dictionary<int, int>();
         var mins = new Dictionary<int, int>();
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
             int root = Find(e.Id);
             sizes[root] = sizes.TryGetValue(root, out var v) ? v + 1 : 1;
             if (!mins.TryGetValue(root, out var m) || e.Id < m) mins[root] = e.Id;
         }
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
             int root = Find(e.Id);
@@ -73,9 +73,9 @@ public sealed class TerritoryModel : CivModelBase
         }
     }
 
-    private static Band MaxPop(List<Band> list)
+    private static Polity MaxPop(List<Polity> list)
     {
-        Band best = null;
+        Polity best = null;
         for (int k = 0; k < list.Count; k++)
             if (!list[k].Dead && (best == null || list[k].P > best.P)) best = list[k];
         return best;

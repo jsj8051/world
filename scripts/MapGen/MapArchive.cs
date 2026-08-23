@@ -20,7 +20,7 @@ namespace World.MapGen;
 ///   [..]  数据区（段：HEAD/VERT/ELEV/TEMP/PREC/BIOM/OCEN/RIVL/RIVF/RIVV/LAKE/MINE/SOIL/MONO/MPRC/MTMP + CIVI）
 ///   [12B×K] 段表 + [12B] 尾目录（ZIP 式；ChunkWriter/ChunkReader 容器）
 ///
-/// v8（2026-08-23 Phase 3）：CIVI 文明段 Band 字段按概念分组重排（Core/Chiefdom/State——v16 schema）。
+/// v8（2026-08-23 Phase 3）：CIVI 文明段 Polity 字段按概念分组重排（Core/Chiefdom/State——v16 schema）。
 /// v7（2026-08-23 单存档化）：新增 CIVI 段 = 文明演化结果（HEAD/TRIB/LAND/STTL/WARS 五段正文，
 /// 复用 CivMapArchive 编解码；自然层 .mpa 已有无需 NATR）。无文明 = 无 CIVI 段 = 纯自然地图，
 /// 读档检测段存在即可识别「有文明的世界」。v6 旧档无 CIVI 段 → 仍可读（纯自然）。

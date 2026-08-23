@@ -22,9 +22,9 @@ public sealed class ModeModel : CivModelBase
 
     protected override void Apply(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             bool hasSeed = CapabilityTable.Has(ctx, e, CapabilityTable.Seed);
             if (!hasSeed) { e.IsFarming = false; continue; }

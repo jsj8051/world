@@ -30,7 +30,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             return;
         }
         var ctx = res.Context;
-        LogService.Log("HumanLayersProbe", $"{path} n={grid.N} 实体={ctx.Bands.Count} tick={res.FinalTick} 人口={ctx.TotalPopulation():F0}");
+        LogService.Log("HumanLayersProbe", $"{path} n={grid.N} 实体={ctx.Polities.Count} tick={res.FinalTick} 人口={ctx.TotalPopulation():F0}");
 
         var ownerCells = new Dictionary<int, int>();
         if (ctx.CellOwner != null)
@@ -54,13 +54,13 @@ public partial class HumanLayersProbe : DiagSceneBase
         DumpWarStats(ctx);
         DumpExpansionStats(ctx, grid);
 
-        var terrBands = new Dictionary<int, int>();
-        foreach (var e in ctx.Bands)
+        var terrPolities = new Dictionary<int, int>();
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
-            terrBands[e.TerritoryId] = terrBands.TryGetValue(e.TerritoryId, out var v) ? v + 1 : 1;
+            terrPolities[e.TerritoryId] = terrPolities.TryGetValue(e.TerritoryId, out var v) ? v + 1 : 1;
         }
-        var terrList = new List<KeyValuePair<int, int>>(terrBands);
+        var terrList = new List<KeyValuePair<int, int>>(terrPolities);
         terrList.Sort((x, y) => y.Value.CompareTo(x.Value));
         var tSb = new System.Text.StringBuilder();
         foreach (var kv in terrList) tSb.Append($"{kv.Key}({kv.Value}b) ");
@@ -77,8 +77,8 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// 报告归属格分布（= 地图实际显示的文化分布）；定居/领地只差明度。</summary>
     private void DumpDisplayStats(CivSimContext ctx, int n)
     {
-        var byId = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
         var cultCells = new Dictionary<string, int>();
         int owned = 0;
         for (int v = 0; v < n; v++)
@@ -109,15 +109,15 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// ③ 文化图层最大连通同色区域（BFS，显示色 = 定居自身 or 归属者）——衡量地图碎成孤岛 vs 存在连贯区域。</summary>
     private void DumpEnclaveStats(CivSimContext ctx, int n)
     {
-        var bestByCell = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands)
+        var bestByCell = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
             if (ctx.R != null && ctx.R[e.Cell] <= 0f) continue;
             if (!bestByCell.TryGetValue(e.Cell, out var cur) || e.P > cur.P) bestByCell[e.Cell] = e;
         }
-        var byId = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
         int land = 0, owned = 0, selfOwned = 0, foreignOwned = 0, cultDiff = 0, powerDiff = 0;
         for (int v = 0; v < n; v++)
         {
@@ -244,14 +244,14 @@ public partial class HumanLayersProbe : DiagSceneBase
         return (compMax, compCount);
     }
 
-    private static string PowerKey(Band e)
+    private static string PowerKey(Polity e)
     {
         if (e.ChiefdomId >= 0) return "C" + e.ChiefdomId;
         if (e.TerritorySize >= 2) return "T" + e.TerritoryId;
         return "B" + e.Id;
     }
 
-    private static int PowerIdOf(Band e)
+    private static int PowerIdOf(Polity e)
     {
         if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
         if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
@@ -263,13 +263,13 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// ⚠️ 诊断模式：对每个 ≥2 成员酋邦打印未达标条件（都城/层级/贡赋/存续）——定位阈值校准。</summary>
     private void DumpStateStats(CivSimContext ctx)
     {
-        var byState = new Dictionary<int, (int Bands, float Pop)>();
+        var byState = new Dictionary<int, (int Polities, float Pop)>();
         var capitals = new Dictionary<int, int>();   // stateId → 都城 Level
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead || e.StateId < 0) continue;
             if (!byState.TryGetValue(e.StateId, out var agg)) agg = (0, 0f);
-            agg.Bands++;
+            agg.Polities++;
             agg.Pop += e.P;
             byState[e.StateId] = agg;
             if (e.IsChief && e.ChiefdomId == e.Id)
@@ -278,7 +278,7 @@ public partial class HumanLayersProbe : DiagSceneBase
                 if (st != null) capitals[e.StateId] = st.Level;
             }
         }
-        var list = new List<KeyValuePair<int, (int Bands, float Pop)>>(byState);
+        var list = new List<KeyValuePair<int, (int Polities, float Pop)>>(byState);
         list.Sort((x, y) => y.Value.Pop.CompareTo(x.Value.Pop));
         var sb = new System.Text.StringBuilder();
         int capSum = 0;
@@ -286,25 +286,25 @@ public partial class HumanLayersProbe : DiagSceneBase
         {
             int capLvl = capitals.TryGetValue(kv.Key, out var l) ? l : -1;
             if (capLvl >= 0) capSum++;
-            sb.Append($"国家{kv.Key}:{kv.Value.Bands}b/{kv.Value.Pop:F0}p/都城L{capLvl} ");
+            sb.Append($"国家{kv.Key}:{kv.Value.Polities}b/{kv.Value.Pop:F0}p/都城L{capLvl} ");
         }
         LogService.Log("HumanLayersProbe", $"国家统计: {list.Count} 个国家（{capSum} 有都城）| {sb}");
         // 诊断：按酋邦打印未达标条件（前 10 大酋邦）
-        var diag = new List<(int Chief, int Bands, float Pop, int CapLvl, float Pool, float Need, int Settles, bool Sub, int Dwell)>();
-        var byId = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
-        var groups = new Dictionary<int, List<Band>>();
-        foreach (var e in ctx.Bands)
+        var diag = new List<(int Chief, int Polities, float Pop, int CapLvl, float Pool, float Need, int Settles, bool Sub, int Dwell)>();
+        var byId = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
+        var groups = new Dictionary<int, List<Polity>>();
+        foreach (var e in ctx.Polities)
             if (!e.Dead && e.ChiefdomId >= 0)
             {
-                if (!groups.TryGetValue(e.ChiefdomId, out var l)) groups[e.ChiefdomId] = l = new List<Band>();
+                if (!groups.TryGetValue(e.ChiefdomId, out var l)) groups[e.ChiefdomId] = l = new List<Polity>();
                 l.Add(e);
             }
         foreach (var kv in groups)
         {
             var members = kv.Value;
             if (members.Count < 2) continue;
-            Band chief = null;
+            Polity chief = null;
             foreach (var m in members) if (m.IsChief && m.ChiefdomId == m.Id) { chief = m; break; }
             if (chief == null) { diag.Add((kv.Key, members.Count, 0f, -1, 0f, 0f, 0, false, -1)); continue; }
             var cap = ctx.SettlementOf(chief);
@@ -328,7 +328,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         for (int i = 0; i < Math.Min(10, diag.Count); i++)
         {
             var d = diag[i];
-            dSb.Append($"邦{d.Chief}:{d.Bands}b/{d.Pop:F0}p 都城L{d.CapLvl} 池{d.Pool:F0}/需{d.Need:F0} 聚落{d.Settles} 次级{d.Sub} 存续{d.Dwell} | ");
+            dSb.Append($"邦{d.Chief}:{d.Polities}b/{d.Pop:F0}p 都城L{d.CapLvl} 池{d.Pool:F0}/需{d.Need:F0} 聚落{d.Settles} 次级{d.Sub} 存续{d.Dwell} | ");
         }
         LogService.Log("HumanLayersProbe", $"国家诊断(前10大酋邦): {dSb}");
     }
@@ -357,7 +357,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         var entByR = new int[5];
         var ownedByR = new int[5];   // 归属格按 R 分桶
         float[] rBins = { 0.02f, 0.05f, 0.1f, 0.2f, float.MaxValue };
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
             int ri = BucketIndex(ctx.R[e.Cell], rBins);
@@ -392,8 +392,8 @@ public partial class HumanLayersProbe : DiagSceneBase
     private void DumpPowerColorCheck(CivSimContext ctx, int n)
     {
         var ids = new HashSet<int>();
-        var byId = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
         if (ctx.CellOwner != null)
             for (int v = 0; v < n; v++)
                 if (ctx.CellOwner[v] >= 0 && byId.TryGetValue(ctx.CellOwner[v], out var o))
@@ -419,8 +419,8 @@ public partial class HumanLayersProbe : DiagSceneBase
     private void DumpTerritoryColorCheck(CivSimContext ctx, int n)
     {
         var ids = new HashSet<int>();
-        var byId = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
         if (ctx.CellOwner != null)
             for (int v = 0; v < n; v++)
                 if (ctx.CellOwner[v] >= 0 && byId.TryGetValue(ctx.CellOwner[v], out var o))
@@ -454,8 +454,8 @@ public partial class HumanLayersProbe : DiagSceneBase
         }
         int[] levels = new int[4];
         int ruins = 0, capitals = 0;
-        var byId = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
         foreach (var s in ctx.Settlements)
         {
             if (s.IsRuin) { ruins++; continue; }
@@ -469,15 +469,15 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// 预期农持谷物、牧持羊毛、猎持皮革（比较优势 → 各产所长 → 贸易互通）。</summary>
     private void DumpModeStocks(CivSimContext ctx)
     {
-        var modes = new Dictionary<string, List<Band>>();
-        foreach (var e in ctx.Bands)
+        var modes = new Dictionary<string, List<Polity>>();
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
             string m;
             if (e.IsFarming && e.FFarmLast >= e.FHuntLast && e.FFarmLast >= e.FHerdLast) m = "农";
             else if (e.FHerdLast > e.FHuntLast) m = "牧";
             else m = "猎";
-            if (!modes.TryGetValue(m, out var l)) modes[m] = l = new List<Band>();
+            if (!modes.TryGetValue(m, out var l)) modes[m] = l = new List<Polity>();
             l.Add(e);
         }
         foreach (var kv in modes)
@@ -503,20 +503,20 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// 酋邦 band 数分布 + 大领地内部是否单酋邦（= 语言网络 vs 政治统一体）。</summary>
     private void DumpPolitySizes(CivSimContext ctx)
     {
-        var chiefBands = new Dictionary<int, int>();
+        var chiefPolities = new Dictionary<int, int>();
         var chiefPop = new Dictionary<int, float>();
-        var terrBands = new Dictionary<int, int>();
-        foreach (var e in ctx.Bands)
+        var terrPolities = new Dictionary<int, int>();
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
             if (e.ChiefdomId >= 0)
             {
-                chiefBands[e.ChiefdomId] = chiefBands.TryGetValue(e.ChiefdomId, out var b) ? b + 1 : 1;
+                chiefPolities[e.ChiefdomId] = chiefPolities.TryGetValue(e.ChiefdomId, out var b) ? b + 1 : 1;
                 chiefPop[e.ChiefdomId] = chiefPop.TryGetValue(e.ChiefdomId, out var p) ? p + e.P : e.P;
             }
-            terrBands[e.TerritoryId] = terrBands.TryGetValue(e.TerritoryId, out var t) ? t + 1 : 1;
+            terrPolities[e.TerritoryId] = terrPolities.TryGetValue(e.TerritoryId, out var t) ? t + 1 : 1;
         }
-        var cb = new List<KeyValuePair<int, int>>(chiefBands);
+        var cb = new List<KeyValuePair<int, int>>(chiefPolities);
         cb.Sort((x, y) => y.Value.CompareTo(x.Value));
         var sb = new System.Text.StringBuilder();
         foreach (var kv in cb)
@@ -524,13 +524,13 @@ public partial class HumanLayersProbe : DiagSceneBase
         LogService.Log("HumanLayersProbe", $"酋邦 {cb.Count} 个 | 最大: {sb}");
         // 大领地（≥100 band）内酋邦数——语言网络 vs 政治统一
         var terrChiefs = new Dictionary<int, HashSet<int>>();
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead || e.ChiefdomId < 0) continue;
             if (!terrChiefs.TryGetValue(e.TerritoryId, out var s)) terrChiefs[e.TerritoryId] = s = new HashSet<int>();
             s.Add(e.ChiefdomId);
         }
-        var big = new List<KeyValuePair<int, int>>(terrBands);
+        var big = new List<KeyValuePair<int, int>>(terrPolities);
         big.Sort((x, y) => y.Value.CompareTo(x.Value));
         var sb2 = new System.Text.StringBuilder();
         int shown = 0;
@@ -543,10 +543,10 @@ public partial class HumanLayersProbe : DiagSceneBase
         LogService.Log("HumanLayersProbe", $"大领地内酋邦数（语言网络 vs 政治统一）: {sb2}");
     }
 
-    private void DumpLayer(CivSimContext ctx, Dictionary<int, int> ownerCells, string name, Func<Band, string> keyOf)
+    private void DumpLayer(CivSimContext ctx, Dictionary<int, int> ownerCells, string name, Func<Polity, string> keyOf)
     {
         var agg = new Dictionary<string, Agg>();
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
             string k = keyOf(e) ?? "无";
@@ -564,7 +564,7 @@ public partial class HumanLayersProbe : DiagSceneBase
     }
 
     /// <summary>等距柱状导出（归属格主导：每像素→最近逻辑顶点→CellOwner→该 band 的 key 哈希→色）。</summary>
-    private void ExportMap(GameGrid grid, CivSimContext ctx, string tag, Func<Band, int> keyOf)
+    private void ExportMap(GameGrid grid, CivSimContext ctx, string tag, Func<Polity, int> keyOf)
     {
         const int w = 1024, h = 512;
         var verts = grid.Verts;
@@ -582,8 +582,8 @@ public partial class HumanLayersProbe : DiagSceneBase
             int lon = (int)Mathf.Clamp((Mathf.Atan2(p.Z, p.X) / Mathf.Tau + 0.5f) * BL, 0, BL - 1);
             buckets[lat][lon].Add(v);
         }
-        var idMap = new Dictionary<int, Band>();
-        foreach (var e in ctx.Bands) if (!e.Dead) idMap[e.Id] = e;
+        var idMap = new Dictionary<int, Polity>();
+        foreach (var e in ctx.Polities) if (!e.Dead) idMap[e.Id] = e;
         var img = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
         for (int y = 0; y < h; y++)
         {

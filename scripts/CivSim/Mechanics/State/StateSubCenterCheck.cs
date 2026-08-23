@@ -12,7 +12,7 @@ namespace World.CivSim.Mechanics.State;
 public static class StateSubCenterCheck
 {
     /// <summary>② 决策层级判定：成员聚落 ≥2 且存在次级中心。</summary>
-    public static bool Check(List<int> members, Band[] byId, Dictionary<int, Settlement> settleById, int capitalId)
+    public static bool Check(List<int> members, Polity[] byId, Dictionary<int, Settlement> settleById, int capitalId)
     {
         int memberSettlements = 0;
         bool hasSubCenter = false;
@@ -20,7 +20,7 @@ public static class StateSubCenterCheck
         {
             int mid = members[k];
             if (mid >= byId.Length) continue;
-            Band m = byId[mid];
+            Polity m = byId[mid];
             if (m == null || m.Dead) continue;
             Settlement s = m.PlaceId >= 0 && settleById.TryGetValue(m.PlaceId, out var st) ? st : null;
             if (s == null || s.OccupantId != m.Id) continue;

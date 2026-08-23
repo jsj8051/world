@@ -21,7 +21,7 @@ public sealed class PolityLayer : MapLayer
         if (ctx.IsSea(id) && ctx.Cache.TilePower[id] == 0) return SeaColor;
         int powerId = ctx.Cache.TilePower[id];
         if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
-        float hue = ctx.Cache.TilePolity[id] switch
+        float hue = ctx.Cache.TilePolityKind[id] switch
         {
             3 => 0.12f,    // 国家：金（王权/官僚——制度化）
             2 => 0.045f,   // 酋邦：红橙

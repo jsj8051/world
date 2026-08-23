@@ -29,7 +29,7 @@ public sealed class SplitMigrateModel : CivModelBase
         //    母 band 人口超载（裂变压力）→ 45% 分群**殖民**影响圈外 1-3 跳最高富饶无主地；
         //    母领地完全不动（承载不变 → P 减半 → 盈余再长 → 周期分裂）；扩散=殖民推进。
         //    无目标（无主地耗尽）→ 不分裂（饱和态：P 继续涨 → 竞争/饿死路径）。
-        var snapshot = ctx.Bands.ToArray();
+        var snapshot = ctx.Polities.ToArray();
         foreach (var t in snapshot)
         {
             if (t.Dead) continue;
@@ -49,9 +49,9 @@ public sealed class SplitMigrateModel : CivModelBase
             float newPop = Mathf.Min(t.P * CivSimContext.SplitShare, Mathf.Max(1f, cap));
             t.P -= newPop;
             t.LastSplitTick = ctx.Tick;
-            var nt = new Band
+            var nt = new Polity
             {
-                Id = ctx.NextBandId++,   // 独立计数器（2026-08-10）
+                Id = ctx.NextPolityId++,   // 独立计数器（2026-08-10）
                 Cell = target,
                 P = newPop,
                 IsFarming = t.IsFarming,
@@ -74,15 +74,15 @@ public sealed class SplitMigrateModel : CivModelBase
             // 宗教派别分化：2% 新 key（图腾漂变）
             if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
-            ctx.Bands.Add(nt);
-            ctx.CellBands[target] = nt;   // 一格一实体：分裂殖民到空格
+            ctx.Polities.Add(nt);
+            ctx.CellPolities[target] = nt;   // 一格一实体：分裂殖民到空格
             ctx.Fissions++;
         }
 
         // ── 饥饿迁移（2026-08-10 影响力场模型）：饿（F<D）→ 驻扎点搬家到 1-3 跳内最高富饶度无主格。
         //    落脚必须无主（CellOwner==-1——有主格禁入，冲突未实现）；旧领地格下 tick 场重算自动废弃。
         //    冷却 MigrateCooldown tick 防抖动（连续饿会再次触发——游走 band 觅食迁徙）。
-        var snap2 = ctx.Bands.ToArray();
+        var snap2 = ctx.Polities.ToArray();
         foreach (var t in snap2)
         {
             if (t.Dead) continue;
@@ -90,10 +90,10 @@ public sealed class SplitMigrateModel : CivModelBase
             if (!ctx.IsStarving(t)) continue;
             int target = PickMigrateTarget(ctx, t);
             if (target < 0) continue;   // 无处可去（全被占）→ 饿死路径（GrowthModel）
-            if (ctx.CellBands[t.Cell] == t) ctx.CellBands[t.Cell] = null;
+            if (ctx.CellPolities[t.Cell] == t) ctx.CellPolities[t.Cell] = null;
             t.Cell = target;
             t.LastMigrateTick = ctx.Tick;
-            ctx.CellBands[target] = t;
+            ctx.CellPolities[target] = t;
             ctx.Migrations++;
         }
     }
@@ -105,7 +105,7 @@ public sealed class SplitMigrateModel : CivModelBase
     ///   旧公式 R×cost 让殖民只挑最肥格 → 全图挤富饶区（30% 陆地），贫瘠 70% 永久空置。
     ///   新公式 cost×(1+ColonizeFertilityBias×R/RMax)：就近优先（cost 衰减），贫瘠近邻 &gt; 富饶远邻。
     /// 确定性：时间戳标记 + 固定遍历顺序。</summary>
-    internal static int PickMigrateTarget(CivSimContext ctx, Band mover)
+    internal static int PickMigrateTarget(CivSimContext ctx, Polity mover)
     {
         var grid = ctx.Grid;
         var keys = mover.TechKeys;
@@ -124,9 +124,9 @@ public sealed class SplitMigrateModel : CivModelBase
         while (q.Count > 0)
         {
             var (c, layer, ccost) = q.Dequeue();
-            // 目标 = 可居（R>0——海洋/冰盖不是殖民地）且未定居（CellBands==null）；
+            // 目标 = 可居（R>0——海洋/冰盖不是殖民地）且未定居（CellPolities==null）；
             // CellOwner 影响力圈地不算定居（分裂殖民可落入他邦影响圈——竞争由归属场表达）
-            if (ctx.CellBands[c] == null && ctx.R[c] > 0f)
+            if (ctx.CellPolities[c] == null && ctx.R[c] > 0f)
             {
                 float s = ColonizeScore(ctx.R[c], ctx.RMax, ccost);
                 if (s > bestScore) { bestScore = s; best = c; }

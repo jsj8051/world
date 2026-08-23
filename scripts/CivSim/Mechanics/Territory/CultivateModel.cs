@@ -17,9 +17,9 @@ public sealed class CultivateModel : CivModelBase
     protected override void Apply(CivSimContext ctx)
     {
         if (ctx.Cultivation == null) return;
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || !e.IsFarming) continue;
             var terr = ctx.TerritoryOf(e);
             if (terr == null || terr.Count == 0) continue;

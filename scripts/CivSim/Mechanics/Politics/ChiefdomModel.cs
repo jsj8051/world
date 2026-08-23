@@ -53,17 +53,17 @@ public sealed class ChiefdomModel : CivModelBase
     public static void Rebuild(CivSimContext ctx)
     {
         // ── ① 继承危机检测（旧酋邦快照——不依赖本次凝聚）──
-        var oldChiefdoms = new Dictionary<int, List<Band>>();
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        var oldChiefdoms = new Dictionary<int, List<Polity>>();
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || e.ChiefdomId < 0) continue;
-            if (!oldChiefdoms.TryGetValue(e.ChiefdomId, out var l)) oldChiefdoms[e.ChiefdomId] = l = new List<Band>();
+            if (!oldChiefdoms.TryGetValue(e.ChiefdomId, out var l)) oldChiefdoms[e.ChiefdomId] = l = new List<Polity>();
             l.Add(e);
         }
         foreach (var kv in oldChiefdoms)
         {
-            if (kv.Value.Count < CivSimContext.ChiefdomMinBands) continue;   // 单成员不算酋邦
+            if (kv.Value.Count < CivSimContext.ChiefdomMinPolities) continue;   // 单成员不算酋邦
             bool hasChief = false, inCrisis = false;
             foreach (var m in kv.Value)
             {
@@ -73,25 +73,25 @@ public sealed class ChiefdomModel : CivModelBase
             if (!hasChief && !inCrisis)
             {
                 // 酋长死亡（且未在危机中）→ 继承窗口：Prestige 最高者成为继位竞争中心
-                Band top = null;
+                Polity top = null;
                 foreach (var m in kv.Value) if (top == null || m.Prestige > top.Prestige) top = m;
                 if (top != null) top.SuccessionUntil = ctx.Tick + CivSimContext.SuccessionWindowTicks;
             }
         }
 
         // ── ② 收集酋长（Prestige 降序 + Id 升序——确定性遍历序：先处理声望最高者）──
-        var chiefs = new List<Band>();
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        var chiefs = new List<Polity>();
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || !e.IsChief || e.Cell < 0 || e.Cell >= ctx.Grid.N) continue;
             chiefs.Add(e);
         }
         chiefs.Sort((x, y) => y.Prestige != x.Prestige ? y.Prestige.CompareTo(x.Prestige) : x.Id.CompareTo(y.Id));
 
         // ── ③ 庇护 BFS：每酋长在 ChiefReach 内宣告庇护（band 只认声望更高的酋长）──
-        //    Id 索引缓冲（Id 有空洞——NextBandId 分配，勿用列表索引）
-        int bufLen = Math.Max(ctx.NextBandId, ctx.Bands.Count + 1);
+        //    Id 索引缓冲（Id 有空洞——NextPolityId 分配，勿用列表索引）
+        int bufLen = Math.Max(ctx.NextPolityId, ctx.Polities.Count + 1);
         var bestPrestige = new float[bufLen];
         var bestChief = new int[bufLen];
         System.Array.Fill(bestChief, -1);
@@ -99,7 +99,7 @@ public sealed class ChiefdomModel : CivModelBase
         {
             ctx.BfsRadius(c.Cell, CivSimContext.ChiefReach, (cell, _) =>
             {
-                var e = ctx.CellBands[cell];
+                var e = ctx.CellPolities[cell];
                 if (e == null || e.Dead || e.IsChief) return;   // 酋长不隶属（互相竞争）
                 if (e.Id >= bestPrestige.Length) return;
                 if (c.Prestige > bestPrestige[e.Id])   // 平局不覆盖（遍历序保证低 Id 先到）
@@ -112,16 +112,16 @@ public sealed class ChiefdomModel : CivModelBase
 
         // ── ④ 分配 ChiefdomId/Size（酋长 = 自己中心；band = 最优庇护人）──
         //    Id 索引（ConqueredBy 强制归属查询——阶段5 吞并效忠，见 WarModel.Annex）
-        var byId = new Band[bufLen];
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        var byId = new Polity[bufLen];
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (!e.Dead && e.Id < bufLen) byId[e.Id] = e;
         }
         var memberCount = new Dictionary<int, int>();   // chiefId → 成员数（含酋长自己）
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             if (e.SuccessionUntil > 0 && e.SuccessionUntil <= ctx.Tick) e.SuccessionUntil = -1;   // 窗口过期清除
             if (e.TerritoryId < 0) { e.ChiefdomId = -1; e.ChiefdomSize = 1; continue; }   // 无领地不入邦
@@ -136,12 +136,12 @@ public sealed class ChiefdomModel : CivModelBase
             memberCount[chiefId] = memberCount.TryGetValue(chiefId, out var n) ? n + 1 : 1;
         }
 
-        // ── ⑤ 解散：< ChiefdomMinBands → -1（单人酋邦不成邦）──
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        // ── ⑤ 解散：< ChiefdomMinPolities → -1（单人酋邦不成邦）──
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || e.ChiefdomId < 0) continue;
-            if (memberCount.TryGetValue(e.ChiefdomId, out var n) && n < CivSimContext.ChiefdomMinBands)
+            if (memberCount.TryGetValue(e.ChiefdomId, out var n) && n < CivSimContext.ChiefdomMinPolities)
             {
                 e.ChiefdomId = -1;
                 e.ChiefdomSize = 1;
@@ -160,9 +160,9 @@ public sealed class ChiefdomModel : CivModelBase
             for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i] = new List<int>();
         }
         for (int i = 0; i < ctx.ChiefdomCells.Length; i++) ctx.ChiefdomCells[i].Clear();   // 重建前清空
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || e.ChiefdomId < 0) continue;
             if (e.ChiefdomId >= ctx.ChiefdomCells.Length)
             {

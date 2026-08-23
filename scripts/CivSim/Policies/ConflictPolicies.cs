@@ -32,7 +32,7 @@ public static class ConflictPolicies
     public static readonly IConflictPolicy State = new StateConflictPolicy();
 
     /// <summary>按双方政治体关系取策略：同国家 → State（内部秩序+王朝豁免）；同酋邦 → Chiefdom；其余 → Default。</summary>
-    public static IConflictPolicy Of(Band a, Band b)
+    public static IConflictPolicy Of(Polity a, Polity b)
     {
         if (a.ChiefdomId >= 0 && a.ChiefdomId == b.ChiefdomId)
         {

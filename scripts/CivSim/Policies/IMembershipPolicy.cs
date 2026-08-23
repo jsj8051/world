@@ -11,5 +11,5 @@ namespace World.CivSim.Policies;
 public interface IMembershipPolicy
 {
     /// <summary>执行归属分配：返回本实体归入的酋长 Id（-1 = 独立）。副作用：写 ChiefdomId 等归属字段。</summary>
-    int Assign(CivSimContext ctx, Band e, Band[] byId, int[] bestChief);
+    int Assign(CivSimContext ctx, Polity e, Polity[] byId, int[] bestChief);
 }

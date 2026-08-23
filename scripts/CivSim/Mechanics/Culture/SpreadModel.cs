@@ -26,12 +26,12 @@ public sealed class SpreadModel : CivModelBase
         //   不跨空格传播（邻近不行），无同格对（一格一实体）。──
         for (int i = 0; i < ctx.Grid.N; i++)
         {
-            var a = ctx.CellBands[i];
+            var a = ctx.CellPolities[i];
             if (a == null || a.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
-                var b = ctx.CellBands[nb];
+                var b = ctx.CellPolities[nb];
                 if (b == null || b.Dead) continue;
                 // 闭塞区域：跨格传播 ×= BorderCost（地形障碍 × 气候相似度；A→B 用 A 的科技判定障碍突破）
                 float cost = ctx.BorderCost(i, nb, a.TechKeys);
@@ -42,7 +42,7 @@ public sealed class SpreadModel : CivModelBase
         }
     }
 
-    private static Band MaxPop(List<Band> list)
+    private static Polity MaxPop(List<Polity> list)
     {
         var best = list[0];
         for (int k = 1; k < list.Count; k++)
@@ -51,7 +51,7 @@ public sealed class SpreadModel : CivModelBase
     }
 
     /// <summary>领地传播乘数：同领地 ×1.5（整合加成）；至少一方是正式领地（≥2 band）→ ×0.5（跨边界软冲突）；散兵部落间 ×1（BorderCost 已有）。</summary>
-    internal static float TerritoryMult(Band a, Band b)
+    internal static float TerritoryMult(Polity a, Polity b)
     {
         if (a.TerritoryId >= 0 && a.TerritoryId == b.TerritoryId) return CivSimContext.TerritorySpreadMult;
         if (a.TerritorySize >= 2 || b.TerritorySize >= 2) return CivSimContext.CrossBorderSpreadMult;
@@ -61,7 +61,7 @@ public sealed class SpreadModel : CivModelBase
     /// <summary>技术传播 from → to（to 缺 from 的技术且依赖满足 → 按概率获得）。
     /// ⚠️ 2026-08-10 确定性修复：HashSet 遍历顺序依赖构建历史（读档重建 Add 顺序 ≠ 演化布局）→
     ///    同 Rng 数对应不同 key → 读档续跑分叉。改为**排序遍历**（与布局无关，ctx 缓冲无分配）。</summary>
-    private void SpreadTech(CivSimContext ctx, Band from, Band to, float border = 1f)
+    private void SpreadTech(CivSimContext ctx, Polity from, Polity to, float border = 1f)
     {
         float terr = TerritoryMult(from, to);   // 领地乘数（同领地×1.5 / 跨领地×0.5 / 散兵×1）
         int nKeys = from.TechKeys.Count;

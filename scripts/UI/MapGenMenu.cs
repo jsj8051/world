@@ -511,7 +511,7 @@ public partial class MapGenMenu : Control
             _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
             return;
         }
-        LogService.Log("MapGenMenu", $"生成+演化完成（含文明）: {_civOutPath} (bands={_civResult.Context.Bands.Count} tick={_civResult.FinalTick})");
+        LogService.Log("MapGenMenu", $"生成+演化完成（含文明）: {_civOutPath} (polities={_civResult.Context.Polities.Count} tick={_civResult.FinalTick})");
         _status.Text = $"✅ 生成+演化完成！存档：{_civOutPath.GetFile()}（含文明，可返回主菜单进入世界）";
         _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
         _bar.Prefix = "（生成+演化完成）";

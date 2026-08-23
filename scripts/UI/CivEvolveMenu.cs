@@ -281,7 +281,7 @@ public partial class CivEvolveMenu : Control
         for (int i = 0; i < _grid.N; i++) if (c.CellPop[i] > 0f) occ++;
         var relDist = new int[5];
         int agri = 0;
-        foreach (var t in c.Bands)
+        foreach (var t in c.Polities)
         {
             int relIdx = ShareField.ReligionIndex(ShareField.DomReligion(t.ReligionShare));
             if (relIdx >= 0) relDist[relIdx]++;
@@ -292,12 +292,12 @@ public partial class CivEvolveMenu : Control
         _bar.Prefix = "（演化完成）";
         _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
         _status.Text = $"✓ 演化完成：{result.FinalTick} tick × {World.CivSim.CivSimContext.TickYears} 年 = {result.FinalTick * World.CivSim.CivSimContext.TickYears} 年\n" +
-                       $"部落 {c.Bands.Count} · 总人口 {c.TotalPopulation():F0} · 覆盖 {occ}/{_grid.N} 格 · 农业部落 {agri}\n" +
+                       $"部落 {c.Polities.Count} · 总人口 {c.TotalPopulation():F0} · 覆盖 {occ}/{_grid.N} 格 · 农业部落 {agri}\n" +
                        $"宗教: 萨满{relDist[1]} 祖先{relDist[2]} 多神{relDist[3]} 一神{relDist[4]} · 文化key {c.CultureKeyCount} 个\n" +
                        $"→ 已保存 {_cmpOutPath}";
         _playBtn.Disabled = false;
         _evolveBtn.Disabled = _backBtn.Disabled = false;
-        LogService.Log("CivEvolveMenu", $"演化完成 → {_cmpOutPath} (bands={c.Bands.Count} pop={c.TotalPopulation():F0} agri={agri})");
+        LogService.Log("CivEvolveMenu", $"演化完成 → {_cmpOutPath} (polities={c.Polities.Count} pop={c.TotalPopulation():F0} agri={agri})");
     }
 
     private void OnPlayPressed()

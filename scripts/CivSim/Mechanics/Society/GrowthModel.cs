@@ -24,9 +24,9 @@ public sealed class GrowthModel : CivModelBase
     protected override void Apply(CivSimContext ctx)
     {
         float r = ctx.TickFactor;   // 0.5/tick
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             float f = e.FLast;   // 当 tick 实际产出（RefreshCellState 已算，农业含劳动因子；寒冷区含下限）
             // ⚠️ 2026-08-18 阶段3 存储机制：有效粮食 = 当年产出 + Food 存储缓冲（AccumulateStorage 已做衰变/容量）。

@@ -25,9 +25,9 @@ public sealed class PrestigeModel : CivModelBase
 
     protected override void Apply(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             float surplus = e.FLast - e.P;   // 实际盈余（人当量；FLast 由 Harvest/RefreshCellState 已算）
             if (surplus > 0f && e.P > 0f)
@@ -57,25 +57,25 @@ public sealed class PrestigeModel : CivModelBase
     }
 
     /// <summary>酋邦贡赋池 = Σ成员 Contributed（按 ChiefdomId；滞后酋邦状态可接受——派生同 Territory 模式）。</summary>
-    private static float TributePool(CivSimContext ctx, Band chief)
+    private static float TributePool(CivSimContext ctx, Polity chief)
     {
         if (chief.ChiefdomId < 0) return 0f;
         float sum = 0f;
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var m = ctx.Bands[i];
+            var m = ctx.Polities[i];
             if (!m.Dead && m.ChiefdomId == chief.ChiefdomId) sum += m.Contributed;
         }
         return sum;
     }
 
     /// <summary>消耗贡赋（按成员贡献比例扣减——实物税从贡献者处收取）。</summary>
-    private static void ConsumeTribute(CivSimContext ctx, Band chief, float amount)
+    private static void ConsumeTribute(CivSimContext ctx, Polity chief, float amount)
     {
         float remaining = amount;
-        for (int i = 0; i < ctx.Bands.Count && remaining > 0f; i++)
+        for (int i = 0; i < ctx.Polities.Count && remaining > 0f; i++)
         {
-            var m = ctx.Bands[i];
+            var m = ctx.Polities[i];
             if (m.Dead || m.ChiefdomId != chief.ChiefdomId || m.Contributed <= 0f) continue;
             float take = Mathf.Min(remaining, m.Contributed);
             m.Contributed -= take;

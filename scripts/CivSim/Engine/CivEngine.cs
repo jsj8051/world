@@ -27,8 +27,8 @@ public static class CivEngine
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellBands = new Band[n],
-            Bands = new List<Band>(),
+            CellPolities = new Polity[n],
+            Polities = new List<Polity>(),
             Seed = seed,
             OriginCount = originCount,
             Rng = new DeterministicRandom(seed),   // 可序列化状态：读档续跑无分叉
@@ -56,7 +56,7 @@ public static class CivEngine
             ctx.TerritoryDists[i] = new List<byte>();
         }
         for (int i = 0; i < n; i++)
-            ctx.CellBands[i] = null;
+            ctx.CellPolities[i] = null;
         BuildLayer1(ctx);   // 层1 空间生产力 R（Miami NPP × 水因子，k 相对标定 → 陆地中位数 0.3 人/km²）
         // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场构造时已建（全 0，随农田增长）
 
@@ -84,14 +84,14 @@ public static class CivEngine
         }
         swRun.Stop();
 
-        ctx.Bands.RemoveAll(e => e.Dead);
+        ctx.Polities.RemoveAll(e => e.Dead);
         // ⚠️ 2026-08-18 阶段3 方案 D：边界态统一重建（唯一入口，与读档/Continue 同式）——
         //   FLast/CellF/领地/酋邦/领袖标记全部从末态持久字段重算，Run 返回态自洽 → 读档续跑无分叉。
         SettleDerived(ctx);
         // ⚠️ 2026-08-17 监督机制：CivSim 逐模型耗时入历史（对比/告警；--arch 全量测试时也自动记录）
         modelMs["总"] = swRun.ElapsedMilliseconds;
         var (hisAvg, _, hisCnt) = World.Diagnostics.PerfLog.Stats("civsim", "总");
-        World.Diagnostics.PerfLog.Append("civsim", $"{ctx.Tick}t/{ctx.Bands.Count}e", modelMs);
+        World.Diagnostics.PerfLog.Append("civsim", $"{ctx.Tick}t/{ctx.Polities.Count}e", modelMs);
         if (hisCnt > 0)
         {
             // 调用方可能后台线程（CivEvolveMenu Task.Run）：LogService 纪律禁止，保持 GD.Print 直调（ADR-0004 §决策4）
@@ -113,7 +113,7 @@ public static class CivEngine
             registry.ExecuteAll(ctx);
             onProgress?.Invoke((k + 1f) / Mathf.Max(1, extraTicks));
         }
-        ctx.Bands.RemoveAll(e => e.Dead);
+        ctx.Polities.RemoveAll(e => e.Dead);
         SettleDerived(ctx);   // ⚠️ 2026-08-18 阶段3：与 Run 结尾同式（边界态统一重建）
         return new CivSimResult { Context = ctx, FinalTick = ctx.Tick };
     }
@@ -147,7 +147,7 @@ public static class CivEngine
         ctx.RMax = Mathf.Max(1e-6f, rMax * k);   // 殖民落点分数归一化参考（2026-08-19 扩散项）
     }
 
-    /// <summary>每 tick 开头的派生刷新（现状语义，保持不动）：CellBands/CellPop/CellFarmPop/CarryMult/CapMask
+    /// <summary>每 tick 开头的派生刷新（现状语义，保持不动）：CellPolities/CellPop/CellFarmPop/CarryMult/CapMask
     /// + 商品存储年步进（副作用）+ CellF 聚合（FLast 为上 tick 值——Harvest 在本 tick 才更新）。
     /// ⚠️ 2026-08-18 阶段3 拆分：内部 = RefreshCellStateCore(纯) + AccumulateStorage(副作用) + RefreshCellStateF(纯)。
     /// 副作用（商品存储消耗/衰变）只在演化每 tick 调用，绝不在 SettleDerived 边界重算里调（防双倍累积）。</summary>
@@ -158,25 +158,25 @@ public static class CivEngine
         RefreshCellStateF(ctx);
     }
 
-    /// <summary>纯派生①：CellBands（一格一实体单引用）+ CellPop/CellFarmPop + CarryMult/CapMask。
+    /// <summary>纯派生①：CellPolities（一格一实体单引用）+ CellPop/CellFarmPop + CarryMult/CapMask。
     /// 幂等（可任意次数调用）；供 SettleDerived 边界重算用。</summary>
     public static void RefreshCellStateCore(CivSimContext ctx)
     {
         int n = ctx.Grid.N;
-        // ⚠️ 2026-08-17 审查修复 + 2026-08 阶段2 一格一实体：每 tick 按实体列表顺序重建 CellBands（单引用）。
+        // ⚠️ 2026-08-17 审查修复 + 2026-08 阶段2 一格一实体：每 tick 按实体列表顺序重建 CellPolities（单引用）。
         //   一格一实体：每格至多一个部落；重建=清空为 null 再按实体列表顺序写入（确定性，防读档续跑分叉）。
-        for (int i = 0; i < n; i++) ctx.CellBands[i] = null;
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < n; i++) ctx.CellPolities[i] = null;
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
-            ctx.CellBands[e.Cell] = e;
+            ctx.CellPolities[e.Cell] = e;
         }
         Array.Clear(ctx.CellPop, 0, n);
         Array.Clear(ctx.CellFarmPop, 0, n);
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             e.CarryMult = TechTable.HuntingCarry(e.TechKeys);
             e.CapMask = CapabilityTable.MaskOf(ctx, e);
@@ -188,7 +188,7 @@ public static class CivEngine
     /// <summary>副作用累积：商品存储 tick 步进（2026-08-18 阶段3 存储/衰变机制；2026-08-19 聚落双池改造）。
     /// **每 tick 仅一次**（演化循环内），绝不在 SettleDerived 边界重算调用（否则双倍消耗 → 分叉）。
     /// 双池（用户拍板"存粮迁移到聚落"）：
-    ///   · **随身池**（Band.Stocks，v12 字段语义改）：衰变用**基础年率**（携带即自然损耗——存储科技不保护
+    ///   · **随身池**（Polity.Stocks，v12 字段语义改）：衰变用**基础年率**（携带即自然损耗——存储科技不保护
     ///     随身物）；Material 流入的**溢余**；容量 CarryFoodCap/CarryMatCap×P（游群即随身）。
     ///   · **粮仓**（Settlement.Stocks，v13）：衰变用 techMult（storage/pottery/settle/grinding 分层保藏——
     ///     谷物耐储核心）；Material 流入**优先入仓**；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×Level)。
@@ -197,9 +197,9 @@ public static class CivEngine
     ///   decayTick = 1 − (1 − BaseDecay×techMult)^TickYears（年衰变史实锚点 → 100 年聚合）。</summary>
     public static void AccumulateStorage(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || e.P <= 0f) continue;
             if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
             var s = ctx.SettlementOf(e);   // 粮仓（定居部落）；null = 游群
@@ -260,9 +260,9 @@ public static class CivEngine
     public static void RefreshCellStateF(CivSimContext ctx)
     {
         Array.Clear(ctx.CellF, 0, ctx.Grid.N);
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             ctx.CellF[e.Cell] += e.FLast;
         }
@@ -280,9 +280,9 @@ public static class CivEngine
     /// 与 HarvestModel 同式：AllocateAndProduce(e)→FHunt，FLast=Σ分量。</summary>
     public static void RecomputeProduction(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             // ⚠️ 2026-08-18 T04 修复：先归零分量——AllocateAndProduce 在领地为空时提前 return 0
             //   （不走到分量赋值），若不归零则陈旧 FFarm/FHerd 残留（无领地却挂产出的活 bug）。
@@ -295,7 +295,7 @@ public static class CivEngine
     /// <summary>领袖标记纯派生（IsBigMan/IsChief 从持久字段 Prestige + ReligionShare 确定性重算）。
     /// 2026-08-18 阶段3：提为共享函数——演化 PrestigeModel（Order 25，写后立即算）与
     /// SettleDerived 边界重算（读档/Run 结尾）用同一公式 → 无两套实现分叉。</summary>
-    public static void DeriveLeadership(Band e)
+    public static void DeriveLeadership(Polity e)
     {
         e.IsBigMan = e.Prestige >= CivSimContext.BigManPrestigeThreshold;
         // 酋长：BigMan + 祖先宗教（谱系合法性——祖先份额 > 0；祖先=settle 派生，旧石器无）
@@ -307,7 +307,7 @@ public static class CivEngine
     /// 三条路径同一函数 → 消除"重算路径各写一套"缺陷（T04 类分叉根治）。
     /// 纯派生（幂等，不含 Goods 副作用累积——AccumulateGoods 只在演化每 tick 循环调）。
     /// 依赖序（勿乱改，逐行注释依赖）：
-    ///   ① Core：CellBands/CellPop/CellFarmPop/CarryMult/CapMask（供②影响力和④领地并查集）
+    ///   ① Core：CellPolities/CellPop/CellFarmPop/CarryMult/CapMask（供②影响力和④领地并查集）
     ///   ② RebuildInfluence：CellOwner/TerritoryCells/Dists（供③产出；粘性基准用持久 CellOwner）
     ///   ③ RecomputeProduction：FLast/FHunt/FHerd/FFarm/FBerry（供④酋邦 DomOutput；供⑤CellF）
     ///   ③b DeriveLeadership：IsBigMan/IsChief（供④酋邦凝聚条件）
@@ -321,8 +321,8 @@ public static class CivEngine
         RefreshCellStateCore(ctx);                       // ①
         ctx.RebuildInfluence();                          // ②（内部含 RebuildTerritory）
         RecomputeProduction(ctx);                        // ③
-        for (int i = 0; i < ctx.Bands.Count; i++)       // ③b
-            if (!ctx.Bands[i].Dead) DeriveLeadership(ctx.Bands[i]);
+        for (int i = 0; i < ctx.Polities.Count; i++)       // ③b
+            if (!ctx.Polities[i].Dead) DeriveLeadership(ctx.Polities[i]);
         TerritoryModel.Rebuild(ctx);                     // ④
         ChiefdomModel.Rebuild(ctx);                      // ⑤
         StateAssign.Rebuild(ctx);                         // ⑤b 国家（读 ⑤ 的 ChiefdomCells——须在其后）

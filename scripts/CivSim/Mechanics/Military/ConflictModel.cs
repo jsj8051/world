@@ -26,7 +26,7 @@ public sealed class ConflictModel : CivModelBase
 
     protected override void Apply(CivSimContext ctx)
     {
-        if (ctx.LockedUntil == null || ctx.Bands.Count < 2) return;
+        if (ctx.LockedUntil == null || ctx.Polities.Count < 2) return;
         int n = ctx.Grid.N;
         // ⚠️ 2026-08-17 审查修复（真 bug）：防护计数器误用总计数 ctx.Conflicts（演化累计到 3 后
         //   本模型永久 return——冲突机制实际只生效前 3 场）；且总计数不入档 → 读档端 0 vs 内存端累计
@@ -42,8 +42,8 @@ public sealed class ConflictModel : CivModelBase
             float iCh = ctx.CellBestInf[c];
             float iOwn = ctx.CellOwnerInf[c];
             if (iCh <= iOwn || iCh > iOwn * CivSimContext.Stickiness) continue;   // 必须粘性僵持窗口
-            var eo = FindBand(ctx, owner);
-            var ec = FindBand(ctx, ch);
+            var eo = FindPolity(ctx, owner);
+            var ec = FindPolity(ctx, ch);
             if (eo == null || ec == null || eo.Dead || ec.Dead) continue;
             if (ec.LastConflictTick >= 0 && ctx.Tick - ec.LastConflictTick < CivSimContext.ConflictCooldown) continue;
             if (eo.LastConflictTick >= 0 && ctx.Tick - eo.LastConflictTick < CivSimContext.ConflictCooldown) continue;
@@ -70,7 +70,7 @@ public sealed class ConflictModel : CivModelBase
     ///   同国家：×0.25（内部秩序，Weber 强制力垄断）+ 继承窗口豁免（王朝制度化——同国不内战）；
     ///   同酋邦：×0.5（酋长仲裁）+ 继承窗口 ×2（权力真空 → 继承战争，Kirch）；
     ///   跨邦：×1 + 窗口 ×2。</summary>
-    internal static float ConflictChanceOf(CivSimContext ctx, Band a, Band b)
+    internal static float ConflictChanceOf(CivSimContext ctx, Polity a, Polity b)
     {
         float chance = CivSimContext.ConflictChance;
         var policy = ConflictPolicies.Of(a, b);   // 策略查表（按政治体关系——无身份 if-else，2026-08-23）
@@ -83,7 +83,7 @@ public sealed class ConflictModel : CivModelBase
         return chance;
     }
 
-    internal static void ResolveConflict(CivSimContext ctx, Band challenger, Band owner, int cell)
+    internal static void ResolveConflict(CivSimContext ctx, Polity challenger, Polity owner, int cell)
     {
         // 胜率：P×MilitMult 对比（武器科技加成；随机——弱 band 可爆冷）
         float pC = challenger.P * TechTable.MilitaryMult(challenger.TechKeys);
@@ -91,9 +91,9 @@ public sealed class ConflictModel : CivModelBase
         // ⚠️ 2026-08-17 联盟合力（Kirch：防御方是酋邦时，入侵者面对酋邦总力量——人多势众，非加成系数）
         if (owner.ChiefdomId >= 0)
         {
-            for (int i = 0; i < ctx.Bands.Count; i++)
+            for (int i = 0; i < ctx.Polities.Count; i++)
             {
-                var m = ctx.Bands[i];
+                var m = ctx.Polities[i];
                 if (m.Dead || m == owner || m.ChiefdomId != owner.ChiefdomId) continue;
                 pO += m.P * TechTable.MilitaryMult(m.TechKeys);
             }
@@ -135,20 +135,20 @@ public sealed class ConflictModel : CivModelBase
             int target = SplitMigrateModel.PickMigrateTarget(ctx, loser);
             if (target >= 0)
             {
-                if (ctx.CellBands[loser.Cell] == loser) ctx.CellBands[loser.Cell] = null;   // 一格一实体
+                if (ctx.CellPolities[loser.Cell] == loser) ctx.CellPolities[loser.Cell] = null;   // 一格一实体
                 loser.Cell = target;
                 loser.LastMigrateTick = ctx.Tick;
-                ctx.CellBands[target] = loser;
+                ctx.CellPolities[target] = loser;
                 ctx.Migrations++;
             }
         }
         ctx.Conflicts++;
     }
 
-    private static Band FindBand(CivSimContext ctx, int id)
+    private static Polity FindPolity(CivSimContext ctx, int id)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
-            if (ctx.Bands[i].Id == id && !ctx.Bands[i].Dead) return ctx.Bands[i];
+        for (int i = 0; i < ctx.Polities.Count; i++)
+            if (ctx.Polities[i].Id == id && !ctx.Polities[i].Dead) return ctx.Polities[i];
         return null;
     }
 }

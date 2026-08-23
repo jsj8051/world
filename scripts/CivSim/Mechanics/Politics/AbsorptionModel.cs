@@ -29,7 +29,7 @@ public sealed class AbsorptionModel : CivModelBase
     protected override void Apply(CivSimContext ctx)
     {
         ctx.AbsorptionLastEval = ctx.Tick;   // 频率时间戳（副作用）
-        var snapshot = ctx.Bands.ToArray();
+        var snapshot = ctx.Polities.ToArray();
         foreach (var e in snapshot)
         {
             if (e.Dead || e.Cell < 0 || e.Cell >= ctx.Grid.N) continue;
@@ -62,15 +62,15 @@ public sealed class AbsorptionModel : CivModelBase
         }
     }
 
-    private static Band FindById(CivSimContext ctx, int id)
+    private static Polity FindById(CivSimContext ctx, int id)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
-            if (ctx.Bands[i].Id == id) return ctx.Bands[i];
+        for (int i = 0; i < ctx.Polities.Count; i++)
+            if (ctx.Polities[i].Id == id) return ctx.Polities[i];
         return null;
     }
 
     /// <summary>迁走目标：领地格内无主格（CellOwner=-1 且 R>0）最高富饶者——留在自己影响圈内。</summary>
-    private static int FindExileCell(CivSimContext ctx, Band e)
+    private static int FindExileCell(CivSimContext ctx, Polity e)
     {
         var terr = e.Id < (ctx.TerritoryCells?.Length ?? 0) ? ctx.TerritoryOf(e) : null;
         if (terr == null) return -1;

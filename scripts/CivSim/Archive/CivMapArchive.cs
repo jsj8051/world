@@ -22,7 +22,7 @@ namespace World.CivSim;
 ///   [2B]  skeletonVer = 16
 ///   [2B]  reserved
 ///   [..]  数据区：
-///     HEAD —— seed / finalTick / years / rngState / cultKey / cultgKey / relKey / nextBandId
+///     HEAD —— seed / finalTick / years / rngState / cultKey / cultgKey / relKey / nextPolityId
 ///     NATR —— GameMapArchive.WriteBody 全量（自然层快照，与 .gmp BODY 段布局一致，复用不变）
 ///     TRIB —— 实体段（alive count + 部落表，CivArchiveSchema 清单驱动）
 ///     LAND —— 土地挂钩：Cultivation n + CellOwner n + LockedUntil n
@@ -41,7 +41,7 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Older, Newer }
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 16;   // v16：Band 字段按概念分组重排（2026-08-23 Phase 3——v15 档作废）
+    public const ushort Version = 16;   // v16：Polity 字段按概念分组重排（2026-08-23 Phase 3——v15 档作废）
     private const int KeyMaxLen = 16;
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示）。</summary>
@@ -75,8 +75,8 @@ public static class CivMapArchive
         public int Years;
         public ulong RngState;
         public int CultureKeyCount, CultureGroupKeyCount, ReligionKeyCount, NextEntityId, NextSettlementId;
-        public List<Band> Entities;
-        public Band[] CellBands;
+        public List<Polity> Entities;
+        public Polity[] CellPolities;
         public float[] Cultivation;
         public int[] CellOwner;
         public int[] LockedUntil;
@@ -104,8 +104,8 @@ public static class CivMapArchive
         var ctx = new CivSimContext
         {
             Grid = g,
-            CellBands = rec.CellBands,
-            Bands = rec.Entities,
+            CellPolities = rec.CellPolities,
+            Polities = rec.Entities,
             Seed = rec.Seed,
             OriginCount = 3,
             Tick = rec.FinalTick,          // 读档续跑从存档 tick 继续（T04 验证）
@@ -122,7 +122,7 @@ public static class CivMapArchive
             CultureKeyCount = Math.Max(rec.CultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，份额推导兜底
             CultureGroupKeyCount = Math.Max(rec.CultureGroupKeyCount, maxGroupId + 1),
             ReligionKeyCount = Math.Max(rec.ReligionKeyCount, maxReligId + 1),
-            NextBandId = rec.NextEntityId,
+            NextPolityId = rec.NextEntityId,
             Settlements = rec.Settlements,
             NextSettlementId = rec.NextSettlementId,
             Wars = rec.Wars,
@@ -157,11 +157,11 @@ public static class CivMapArchive
         int count = (int)r.Get32();
         long remaining = r.Length - r.Position;
         if (count < 0 || count > remaining / 64) return null;
-        var entities = new List<Band>(count);
+        var entities = new List<Polity>(count);
         for (int k = 0; k < count; k++)
         {
-            var e = new Band();
-            foreach (var def in CivArchiveSchema.BandFields)
+            var e = new Polity();
+            foreach (var def in CivArchiveSchema.PolityFields)
             {
                 if (def.Name == "TechKeys") { ReadTechKeys(r, e); continue; }
                 def.Read(r, e);
@@ -233,13 +233,13 @@ public static class CivMapArchive
             wars.Add(w);
         }
         rec.Wars = wars;
-        // cellBands 按 n 重映射（一格一实体）
-        rec.CellBands = new Band[n];
-        for (int i = 0; i < n; i++) rec.CellBands[i] = null;
+        // cellPolities 按 n 重映射（一格一实体）
+        rec.CellPolities = new Polity[n];
+        for (int i = 0; i < n; i++) rec.CellPolities[i] = null;
         for (int k = 0; k < rec.Entities.Count; k++)
         {
             var e = rec.Entities[k];
-            if (e.Cell >= 0 && e.Cell < n) rec.CellBands[e.Cell] = e;
+            if (e.Cell >= 0 && e.Cell < n) rec.CellPolities[e.Cell] = e;
         }
         return BuildResult(grid, rec);
     }
@@ -252,7 +252,7 @@ public static class CivMapArchive
         if (!CivArchiveSchema.Validate()) return;
         var ctx = result.Context;
         int alive = 0;
-        for (int k = 0; k < ctx.Bands.Count; k++) if (!ctx.Bands[k].Dead) alive++;
+        for (int k = 0; k < ctx.Polities.Count; k++) if (!ctx.Polities[k].Dead) alive++;
         // ── HEAD 固定字段 ──
         w.Store32((uint)ctx.Seed);
         w.Store32((uint)result.FinalTick);
@@ -261,13 +261,13 @@ public static class CivMapArchive
         w.Store32((uint)ctx.CultureKeyCount);
         w.Store32((uint)ctx.CultureGroupKeyCount);
         w.Store32((uint)ctx.ReligionKeyCount);
-        w.Store32((uint)ctx.NextBandId);
+        w.Store32((uint)ctx.NextPolityId);
         // ── TRIB ──
         w.Store32((uint)alive);
-        foreach (var e in ctx.Bands)
+        foreach (var e in ctx.Polities)
         {
             if (e.Dead) continue;
-            foreach (var def in CivArchiveSchema.BandFields)
+            foreach (var def in CivArchiveSchema.PolityFields)
             {
                 if (def.Name == "TechKeys") { StoreTechKeys(w, e); continue; }
                 def.Write(w, e);
@@ -318,7 +318,7 @@ public static class CivMapArchive
         if (!CivArchiveSchema.Validate()) return false;
         var ctx = result.Context;
         int alive = 0;
-        for (int k = 0; k < ctx.Bands.Count; k++) if (!ctx.Bands[k].Dead) alive++;
+        for (int k = 0; k < ctx.Polities.Count; k++) if (!ctx.Polities[k].Dead) alive++;
         try
         {
             string abs = ResolvePath(path);
@@ -337,7 +337,7 @@ public static class CivMapArchive
             w.Store32((uint)ctx.CultureKeyCount);   // 文化 key 计数（分裂分化接续 key 空间；推导不可靠——被同化掉的 key 不在份额场）
             w.Store32((uint)ctx.CultureGroupKeyCount);   // 文化群 key 计数（v6 独立入档：读档续跑群漂变无分叉）
             w.Store32((uint)ctx.ReligionKeyCount);  // 宗教派别 key 计数
-            w.Store32((uint)ctx.NextBandId);      // 实体 Id 计数器（v8：存档只存活实体，Count 读档分叉）
+            w.Store32((uint)ctx.NextPolityId);      // 实体 Id 计数器（v8：存档只存活实体，Count 读档分叉）
             w.EndSegment();
 
             // ── NATR：自然层快照（GameMapArchive 布局单源）──
@@ -346,12 +346,12 @@ public static class CivMapArchive
             w.EndSegment();
 
             // ── TRIB：实体段（CivArchiveSchema 清单驱动，单源防漏字段）──
-            w.BeginSegment("TRIB", 1);
+            w.BeginSegment("TRIB", 1);   // 段名 TRIB = Tribe 遗产名（存档格式标识，不改——改动需 bump 版本）
             w.Store32((uint)alive);
-            foreach (var e in ctx.Bands)
+            foreach (var e in ctx.Polities)
             {
                 if (e.Dead) continue;
-                foreach (var def in CivArchiveSchema.BandFields)
+                foreach (var def in CivArchiveSchema.PolityFields)
                 {
                     if (def.Name == "TechKeys") { StoreTechKeys(w, e); continue; }
                     def.Write(w, e);
@@ -428,13 +428,13 @@ public static class CivMapArchive
 
     // ── 2026-08-18 阶段3：CivArchiveSchema 清单委托实现（Write/Read 由表驱动，布局严格对齐）──
 
-    private static void StoreTechKeys(ChunkWriter f, Band e)
+    private static void StoreTechKeys(ChunkWriter f, Polity e)
     {
         f.Store16((ushort)e.TechKeys.Count);
         foreach (var key in e.TechKeys)
             StoreKey(f, key);
     }
-    private static bool ReadTechKeys(ChunkReader f, Band e)
+    private static bool ReadTechKeys(ChunkReader f, Polity e)
     {
         int keyCount = f.Get16();
         for (int q = 0; q < keyCount; q++)
@@ -447,23 +447,23 @@ public static class CivMapArchive
         return true;
     }
 
-    internal static void StoreReligionShare(ChunkWriter f, Band e)
+    internal static void StoreReligionShare(ChunkWriter f, Polity e)
     {
         foreach (var s in e.ReligionShare) f.Store8(s.Frac);   // 固定 key 表 → 只存份额 5B
     }
-    internal static bool ReadReligionShare(ChunkReader f, Band e)
+    internal static bool ReadReligionShare(ChunkReader f, Polity e)
     {
         e.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);   // 固定 key 重建，只读份额
         for (int q2 = 0; q2 < ReligionStage.Count; q2++) e.ReligionShare[q2].Frac = f.Get8();
         return true;
     }
-    internal static void StoreStocks(ChunkWriter f, Band e)
+    internal static void StoreStocks(ChunkWriter f, Polity e)
     {
         // 字节序 = CommodityTable.All 顺序（grain/berry/meat/leather/wool/straw）
         if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
         for (int s = 0; s < CommodityTable.Count; s++) f.StoreFloat(e.Stocks[s]);
     }
-    internal static bool ReadStocks(ChunkReader f, Band e)
+    internal static bool ReadStocks(ChunkReader f, Polity e)
     {
         e.Stocks = CommodityTable.NewStocks();
         for (int s = 0; s < CommodityTable.Count; s++) e.Stocks[s] = f.GetFloat();
@@ -516,8 +516,8 @@ public static class CivMapArchive
     private static int CountFarming(CivSimContext ctx)
     {
         int c = 0;
-        for (int i = 0; i < ctx.Bands.Count; i++)
-            if (!ctx.Bands[i].Dead && ctx.Bands[i].IsFarming) c++;
+        for (int i = 0; i < ctx.Polities.Count; i++)
+            if (!ctx.Polities[i].Dead && ctx.Polities[i].IsFarming) c++;
         return c;
     }
 
@@ -585,7 +585,7 @@ public static class CivMapArchive
             }
             int count = (int)r.Get32();
             // ⚠️ 2026-08-07：实体表长度分配前校验——count 是正文错位后最易读爆的字段
-            //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<Band>(count) ≈ 9.4GB）。
+            //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<Polity>(count) ≈ 9.4GB）。
             //   单实体最小 ~79B，用 64B 保守下界；剩余文件字节数都不够 → 必为错位垃圾。
             long remaining = r.Length - r.Position;
             if (count < 0 || count > remaining / 64)
@@ -593,20 +593,20 @@ public static class CivMapArchive
                 LogService.LogErr("CivMapArchive", $"{path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
                 return false;
             }
-            var entities = new List<Band>(count);
-            var cellBands = new Band[n];
-            for (int i = 0; i < n; i++) cellBands[i] = null;
+            var entities = new List<Polity>(count);
+            var cellPolities = new Polity[n];
+            for (int i = 0; i < n; i++) cellPolities[i] = null;
             for (int k = 0; k < count; k++)
             {
-                var e = new Band();
+                var e = new Polity();
                 // 实体段由 CivArchiveSchema 清单驱动（单源）；TechKeys 变长特例内联
-                foreach (var def in CivArchiveSchema.BandFields)
+                foreach (var def in CivArchiveSchema.PolityFields)
                 {
                     if (def.Name == "TechKeys") { ReadTechKeys(r, e); continue; }
                     def.Read(r, e);
                 }
                 entities.Add(e);
-                if (e.Cell >= 0 && e.Cell < n) cellBands[e.Cell] = e;   // 一格一实体
+                if (e.Cell >= 0 && e.Cell < n) cellPolities[e.Cell] = e;   // 一格一实体
             }
 
             // ── LAND：土地挂钩（开垦率场 + 格归属 + 实控锁定）──
@@ -701,8 +701,8 @@ public static class CivMapArchive
             var ctx = new CivSimContext
             {
                 Grid = g,
-                CellBands = cellBands,
-                Bands = entities,
+                CellPolities = cellPolities,
+                Polities = entities,
                 Seed = seed,
                 OriginCount = 3,
                 Tick = finalTick,          // 读档续跑从存档 tick 继续（T04 验证）
@@ -719,7 +719,7 @@ public static class CivMapArchive
                 CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，标签份额推导兜底
                 CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数
                 ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
-                NextBandId = nextEntityId,   // 实体 Id 计数器（读档续跑 Id 分配无分叉）
+                NextPolityId = nextEntityId,   // 实体 Id 计数器（读档续跑 Id 分配无分叉）
                 Settlements = settlements,    // 聚落段（段缺失 → 空列表）
                 NextSettlementId = nextSettlementId,
                 Wars = wars,                  // 战争段（段缺失 → 空列表——无战争起步）

@@ -307,7 +307,7 @@ public class GameGridTests
     }
 
     [Test]
-    public void EnsureWildLivestock_MarksGrasslandInRainBand()
+    public void EnsureWildLivestock_MarksGrasslandInRainPolity()
     {
         var g = BuildGrid(2);
         for (int i = 0; i < g.N; i++)

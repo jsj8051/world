@@ -31,12 +31,12 @@ public sealed class CultureModel : CivModelBase
         //   同文化对跳过（无转移语义——旧版同 key 自转移还瞬态污染份额场：次席重复 key）。
         for (int i = 0; i < ctx.Grid.N; i++)
         {
-            var a = ctx.CellBands[i];
+            var a = ctx.CellPolities[i];
             if (a == null || a.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
-                var b = ctx.CellBands[nb];
+                var b = ctx.CellPolities[nb];
                 if (b == null || b.Dead) continue;
                 string domA = ShareField.DomKey(a.CultureShare);
                 string domB = ShareField.DomKey(b.CultureShare);
@@ -84,7 +84,7 @@ public sealed class CultureModel : CivModelBase
         if (g[0].Frac == 255) g[1] = new ShareEntry();   // 全占 → 清第二位
     }
 
-    private static Band MaxPop(List<Band> list)
+    private static Polity MaxPop(List<Polity> list)
     {
         var best = list[0];
         for (int k = 1; k < list.Count; k++)

@@ -10,8 +10,8 @@ namespace World.CivSim.Policies;
 public interface IWarPolicy
 {
     /// <summary>宣战资格（默认 false——仅国家，P1 拍板）。</summary>
-    bool CanDeclareWar(Band e);
+    bool CanDeclareWar(Polity e);
 
     /// <summary>军事强度倍率（现状恒 1——MilitMult 由武器科技提供；未来村庄 0.3×/城防 1×/常备 2× 在此接线）。</summary>
-    float MilitaryMult(Band e);
+    float MilitaryMult(Polity e);
 }

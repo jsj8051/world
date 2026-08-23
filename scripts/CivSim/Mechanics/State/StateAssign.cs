@@ -10,24 +10,24 @@ namespace World.CivSim.Mechanics.State;
 /// 确定性重建 StateId/StateSize（纯派生不存档；读档入口 SettleDerived 同用——同一公式无分叉）。
 /// ① 清空全部 StateId/StateSize；② 按酋邦（ChiefdomCells 成员表）判定涌现条件（4 个规范积木 AND）；
 /// ③ 满足 → 全部成员 StateId = 酋长 Id、StateSize = 成员数。
-/// ⚠️ 2026-08-16 性能（T18 暴露 309s 劣化）：每 tick 执行 → 必须 O(1) 索引——Id→Band 数组
+/// ⚠️ 2026-08-16 性能（T18 暴露 309s 劣化）：每 tick 执行 → 必须 O(1) 索引——Id→Polity 数组
 ///   + PlaceId→Settlement 字典（线性扫描 × 成员数 × 酋邦数 = 每 tick 上千万比较）。
 /// </summary>
 public static class StateAssign
 {
     public static void Rebuild(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            ctx.Bands[i].StateId = -1;
-            ctx.Bands[i].StateSize = 1;
+            ctx.Polities[i].StateId = -1;
+            ctx.Polities[i].StateSize = 1;
         }
         if (ctx.ChiefdomCells == null) return;
         // Id 索引（O(1) 取实体——每 tick 跑，线性扫描是性能杀手）
-        int bufLen = Math.Max(ctx.NextBandId, ctx.Bands.Count + 1);
-        var byId = new Band[bufLen];
-        for (int i = 0; i < ctx.Bands.Count; i++)
-            if (!ctx.Bands[i].Dead && ctx.Bands[i].Id < bufLen) byId[ctx.Bands[i].Id] = ctx.Bands[i];
+        int bufLen = Math.Max(ctx.NextPolityId, ctx.Polities.Count + 1);
+        var byId = new Polity[bufLen];
+        for (int i = 0; i < ctx.Polities.Count; i++)
+            if (!ctx.Polities[i].Dead && ctx.Polities[i].Id < bufLen) byId[ctx.Polities[i].Id] = ctx.Polities[i];
         // 聚落索引：Settlement.Id → Settlement（O(1) 查询）
         var settleById = new Dictionary<int, Settlement>();
         if (ctx.Settlements != null)
@@ -37,8 +37,8 @@ public static class StateAssign
         for (int chiefId = 0; chiefId < ctx.ChiefdomCells.Length; chiefId++)
         {
             var members = ctx.ChiefdomCells[chiefId];
-            if (members == null || members.Count < CivSimContext.ChiefdomMinBands) continue;
-            Band chief = chiefId < bufLen ? byId[chiefId] : null;
+            if (members == null || members.Count < CivSimContext.ChiefdomMinPolities) continue;
+            Polity chief = chiefId < bufLen ? byId[chiefId] : null;
             if (chief == null || chief.Dead || !chief.IsChief) continue;   // 无酋长 → 非国家（权力真空）
             if (!IsState(ctx, chief, members, byId, settleById)) continue;
 
@@ -47,7 +47,7 @@ public static class StateAssign
             {
                 int mid = members[k];
                 if (mid >= bufLen) continue;
-                Band m = byId[mid];
+                Polity m = byId[mid];
                 if (m == null || m.Dead) continue;
                 m.StateId = chiefId;
                 m.StateSize = size;
@@ -56,7 +56,7 @@ public static class StateAssign
     }
 
     /// <summary>国家涌现判定 = 规范积木 AND 组合（纯函数——全部输入已入档/派生）。</summary>
-    private static bool IsState(CivSimContext ctx, Band chief, List<int> members, Band[] byId, Dictionary<int, Settlement> settleById)
+    private static bool IsState(CivSimContext ctx, Polity chief, List<int> members, Polity[] byId, Dictionary<int, Settlement> settleById)
     {
         Settlement capital = StateCapitalCheck.Of(chief, settleById);   // 解析都城（供 ②④ 复用）
         if (!StateCapitalCheck.Check(ctx, chief, settleById)) return false;          // ① 都城

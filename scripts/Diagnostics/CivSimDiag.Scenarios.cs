@@ -29,7 +29,7 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var e = AddBand(ctx, 0, 1f, TechTable.StoneCore);
+        var e = AddPolity(ctx, 0, 1f, TechTable.StoneCore);
         // 手造领地 1 格（驻扎点格）：新模型 F = R×A×w(0)×劳动力爬坡；平衡 P → R×A
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
@@ -77,10 +77,10 @@ public partial class CivSimDiag
 
         // 场景 A：φ=1.0 Soil3 → 农业潜在=4y0 > 狩猎 1.455y0 → 稳态农业
         // P=3×y0（2026-08-10 调：0.5×y0 时 eF>eH 致 φ=0.3 也转农——P 大时 eH→1/0.3 上限、eF=yF/P 线性降 → 分得开）
-        var ea = AddBand(ctx, 0, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        var ea = AddPolity(ctx, 0, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[0, 0] = 1.0f;   // 小麦 φ
         // 场景 B：φ=0.3 Soil3 → 农业潜在=1.2y0 < 狩猎 1.455y0 → 最终狩猎
-        var eb = AddBand(ctx, 1, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        var eb = AddPolity(ctx, 1, 3f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx.Suit[1, 0] = 0.3f;
         // ⚠️ 2026-08-17 决策领地化：ModeModel 用 Σ 领地格潜在——测试补 1 格领地（=驻扎格，领地版退化为单格语义）
         ctx.CellOwner[0] = 0;
@@ -112,7 +112,7 @@ public partial class CivSimDiag
         // 滞回：交叉点 P≈13.8y0 处 |e_猎−e_农|<0.02 → 保持当前方式（独立 ctx 防干扰；Soil3 下 yF=4y0 交叉点不变）
         var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx2 = MakeCtx(g2);
-        var eh = AddBand(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
+        var eh = AddPolity(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx2.Suit[0, 0] = 1.0f;
         eh.IsFarming = true;
         // ⚠️ 2026-08-17 决策领地化：滞回验证与 ModeModel 同口径（领地版）——补 1 格领地（1 格 = 单格语义）
@@ -135,12 +135,12 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        ctx.Bands[0].CultureShare = ShareField.NewCulture("cult_a");
-        ctx.Bands[1].CultureShare = ShareField.NewCulture("cult_b");
-        ctx.Bands[2].CultureShare = ShareField.NewCulture("cult_c");
+        AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        ctx.Polities[0].CultureShare = ShareField.NewCulture("cult_a");
+        ctx.Polities[1].CultureShare = ShareField.NewCulture("cult_b");
+        ctx.Polities[2].CultureShare = ShareField.NewCulture("cult_c");
         var culture = new CultureModel();
         var energy = new EnergyModel();
         bool conserved = true;
@@ -151,17 +151,17 @@ public partial class CivSimDiag
             ctx.Tick = tick;
             energy.Execute(ctx);
             culture.Execute(ctx);
-            string dom = ShareField.DomKey(ctx.Bands[0].CultureShare);
+            string dom = ShareField.DomKey(ctx.Polities[0].CultureShare);
             if (prevDom != null && dom != prevDom) domMonotonic = false;   // 主导 key 稳定（不跳变）
             prevDom = dom;
-            foreach (var e in ctx.Bands)
+            foreach (var e in ctx.Polities)
             {
                 int sum = 0;
                 for (int k = 0; k < e.CultureShare.Length; k++) sum += e.CultureShare[k].Frac;   // ⚠️ 2026-08-17 审查：循环统计全段（硬编码 2 段会在文化特征扩展后漏检）
                 if (sum != 255) conserved = false;
             }
         }
-        int domFrac = ShareField.DomFrac(ctx.Bands[0].CultureShare);
+        int domFrac = ShareField.DomFrac(ctx.Polities[0].CultureShare);
         Check("S3 份额守恒+主导同化", conserved && domMonotonic && domFrac > 150,
             $"Σ恒等={conserved} 主导单调={domMonotonic} 30tick后主导份额={domFrac}/255");
     }
@@ -175,20 +175,20 @@ public partial class CivSimDiag
         // 格 0 领地主 band，格 1 无主 → 殖民目标
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddBand(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
+        var e = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
         e.CultureShare = new[] { new ShareEntry { Key = "cult_7", Frac = 200 }, new ShareEntry { Key = "cult_9", Frac = 55 } };
         e.CultureGroupShare = new[] { new ShareEntry { Key = "cult_3", Frac = 250 }, new ShareEntry { Key = "cult_0", Frac = 5 } };
         e.ReligionShare = ShareField.NewReligion(ReligionStage.Shaman);
         e.IsFarming = false;
-        ctx.CellBands[0] = e;
+        ctx.CellPolities[0] = e;
         // 领地 1 格（驻扎点格 0 归属 e）；格 1 无主 → 殖民目标
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
         var sm = new SplitMigrateModel();
         sm.Execute(ctx);
-        bool ok = ctx.Bands.Count == 2;
-        var nt = ctx.Bands[1];
+        bool ok = ctx.Polities.Count == 2;
+        var nt = ctx.Polities[1];
         ok &= Mathf.Abs(nt.P - 225f) < 0.01f && Mathf.Abs(e.P - 275f) < 0.01f;   // 45% 带走
         ok &= nt.Cell != 0 && ctx.CellOwner[nt.Cell] == -1;   // 殖民到任一无主格（tie-break 由遍历顺序定）
         ok &= ctx.CellOwner[0] == 0;   // 母领地不动
@@ -208,8 +208,8 @@ public partial class CivSimDiag
         // ⚠️ 2026-08-18 阶段2 一格一实体：传播只在**邻格**（占据格接触），无同格对——
         //   a/b 分置相邻格（cell 0/1，赤道均分互邻）。
         // a 有 bow（前置 microlith）；b 缺 microlith → bow 不传（依赖硬门槛，防中间科技先传）
-        var a = AddBand(ctx, 0, 300f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);
-        var b = AddBand(ctx, 7, 100f, TechTable.StoneCore);   // 邻格（赤道环 0↔7 相邻——探针实测 Neighbors[0]=[7]）；缺 microlith
+        var a = AddPolity(ctx, 0, 300f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);
+        var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);   // 邻格（赤道环 0↔7 相邻——探针实测 Neighbors[0]=[7]）；缺 microlith
         var spread = new SpreadModel();
         bool blocked = true;
         for (int tick = 0; tick < 60; tick++)
@@ -236,12 +236,12 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // ⚠️ 8 格：e3 需独立格（同格会触发传播段同化稀释份额）
         var ctx = MakeCtx(g);
-        var e1 = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
+        var e1 = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
         e1.Surplus = 0.5f;   // 盈余期
-        var e2 = AddBand(ctx, 1, 100f, TechTable.StoneCore, TechTable.Grinding, TechTable.SeedWheat);
+        var e2 = AddPolity(ctx, 1, 100f, TechTable.StoneCore, TechTable.Grinding, TechTable.SeedWheat);
         e2.Surplus = -0.1f;  // 狩猎（IsFarming=false）→ 无定居 → 祖先锁
         // ⚠️ 2026-08-17 定居落地：农业 band（IsFarming → settle）→ 祖先解锁（萨满→祖先）
-        var e3 = AddBand(ctx, 2, 100f, TechTable.StoneCore, TechTable.Microlith, TechTable.SeedWheat);   // 格2（独立格，无同化干扰）
+        var e3 = AddPolity(ctx, 2, 100f, TechTable.StoneCore, TechTable.Microlith, TechTable.SeedWheat);   // 格2（独立格，无同化干扰）
         e3.IsFarming = true;
         e3.Surplus = 0.5f;   // 定居农业 + 盈余 → 先泛灵→萨满，再萨满→祖先
         var rel = new ReligionModel();
@@ -274,8 +274,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 200f, TechTable.StoneCore);
-        var b = AddBand(ctx, 7, 200f, TechTable.StoneCore);   // 邻格（赤道环 0↔7 相邻——探针实测）；AddBand 默认同语言群 test_grp
+        var a = AddPolity(ctx, 0, 200f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 7, 200f, TechTable.StoneCore);   // 邻格（赤道环 0↔7 相邻——探针实测）；AddPolity 默认同语言群 test_grp
         ctx.TerritoryLastRebuild = -10;   // 越过频率守卫（Tick=0，0-(-10)=10 ≥ 10）
         new TerritoryModel().Execute(ctx);
         bool united = a.TerritoryId == b.TerritoryId && a.TerritorySize == 2;
@@ -299,7 +299,7 @@ public partial class CivSimDiag
         // ctxA：饥荒 P=20（<SplitPop25 但缺口够大）, FLast=5（压力 0.75）→ P_eff=35>25 → 裂变（纯饥荒驱动，张力=0）
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var famine = AddBand(ctxA, 0, 20f, TechTable.StoneCore);
+        var famine = AddPolity(ctxA, 0, 20f, TechTable.StoneCore);
         famine.FLast = 5f;            // 产出 1/4（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
         ctxA.CellOwner[0] = 0;        // 领地 1 格；其余格无主 → 殖民目标
         ctxA.TerritoryCells[0].Add(0);
@@ -310,7 +310,7 @@ public partial class CivSimDiag
         // ctxB：盈余 P=20（<SplitPop25）, FLast=20 → 无压力无张力 → P_eff=20 不裂
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var fed = AddBand(ctxB, 0, 20f, TechTable.StoneCore);
+        var fed = AddPolity(ctxB, 0, 20f, TechTable.StoneCore);
         fed.FLast = 20f;
         ctxB.CellOwner[0] = 0;
         ctxB.TerritoryCells[0].Add(0);
@@ -327,9 +327,9 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var withCanoe = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
-        var noCanoe = AddBand(ctx, 1, 100f, TechTable.StoneCore);
-        var withSeed = AddBand(ctx, 0, 100f, TechTable.Grinding, TechTable.SeedWheat);
+        var withCanoe = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
+        var noCanoe = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
+        var withSeed = AddPolity(ctx, 0, 100f, TechTable.Grinding, TechTable.SeedWheat);
         CivEngine.RefreshCellState(ctx);   // 算 CapMask
         bool canoeOk = CapabilityTable.Has(ctx, withCanoe, CapabilityTable.Canoe) && !CapabilityTable.Has(ctx, noCanoe, CapabilityTable.Canoe);
         bool seedOk = CapabilityTable.Has(ctx, withSeed, CapabilityTable.Seed) && !CapabilityTable.Has(ctx, noCanoe, CapabilityTable.Seed);
@@ -347,8 +347,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var withS = AddBand(ctx, 0, 100f, TechTable.Storage, TechTable.Fire);     // 有存储（预置存粮）
-        var noS = AddBand(ctx, 1, 100f, TechTable.Fire);                          // 无存储（无存粮）
+        var withS = AddPolity(ctx, 0, 100f, TechTable.Storage, TechTable.Fire);     // 有存储（预置存粮）
+        var noS = AddPolity(ctx, 1, 100f, TechTable.Fire);                          // 无存储（无存粮）
         withS.FLast = 50f; noS.FLast = 50f;   // 歉年：缺口 50（D/P=2）
         // 预置存粮：withS 有 80 人当量谷物（够补缺口），noS 空
         withS.Stocks[CommodityTable.Index(CommodityTable.Grain)] = 80f;
@@ -367,7 +367,7 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
-        var e = AddBand(ctx, 0, 100f, TechTable.Fire);
+        var e = AddPolity(ctx, 0, 100f, TechTable.Fire);
         e.Stocks[CommodityTable.Index(CommodityTable.Grain)] = 150f;   // 预置存粮（够补 3.75 tick 缺口）
         var growth = new GrowthModel();
         float pStart = e.P;
@@ -398,8 +398,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var withG = AddBand(ctx, 0, 100f, TechTable.Grinding, TechTable.Storage);   // 加工+存储
-        var noG = AddBand(ctx, 1, 100f, TechTable.Storage);                          // 仅存储（无加工）
+        var withG = AddPolity(ctx, 0, 100f, TechTable.Grinding, TechTable.Storage);   // 加工+存储
+        var noG = AddPolity(ctx, 1, 100f, TechTable.Storage);                          // 仅存储（无加工）
         int gi = CommodityTable.Index(CommodityTable.Grain);
         var s1 = AddSettlement(ctx, withG);   // 粮仓（正式存储——techMult 生效处）
         var s2 = AddSettlement(ctx, noG);
@@ -422,10 +422,10 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 7, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
         ctx.CellOwner[0] = 0;
-        ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);   // 领地索引按 Id：A=0 / B=1（AddBand 顺序）
+        ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);   // 领地索引按 Id：A=0 / B=1（AddPolity 顺序）
         ctx.CellOwner[7] = 1;
         ctx.TerritoryCells[1].Add(7); ctx.TerritoryDists[1].Add(7);
         int li = CommodityTable.Index(CommodityTable.Leather);
@@ -463,8 +463,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 7, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);
         ctx.CellOwner[7] = 1;
@@ -514,18 +514,18 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var strong = AddBand(ctx, 0, 200f, TechTable.StoneCore);
-        var weak = AddBand(ctx, 7, 100f, TechTable.StoneCore);
+        var strong = AddPolity(ctx, 0, 200f, TechTable.StoneCore);
+        var weak = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
         strong.CultureShare = ShareField.NewCulture("cult_a");
         weak.CultureShare = ShareField.NewCulture("cult_b");
-        // 同语言群（AddBand 默认同 test_grp）→ 传播：weak 向 strong 文化同化（0.05×255≈13/tick → 20 tick 全同化）
+        // 同语言群（AddPolity 默认同 test_grp）→ 传播：weak 向 strong 文化同化（0.05×255≈13/tick → 20 tick 全同化）
         var cm = new CultureModel();
         for (int t = 0; t < 30; t++) cm.Execute(ctx);
         bool spread = ShareField.DomKey(weak.CultureShare) == "cult_a" && ShareField.DomKey(strong.CultureShare) == "cult_a";
         // 对照：异语言群 → 不传（边界文化分界）
         var ctx2 = MakeCtx(g);
-        var s2 = AddBand(ctx2, 0, 200f, TechTable.StoneCore);
-        var w2 = AddBand(ctx2, 7, 100f, TechTable.StoneCore);
+        var s2 = AddPolity(ctx2, 0, 200f, TechTable.StoneCore);
+        var w2 = AddPolity(ctx2, 7, 100f, TechTable.StoneCore);
         s2.CultureShare = ShareField.NewCulture("cult_x");
         w2.CultureShare = ShareField.NewCulture("cult_y");
         w2.CultureGroupShare = ShareField.NewCulture("grp_diff");   // 异群
@@ -545,8 +545,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var strong = AddBand(ctx, 0, 200f, TechTable.StoneCore);
-        var weak = AddBand(ctx, 7, 100f, TechTable.StoneCore);
+        var strong = AddPolity(ctx, 0, 200f, TechTable.StoneCore);
+        var weak = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
         strong.ReligionCultShare = ShareField.NewCulture("relig_a");
         weak.ReligionCultShare = ShareField.NewCulture("relig_b");
         var rel = new ReligionModel();
@@ -567,14 +567,14 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 41);
         RingLinks(g);   // 精确环邻接——BFS 跳数 = 环距（ChiefReach=12 语义可靠）
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         a.IsChief = true; a.Prestige = 5f; a.TerritoryId = 1; a.TerritorySize = 1;
-        var b = AddBand(ctx, 10, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 10, 100f, TechTable.StoneCore);
         b.IsChief = true; b.Prestige = 3f; b.TerritoryId = 2; b.TerritorySize = 1;
-        var x = AddBand(ctx, 5, 100f, TechTable.StoneCore); x.TerritoryId = 3; x.TerritorySize = 1;
-        var y = AddBand(ctx, 16, 100f, TechTable.StoneCore); y.TerritoryId = 4; y.TerritorySize = 1;
-        var z = AddBand(ctx, 25, 100f, TechTable.StoneCore); z.TerritoryId = 5; z.TerritorySize = 1;
-        foreach (var e in ctx.Bands) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        var x = AddPolity(ctx, 5, 100f, TechTable.StoneCore); x.TerritoryId = 3; x.TerritorySize = 1;
+        var y = AddPolity(ctx, 16, 100f, TechTable.StoneCore); y.TerritoryId = 4; y.TerritorySize = 1;
+        var z = AddPolity(ctx, 25, 100f, TechTable.StoneCore); z.TerritoryId = 5; z.TerritorySize = 1;
+        foreach (var e in ctx.Polities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
         ctx.ChiefdomLastEval = -100;
         new ChiefdomModel().Execute(ctx);
         bool aCenter = a.ChiefdomId == a.Id && b.ChiefdomId == b.Id;      // 酋长各为中心（竞争）
@@ -592,8 +592,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 7, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);
         ctx.CellOwner[7] = 1;
@@ -617,9 +617,9 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var farm = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var farm = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
-        var hunter = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var hunter = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         var sm = new SettlementModel();
         sm.Execute(ctx);
         var fs = ctx.SettlementOf(farm);
@@ -638,7 +638,7 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddBand(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var e = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         e.IsFarming = true;
         var s = AddSettlement(ctx, e);
         s.LastLevelUpTick = -10;             // 过冷却
@@ -653,7 +653,7 @@ public partial class CivSimDiag
         // 增长加成：同条件对照（Level 0 vs Level 1）——有等级增长更快
         var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx2 = MakeCtx(g2);
-        var a2 = AddBand(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         a2.IsFarming = true;
         AddSettlement(ctx2, a2);             // 无等级（Level 0）对照
         e.FLast = 600f; a2.FLast = 600f;     // 盈余（settle ×1.5 基础 + 等级加成）
@@ -673,21 +673,21 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsFarming = true;
         var s = AddSettlement(ctx, a);
         s.Level = 2;   // 已有城镇
         // 部落迁走（Cell 变化——模拟迁徙）
         a.Cell = 3;
-        ctx.CellBands[0] = null;
-        ctx.CellBands[3] = a;
+        ctx.CellPolities[0] = null;
+        ctx.CellPolities[3] = a;
         var sm = new SettlementModel();
         sm.Execute(ctx);
         bool ruin = s.IsRuin && s.RuinFrom >= 0;                          // 旧聚落留废墟（场所比人长寿）
         var newHome = ctx.SettlementOf(a);
         bool newSettled = newHome != null && newHome.Cell == 3;           // 迁后新址建新村
         // 新部落迁入接管（继承 Level 2）
-        var b = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         b.IsFarming = true;
         sm.Execute(ctx);
         bool reclaim = !s.IsRuin && s.OccupantId == b.Id && b.PlaceId == s.Id && s.Level == 2;
@@ -704,9 +704,9 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
-        var a = AddBand(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        var b = AddBand(ctx, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
-        var c = AddBand(ctx, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b = AddPolity(ctx, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
+        var c = AddPolity(ctx, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsChief = true;   // 至尊酋长（自己中心）
         SetupStateChiefdom(ctx, a, b, c);
         var cap = AddSettlement(ctx, a);
@@ -719,9 +719,9 @@ public partial class CivSimDiag
         // 反例①：贡赋不足（池 50 < 100）→ 非国家
         var ctx2 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx2.Tick = 50;
-        var a2 = AddBand(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        var b2 = AddBand(ctx2, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
-        var c2 = AddBand(ctx2, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b2 = AddPolity(ctx2, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
+        var c2 = AddPolity(ctx2, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a2.IsChief = true;
         SetupStateChiefdom(ctx2, a2, b2, c2);
         var cap2 = AddSettlement(ctx2, a2);
@@ -734,9 +734,9 @@ public partial class CivSimDiag
         // 反例②：无次级中心（B 聚落 L0）→ 非国家
         var ctx3 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx3.Tick = 50;
-        var a3 = AddBand(ctx3, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        var b3 = AddBand(ctx3, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
-        var c3 = AddBand(ctx3, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a3 = AddPolity(ctx3, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b3 = AddPolity(ctx3, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
+        var c3 = AddPolity(ctx3, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a3.IsChief = true;
         SetupStateChiefdom(ctx3, a3, b3, c3);
         var cap3 = AddSettlement(ctx3, a3);
@@ -749,9 +749,9 @@ public partial class CivSimDiag
         // 反例③：都城存续不足（BornTick 近）→ 非国家
         var ctx4 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx4.Tick = 50;
-        var a4 = AddBand(ctx4, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        var b4 = AddBand(ctx4, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
-        var c4 = AddBand(ctx4, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a4 = AddPolity(ctx4, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b4 = AddPolity(ctx4, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
+        var c4 = AddPolity(ctx4, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a4.IsChief = true;
         SetupStateChiefdom(ctx4, a4, b4, c4);
         var cap4 = AddSettlement(ctx4, a4);
@@ -773,10 +773,10 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 10;
-        var stateChief = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var stateMember = AddBand(ctx, 1, 100f, TechTable.StoneCore);
-        var chiefdomChief = AddBand(ctx, 2, 100f, TechTable.StoneCore);
-        var chiefdomMember = AddBand(ctx, 3, 100f, TechTable.StoneCore);
+        var stateChief = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var stateMember = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
+        var chiefdomChief = AddPolity(ctx, 2, 100f, TechTable.StoneCore);
+        var chiefdomMember = AddPolity(ctx, 3, 100f, TechTable.StoneCore);
         // 国家成员（StateId=9）：税 0.2；酋邦成员（StateId=-1）：税 0.1
         stateChief.StateId = 9; stateMember.StateId = 9;
         stateChief.ChiefdomId = 9; stateMember.ChiefdomId = 9;
@@ -792,8 +792,8 @@ public partial class CivSimDiag
         // 官僚化：精英供养 elite = P×0.25（国家）vs P×0.1（酋邦）——池充足 → 不饿死；池不足 → 国家饿更快
         var ctx2 = MakeCtx(g);
         ctx2.Tick = 10;
-        var sc2 = AddBand(ctx2, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
-        var cc2 = AddBand(ctx2, 1, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var sc2 = AddPolity(ctx2, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var cc2 = AddPolity(ctx2, 1, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         foreach (var e in new[] { sc2, cc2 })
         {
             e.IsFarming = true;
@@ -807,10 +807,10 @@ public partial class CivSimDiag
         // 国家精英 100×0.25=25 > 池 15（+税2=17）→ 缺 8×0.5 → P 降 4；酋邦精英 100×0.1=10 ≤ 池 15（+税1=16）→ P 不降
         bool eliteOk = sc2.P < 100f && Mathf.Abs(cc2.P - 100f) < 0.01f;
         // 内部秩序：同国 ×0.25、同邦 ×0.5、跨邦 ×1（ConflictChanceOf 纯函数）
-        var ta = new Band { ChiefdomId = 9, StateId = 9 };
-        var tb = new Band { ChiefdomId = 9, StateId = 9 };
-        var tc = new Band { ChiefdomId = 8, StateId = -1 };
-        var td = new Band { ChiefdomId = 8, StateId = -1 };
+        var ta = new Polity { ChiefdomId = 9, StateId = 9 };
+        var tb = new Polity { ChiefdomId = 9, StateId = 9 };
+        var tc = new Polity { ChiefdomId = 8, StateId = -1 };
+        var td = new Polity { ChiefdomId = 8, StateId = -1 };
         float sameState = ConflictModel.ConflictChanceOf(ctx, ta, tb);
         float sameChiefdom = ConflictModel.ConflictChanceOf(ctx, tc, td);
         float cross = ConflictModel.ConflictChanceOf(ctx, ta, td);
@@ -830,9 +830,9 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
-        var a = AddBand(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        var b = AddBand(ctx, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
-        var c = AddBand(ctx, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        var b = AddPolity(ctx, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
+        var c = AddPolity(ctx, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsChief = true;
         SetupStateChiefdom(ctx, a, b, c);
         var cap = AddSettlement(ctx, a);
@@ -865,17 +865,17 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
-        var sa = new Band { Id = 1, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
-        var sb = new Band { Id = 2, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
-        var ca = new Band { Id = 3, ChiefdomId = 8, StateId = -1, SuccessionUntil = 70 };
-        var cb = new Band { Id = 4, ChiefdomId = 8, StateId = -1, SuccessionUntil = 70 };
+        var sa = new Polity { Id = 1, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
+        var sb = new Polity { Id = 2, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
+        var ca = new Polity { Id = 3, ChiefdomId = 8, StateId = -1, SuccessionUntil = 70 };
+        var cb = new Polity { Id = 4, ChiefdomId = 8, StateId = -1, SuccessionUntil = 70 };
         float stateWindow = ConflictModel.ConflictChanceOf(ctx, sa, sb);   // 0.01×0.25（豁免 ×2）
         float chiefdomWindow = ConflictModel.ConflictChanceOf(ctx, ca, cb); // 0.01×0.5×2
         bool exempt = Mathf.Abs(stateWindow - 0.01f * 0.25f) < 1e-6f;
         bool notExempt = Mathf.Abs(chiefdomWindow - 0.01f * 0.5f * 2f) < 1e-6f;
         // 跨邦窗口：×2（无内部秩序减免）
-        var xa = new Band { Id = 5, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
-        var xb = new Band { Id = 6, ChiefdomId = 8, StateId = -1, SuccessionUntil = 70 };
+        var xa = new Polity { Id = 5, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
+        var xb = new Polity { Id = 6, ChiefdomId = 8, StateId = -1, SuccessionUntil = 70 };
         float crossWindow = ConflictModel.ConflictChanceOf(ctx, xa, xb);   // 0.01×2
         bool crossOk = Mathf.Abs(crossWindow - 0.01f * 2f) < 1e-6f;
         Check("T67 继承制度化", exempt && notExempt && crossOk,
@@ -1010,8 +1010,8 @@ public partial class CivSimDiag
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
         ctx.Wars.Add(new War { StateIdA = 9, StateIdB = 8, Defender = 8, StartTick = ctx.Tick });
-        var wa = new Band { Id = 1, ChiefdomId = 9, StateId = 9 };
-        var wb = new Band { Id = 2, ChiefdomId = 8, StateId = 8 };
+        var wa = new Polity { Id = 1, ChiefdomId = 9, StateId = 9 };
+        var wb = new Polity { Id = 2, ChiefdomId = 8, StateId = 8 };
         float atWar = ConflictModel.ConflictChanceOf(ctx, wa, wb);   // 跨邦 0.01 × 2（交战）
         bool x2 = Mathf.Abs(atWar - 0.01f * CivSimContext.WarConflictMult) < 1e-6f;
         // 朝贡期同样敌对（TributeTo 模式）
@@ -1035,14 +1035,14 @@ public partial class CivSimDiag
         for (int c = 0; c < g.N; c++) g.Elev[c] = (c == 2 || c == 3 || c == 7) ? -100f : 100f;
         // canoe 部落：渡海到对岸
         var ctx1 = MakeCtx(g);
-        var canoe = AddBand(ctx1, 0, 200f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
-        AddBand(ctx1, 1, 200f, TechTable.StoneCore, TechTable.Fire);   // 占据同岸格——防就近目标
+        var canoe = AddPolity(ctx1, 0, 200f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
+        AddPolity(ctx1, 1, 200f, TechTable.StoneCore, TechTable.Fire);   // 占据同岸格——防就近目标
         int t1 = SplitMigrateModel.PickMigrateTarget(ctx1, canoe);
         bool canoeCrosses = t1 >= 0 && ctx1.R[t1] > 0f && t1 != 1;   // 目标在对岸可居格（4/5/6）
         // 无 canoe：海不可穿 → 无处可去
         var ctx2 = MakeCtx(g);
-        var noCanoe = AddBand(ctx2, 0, 200f, TechTable.StoneCore, TechTable.Fire);
-        AddBand(ctx2, 1, 200f, TechTable.StoneCore, TechTable.Fire);
+        var noCanoe = AddPolity(ctx2, 0, 200f, TechTable.StoneCore, TechTable.Fire);
+        AddPolity(ctx2, 1, 200f, TechTable.StoneCore, TechTable.Fire);
         int t2 = SplitMigrateModel.PickMigrateTarget(ctx2, noCanoe);
         bool blocked = t2 < 0;
         Check("T76 跨海殖民", canoeCrosses && blocked,
@@ -1066,11 +1066,11 @@ public partial class CivSimDiag
 
 
     /// <summary>T70/T72/T73 辅助：构造一个国家（酋长 + 2 成员，手动酋邦成员表——SetupStateChiefdom 单邦专用）。</summary>
-    private static (Band, Band, Band) AddWarState(CivSimContext ctx, int chiefCell, int m1Cell, int m2Cell, float popA)
+    private static (Polity, Polity, Polity) AddWarState(CivSimContext ctx, int chiefCell, int m1Cell, int m2Cell, float popA)
     {
-        var chief = AddBand(ctx, chiefCell, popA, TechTable.StoneCore, TechTable.SeedWheat);
-        var m1 = AddBand(ctx, m1Cell, popA * 0.3f, TechTable.StoneCore, TechTable.SeedWheat);
-        var m2 = AddBand(ctx, m2Cell, popA * 0.2f, TechTable.StoneCore, TechTable.SeedWheat);
+        var chief = AddPolity(ctx, chiefCell, popA, TechTable.StoneCore, TechTable.SeedWheat);
+        var m1 = AddPolity(ctx, m1Cell, popA * 0.3f, TechTable.StoneCore, TechTable.SeedWheat);
+        var m2 = AddPolity(ctx, m2Cell, popA * 0.2f, TechTable.StoneCore, TechTable.SeedWheat);
         chief.IsChief = true;
         chief.Prestige = 10f;   // ⚠️ 庇护竞争（ChiefdomModel ③）：Prestige 严格大于才覆盖——全 0 时 band 无庇护人
         foreach (var e in new[] { chief, m1, m2 })
@@ -1096,7 +1096,7 @@ public partial class CivSimDiag
 
 
     /// <summary>T70/T72/T73 辅助：挂领地（CellOwner + TerritoryCells 索引——StatesTouch 的 TerritoryTouches 依据）。</summary>
-    private static void AttachWarTerritory(CivSimContext ctx, (Band E, int Cell)[] cells)
+    private static void AttachWarTerritory(CivSimContext ctx, (Polity E, int Cell)[] cells)
     {
         foreach (var (e, cell) in cells)
         {
@@ -1115,8 +1115,8 @@ public partial class CivSimDiag
         var ctx = MakeCtx(g);
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0 草原可牧；格1 无生态位
-        var herd = AddBand(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);
-        var noHerd = AddBand(ctx, 1, 10000f, TechTable.StoneCore);          // 无科技（格1 也无生态位）
+        var herd = AddPolity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);
+        var noHerd = AddPolity(ctx, 1, 10000f, TechTable.StoneCore);          // 无科技（格1 也无生态位）
         ctx.CellOwner[0] = 0; ctx.CellOwner[1] = 1;
         ctx.TerritoryCells[0].Add(0); ctx.TerritoryDists[0].Add(0);
         ctx.TerritoryCells[1].Add(1); ctx.TerritoryDists[1].Add(1);
@@ -1139,7 +1139,7 @@ public partial class CivSimDiag
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0：livestock 能力解锁条件（驻扎格生态位）——开垦1 → 牧场贡献0
         g.WildLivestock[1] = 1;   // 格1：草场牧场
-        var e = AddBand(ctx, 0, 4000f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding, TechTable.Livestock);
+        var e = AddPolity(ctx, 0, 4000f, TechTable.StoneCore, TechTable.SeedWheat, TechTable.Grinding, TechTable.Livestock);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
         ctx.Cultivation[0] = 1f;   // 农业产出 ×开垦率——不开垦秸秆恒 0（测试补开垦）
@@ -1171,7 +1171,7 @@ public partial class CivSimDiag
         var ctx = MakeCtx(g);
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0 可牧（采集+牧场同格：潜在 1:2）
-        var e = AddBand(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);   // P 大：劳动充足
+        var e = AddPolity(ctx, 0, 10000f, TechTable.Livestock, TechTable.StoneCore);   // P 大：劳动充足
         e.IsFarming = false;
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
@@ -1194,7 +1194,7 @@ public partial class CivSimDiag
         // ctxA：饿（FLast=0.5 < P=1）→ 迁移
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var eA = AddBand(ctxA, 0, 1f, TechTable.StoneCore);
+        var eA = AddPolity(ctxA, 0, 1f, TechTable.StoneCore);
         eA.FLast = 0.5f;   // 饿（F<D；砍存量后由土地饱和/超载产生）
         int cellOld = eA.Cell;   // ⚠️ 2026-08-17 审查修复：打印迁移前后对比需记旧格
         ctxA.CellOwner[0] = 0;
@@ -1205,7 +1205,7 @@ public partial class CivSimDiag
         // ctxB：不饿（FLast=2 > P=1）→ 不迁移
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var eB = AddBand(ctxB, 0, 1f, TechTable.StoneCore);
+        var eB = AddPolity(ctxB, 0, 1f, TechTable.StoneCore);
         eB.FLast = 2f;
         ctxB.CellOwner[0] = 0;
         ctxB.TerritoryCells[0].Add(0);
@@ -1226,8 +1226,8 @@ public partial class CivSimDiag
         // 场景 A：强覆盖——A P=200 → I_A=220×0.79=173.8 > I_B×1.15=43.5×1.15 → 易主
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
-        var aA = AddBand(ctxA, 0, 200f, TechTable.StoneCore);
-        var bA = AddBand(ctxA, 11, 50f, TechTable.StoneCore);
+        var aA = AddPolity(ctxA, 0, 200f, TechTable.StoneCore);
+        var bA = AddPolity(ctxA, 11, 50f, TechTable.StoneCore);
         ctxA.CellOwner[0] = 0;
         ctxA.CellOwner[11] = 1;
         ctxA.CellOwner[1] = 1;   // 边界格归 B（弱）
@@ -1236,8 +1236,8 @@ public partial class CivSimDiag
         // 场景 B：势均力敌——A P=50 → I_A=43.5 = I_B → 粘性保住 B
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxB = MakeCtx(gB);
-        var aB = AddBand(ctxB, 0, 50f, TechTable.StoneCore);
-        var bB = AddBand(ctxB, 11, 50f, TechTable.StoneCore);
+        var aB = AddPolity(ctxB, 0, 50f, TechTable.StoneCore);
+        var bB = AddPolity(ctxB, 11, 50f, TechTable.StoneCore);
         ctxB.CellOwner[0] = 0;
         ctxB.CellOwner[11] = 1;
         ctxB.CellOwner[1] = 1;
@@ -1255,8 +1255,8 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 10;
-        var ch = AddBand(ctx, 0, 130f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);   // 军事 2.7
-        var ow = AddBand(ctx, 1, 50f, TechTable.StoneCore);
+        var ch = AddPolity(ctx, 0, 130f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);   // 军事 2.7
+        var ow = AddPolity(ctx, 1, 50f, TechTable.StoneCore);
         ctx.CellOwner[0] = 0;
         ctx.CellOwner[1] = 1;
         ctx.CellOwner[2] = 1;   // 争议格归 owner
@@ -1278,16 +1278,16 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var withBow = AddBand(ctx, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
-        var plain = AddBand(ctx, 1, 50f, TechTable.StoneCore);
+        var withBow = AddPolity(ctx, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
+        var plain = AddPolity(ctx, 1, 50f, TechTable.StoneCore);
         float milBow = TechTable.MilitaryMult(withBow.TechKeys);
         float milPlain = TechTable.MilitaryMult(plain.TechKeys);
         bool decoupled = milBow > 1f && milPlain == 1f;   // 解耦：武器进军事、无武器=1
         // 采样：同 P 一有弓一无——胜率 = 50×m / (50×m + 50)；固定 seed 确定性统计
         int bowWins = 0, plainWins = 0;
         var ctxS = MakeCtx(g, seed: 7);
-        var cb = AddBand(ctxS, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
-        var cp = AddBand(ctxS, 1, 50f, TechTable.StoneCore);
+        var cb = AddPolity(ctxS, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
+        var cp = AddPolity(ctxS, 1, 50f, TechTable.StoneCore);
         for (int k = 0; k < 60; k++)
         {
             cb.P = 50f; cp.P = 50f;   // 每次重置（损耗累积会衰减到 1 失真）
@@ -1308,8 +1308,8 @@ public partial class CivSimDiag
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
         ctxA.Tick = 10;
-        var aA = AddBand(ctxA, 0, 200f, TechTable.StoneCore);
-        var bA = AddBand(ctxA, 11, 50f, TechTable.StoneCore);
+        var aA = AddPolity(ctxA, 0, 200f, TechTable.StoneCore);
+        var bA = AddPolity(ctxA, 11, 50f, TechTable.StoneCore);
         ctxA.CellOwner[0] = 0;
         ctxA.CellOwner[11] = 1;
         ctxA.CellOwner[1] = 0;              // 武力夺取：格 1 归 A
@@ -1320,8 +1320,8 @@ public partial class CivSimDiag
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxB = MakeCtx(gB);
         ctxB.Tick = 10;
-        var aB = AddBand(ctxB, 0, 50f, TechTable.StoneCore);
-        var bB = AddBand(ctxB, 11, 200f, TechTable.StoneCore);
+        var aB = AddPolity(ctxB, 0, 50f, TechTable.StoneCore);
+        var bB = AddPolity(ctxB, 11, 200f, TechTable.StoneCore);
         ctxB.CellOwner[0] = 0;
         ctxB.CellOwner[11] = 1;
         ctxB.CellOwner[1] = 0;              // A 曾武力夺取
@@ -1339,7 +1339,7 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddBand(ctx, 0, 1000f, TechTable.StoneCore);   // P=1000 ≫ 0.1×pot → 劳动力充足（土地受限区，开垦减产可见）
+        var e = AddPolity(ctx, 0, 1000f, TechTable.StoneCore);   // P=1000 ≫ 0.1×pot → 劳动力充足（土地受限区，开垦减产可见）
         ctx.CellOwner[0] = 0;
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
@@ -1357,9 +1357,9 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var fa = AddBand(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
+        var fa = AddPolity(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
         fa.IsFarming = true;
-        var hu = AddBand(ctx, 1, 50f, TechTable.StoneCore);   // 非农对照
+        var hu = AddPolity(ctx, 1, 50f, TechTable.StoneCore);   // 非农对照
         ctx.CellOwner[0] = 0;   // ⚠️ 2026-08-17 领地农业：开垦走领地格——测试需设领地（否则 terr 空不开垦）
         ctx.TerritoryCells[0].Add(0);
         ctx.TerritoryDists[0].Add(0);
@@ -1381,7 +1381,7 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddBand(ctx, 0, 0f, TechTable.StoneCore, TechTable.SeedWheat);
+        var e = AddPolity(ctx, 0, 0f, TechTable.StoneCore, TechTable.SeedWheat);
         e.IsFarming = true;
         ctx.Suit[0, 0] = 1.0f;
         ctx.CellOwner[0] = 0;
@@ -1422,13 +1422,13 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var farm = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var farm = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
-        var hunter = AddBand(ctx, 1, 100f, TechTable.StoneCore);
-        var s1 = AddBand(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋（techMult 1.0）
-        var s2 = AddBand(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封（×0.3）
-        var gA = AddBand(ctx, 4, 100f, TechTable.StoneCore);                     // 游群（r 基础）
-        var gB = AddBand(ctx, 5, 100f, TechTable.StoneCore);
+        var hunter = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
+        var s1 = AddPolity(ctx, 2, 100f, TechTable.Storage);                       // 游群粮袋（techMult 1.0）
+        var s2 = AddPolity(ctx, 3, 100f, TechTable.Storage, TechTable.Pottery);    // +陶器密封（×0.3）
+        var gA = AddPolity(ctx, 4, 100f, TechTable.StoneCore);                     // 游群（r 基础）
+        var gB = AddPolity(ctx, 5, 100f, TechTable.StoneCore);
         gB.IsFarming = true;                                                       // 定居（r×1.5）
         CivEngine.RefreshCellState(ctx);   // CapMask（settle/pottery/storage）
         bool settleOk = CapabilityTable.Has(ctx, farm, CapabilityTable.Settle) && !CapabilityTable.Has(ctx, hunter, CapabilityTable.Settle);
@@ -1558,8 +1558,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         a.FLast = 100.5f;   // 绝对盈余 0.5 人（小宴席能力）
         b.FLast = 90f;    // 缺口 10 人
         var p = new PrestigeModel();
@@ -1578,8 +1578,8 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         a.FLast = 105f;   // 绝对盈余 5 人（宴席能力）
         b.FLast = 90f;
         var p = new PrestigeModel();
@@ -1597,11 +1597,11 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsFarming = true;   // settle → 祖先宗教可达
         ShareField.RelTransfer(a.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         a.Prestige = 1.2f;
-        var b = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         b.Prestige = 1.2f;    // 泛灵（默认）——无谱系
         new PrestigeModel().Execute(ctx);
         bool aChief = a.IsChief;
@@ -1620,18 +1620,18 @@ public partial class CivSimDiag
         RingLinks(g);   // 精确环邻接——BFS 跳数 = 环距
         var ctx = MakeCtx(g);
         // 酋长 A：格 0（领地 {0,1}），声望 1.2 + 祖先宗教 → IsChief
-        var a1 = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var a1 = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         a1.IsFarming = true;
         ShareField.RelTransfer(a1.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         a1.Prestige = 1.2f;
         a1.IsChief = true;   // 手动置位（PrestigeModel 派生——测试直接构造酋长状态）
         a1.TerritoryId = 10; a1.TerritorySize = 2;
-        var a2 = AddBand(ctx, 1, 80f, TechTable.StoneCore);
+        var a2 = AddPolity(ctx, 1, 80f, TechTable.StoneCore);
         a2.TerritoryId = 10; a2.TerritorySize = 2;
-        var b1 = AddBand(ctx, 3, 90f, TechTable.StoneCore);
+        var b1 = AddPolity(ctx, 3, 90f, TechTable.StoneCore);
         b1.TerritoryId = 20; b1.TerritorySize = 1;
         // 领地格（手造——庇护机制只看距离，不看领地接触）
-        foreach (var e in ctx.Bands) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        foreach (var e in ctx.Polities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
         ctx.TerritoryCells[a1.Id].Add(1); ctx.TerritoryDists[a1.Id].Add(1);
         ctx.TerritoryCells[b1.Id].Add(2); ctx.TerritoryDists[b1.Id].Add(1);
         ctx.ChiefdomLastEval = -100;
@@ -1641,7 +1641,7 @@ public partial class CivSimDiag
                    && b1.ChiefdomId == a1.Id          // 半径 3 内 → 入邦
                    && a1.ChiefdomSize == 3;
         // 反例：c1（格 14，距 a1=14 > ChiefReach=12）→ 半径外不入邦
-        var c1 = AddBand(ctx, 14, 70f, TechTable.StoneCore);
+        var c1 = AddPolity(ctx, 14, 70f, TechTable.StoneCore);
         c1.TerritoryId = 30; c1.TerritorySize = 1;
         ctx.TerritoryCells[c1.Id].Add(14); ctx.TerritoryDists[c1.Id].Add(0);
         ctx.ChiefdomLastEval = -100;
@@ -1654,13 +1654,13 @@ public partial class CivSimDiag
 
     /// <summary>T46 酋邦庇护跨语言群（2026-08-19 新机制）：patronage 个人化——语言群分歧 → 部落层断裂，
     /// 但 b 仍在 a 的 ChiefReach 内 → 酋邦庇护保持（史实：patron-client 可跨族；政治体不依赖领地/语言网络）。</summary>
-    private void T46_BandIndependence()
+    private void T46_PolityIndependence()
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // 精确环邻接
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         a.TerritoryId = 5; b.TerritoryId = 6;   // 两个部落
         a.IsChief = true; a.Prestige = 1.2f;
         a.CultureGroupShare = ShareField.NewCulture("cultg_1");
@@ -1681,14 +1681,14 @@ public partial class CivSimDiag
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var chief = AddBand(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var chief = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         chief.IsFarming = true;
         ShareField.RelTransfer(chief.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         chief.Prestige = 1.2f;
         chief.ChiefdomId = 9; chief.ChiefdomSize = 3; chief.Contributed = 50f;
-        var b = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         b.ChiefdomId = 9; b.ChiefdomSize = 3; b.Contributed = 20f;   // 贡献过 → 受赈
-        var c = AddBand(ctx, 2, 100f, TechTable.StoneCore);
+        var c = AddPolity(ctx, 2, 100f, TechTable.StoneCore);
         c.ChiefdomId = 9; c.ChiefdomSize = 3; c.Contributed = 0f;    // 未贡献 → 不受赈
         new PrestigeModel().Execute(ctx);   // 更新 IsChief（chief 需确认）+ 精英供养
         b.FLast = 50f; c.FLast = 50f;   // 坏年景（P=100 缺口 50%）
@@ -1707,24 +1707,24 @@ public partial class CivSimDiag
         // 场景 A：贡赋充足
         var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
-        var ca = AddBand(ctxA, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var ca = AddPolity(ctxA, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         ca.IsFarming = true;
         ShareField.RelTransfer(ca.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         ca.Prestige = 1.2f;
         ca.ChiefdomId = 7; ca.ChiefdomSize = 2; ca.Contributed = 100f;   // 池 100 ≥ 精英 10
-        var ma = AddBand(ctxA, 1, 50f, TechTable.StoneCore);
+        var ma = AddPolity(ctxA, 1, 50f, TechTable.StoneCore);
         ma.ChiefdomId = 7; ma.ChiefdomSize = 2; ma.Contributed = 0f;
         new PrestigeModel().Execute(ctxA);
         bool fed = ca.P == 100f;   // 精英被供养 → P 不变
         // 场景 B：贡赋不足
         var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
-        var cb = AddBand(ctxB, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
+        var cb = AddPolity(ctxB, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         cb.IsFarming = true;
         ShareField.RelTransfer(cb.ReligionShare, ReligionStage.Animism, ReligionStage.Ancestor, 100);
         cb.Prestige = 1.2f;
         cb.ChiefdomId = 8; cb.ChiefdomSize = 2; cb.Contributed = 2f;    // 池 2 < 精英 10
-        var mb = AddBand(ctxB, 1, 50f, TechTable.StoneCore);
+        var mb = AddPolity(ctxB, 1, 50f, TechTable.StoneCore);
         mb.ChiefdomId = 8; mb.ChiefdomSize = 2; mb.Contributed = 0f;
         new PrestigeModel().Execute(ctxB);
         bool starved = cb.P < 100f;   // 贡赋不足 → 精英饿死
@@ -1742,17 +1742,17 @@ public partial class CivSimDiag
         //   （不等 P 时 challenger 输了 P 仍高——判定恒真）；联盟 ow=100+70=170 → winChance 0.37 vs 0.5
         // 场景 A：单部落 owner P=100 vs 入侵 100
         var ctxA = MakeCtx(g, seed: 7);
-        var owA = AddBand(ctxA, 0, 100f, TechTable.StoneCore);
-        var inA = AddBand(ctxA, 1, 100f, TechTable.StoneCore);
+        var owA = AddPolity(ctxA, 0, 100f, TechTable.StoneCore);
+        var inA = AddPolity(ctxA, 1, 100f, TechTable.StoneCore);
         ctxA.CellOwner[2] = 0;
         int loneWins = 0;
         for (int k = 0; k < 60; k++) { inA.P = 100f; owA.P = 100f; ConflictModel.ResolveConflict(ctxA, inA, owA, 2); if (inA.P > owA.P) loneWins++; }
         // 场景 B：酋邦 owner（100+70）vs 入侵 100
         var ctxB = MakeCtx(g, seed: 7);
-        var owB = AddBand(ctxB, 0, 100f, TechTable.StoneCore);
-        var ally = AddBand(ctxB, 1, 70f, TechTable.StoneCore);
+        var owB = AddPolity(ctxB, 0, 100f, TechTable.StoneCore);
+        var ally = AddPolity(ctxB, 1, 70f, TechTable.StoneCore);
         owB.ChiefdomId = 3; ally.ChiefdomId = 3;
-        var inB = AddBand(ctxB, 2, 100f, TechTable.StoneCore);
+        var inB = AddPolity(ctxB, 2, 100f, TechTable.StoneCore);
         ctxB.CellOwner[3] = 0;
         int chiefWins = 0;
         for (int k = 0; k < 60; k++) { inB.P = 100f; owB.P = 100f; ConflictModel.ResolveConflict(ctxB, inB, owB, 3); if (inB.P > owB.P) chiefWins++; }
@@ -1769,13 +1769,13 @@ public partial class CivSimDiag
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // 精确环邻接（庇护 BFS 跳数可靠）
         var ctx = MakeCtx(g);
-        var a = AddBand(ctx, 0, 100f, TechTable.StoneCore);
-        var b = AddBand(ctx, 1, 100f, TechTable.StoneCore);
+        var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
+        var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
         a.TerritoryId = 4; b.TerritoryId = 5;
         a.Prestige = 0.8f; b.Prestige = 0.5f;
         a.IsChief = true;   // 第一步：a 是酋长 → 凝聚
         a.FHuntLast = 100f; b.FFarmLast = 100f; // 产出互补（凝聚可发生）
-        foreach (var e in ctx.Bands) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
+        foreach (var e in ctx.Polities) { ctx.TerritoryCells[e.Id].Add(e.Cell); ctx.TerritoryDists[e.Id].Add(0); }
         ctx.TerritoryCells[a.Id].Add(2); ctx.TerritoryDists[a.Id].Add(1);
         ctx.TerritoryCells[b.Id].Add(3); ctx.TerritoryDists[b.Id].Add(1);
         ctx.ChiefdomLastEval = -100;
@@ -1795,11 +1795,11 @@ public partial class CivSimDiag
     /// <summary>T23 领地传播乘数（单元，无地图依赖）：同领地 ×1.5；跨领地（一方 ≥2 band）×0.5；散兵 ×1。</summary>
     private void T23_TerritoryMult()
     {
-        var a = new Band { TerritoryId = 7, TerritorySize = 2 };
-        var b = new Band { TerritoryId = 7, TerritorySize = 2 };
-        var c = new Band { TerritoryId = 9, TerritorySize = 2 };
-        var d = new Band { TerritoryId = -1, TerritorySize = 1 };
-        var e = new Band { TerritoryId = -1, TerritorySize = 1 };
+        var a = new Polity { TerritoryId = 7, TerritorySize = 2 };
+        var b = new Polity { TerritoryId = 7, TerritorySize = 2 };
+        var c = new Polity { TerritoryId = 9, TerritorySize = 2 };
+        var d = new Polity { TerritoryId = -1, TerritorySize = 1 };
+        var e = new Polity { TerritoryId = -1, TerritorySize = 1 };
         float same = SpreadModel.TerritoryMult(a, b);
         float cross = SpreadModel.TerritoryMult(a, c);
         float lone = SpreadModel.TerritoryMult(d, e);

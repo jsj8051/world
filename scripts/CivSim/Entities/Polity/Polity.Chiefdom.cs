@@ -1,12 +1,12 @@
 namespace World.CivSim.Entities;
 
 // ══════════════════════════════════════════════════════════════════
-// Band 酋邦层分区（概念 = 机制组合 2026-08-23 拍板 P3：partial 分文件）。
+// Polity 酋邦层分区（概念 = 机制组合 2026-08-23 拍板 P3：partial 分文件）。
 // 本文件：声望/贡赋/继承窗口/政治归属——酋邦配方选用的机制状态字段。
 // 概念定义见 桌面 概念机制组合设计.html ③ 配方单：酋邦 = 部落常用 + Prestige/Tribute/
 // Patronage/Succession/Absorption；字段均为持久（入档）或派生（重建）状态。
 // ══════════════════════════════════════════════════════════════════
-public partial class Band
+public partial class Polity
 {
     // ── 酋邦层（2026-08-17：Sahlins 声望/Earle 贡赋/Kirch 联盟——酋邦 = 部落联盟第二层并查集）──
     // 声望/贡赋/继承窗口为累积状态（入档 v10）；BigMan/Chief 从声望+宗教派生（不存档）；

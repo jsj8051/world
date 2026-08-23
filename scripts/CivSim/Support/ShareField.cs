@@ -88,7 +88,7 @@ public static class ShareField
     public static ShareEntry[] CloneShare(ShareEntry[] s) => new[] { s[0], s[1] };
 
     /// <summary>格级聚合：各实体份额按人口加权合并（其余并入第 2 位，保 Σ=255）。</summary>
-    public static ShareEntry[] PopMerge(IReadOnlyList<Band> entities, Func<Band, ShareEntry[]> getShare)
+    public static ShareEntry[] PopMerge(IReadOnlyList<Polity> entities, Func<Polity, ShareEntry[]> getShare)
     {
         float total = 0f;
         var frac = new Dictionary<string, float>();
@@ -178,7 +178,7 @@ public static class ShareField
     }
 
     /// <summary>宗教格级聚合（按人口加权，Σ 归一 255；key 固定不变）。</summary>
-    public static ShareEntry[] RelPopMerge(IReadOnlyList<Band> entities)
+    public static ShareEntry[] RelPopMerge(IReadOnlyList<Polity> entities)
     {
         float total = 0f;
         var sum = new float[ReligionStage.Count];

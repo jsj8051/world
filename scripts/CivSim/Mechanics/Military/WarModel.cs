@@ -77,7 +77,7 @@ public sealed class WarModel : CivModelBase
 
     /// <summary>国家军力 = Σ 成员 P×MilitMult × (1+WarCapitalBonus×都城Level) × 防御加成（城墙，P6）。
     /// ⚠️ 每会战调 2 次（每 5 tick）——成员数百量级，O(成员) 可接受（T18 教训仅约束每 tick 路径）。</summary>
-    private static float PowerOf(CivSimContext ctx, int stateId, War w, Band[] byId, Dictionary<int, Settlement> settleById)
+    private static float PowerOf(CivSimContext ctx, int stateId, War w, Polity[] byId, Dictionary<int, Settlement> settleById)
     {
         var members = MembersOf(ctx, stateId);
         float f = 0f;
@@ -101,7 +101,7 @@ public sealed class WarModel : CivModelBase
     }
 
     /// <summary>会战败方损耗：成员人口 ×(1-WarLoss) + 贡赋池 ×(1-WarLoss)（消耗战——损耗可累积瓦解）。</summary>
-    private static void ApplyLoss(CivSimContext ctx, int loserState, Band[] byId)
+    private static void ApplyLoss(CivSimContext ctx, int loserState, Polity[] byId)
     {
         var members = MembersOf(ctx, loserState);
         float keep = 1f - CivSimContext.WarLoss;
@@ -159,7 +159,7 @@ public sealed class WarModel : CivModelBase
     /// 无视庇护半径）；战败国酋长流放驱逐（其国随成员归属消散）；战利品入战胜国池。
     /// ⚠️ 持久痕迹：ConqueredBy 入档（v14）；征服者死亡 → ChiefdomModel 重建清空（效忠脱落）。
     /// ⚠️ StateId 不直接改——StateModel(49) 下 tick 从 ChiefdomId 重建，原国家自动消失（崩溃路径④）。</summary>
-    private static void Annex(CivSimContext ctx, War w, int winner, int loser, Band[] byId)
+    private static void Annex(CivSimContext ctx, War w, int winner, int loser, Polity[] byId)
     {
         var members = MembersOf(ctx, loser);
         for (int k = 0; k < members.Count; k++)
@@ -178,10 +178,10 @@ public sealed class WarModel : CivModelBase
             int target = SplitMigrateModel.PickMigrateTarget(ctx, chief);
             if (target >= 0)
             {
-                if (ctx.CellBands[chief.Cell] == chief) ctx.CellBands[chief.Cell] = null;
+                if (ctx.CellPolities[chief.Cell] == chief) ctx.CellPolities[chief.Cell] = null;
                 chief.Cell = target;
                 chief.LastMigrateTick = ctx.Tick;
-                ctx.CellBands[target] = chief;
+                ctx.CellPolities[target] = chief;
                 ctx.Migrations++;
             }
         }
@@ -202,7 +202,7 @@ public sealed class WarModel : CivModelBase
 
     /// <summary>朝贡割地：战败国边境格（与战胜国领地相邻）取前 WarCedeCells 格 → CellOwner 归战胜国酋长。
     /// ⚠️ 领地重建（TerritoryModel 45）下 tick 自动整合——CellOwner 是持久字段，读档续跑无分叉。</summary>
-    private static void CedeCells(CivSimContext ctx, War w, int loser, Band[] byId)
+    private static void CedeCells(CivSimContext ctx, War w, int loser, Polity[] byId)
     {
         var winnerChief = w.TributeTo < byId.Length ? byId[w.TributeTo] : null;
         if (winnerChief == null || winnerChief.Dead || ctx.CellOwner == null) return;
@@ -213,8 +213,8 @@ public sealed class WarModel : CivModelBase
             int o = ctx.CellOwner[c];
             if (o < 0) continue;
             // 败国格：酋长自身格 或 成员格（成员 ChiefdomId == 败国 id——国家=酋邦，同 Id 语义）
-            var oBand = o < byId.Length ? byId[o] : null;
-            bool isLoser = o == loser || (oBand != null && !oBand.Dead && oBand.ChiefdomId == loser);
+            var oPolity = o < byId.Length ? byId[o] : null;
+            bool isLoser = o == loser || (oPolity != null && !oPolity.Dead && oPolity.ChiefdomId == loser);
             if (!isLoser) continue;
             // 边境判定：任一邻居属战胜国
             bool bordersWinner = false;
@@ -270,10 +270,10 @@ public sealed class WarModel : CivModelBase
         // 国家集合：至尊酋长（StateId == 自身 Id）且正式国家（Size ≥ 2）
         // ⚠️ 2026-08-23 概念 = 机制组合（Phase 1）：宣战资格走策略多态（WarPolicies.Of 查表——
         //   仅国家可宣战，阶段5 P1 拍板；未来村庄民兵/城防策略在此扩展）
-        var states = new List<Band>();
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        var states = new List<Polity>();
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             if (!WarPolicies.Of(e).CanDeclareWar(e)) continue;
             states.Add(e);
@@ -305,7 +305,7 @@ public sealed class WarModel : CivModelBase
     /// <summary>宣战条件判定（纯函数——T70 直接断言，免概率噪声）：
     /// 冷却过 + 未交战 + 领地相邻 + 宣战国贡赋池足（WarMinPoolPerCap——穷兵不打）。
     /// 概率门控（WarDeclareChance）在 DeclareWars 内部，不在本函数。</summary>
-    internal static bool CanDeclare(CivSimContext ctx, Band a, Band b, float reachKm)
+    internal static bool CanDeclare(CivSimContext ctx, Polity a, Polity b, float reachKm)
     {
         if (ctx.Tick - a.LastWarTick < CivSimContext.WarCooldownTicks) return false;
         if (ctx.Tick - b.LastWarTick < CivSimContext.WarCooldownTicks) return false;
@@ -318,7 +318,7 @@ public sealed class WarModel : CivModelBase
 
     /// <summary>国家领地接触：任一成员对领地边界接触（TerritoryTouches——同酋邦凝聚判定）。
     /// ⚠️ 用 Id 索引（O(成员对) 一次成型——线性 Find 在成员数百时是亿级比较）。</summary>
-    private static bool StatesTouch(CivSimContext ctx, Band a, Band b)
+    private static bool StatesTouch(CivSimContext ctx, Polity a, Polity b)
     {
         var byId = IdIndex(ctx);
         var ma = MembersOf(ctx, a.Id);
@@ -378,12 +378,12 @@ public sealed class WarModel : CivModelBase
         return pool;
     }
 
-    private static Band[] IdIndex(CivSimContext ctx)
+    private static Polity[] IdIndex(CivSimContext ctx)
     {
-        int bufLen = Math.Max(ctx.NextBandId, ctx.Bands.Count + 1);
-        var byId = new Band[bufLen];
-        for (int i = 0; i < ctx.Bands.Count; i++)
-            if (!ctx.Bands[i].Dead && ctx.Bands[i].Id < bufLen) byId[ctx.Bands[i].Id] = ctx.Bands[i];
+        int bufLen = Math.Max(ctx.NextPolityId, ctx.Polities.Count + 1);
+        var byId = new Polity[bufLen];
+        for (int i = 0; i < ctx.Polities.Count; i++)
+            if (!ctx.Polities[i].Dead && ctx.Polities[i].Id < bufLen) byId[ctx.Polities[i].Id] = ctx.Polities[i];
         return byId;
     }
 

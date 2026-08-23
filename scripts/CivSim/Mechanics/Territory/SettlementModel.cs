@@ -31,7 +31,7 @@ public sealed class SettlementModel : CivModelBase
         {
             var s = ctx.Settlements[i];
             if (s.OccupantId < 0) continue;
-            var occ = FindBand(ctx, s.OccupantId);
+            var occ = FindPolity(ctx, s.OccupantId);
             if (occ == null || occ.Dead || occ.Cell != s.Cell || occ.PlaceId != s.Id)
             {
                 if (occ != null && !occ.Dead && occ.Cell != s.Cell)
@@ -45,9 +45,9 @@ public sealed class SettlementModel : CivModelBase
             }
         }
         // ② 形成/接管：农业部落无聚落 → 建新村/接管废墟
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead || !e.IsFarming || e.PlaceId >= 0) continue;
             if (e.SettledSince < 0) e.SettledSince = ctx.Tick;   // 定居起点（转农/迁入当 tick）
             Settlement reclaim = null;
@@ -83,7 +83,7 @@ public sealed class SettlementModel : CivModelBase
         {
             var s = ctx.Settlements[i];
             if (s.OccupantId < 0) continue;
-            var occ = FindBand(ctx, s.OccupantId);
+            var occ = FindPolity(ctx, s.OccupantId);
             if (occ == null || occ.Dead) continue;
             if (ctx.Tick - s.LastLevelUpTick < CivSimContext.SettlementLevelCooldown) continue;
             int dwell = ctx.Tick - s.DwellFrom;
@@ -96,10 +96,10 @@ public sealed class SettlementModel : CivModelBase
         }
     }
 
-    private static Band FindBand(CivSimContext ctx, int id)
+    private static Polity FindPolity(CivSimContext ctx, int id)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
-            if (ctx.Bands[i].Id == id && !ctx.Bands[i].Dead) return ctx.Bands[i];
+        for (int i = 0; i < ctx.Polities.Count; i++)
+            if (ctx.Polities[i].Id == id && !ctx.Polities[i].Dead) return ctx.Polities[i];
         return null;
     }
 }

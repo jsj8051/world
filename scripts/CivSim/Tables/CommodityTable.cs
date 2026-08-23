@@ -12,7 +12,7 @@ public enum CommodityKind { Food, Material }
 /// 动态扩展：加新商品 = 注册一行（+存档版本 bump，读旧档补 0）——不碰机制代码。
 /// 每商品：Kind（是否食物）、BaseDecay（**商品自身年衰变率**——"特定食物耐存储"：
 /// 谷物耐储远优于浆果/肉，这是农业→定居→文明因果链的涌现基础）、Consumed（是否被人口消耗）、
-/// Produce（每 tick 流入，从 Band 的 F 分量提取）。
+/// Produce（每 tick 流入，从 Polity 的 F 分量提取）。
 /// 实际衰变 = BaseDecay × techMult（techMult 按 storage/pottery/settle/grinding 分层，见 CivEngine.AccumulateStorage）。
 /// </summary>
 public static class CommodityTable
@@ -24,7 +24,7 @@ public static class CommodityTable
         public CommodityKind Kind;
         public float BaseDecay;      // 年衰变率（商品自身；技术分层在其上 × techMult）
         public bool Consumed;        // Food：被人口消耗（P 人当量·年/人）
-        public Func<Band, float> Produce;   // 每 tick 流入（人当量·年/tick 口径 → 年步进内均摊）
+        public Func<Polity, float> Produce;   // 每 tick 流入（人当量·年/tick 口径 → 年步进内均摊）
     }
 
     public const string Grain = "grain";

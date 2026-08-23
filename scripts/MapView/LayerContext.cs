@@ -40,7 +40,7 @@ public sealed class LayerContext
         if (Cache.CultGroup != null || CivCtx == null) return;
         Cache.CultGroup = new Dictionary<int, int>();
         Cache.SectGroup = new Dictionary<int, int>();
-        foreach (var e in CivCtx.Bands)
+        foreach (var e in CivCtx.Polities)
         {
             if (e.Dead) continue;
             int c = ShareField.KeyHash(ShareField.DomKey(e.CultureShare));

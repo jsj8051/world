@@ -25,9 +25,9 @@ public sealed class TileDataCache
     public int[] TileCulture;       // 每格主导文化 key 的 FNV 哈希（0=无；完整 32 位 → 每文化独立色）
     public byte[] TileCultureGroup; // 每格主导文化群（0=无）
     public int[] TileReligion;      // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
-    public int[] TileBand;         // 每格主导部落 id（-1=无）
+    public int[] TilePolity;         // 每格主导部落 id（-1=无）
     public int[] TilePower;         // 每格主导势力 id（2026-08-17：最高聚合——酋邦>部落>band；高位域标记）
-    public byte[] TilePolity;       // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
+    public byte[] TilePolityKind;   // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
     public byte[] TileTechEpoch;    // 每格主导部落最高技术时代 0-4
     public int[] TileTerritory;     // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
     public byte[] TileSettlement;   // 每格聚落（2026-08-19 阶段3：0=无 1=新村 2=村庄 3=城镇 4=城市 5=废墟）

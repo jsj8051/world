@@ -18,9 +18,9 @@ public partial class CivSimDiag
 
     private static bool EntitiesEqual(CivSimContext a, CivSimContext b, string tag = "")
     {
-        if (a.Bands.Count != b.Bands.Count)
+        if (a.Polities.Count != b.Polities.Count)
         {
-            LogService.Log("往返诊断{tag}", $"实体数 {a.Bands.Count} vs {b.Bands.Count}");
+            LogService.Log("往返诊断{tag}", $"实体数 {a.Polities.Count} vs {b.Polities.Count}");
             return false;
         }
         // ⚠️ 2026-08-17 审查修复：场层对比（Cultivation/CellOwner/LockedUntil/Rng 状态）——
@@ -46,9 +46,9 @@ public partial class CivSimDiag
             LogService.Log("往返诊断{tag}", $"Rng 状态不一致 {RngStateOf(a)} vs {RngStateOf(b)}");
             return false;
         }
-        for (int k = 0; k < a.Bands.Count; k++)
+        for (int k = 0; k < a.Polities.Count; k++)
         {
-            var x = a.Bands[k]; var y = b.Bands[k];
+            var x = a.Polities[k]; var y = b.Polities[k];
             if (x.Id != y.Id || x.Cell != y.Cell || x.P != y.P || x.IsFarming != y.IsFarming
                 || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick
                 || x.TerritoryId != y.TerritoryId || x.TerritorySize != y.TerritorySize

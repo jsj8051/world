@@ -24,9 +24,9 @@ public sealed class InventionModel : CivModelBase
     {
         CivEngine.RefreshCellState(ctx);   // 生产方式已更新（Order 30）→ 刷新 F_格 供压力判定
 
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             // ── 通用发明（Kremer）──
             foreach (var t in TechTable.All)

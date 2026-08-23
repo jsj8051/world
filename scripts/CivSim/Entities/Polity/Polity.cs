@@ -16,18 +16,18 @@ public enum EpochKind
 }
 
 /// <summary>
-/// 社会单元实体（Band，v4 纯实体模型；唯一社会实体——部落/酋邦/国家均为派生概念）。
+/// 社会单元实体（Polity，v4 纯实体模型；唯一社会实体——部落/酋邦/国家均为派生概念）。
 /// 身份 = 人口份额，不是实体标签：文化/文化群/宗教都是人口上的分布场（top-2 存储，Σ=1）。
 /// 文化/文化群用字符串 key 标识（与科技一致：存档/诊断可读，如 "cult_3"）；宗教为固定 5 段份额。
 /// 分裂时份额等比例继承（人口分走，身份随人口走）；合并按人口加权融合。
 ///
 /// ⚠️ 概念 = 机制组合（2026-08-23 拍板）：本类按概念层拆 partial 分区文件——
-///    Band.Core.cs（本文件：人口/迁徙/分裂/份额场）
-///    Band.Chiefdom.cs（酋邦层：声望/贡赋/继承窗口/政治归属）
-///    Band.State.cs（国家层 + 军事征服痕迹）
+///    Polity.Core.cs（本文件：人口/迁徙/分裂/份额场）
+///    Polity.Chiefdom.cs（酋邦层：声望/贡赋/继承窗口/政治归属）
+///    Polity.State.cs（国家层 + 军事征服痕迹）
 ///    实体纯数据（贫血模型——P6 拍板）：行为全在 Mechanics/ 原子机制积木。
 /// </summary>
-public partial class Band
+public partial class Polity
 {
     public int Id;
     public int Cell;                  // 所在格（band 领地 = 1 格）

@@ -107,8 +107,8 @@ public class CivSimMechanics2Tests
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellBands = new Band[n],
-            Bands = new List<Band>(),
+            CellPolities = new Polity[n],
+            Polities = new List<Polity>(),
             Seed = seed,
             OriginCount = 3,
             Rng = new DeterministicRandom(seed),
@@ -147,7 +147,7 @@ public class CivSimMechanics2Tests
             CivEngine.RefreshCellState(ctx);
             registry.ExecuteAll(ctx);
         }
-        ctx.Bands.RemoveAll(e => e.Dead);
+        ctx.Polities.RemoveAll(e => e.Dead);
         CivEngine.SettleDerived(ctx);
         ctx.Tick = ticks;
         return ctx;
@@ -159,14 +159,14 @@ public class CivSimMechanics2Tests
         var sb = new StringBuilder();
         sb.Append("Tick=").Append(ctx.Tick);
         sb.Append(";Pop=").Append(ctx.TotalPopulation().ToString("0.000000", CultureInfo.InvariantCulture));
-        sb.Append(";Bands=").Append(ctx.Bands.Count);
+        sb.Append(";Polities=").Append(ctx.Polities.Count);
         sb.Append(";Fis=").Append(ctx.Fissions).Append(";Mig=").Append(ctx.Migrations);
         sb.Append(";Conf=").Append(ctx.Conflicts);
         sb.Append(";TradeEv=").Append(ctx.TradeEvents);
         sb.Append(";TradeVol=").Append(ctx.TradeVolume.ToString("0.000000", CultureInfo.InvariantCulture));
-        sb.Append(";NextT=").Append(ctx.NextBandId).Append(";NextS=").Append(ctx.NextSettlementId);
+        sb.Append(";NextT=").Append(ctx.NextPolityId).Append(";NextS=").Append(ctx.NextSettlementId);
         sb.Append(";Settles=").Append(ctx.Settlements.Count).Append(";Wars=").Append(ctx.Wars.Count);
-        var ts = ctx.Bands.OrderBy(t => t.Id).ToArray();
+        var ts = ctx.Polities.OrderBy(t => t.Id).ToArray();
         foreach (var t in ts)
         {
             sb.Append("|").Append(t.Id).Append(":").Append(t.Cell)
@@ -199,23 +199,23 @@ public class CivSimMechanics2Tests
     /// <summary>保证：RefreshCellStateCore 把每格变成"一格一实体"单引用、聚合 CellPop/CellFarmPop，
     /// 并刷新 CarryMult/CapMask（灌入 Cells 缓存供后续模型 O(1) 查询）。</summary>
     [Test]
-    public void RefreshCore_OneBandPerCell_AggregatesAndCaches()
+    public void RefreshCore_OnePolityPerCell_AggregatesAndCaches()
     {
         var grid = MakeMiniGrid();
         int n = grid.N;
-        var hunter = new Band { Id = 0, Cell = 0, P = 10, IsFarming = false };
+        var hunter = new Polity { Id = 0, Cell = 0, P = 10, IsFarming = false };
         hunter.TechKeys.Add(TechTable.StoneCore);
-        var farmer = new Band { Id = 1, Cell = 1, P = 20, IsFarming = true };
+        var farmer = new Polity { Id = 1, Cell = 1, P = 20, IsFarming = true };
         farmer.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 1);
-        ctx.Bands = new List<Band> { farmer, hunter };
-        ctx.CellBands[0] = hunter; ctx.CellBands[1] = farmer;
+        ctx.Polities = new List<Polity> { farmer, hunter };
+        ctx.CellPolities[0] = hunter; ctx.CellPolities[1] = farmer;
 
         CivEngine.RefreshCellStateCore(ctx);
 
-        Assert.AreSame(hunter, ctx.CellBands[0], "一格一实体：hunter 占格 0");
-        Assert.AreSame(farmer, ctx.CellBands[1], "farmer 占格 1");
-        Assert.IsNull(ctx.CellBands[2], "其余格为空");
+        Assert.AreSame(hunter, ctx.CellPolities[0], "一格一实体：hunter 占格 0");
+        Assert.AreSame(farmer, ctx.CellPolities[1], "farmer 占格 1");
+        Assert.IsNull(ctx.CellPolities[2], "其余格为空");
         Assert.AreEqual(10f, ctx.CellPop[0], 1e-6f);
         Assert.AreEqual(20f, ctx.CellPop[1], 1e-6f);
         Assert.AreEqual(0f, ctx.CellFarmPop[0], 1e-6f, "非农部落不计入 CellFarmPop");
@@ -231,12 +231,12 @@ public class CivSimMechanics2Tests
     [Test]
     public void AccumulateStorage_CarryPool_DecaysByBaseYearRate()
     {
-        var e = new Band { Id = 0, Cell = 0, P = 100 };
+        var e = new Polity { Id = 0, Cell = 0, P = 100 };
         e.Stocks[GrainIdx] = CivSimContext.CarryFoodCap * 100f;      // 6（等于随身容量上限，避免 clamp 干扰）
         e.Stocks[BerryIdx] = CivSimContext.CarryFoodCap * 100f;      // 6（浆果）
         e.Stocks[LeatherIdx] = CivSimContext.CarryMatCap * 100f;     // 2
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
-        ctx.Bands = new List<Band> { e };
+        ctx.Polities = new List<Polity> { e };
         ctx.Settlements = new List<Settlement>();   // 无聚落 = 游群（随身即全部）
 
         CivEngine.AccumulateStorage(ctx);
@@ -256,11 +256,11 @@ public class CivSimMechanics2Tests
     [Test]
     public void AccumulateStorage_MaterialInflow_GranaryFirstThenCarry()
     {
-        var e = new Band { Id = 0, Cell = 0, P = 100, IsFarming = true, PlaceId = 0 };
+        var e = new Polity { Id = 0, Cell = 0, P = 100, IsFarming = true, PlaceId = 0 };
         e.FHuntLast = 10f;          // 狩猎产出 → 皮革副产 = 10×0.10 = 1.0
         var s = new Settlement { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
-        ctx.Bands = new List<Band> { e };
+        ctx.Polities = new List<Polity> { e };
         ctx.Settlements = new List<Settlement> { s };
 
         CivEngine.AccumulateStorage(ctx);
@@ -277,10 +277,10 @@ public class CivSimMechanics2Tests
     [Test]
     public void AccumulateStorage_CapacityClamps_OvershootToCap()
     {
-        var e = new Band { Id = 0, Cell = 0, P = 100 };
+        var e = new Polity { Id = 0, Cell = 0, P = 100 };
         e.Stocks[CommodityTable.Index(CommodityTable.Straw)] = 5f * CivSimContext.CarryMatCap * 100f;   // 超上限 5×（秸秆随身）
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
-        ctx.Bands = new List<Band> { e };
+        ctx.Polities = new List<Polity> { e };
         ctx.Settlements = new List<Settlement>();   // 游群
 
         CivEngine.AccumulateStorage(ctx);
@@ -297,11 +297,11 @@ public class CivSimMechanics2Tests
     {
         var grid = MakeMiniGrid();
         int n = grid.N;
-        var e = new Band { Id = 0, Cell = 0, P = 100 };
+        var e = new Polity { Id = 0, Cell = 0, P = 100 };
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 1);
-        ctx.Bands = new List<Band> { e };
-        ctx.CellBands[0] = e;
+        ctx.Polities = new List<Polity> { e };
+        ctx.CellPolities[0] = e;
         ctx.R = new float[n];
         ctx.R[0] = 1e-5f;                       // 单格领地高生产力
         ctx.RMax = 1e-5f;
@@ -331,19 +331,19 @@ public class CivSimMechanics2Tests
     [Test]
     public void DeriveLeadership_BigManAndChief_FromPrestigeAndReligion()
     {
-        var zero = new Band { Prestige = 0.5f };
+        var zero = new Polity { Prestige = 0.5f };
         zero.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);
         CivEngine.DeriveLeadership(zero);
         Assert.False(zero.IsBigMan, "声望 0.5 < 1.0 非 BigMan");
         Assert.False(zero.IsChief);
 
-        var big = new Band { Prestige = 1.0f };
+        var big = new Polity { Prestige = 1.0f };
         big.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);
         CivEngine.DeriveLeadership(big);
         Assert.True(big.IsBigMan, "声望达标 = BigMan");
         Assert.False(big.IsChief, "BigMan 无祖先宗教（泛灵）≠ 酋长");
 
-        var chief = new Band { Prestige = 1.0f };
+        var chief = new Polity { Prestige = 1.0f };
         chief.ReligionShare = ShareField.NewReligion(ReligionStage.Ancestor);
         CivEngine.DeriveLeadership(chief);
         Assert.True(chief.IsBigMan);
@@ -357,16 +357,16 @@ public class CivSimMechanics2Tests
     {
         var grid = MakeMiniGrid();
         int n = grid.N;
-        var a = new Band { Id = 0, Cell = 0, P = 40, FLast = 30 };
+        var a = new Polity { Id = 0, Cell = 0, P = 40, FLast = 30 };
         a.TechKeys.Add(TechTable.StoneCore);
         a.CultureGroupShare = ShareField.NewCulture("g");
         a.Prestige = 2.0f; a.ReligionShare = ShareField.NewReligion(ReligionStage.Ancestor);   // 酋长候选
-        var b = new Band { Id = 1, Cell = 1, P = 30, FLast = 25 };
+        var b = new Polity { Id = 1, Cell = 1, P = 30, FLast = 25 };
         b.TechKeys.Add(TechTable.StoneCore);
         b.CultureGroupShare = ShareField.NewCulture("g");
         var ctx = InitFullCtx(grid, 2);
-        ctx.Bands = new List<Band> { a, b };
-        ctx.CellBands[0] = a; ctx.CellBands[1] = b;
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
 
         CivEngine.SettleDerived(ctx);
         string s1 = Signature(ctx);
@@ -386,11 +386,11 @@ public class CivSimMechanics2Tests
     {
         var grid = MakeMiniGrid();
         int n = grid.N;
-        var e = new Band { Id = 0, Cell = 0, P = 100 };
+        var e = new Polity { Id = 0, Cell = 0, P = 100 };
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 1);
-        ctx.Bands = new List<Band> { e };
-        ctx.CellBands[0] = e;
+        ctx.Polities = new List<Polity> { e };
+        ctx.CellPolities[0] = e;
         ctx.R = new float[n];
         ctx.R[0] = 1e-5f; ctx.RMax = 1e-5f;
         ctx.Cultivation = new float[n];
@@ -413,12 +413,12 @@ public class CivSimMechanics2Tests
     public void ColdFloor_RaisesSurvivalFloor_ByFireAndClothing()
     {
         var grid = MakeMiniGrid();
-        var fire = new Band { Id = 0, Cell = 0, P = 10 };
+        var fire = new Polity { Id = 0, Cell = 0, P = 10 };
         fire.TechKeys.Add(TechTable.Fire);
-        var both = new Band { Id = 1, Cell = 0, P = 10 };
+        var both = new Polity { Id = 1, Cell = 0, P = 10 };
         both.TechKeys.Add(TechTable.Fire);
         both.TechKeys.Add(TechTable.Clothing);
-        var plain = new Band { Id = 2, Cell = 0, P = 10 };
+        var plain = new Polity { Id = 2, Cell = 0, P = 10 };
         var ctx = InitFullCtx(grid, 1);
         // 把格 0 换成寒冷区（Tundra）以便触发下限路径
         var g2 = MakeMiniGrid();
@@ -437,13 +437,13 @@ public class CivSimMechanics2Tests
     public void Influence_StrongOverlaysWeakHome_StickyField()
     {
         var grid = PathGrid();
-        var a = new Band { Id = 0, Cell = 0, P = 1000 };   // 强
+        var a = new Polity { Id = 0, Cell = 0, P = 1000 };   // 强
         a.TechKeys.Add(TechTable.StoneCore);
-        var b = new Band { Id = 1, Cell = 1, P = 10 };     // 弱
+        var b = new Polity { Id = 1, Cell = 1, P = 10 };     // 弱
         b.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 3);
-        ctx.Bands = new List<Band> { a, b };
-        ctx.CellBands[0] = a; ctx.CellBands[1] = b;
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
         ctx.R = new float[4] { 1f, 1f, 1f, 1f };         // 全陆地可居
 
         new InfluenceModel().Execute(ctx);
@@ -464,13 +464,13 @@ public class CivSimMechanics2Tests
     public void Absorption_WithExileCell_MigratesAway()
     {
         var grid = PathGrid();
-        var a = new Band { Id = 0, Cell = 0, P = 100 };
+        var a = new Polity { Id = 0, Cell = 0, P = 100 };
         a.TechKeys.Add(TechTable.StoneCore);
-        var b = new Band { Id = 1, Cell = 1, P = 20, ChiefdomId = -1, TerritoryId = -1 };
+        var b = new Polity { Id = 1, Cell = 1, P = 20, ChiefdomId = -1, TerritoryId = -1 };
         b.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 3);
-        ctx.Bands = new List<Band> { a, b };
-        ctx.CellBands[0] = a; ctx.CellBands[1] = b;
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
         ctx.R = new float[4] { 1f, 1f, 2f, 1f };                 // 格 2 最富饶且无主
         ctx.CellOwner = new int[4] { 0, 0, -1, -1 };             // B 驻扎格(1)被 A 覆盖
         ctx.TerritoryCells = new List<int>[2];
@@ -494,13 +494,13 @@ public class CivSimMechanics2Tests
     public void Absorption_NoExile_MergesHalfPopulation()
     {
         var grid = PathGrid();
-        var a = new Band { Id = 0, Cell = 0, P = 100 };
+        var a = new Polity { Id = 0, Cell = 0, P = 100 };
         a.TechKeys.Add(TechTable.StoneCore);
-        var b = new Band { Id = 1, Cell = 1, P = 20, ChiefdomId = -1, TerritoryId = -1 };
+        var b = new Polity { Id = 1, Cell = 1, P = 20, ChiefdomId = -1, TerritoryId = -1 };
         b.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 3);
-        ctx.Bands = new List<Band> { a, b };
-        ctx.CellBands[0] = a; ctx.CellBands[1] = b;
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
         ctx.R = new float[4] { 1f, 1f, 1f, 1f };
         ctx.CellOwner = new int[4] { 0, 0, -1, -1 };             // B 驻扎格被覆盖
         ctx.TerritoryCells = new List<int>[2];
@@ -524,11 +524,11 @@ public class CivSimMechanics2Tests
     public void Mode_NoSeed_ForcesNonFarming()
     {
         var grid = MakeMiniGrid();
-        var e = new Band { Id = 0, Cell = 0, P = 10, IsFarming = true };   // 预置错误地"已转农"
+        var e = new Polity { Id = 0, Cell = 0, P = 10, IsFarming = true };   // 预置错误地"已转农"
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 5);
-        ctx.Bands = new List<Band> { e };
-        ctx.CellBands[0] = e;
+        ctx.Polities = new List<Polity> { e };
+        ctx.CellPolities[0] = e;
 
         new ModeModel().Execute(ctx);
 
@@ -557,11 +557,11 @@ public class CivSimMechanics2Tests
     public void Invention_EmptyTable_SafeDegradation()
     {
         var grid = MakeMiniGrid();
-        var e = new Band { Id = 0, Cell = 0, P = 100 };
+        var e = new Polity { Id = 0, Cell = 0, P = 100 };
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 5);
-        ctx.Bands = new List<Band> { e };
-        ctx.CellBands[0] = e;
+        ctx.Polities = new List<Polity> { e };
+        ctx.CellPolities[0] = e;
         // 通用发明遍历 TechTable.All（空）→ 无任何新科技；种子路径因无 grinding → 不触发
         new InventionModel().Execute(ctx);
         Assert.AreEqual(1, e.TechKeys.Count, "空科技表无新增发明");
@@ -573,13 +573,13 @@ public class CivSimMechanics2Tests
     public void Spread_EmptyTable_SafeDegradation()
     {
         var grid = PathGrid();
-        var a = new Band { Id = 0, Cell = 0, P = 10 };
+        var a = new Polity { Id = 0, Cell = 0, P = 10 };
         a.TechKeys.Add(TechTable.StoneCore);
-        var b = new Band { Id = 1, Cell = 1, P = 20 };
+        var b = new Polity { Id = 1, Cell = 1, P = 20 };
         b.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 5);
-        ctx.Bands = new List<Band> { a, b };
-        ctx.CellBands[0] = a; ctx.CellBands[1] = b;
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
 
         new SpreadModel().Execute(ctx);
 
@@ -591,10 +591,10 @@ public class CivSimMechanics2Tests
     [Test]
     public void Prestige_SurplusAccrues_BigManAtThreshold()
     {
-        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 20 };   // 盈余 10
+        var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 20 };   // 盈余 10
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(MakeMiniGrid(), 5);
-        ctx.Bands = new List<Band> { e };
+        ctx.Polities = new List<Polity> { e };
 
         new PrestigeModel().Execute(ctx);
 
@@ -606,10 +606,10 @@ public class CivSimMechanics2Tests
     [Test]
     public void Prestige_NoSurplus_DecaysTowardZero()
     {
-        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 5, Prestige = 2.0f };   // 缺口 5
+        var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 5, Prestige = 2.0f };   // 缺口 5
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(MakeMiniGrid(), 5);
-        ctx.Bands = new List<Band> { e };
+        ctx.Polities = new List<Polity> { e };
 
         new PrestigeModel().Execute(ctx);
 
@@ -621,14 +621,14 @@ public class CivSimMechanics2Tests
     [Test]
     public void Prestige_ChiefSustained_ByTributePool()
     {
-        var chief = new Band { Id = 0, Cell = 0, P = 10, FLast = 10, ChiefdomId = 0 };
+        var chief = new Polity { Id = 0, Cell = 0, P = 10, FLast = 10, ChiefdomId = 0 };
         chief.TechKeys.Add(TechTable.StoneCore);
         chief.Prestige = 2.0f;
         chief.ReligionShare = ShareField.NewReligion(ReligionStage.Ancestor);   // IsChief 派生成立
-        var member = new Band { Id = 1, Cell = 1, P = 5, FLast = 5, ChiefdomId = 0, Contributed = 2.0f };
+        var member = new Polity { Id = 1, Cell = 1, P = 5, FLast = 5, ChiefdomId = 0, Contributed = 2.0f };
         member.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(MakeMiniGrid(), 5);
-        ctx.Bands = new List<Band> { member, chief };
+        ctx.Polities = new List<Polity> { member, chief };
 
         new PrestigeModel().Execute(ctx);
 
@@ -644,15 +644,15 @@ public class CivSimMechanics2Tests
     public void Culture_AdjacentSameGroup_WeakLearnsStrong()
     {
         var grid = PathGrid();
-        var weak = new Band { Id = 0, Cell = 0, P = 10 };
+        var weak = new Polity { Id = 0, Cell = 0, P = 10 };
         weak.CultureGroupShare = ShareField.NewCulture("g");
         weak.CultureShare = ShareField.NewCulture("a");
-        var strong = new Band { Id = 1, Cell = 1, P = 20 };
+        var strong = new Polity { Id = 1, Cell = 1, P = 20 };
         strong.CultureGroupShare = ShareField.NewCulture("g");
         strong.CultureShare = ShareField.NewCulture("b");
         var ctx = InitFullCtx(grid, 5);
-        ctx.Bands = new List<Band> { weak, strong };
-        ctx.CellBands[0] = weak; ctx.CellBands[1] = strong;
+        ctx.Polities = new List<Polity> { weak, strong };
+        ctx.CellPolities[0] = weak; ctx.CellPolities[1] = strong;
         // 同温湿草原 → BorderCost = TerrainCost(1)×ClimateSim(1) = 1
         int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.CultureSpreadRate * 1f);   // round(12.75)=13
 
@@ -671,15 +671,15 @@ public class CivSimMechanics2Tests
     public void Religion_Upgrade_AnimismToShamanThenAncestor()
     {
         var grid = PathGrid();
-        var shamanCan = new Band { Id = 0, Cell = 0, P = 10, Surplus = 1f };
+        var shamanCan = new Polity { Id = 0, Cell = 0, P = 10, Surplus = 1f };
         shamanCan.TechKeys.Add(TechTable.Microlith);                    // 细石器 → 萨满
         shamanCan.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);
-        var ancestorCan = new Band { Id = 1, Cell = 3, P = 10, Surplus = 1f, IsFarming = true };
+        var ancestorCan = new Polity { Id = 1, Cell = 3, P = 10, Surplus = 1f, IsFarming = true };
         ancestorCan.TechKeys.Add(TechTable.Microlith);                   // 定居=农业派生 → 祖先
         ancestorCan.ReligionShare = ShareField.NewReligion(ReligionStage.Shaman);
         var ctx = InitFullCtx(grid, 5);
-        ctx.Bands = new List<Band> { shamanCan, ancestorCan };
-        ctx.CellBands[0] = shamanCan; ctx.CellBands[3] = ancestorCan;   // 分置非相邻格(0/3)，隔离"传播"只测"升级"
+        ctx.Polities = new List<Polity> { shamanCan, ancestorCan };
+        ctx.CellPolities[0] = shamanCan; ctx.CellPolities[3] = ancestorCan;   // 分置非相邻格(0/3)，隔离"传播"只测"升级"
         int amt = (int)MathF.Round(ShareField.Unit * CivSimContext.ReligionUpgradeRate);   // 13
 
         new ReligionModel().Execute(ctx);
@@ -696,13 +696,13 @@ public class CivSimMechanics2Tests
     public void Conflict_NoStalemate_SafeNoop()
     {
         var grid = PathGrid();
-        var a = new Band { Id = 0, Cell = 0, P = 1000 };
+        var a = new Polity { Id = 0, Cell = 0, P = 1000 };
         a.TechKeys.Add(TechTable.StoneCore);
-        var b = new Band { Id = 1, Cell = 3, P = 1000 };   // 远隔，互不争格
+        var b = new Polity { Id = 1, Cell = 3, P = 1000 };   // 远隔，互不争格
         b.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(grid, 5);
-        ctx.Bands = new List<Band> { a, b };
-        ctx.CellBands[0] = a; ctx.CellBands[3] = b;
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[3] = b;
         ctx.R = new float[4] { 1f, 1f, 1f, 1f };
         new InfluenceModel().Execute(ctx);   // 建立归属场（无僵持：每格 argmax 唯一且稳定）
         int[] before = (int[])ctx.CellOwner.Clone();
@@ -719,13 +719,13 @@ public class CivSimMechanics2Tests
     [Test]
     public void War_TributeTransfer_MovesPoolAndCountsDown()
     {
-        var winner = new Band { Id = 1, Cell = 0, P = 100, Contributed = 0f, StateId = -1 };
+        var winner = new Polity { Id = 1, Cell = 0, P = 100, Contributed = 0f, StateId = -1 };
         winner.TechKeys.Add(TechTable.StoneCore);
-        var loser = new Band { Id = 2, Cell = 3, P = 100, Contributed = 50f, StateId = -1 };
+        var loser = new Polity { Id = 2, Cell = 3, P = 100, Contributed = 50f, StateId = -1 };
         loser.TechKeys.Add(TechTable.StoneCore);
         var ctx = InitFullCtx(PathGrid(), 5);
-        ctx.Bands = new List<Band> { winner, loser };
-        ctx.CellBands[0] = winner; ctx.CellBands[3] = loser;
+        ctx.Polities = new List<Polity> { winner, loser };
+        ctx.CellPolities[0] = winner; ctx.CellPolities[3] = loser;
         ctx.ChiefdomCells = new List<int>[64];
         for (int i = 0; i < 64; i++) ctx.ChiefdomCells[i] = new List<int>();
         ctx.ChiefdomCells[1] = new List<int> { 1 };

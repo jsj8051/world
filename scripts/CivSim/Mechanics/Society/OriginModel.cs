@@ -50,7 +50,7 @@ public sealed class OriginModel : CivModelBase
             var cands = new List<int>();
             foreach (int c in pool)
             {
-                bool occupied = ctx.CellBands != null && ctx.CellBands[c] != null;
+                bool occupied = ctx.CellPolities != null && ctx.CellPolities[c] != null;
                 if (occupied) continue;   // 一格一实体：起源只能选空格
                 bool ok = true;
                 foreach (int p in chosen)
@@ -81,9 +81,9 @@ public sealed class OriginModel : CivModelBase
         {
             string key = ctx.NextCultureKey();   // 每摇篮独立文化/文化群 key（互不同源）
             string relKey = ctx.NextReligionKey();   // 每摇篮独立宗教派别（图腾体系互不同源）
-            var e = new Band
+            var e = new Polity
             {
-                Id = ctx.NextBandId++,   // 独立计数器（2026-08-10：Bands.Count 读档后分叉）
+                Id = ctx.NextPolityId++,   // 独立计数器（2026-08-10：Polities.Count 读档后分叉）
                 Cell = pick,
                 P = CivSimContext.OriginPop,
                 OriginCell = pick,
@@ -94,8 +94,8 @@ public sealed class OriginModel : CivModelBase
                 ReligionCultShare = ShareField.NewCulture(relKey),
             };
             e.TechKeys.Add(TechTable.StoneCore);
-            ctx.Bands.Add(e);
-            ctx.CellBands[pick] = e;   // 一格一实体：起源占据空格
+            ctx.Polities.Add(e);
+            ctx.CellPolities[pick] = e;   // 一格一实体：起源占据空格
         }
         ctx.FirstFarmTick = -1;
     }

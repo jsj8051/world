@@ -24,9 +24,9 @@ public sealed class ReligionModel : CivModelBase
     protected override void Apply(CivSimContext ctx)
     {
         // ── 升级（实体，份额转移 0.05/tick）──
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             // 泛灵 → 萨满：盈余 s>0 + 细石器
             if (e.Surplus > 0f && CapabilityTable.Has(ctx, e, CapabilityTable.Microlith))
@@ -47,12 +47,12 @@ public sealed class ReligionModel : CivModelBase
         // ── 传播（接触，0.02/tick 只向更高阶段；一格一实体：仅相邻占据格之间）──
         for (int i = 0; i < ctx.Grid.N; i++)
         {
-            var a = ctx.CellBands[i];
+            var a = ctx.CellPolities[i];
             if (a == null || a.Dead) continue;
             foreach (int nb in ctx.Grid.Neighbors[i])
             {
                 if (nb <= i) continue;
-                var b = ctx.CellBands[nb];
+                var b = ctx.CellPolities[nb];
                 if (b == null || b.Dead) continue;
                 // 闭塞区域：跨格宗教传播 ×= BorderCost（障碍区传教弱）
                 float cost = ctx.BorderCost(i, nb, a.TechKeys);
@@ -71,7 +71,7 @@ public sealed class ReligionModel : CivModelBase
 
     /// <summary>宗教派别（relig_N）横向传播：相邻部落弱方（P 小）派别向强方派别转移。
     /// 无 Rng、固定遍历序 + P 比较 → 确定性（读档续跑无分叉）。</summary>
-    private static void SpreadSect(CivSimContext ctx, Band a, Band b, float border)
+    private static void SpreadSect(CivSimContext ctx, Polity a, Polity b, float border)
     {
         var strong = a.P >= b.P ? a : b;
         var weak = strong == a ? b : a;
@@ -84,7 +84,7 @@ public sealed class ReligionModel : CivModelBase
     }
 
     /// <summary>宗教传播：高阶实体主导宗教份额流向低阶实体（只向更高阶段）。</summary>
-    private static void SpreadReligion(CivSimContext ctx, Band from, Band to, float border = 1f)
+    private static void SpreadReligion(CivSimContext ctx, Polity from, Polity to, float border = 1f)
     {
         string domFrom = ShareField.DomReligion(from.ReligionShare);
         string domTo = ShareField.DomReligion(to.ReligionShare);
@@ -95,7 +95,7 @@ public sealed class ReligionModel : CivModelBase
         ShareField.RelTransfer(to.ReligionShare, domTo, domFrom, amt);
     }
 
-    private static Band MaxPop(List<Band> list)
+    private static Polity MaxPop(List<Polity> list)
     {
         var best = list[0];
         for (int k = 1; k < list.Count; k++)

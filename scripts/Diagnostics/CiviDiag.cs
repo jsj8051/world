@@ -27,7 +27,7 @@ public partial class CiviDiag : Node
 
         var grid = GameGrid.FromMapData(map);
         var result = CivEngine.Run(grid, 42, 3, p => { });
-        GD.Print($"[CiviDiag] 演化完成: bands={result.Context.Bands.Count} tick={result.FinalTick}");
+        GD.Print($"[CiviDiag] 演化完成: polities={result.Context.Polities.Count} tick={result.FinalTick}");
 
         bool wrote = MapArchive.WriteSpherical(outPath, map, result);
         GD.Print($"[CiviDiag] 写 v8 带 CIVI: {wrote}");
@@ -51,10 +51,10 @@ public partial class CiviDiag : Node
             GetTree().Quit(1);
             return;
         }
-        GD.Print($"[CiviDiag] 读回文明: bands={round.Civilization.Context.Bands.Count} tick={round.Civilization.FinalTick}");
-        if (round.Civilization.Context.Bands.Count != result.Context.Bands.Count)
+        GD.Print($"[CiviDiag] 读回文明: polities={round.Civilization.Context.Polities.Count} tick={round.Civilization.FinalTick}");
+        if (round.Civilization.Context.Polities.Count != result.Context.Polities.Count)
         {
-            GD.PrintErr($"[CiviDiag] ✗ 部落数不一致 {round.Civilization.Context.Bands.Count} vs {result.Context.Bands.Count}");
+            GD.PrintErr($"[CiviDiag] ✗ 部落数不一致 {round.Civilization.Context.Polities.Count} vs {result.Context.Polities.Count}");
             GetTree().Quit(1);
             return;
         }

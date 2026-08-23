@@ -29,7 +29,7 @@ namespace World.CivSim.Concepts;
 public static class ConceptRegistry
 {
     // ── band 游群（根配方，无 Includes）──
-    public static readonly ConceptDef Band = new()
+    public static readonly ConceptDef Polity = new()
     {
         Name = "band",
         Mechanisms = new (Type, Func<CivModelBase>)[]
@@ -106,7 +106,7 @@ public static class ConceptRegistry
     };
 
     /// <summary>全部概念（声明序——Union 推导与诊断遍历的确定性基准）。</summary>
-    public static readonly ConceptDef[] All = { Band, Tribe, Chiefdom, State };
+    public static readonly ConceptDef[] All = { Polity, Tribe, Chiefdom, State };
 
     /// <summary>按概念名取配方（未知名 → null）。</summary>
     public static ConceptDef Of(string name)

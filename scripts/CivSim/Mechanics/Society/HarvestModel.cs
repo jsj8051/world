@@ -21,9 +21,9 @@ public sealed class HarvestModel : CivModelBase
 
     protected override void Apply(CivSimContext ctx)
     {
-        for (int i = 0; i < ctx.Bands.Count; i++)
+        for (int i = 0; i < ctx.Polities.Count; i++)
         {
-            var e = ctx.Bands[i];
+            var e = ctx.Polities[i];
             if (e.Dead) continue;
             // ⚠️ 2026-08-18 T04 修复（与 RecomputeProduction 同式）：先归零分量——AllocateAndProduce
             //   领地为空时提前 return 0 不赋值分量，不归零则陈旧 FFarm/FHerd 残留（无领地挂产出）。

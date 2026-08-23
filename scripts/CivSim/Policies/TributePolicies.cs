@@ -24,5 +24,5 @@ public static class TributePolicies
     public static readonly ITributePolicy State = new StateTributePolicy();
 
     /// <summary>按实体政治体取策略：国家成员（StateId ≥ 0）→ State；否则酋邦互惠 → Chiefdom。</summary>
-    public static ITributePolicy Of(Band e) => e.StateId >= 0 ? State : Chiefdom;
+    public static ITributePolicy Of(Polity e) => e.StateId >= 0 ? State : Chiefdom;
 }
