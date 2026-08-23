@@ -86,7 +86,7 @@ public partial class PeekDiag : Node
         int fail = 0;
 
         // ── Peek（轻量头部）──
-        if (!MapArchive.Peek(path, out int pSeed, out int pVc, out int pH, out float pMinE, out float pMaxE, out ushort pVer))
+        if (!MapArchive.Peek(path, out int pSeed, out int pVc, out int pH, out float pMinE, out float pMaxE, out ushort pVer, out _))
         {
             GD.Print("PeekDiag: Peek 失败");
             fail++;

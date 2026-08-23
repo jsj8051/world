@@ -62,6 +62,254 @@ public static class CivMapArchive
             ? ProjectSettings.GlobalizePath(path)
             : path;
 
+    // ── 文明段编解码（2026-08-23 单存档化：.mpa v7 CIVI 段顺序编码——外层已 BeginSegment("CIVI")，
+//    内部不用子段表：.mpa 自然层已有 HEAD 段，文明内部再用子段会重名冲突；且 ChunkWriter 禁嵌套段）──
+
+    /// <summary>文明存档中间数据（顺序流解码结果；自然层网格由调用方提供
+    /// ——.cmp 读档从 NATR 段、.mpa v7 读档用 GameGrid.FromMapData）。两种格式共用此包 → 共用 BuildResult 重建。</summary>
+    private sealed class CivRawRecord
+    {
+        public int Seed;
+        public int FinalTick;
+        public int Years;
+        public ulong RngState;
+        public int CultureKeyCount, CultureGroupKeyCount, ReligionKeyCount, NextEntityId, NextSettlementId;
+        public List<Tribe> Entities;
+        public Tribe[] CellTribes;
+        public float[] Cultivation;
+        public int[] CellOwner;
+        public int[] LockedUntil;
+        public List<Settlement> Settlements;
+        public List<War> Wars;
+    }
+
+    /// <summary>用自然层网格 + 文明中间数据重建完整 CivSimContext（确定性派生态重建，
+    /// 与 Run 结尾/Continue/原 .cmp 读档同式）。TechTable 须已 Load（调用方负责）。</summary>
+    private static CivSimResult BuildResult(GameGrid g, CivRawRecord rec)
+    {
+        int n = g.N;
+        // 文化 key 计数兜底：份额场推导（被同化掉的 key 可能使推导偏小，故取 max）
+        int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
+        for (int k = 0; k < rec.Entities.Count; k++)
+        {
+            var e = rec.Entities[k];
+            maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[0].Key));
+            maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[1].Key));
+            maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[0].Key));
+            maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[1].Key));
+            maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[0].Key));
+            maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[1].Key));
+        }
+        var ctx = new CivSimContext
+        {
+            Grid = g,
+            CellTribes = rec.CellTribes,
+            Tribes = rec.Entities,
+            Seed = rec.Seed,
+            OriginCount = 3,
+            Tick = rec.FinalTick,          // 读档续跑从存档 tick 继续（T04 验证）
+            Rng = rec.RngState != 0 ? new DeterministicRandom(rec.RngState) : new DeterministicRandom(rec.Seed),   // 状态恢复
+            R = new float[n],
+            CellF = new float[n],
+            CellPop = new float[n],
+            CellFarmPop = new float[n],
+            BfsStamp = new int[n],
+            BfsStampValue = 1,
+            WildCrops = g.EnsureWildCrops(),
+            Suit = WildCropsSystem.Suitability(g),
+            FirstFarmTick = -1,
+            CultureKeyCount = Math.Max(rec.CultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，份额推导兜底
+            CultureGroupKeyCount = Math.Max(rec.CultureGroupKeyCount, maxGroupId + 1),
+            ReligionKeyCount = Math.Max(rec.ReligionKeyCount, maxReligId + 1),
+            NextTribeId = rec.NextEntityId,
+            Settlements = rec.Settlements,
+            NextSettlementId = rec.NextSettlementId,
+            Wars = rec.Wars,
+            Cultivation = rec.Cultivation ?? new float[n],
+            CellOwner = rec.CellOwner ?? EnumerableRepeat(-1, n),
+            LockedUntil = rec.LockedUntil ?? EnumerableRepeat(0, n),
+            CellBestOwner = EnumerableRepeat(-1, n),
+            CellBestInf = new float[n],
+            CellOwnerInf = new float[n],
+        };
+        ctx.EnsureTerritory();   // 惰性建领地索引
+        CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
+        CivEngine.SettleDerived(ctx);   // 边界态统一重建（唯一入口，与 Run 结尾/Continue 同式）
+        return new CivSimResult { Context = ctx, FinalTick = rec.FinalTick };
+    }
+
+    /// <summary>读文明顺序流（HEAD 固定字段 + TRIB 实体 + 长度校验）→ 中间数据。
+    /// LAND/STTL/WARS 由调用方按 n 另读（顺序流位置已推进到 TRIB 末尾，调用方继续）。</summary>
+    private static CivRawRecord ReadRawRecord(ChunkReader r)
+    {
+        var rec = new CivRawRecord
+        {
+            Seed = (int)r.Get32(),
+            FinalTick = (int)r.Get32(),
+            Years = (int)r.Get32(),
+            RngState = r.Get64(),
+            CultureKeyCount = (int)r.Get32(),
+            CultureGroupKeyCount = (int)r.Get32(),
+            ReligionKeyCount = (int)r.Get32(),
+            NextEntityId = (int)r.Get32(),
+        };
+        int count = (int)r.Get32();
+        long remaining = r.Length - r.Position;
+        if (count < 0 || count > remaining / 64) return null;
+        var entities = new List<Tribe>(count);
+        for (int k = 0; k < count; k++)
+        {
+            var e = new Tribe();
+            foreach (var def in CivArchiveSchema.TribeFields)
+            {
+                if (def.Name == "TechKeys") { ReadTechKeys(r, e); continue; }
+                def.Read(r, e);
+            }
+            entities.Add(e);
+        }
+        rec.Entities = entities;
+        return rec;
+    }
+
+    /// <summary>从 .mpa v7 CIVI 段读文明结果（顺序流：HEAD 固定字段 + TRIB/LAND/STTL/WARS；
+    /// 任何长度异常 → corrupted=true=该档文明段损坏）。grid 由 .mpa 读档侧用 GameGrid.FromMapData(natural)
+    /// 提供（文明派生态重建需要真实自然层）。TechTable 须已 Load（调用方）。</summary>
+    public static CivSimResult ReadCivilization(ChunkReader r, GameGrid grid, out bool corrupted)
+    {
+        corrupted = false;
+        var rec = ReadRawRecord(r);
+        if (rec == null) { corrupted = true; return null; }
+        int n = grid.N;
+        // LAND 顺序读（定长 n×（4+4+4）B；按 n 分配）
+        rec.Cultivation = new float[n];
+        for (int c = 0; c < n; c++) rec.Cultivation[c] = r.GetFloat();
+        rec.CellOwner = new int[n];
+        for (int c = 0; c < n; c++) rec.CellOwner[c] = (int)r.Get32();
+        rec.LockedUntil = new int[n];
+        for (int c = 0; c < n; c++) rec.LockedUntil[c] = (int)r.Get32();
+        // STTL 顺序读
+        rec.NextSettlementId = (int)r.Get32();
+        int sCount = (int)r.Get32();
+        if (sCount < 0 || sCount > (r.Length - r.Position) / 48) { corrupted = true; return null; }
+        var settlements = new List<Settlement>(sCount);
+        for (int k = 0; k < sCount; k++)
+        {
+            var s = new Settlement
+            {
+                Id = (int)r.Get32(),
+                Cell = (int)r.Get32(),
+                BornTick = (int)r.Get32(),
+                Level = (int)r.Get32(),
+                LastLevelUpTick = (int)r.Get32(),
+                DwellFrom = (int)r.Get32(),
+                OccupantId = (int)r.Get32(),
+                RuinFrom = (int)r.Get32(),
+            };
+            s.Stocks = CommodityTable.NewStocks();
+            for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = r.GetFloat();
+            settlements.Add(s);
+        }
+        rec.Settlements = settlements;
+        // WARS 顺序读
+        int wCount = (int)r.Get32();
+        if (wCount < 0 || wCount > 4096) { corrupted = true; return null; }
+        var wars = new List<War>(wCount);
+        for (int k = 0; k < wCount; k++)
+        {
+            var w = new War
+            {
+                StateIdA = (int)r.Get32(),
+                StateIdB = (int)r.Get32(),
+                Defender = (int)r.Get32(),
+                StartTick = (int)r.Get32(),
+                WinsA = (int)r.Get32(),
+                WinsB = (int)r.Get32(),
+                LastBattleTick = (int)r.Get32(),
+                TributeTo = (int)r.Get32(),
+                TributeFrom = (int)r.Get32(),
+                TributesLeft = (int)r.Get32(),
+            };
+            wars.Add(w);
+        }
+        rec.Wars = wars;
+        // cellTribes 按 n 重映射（一格一实体）
+        rec.CellTribes = new Tribe[n];
+        for (int i = 0; i < n; i++) rec.CellTribes[i] = null;
+        for (int k = 0; k < rec.Entities.Count; k++)
+        {
+            var e = rec.Entities[k];
+            if (e.Cell >= 0 && e.Cell < n) rec.CellTribes[e.Cell] = e;
+        }
+        return BuildResult(grid, rec);
+    }
+
+    /// <summary>写文明顺序流到当前段（HEAD 固定字段 + TRIB/LAND/STTL/WARS 顺序编码；
+    /// 调用方已 BeginSegment——.cmp 顶层段 or .mpa v7 CIVI 段）。CivArchiveSchema 清单驱动防漏字段。log 由调用方打。</summary>
+    public static void WriteCivilization(ChunkWriter w, CivSimResult result)
+    {
+        // ⚠️ 清单自检（与 .cmp Write 同源）：字段改名/删除后清单过期 → 拒绝写，防静默漏字段
+        if (!CivArchiveSchema.Validate()) return;
+        var ctx = result.Context;
+        int alive = 0;
+        for (int k = 0; k < ctx.Tribes.Count; k++) if (!ctx.Tribes[k].Dead) alive++;
+        // ── HEAD 固定字段 ──
+        w.Store32((uint)ctx.Seed);
+        w.Store32((uint)result.FinalTick);
+        w.Store32((uint)(result.FinalTick * CivSimContext.TickYears));
+        w.Store64((ctx.Rng as DeterministicRandom)?.State ?? (ulong)ctx.Seed);   // Rng 状态
+        w.Store32((uint)ctx.CultureKeyCount);
+        w.Store32((uint)ctx.CultureGroupKeyCount);
+        w.Store32((uint)ctx.ReligionKeyCount);
+        w.Store32((uint)ctx.NextTribeId);
+        // ── TRIB ──
+        w.Store32((uint)alive);
+        foreach (var e in ctx.Tribes)
+        {
+            if (e.Dead) continue;
+            foreach (var def in CivArchiveSchema.TribeFields)
+            {
+                if (def.Name == "TechKeys") { StoreTechKeys(w, e); continue; }
+                def.Write(w, e);
+            }
+        }
+        // ── LAND ──
+        for (int c = 0; c < ctx.Grid.N; c++) w.StoreFloat(ctx.Cultivation != null ? ctx.Cultivation[c] : 0f);
+        for (int c = 0; c < ctx.Grid.N; c++) w.Store32((uint)ctx.CellOwner[c]);
+        for (int c = 0; c < ctx.Grid.N; c++) w.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);
+        // ── STTL ──
+        w.Store32((uint)ctx.NextSettlementId);
+        w.Store32((uint)ctx.Settlements.Count);
+        foreach (var s in ctx.Settlements)
+        {
+            w.Store32((uint)s.Id);
+            w.Store32((uint)s.Cell);
+            w.Store32((uint)s.BornTick);
+            w.Store32((uint)s.Level);
+            w.Store32((uint)s.LastLevelUpTick);
+            w.Store32((uint)s.DwellFrom);
+            w.Store32((uint)s.OccupantId);   // -1 → uint 全 1（读回 (int) 还原）
+            w.Store32((uint)s.RuinFrom);
+            for (int k = 0; k < CommodityTable.Count; k++)
+                w.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
+        }
+        // ── WARS ──
+        w.Store32((uint)ctx.Wars.Count);
+        for (int k = 0; k < ctx.Wars.Count; k++)
+        {
+            var war = ctx.Wars[k];
+            w.Store32((uint)war.StateIdA);
+            w.Store32((uint)war.StateIdB);
+            w.Store32((uint)war.Defender);        // -1 → uint 全 1
+            w.Store32((uint)war.StartTick);
+            w.Store32((uint)war.WinsA);
+            w.Store32((uint)war.WinsB);
+            w.Store32((uint)war.LastBattleTick);
+            w.Store32((uint)war.TributeTo);       // -1 = 交战中
+            w.Store32((uint)war.TributeFrom);
+            w.Store32((uint)war.TributesLeft);
+        }
+    }
+
     /// <summary>写 .cmp（v15 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {

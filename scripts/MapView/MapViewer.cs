@@ -282,9 +282,11 @@ public partial class MapViewer : Node3D
             else
             {
                 _map = map;
-                _civCtx = null;
+                // v7 单存档化：.mpa 带 CIVI 段 = 含文明的 world（MapArchive.Read 已还原）；纯自然 = null
+                _civCtx = map.Civilization?.Context;
                 _mapLoaded = true;
-                LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}]");
+                LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}] " +
+                         $"civ={(_civCtx != null ? $"yes(tribes={_civCtx.Tribes.Count} tick={map.Civilization.FinalTick})" : "no")}");
             }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。

@@ -16,24 +16,11 @@ public partial class MainMenu : Control
         // 根 Control 强制全屏（防场景根未自动拉伸）
         SetAnchorsPreset(LayoutPreset.FullRect);
 
+        // 创建世界（生成 + 文明演化 一条龙：生成页内勾选演化开关，一步产出含文明的 .mpa）
         GetNode<Button>("%GenBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapGenMenu.tscn");
 
-        // 读取自然地图按钮（读 .mpa/.gmp 用 MapViewer 查看自然图层；原"进入游戏"改名——它读的是自然地图）
-        GetNode<Button>("%ViewBtn").Pressed += () =>
-        {
-            SaveSelectMenu.InitialTab = "map";   // 合并界面：默认地图标签
-            GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
-        };
-
-        // 文明演化按钮（选自然地图 → 演化 → 生成 .cmp 游玩存档）
-        GetNode<Button>("%EvolveBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/CivEvolveMenu.tscn");
-
-        // 读取文明存档按钮（读 .cmp 游玩地图 → 开始游戏：MapViewer 显示文明图层）
-        GetNode<Button>("%CivBtn").Pressed += () =>
-        {
-            SaveSelectMenu.InitialTab = "cmp";   // 合并界面：文明存档标签
-            GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
-        };
+        // 进入世界（读取存档：单列表 .mpa，🌍 含文明 / 🗺 纯自然 标记）
+        GetNode<Button>("%ViewBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
 
         LogService.Log("MainMenu", "ready");
     }

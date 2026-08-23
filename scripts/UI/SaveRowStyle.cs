@@ -26,6 +26,8 @@ public static class SaveRowStyle
     public static readonly Color RedDim = new(1.0f, 0.365f, 0.365f, 0.12f);
     public static readonly Color Yellow = new(0.91f, 0.714f, 0.30f);        // #e8b64c
     public static readonly Color YellowDim = new(0.91f, 0.714f, 0.30f, 0.12f);
+    public static readonly Color Gold = Yellow;                            // 含文明徽标（同金色系）
+    public static readonly Color GoldDim = new(0.91f, 0.714f, 0.30f, 0.16f);
 
     private static SystemFont _mono;   // 等宽字体（元数据用），懒加载一次
 
@@ -75,6 +77,15 @@ public static class SaveRowStyle
     {
         var s = Base(new Color(0.91f, 0.714f, 0.30f, 0.3f));
         s.BgColor = YellowDim;
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight = s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = 9;
+        return s;
+    }
+
+    /// <summary>含文明图标块（金）。</summary>
+    public static StyleBoxFlat IconStyleGold()
+    {
+        var s = Base(new Color(0.91f, 0.714f, 0.30f, 0.35f));
+        s.BgColor = GoldDim;
         s.CornerRadiusTopLeft = s.CornerRadiusTopRight = s.CornerRadiusBottomLeft = s.CornerRadiusBottomRight = 9;
         return s;
     }

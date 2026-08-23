@@ -125,6 +125,8 @@ public partial class CivEvolveMenu : Control
     private void RefreshList()
     {
         foreach (Node c in _listBox.GetChildren()) c.QueueFree();
+        // 2026-08-23 一条龙流程：从「生成地图」衔接过来时预选刚生成的档（EventBus 待消费）
+        string pending = EventBus.ConsumeCivEvolveRequest();
         var files = new List<string>();
         foreach (var f in DirAccess.GetFilesAt(MapsDir))
             if (f.EndsWith(".mpa") || f.EndsWith(".gmp"))
@@ -138,6 +140,7 @@ public partial class CivEvolveMenu : Control
             _listBox.AddChild(emptyTip);
             return;
         }
+        Button firstBtn = null, pendingBtn = null;   // 待预选按钮（匹配 pending 后缀）
         foreach (var f in files)
         {
             var btn = new Button
@@ -157,7 +160,18 @@ public partial class CivEvolveMenu : Control
             string captured = f;   // 闭包捕获
             btn.Pressed += () => SelectMap(captured, btn);
             _listBox.AddChild(btn);
+            firstBtn ??= btn;
+            if (pending != null && f == pending.GetFile()) pendingBtn = btn;
         }
+        // 预选：优先匹配衔接路径，否则选第一个（保持 2026-08-06 行为）
+        if (pendingBtn != null)
+        {
+            SelectMap(pendingBtn.Text, pendingBtn);
+            _status.Text = $"已衔接生成的地图：{pendingBtn.Text}，可修改参数直接演化";
+            _status.AddThemeColorOverride("font_color", SaveRowStyle.Accent);
+        }
+        else if (firstBtn != null)
+            SelectMap(firstBtn.Text, firstBtn);
     }
 
     private void SelectMap(string name, Button btn)

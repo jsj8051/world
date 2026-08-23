@@ -12,6 +12,9 @@ public static class EventBus
     /// <summary>请求打开地图查看器（携带存档路径）。</summary>
     public static event Action<string> MapViewRequested;
 
+    /// <summary>请求进入文明演化（携带要预选的 .mpa 路径；缺失则让演化页自己列全部）。</summary>
+    public static event Action<string> CivEvolveRequested;
+
     /// <summary>生成进度（0..1）。</summary>
     public static event Action<float> GenerationProgress;
 
@@ -34,6 +37,24 @@ public static class EventBus
     {
         var p = _pendingMapViewPath;
         _pendingMapViewPath = null;
+        return p;
+    }
+
+    // 文明演化衔接：生成页「文明演化」按钮 → 演化页 _Ready 消费（预选刚生成的 .mpa）
+    private static string _pendingCivEvolvePath;
+
+    /// <summary>请求文明演化：记录待预选 .mpa 路径并广播。</summary>
+    public static void RequestCivEvolve(string mapPath = null)
+    {
+        _pendingCivEvolvePath = mapPath;
+        CivEvolveRequested?.Invoke(mapPath);
+    }
+
+    /// <summary>CivEvolveMenu._Ready 消费待预选路径（取后清空）。</summary>
+    public static string ConsumeCivEvolveRequest()
+    {
+        var p = _pendingCivEvolvePath;
+        _pendingCivEvolvePath = null;
         return p;
     }
 

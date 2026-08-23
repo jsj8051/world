@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.CivSim;
 using World.HexPlanet;
 using World.MapGen;
 using World.Services;
@@ -39,11 +40,21 @@ public partial class MapGenMenu : Control
     private SpinBox _erosionSpin;   // 侵蚀强度
     private SpinBox _mySpin;        // 模拟时长（滑动+输入）
 
+    // v7 单存档化：生成后自动文明演化（一条龙）
+    private CheckBox _evolveCheck;      // 是否生成后自动演化文明
+    private SpinBox _evolveSeedSpin;    // 演化种子
+    private SpinBox _evolveOriginsSpin; // 起源部落数
+    private volatile bool _evolving;    // 演化阶段进行中（后台线程写进度）
+
     private ProgressTextBar _bar;       // 进度条（自绘文本：阶段+百分比一体）
 
     private MapGenerator _gen;
     private volatile float _progress;   // 后台线程写、主线程 _Process 读
     private string _lastOutPath;
+    // v7 单存档化：演化回写暂存（CallDeferred 只能传 Variant，用字段桥接）
+    private string _civOutPath;
+    private MapData _civMap;
+    private CivSimResult _civResult;
 
     public override void _Ready()
     {
@@ -91,6 +102,17 @@ public partial class MapGenMenu : Control
         radiusRef.ValueChanged += _ => UpdateDerived();
         UpdateDerived();
 
+        // v7 单存档化：文明演化开关 + 参数（生成完成自动衔接，写入 CIVI 段）
+        _evolveCheck = new CheckBox
+        {
+            Text = "生成后自动演化文明（一条龙，产出含文明的 .mpa）",
+            ButtonPressed = true,
+        };
+        _evolveCheck.AddThemeFontSizeOverride("font_size", 15);
+        _generateGrid.AddChild(MakeRow("文明演化", _evolveCheck));
+        _generateGrid.AddChild(MakeSliderRow("演化种子", 0f, 999999f, 1f, 10f, 42f, out _evolveSeedSpin));
+        _generateGrid.AddChild(MakeSliderRow("起源部落数", 1f, 16f, 1f, 1f, 3f, out _evolveOriginsSpin));
+
         // 分类 2：星球物理（两列）
         _planetGrid.AddChild(MakeRow("自转方向", _rotBox = MakeRotationOption()));
         _planetGrid.AddChild(MakeSliderRow("轴向倾角(°)", 0f, 90f, 0.1f, 5f, 23.4f, out _tiltSpin));
@@ -110,7 +132,12 @@ public partial class MapGenMenu : Control
     {
         // 后台线程写 volatile 进度 → 主线程更新进度条（Godot Control 属性非线程安全）；百分比由进度条自带
         if (_bar.Visible)
+        {
             _bar.Value = _progress * 100f;
+            // v7 单存档化：演化阶段进度单独驱动（生成进度已 100 后复用同一条）
+            if (_evolving)
+                _bar.Prefix = "（演化中…文明模拟阶段）";
+        }
     }
 
     // ── UI 构建辅助 ──
@@ -404,20 +431,14 @@ public partial class MapGenMenu : Control
 
         if (ok)
         {
-            // 进度条 100%（自绘文本：阶段+百分比一体）；完成信息显示在顶部状态栏（进度条底下不再显示）
-            _bar.Value = 100;
-            _bar.Prefix = "（生成完成）";
-            _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
-            _status.Text = $"✅ 生成完成！存档：{path.GetFile()}（已保存，可返回主菜单进入游戏）";
-            _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
-            // 生成完可直接查看（水平居中，与整体列对齐）
-            var viewBtn = new Button { Text = "▶ 查看地图" };
-            viewBtn.CustomMinimumSize = new Vector2(160, 44);
-            viewBtn.AddThemeFontSizeOverride("font_size", 16);
-            StylePrimary(viewBtn);
-            viewBtn.Pressed += () => EnterViewer(path);
-            GetNode<HBoxContainer>("%FootRow").AddChild(viewBtn);
-            LogService.Log("MapGenMenu", $"生成完成: {path}");
+            // v7 单存档化：勾选了「自动演化文明」→ 无缝接入演化阶段（同一条进度条）
+            if (_evolveCheck != null && _evolveCheck.ButtonPressed)
+            {
+                StartCivEvolution(path);
+                return;   // 演化完成后 OnCivEvolutionDone 收尾
+            }
+            // 纯自然地图（未勾选演化）→ 直接完成态
+            FinishGenerateUI(path);
         }
         else
         {
@@ -425,7 +446,104 @@ public partial class MapGenMenu : Control
             _bar.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
             _status.Text = "❌ 生成失败，请查看控制台日志。";
             _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            _evolving = false;
         }
+    }
+
+    /// <summary>v7 单存档化：生成完成 → 自动读档演化文明 → 重写 .mpa（附 CIVI 段）。
+    /// 读档在主线程（FileAccess/地图数据非线程安全），演化在后台线程（CivEngine 纯 C#）。</summary>
+    private void StartCivEvolution(string path)
+    {
+        _evolving = true;
+        _progress = 0f;
+        // 阶段文字由 _Process 统一设（演化阶段）
+        // 主线程读 .mpa（自然层全量）
+        TechTable.Load();
+        if (!MapArchive.Read(path, out var map))
+        {
+            _evolving = false;
+            _status.Text = "❌ 演化失败：无法读回刚生成的 .mpa";
+            _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            return;
+        }
+        var grid = World.LogicGrid.GameGrid.FromMapData(map);
+        int seed = (int)_evolveSeedSpin.Value;
+        int origins = (int)_evolveOriginsSpin.Value;
+        string outPath = path;
+        // 后台：演化（纯 C#，无 Godot 调用）
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                var result = World.CivSim.CivEngine.Run(grid, seed, origins, p => _progress = p);
+                // 跑完回主线程：CIVI 重写（字段桥接——CallDeferred 只能传 Variant）
+                _civOutPath = outPath;
+                _civMap = map;
+                _civResult = result;
+                CallDeferred(nameof(OnCivEvolutionDone));
+            }
+            catch (Exception ex)
+            {
+                LogService.LogErr("MapGenMenu", $"文明演化失败: {ex}");
+                _civOutPath = outPath;
+                CallDeferred(nameof(OnCivEvolutionError));
+            }
+        });
+    }
+
+    private void OnCivEvolutionDone()
+    {
+        _evolving = false;
+        bool ok = MapArchive.WriteSpherical(_civOutPath, _civMap, _civResult);
+        if (!ok)
+        {
+            _status.Text = "❌ 演化完成但写档失败，请查看日志。";
+            _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            return;
+        }
+        LogService.Log("MapGenMenu", $"生成+演化完成（含文明）: {_civOutPath} (tribes={_civResult.Context.Tribes.Count} tick={_civResult.FinalTick})");
+        _status.Text = $"✅ 生成+演化完成！存档：{_civOutPath.GetFile()}（含文明，可返回主菜单进入世界）";
+        _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        _bar.Prefix = "（生成+演化完成）";
+        _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        _bar.Value = 100;
+        // 可直接查看（含文明图层）
+        var viewBtn = new Button { Text = "▶ 进入世界" };
+        viewBtn.CustomMinimumSize = new Vector2(160, 44);
+        viewBtn.AddThemeFontSizeOverride("font_size", 16);
+        StylePrimary(viewBtn);
+        string capturedPath = _civOutPath;   // 闭包捕获
+        viewBtn.Pressed += () => EnterViewer(capturedPath);
+        GetNode<HBoxContainer>("%FootRow").AddChild(viewBtn);
+    }
+
+    private void OnCivEvolutionError()
+    {
+        _evolving = false;
+        _bar.Prefix = "（演化失败）";
+        _bar.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+        _status.Text = $"❌ 文明演化失败（{_civOutPath.GetFile()} 保持纯自然地图）。";
+        _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+        LogService.LogErr("MapGenMenu", $"文明演化失败: {_civOutPath}");
+    }
+
+    /// <summary>纯自然地图（未勾选演化）的完成态收尾。</summary>
+    private void FinishGenerateUI(string path)
+    {
+        // 进度条 100%（自绘文本：阶段+百分比一体）；完成信息显示在顶部状态栏（进度条底下不再显示）
+        _bar.Value = 100;
+        _bar.Prefix = "（生成完成）";
+        _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        _status.Text = $"✅ 生成完成！存档：{path.GetFile()}（已保存，可返回主菜单进入世界）";
+        _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        // 生成完可直接查看（水平居中，与整体列对齐）
+        var viewBtn = new Button { Text = "▶ 查看地图" };
+        viewBtn.CustomMinimumSize = new Vector2(160, 44);
+        viewBtn.AddThemeFontSizeOverride("font_size", 16);
+        StylePrimary(viewBtn);
+        viewBtn.Pressed += () => EnterViewer(path);
+        GetNode<HBoxContainer>("%FootRow").AddChild(viewBtn);
+        LogService.Log("MapGenMenu", $"生成完成: {path}");
     }
 
     private static void StylePrimary(Button b)

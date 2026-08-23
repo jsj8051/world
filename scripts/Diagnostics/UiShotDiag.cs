@@ -19,13 +19,8 @@ public partial class UiShotDiag : Node
     public override void _Ready()
     {
         var args = DiagSceneBase.ParseUserArgs();
-        // 目标场景：save（存档，默认）| mapgen | civ
+        // 目标场景：save（存档，默认）| mapgen | civ | main | viewer
         string scene = args.TryGetValue("scene", out var s) ? s : "save";
-        // 初始标签：先设静态再实例化
-        if (args.TryGetValue("tab", out var tab) && tab == "cmp")
-            World.UI.SaveSelectMenu.InitialTab = "cmp";
-        else
-            World.UI.SaveSelectMenu.InitialTab = "map";
         if (args.TryGetValue("out", out var o)) _outPath = o;
         _showDeleteDialog = args.TryGetValue("dialog", out var d) && d == "1";
         _triggerStart = args.TryGetValue("start", out var st) && st == "1";

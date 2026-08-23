@@ -128,4 +128,119 @@ public class ArchiveChunkTests
         Assert.AreEqual("FUTR", ChunkTable.UintAscii(ChunkTable.AsciiUint("FUTR")));
         Assert.AreEqual("ELEV", ChunkTable.UintAscii(ChunkTable.AsciiUint("ELEV")));
     }
+
+    // ── 2026-08-23 单存档化：CIVI 文明段编解码往返（.mpa v7 / .cmp 共用路径）──
+
+    /// <summary>构造最小自然地图（n=5 星形顶点，仅满足 GameGrid.FromMapData 的最小字段）。</summary>
+    private static World.LogicGrid.GameGrid MakeMinGrid() => MakeMinGridPublic();
+
+    public static World.LogicGrid.GameGrid MakeMinGridPublic()
+    {
+        int n = 5;
+        // 球面单位方向伪顶点（5 个任意单位向量——测试只做编解码，不要求真实几何）
+        var verts = new Godot.Vector3[n];
+        for (int i = 0; i < n; i++)
+            verts[i] = new Godot.Vector3(1f, 0.3f * i, 0.5f).Normalized();
+        var map = new World.MapGen.MapData
+        {
+            Verts = verts,
+            Seed = 7,
+            RadiusKm = 100f,
+            Elev = new float[n],
+            Temp = new float[n],
+            Precip = new float[n],
+            Biome = new byte[n],
+        };
+        return World.LogicGrid.GameGrid.FromMapData(map);
+    }
+
+    /// <summary>构造最小文明结果（1 部落 + 1 聚落 + 1 战争，字段齐全用于往返断言）。</summary>
+    private static World.CivSim.CivSimResult MakeMinCiv() => MakeMinCivPublic();
+
+    public static World.CivSim.CivSimResult MakeMinCivPublic()
+    {
+        var grid = MakeMinGrid();
+        int n = grid.N;
+        var tribe = new World.CivSim.Tribe
+        {
+            Id = 3,
+            Cell = 1,
+            P = 42f,
+            TerritoryId = 2,
+        };
+        var context = new World.CivSim.CivSimContext
+        {
+            Grid = grid,
+            Seed = 7,
+            Tribes = new System.Collections.Generic.List<World.CivSim.Tribe> { tribe },
+            CellTribes = new World.CivSim.Tribe[n],
+            NextTribeId = 4,
+            CultureKeyCount = 2,
+            CultureGroupKeyCount = 1,
+            ReligionKeyCount = 1,
+            NextSettlementId = 9,
+            Settlements = new System.Collections.Generic.List<World.CivSim.Settlement>
+            {
+                new World.CivSim.Settlement { Id = 8, Cell = 2, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
+            },
+            Wars = new System.Collections.Generic.List<World.CivSim.War>(),
+            CellOwner = new int[n],
+            CellBestOwner = new int[n],
+            CellBestInf = new float[n],
+            CellOwnerInf = new float[n],
+        };
+        for (int i = 0; i < n; i++) context.CellOwner[i] = -1;
+        for (int i = 0; i < n; i++) context.CellBestOwner[i] = -1;
+        return new World.CivSim.CivSimResult { Context = context, FinalTick = 100 };
+    }
+
+    [Test]
+    public void CiviSegment_RoundtripsWithoutNATR()
+    {
+        var grid = MakeMinGrid();
+        var civ = MakeMinCiv();
+
+        var ms = new MemoryStream();
+        var w = new ChunkWriter(ms, "MPA1", 7);
+        // 模拟 .mpa v7：自然段（最小）+ CIVI 段（顺序流含文明全量，无内部子段表）
+        w.BeginSegment("HEAD", 1);
+        w.Store32((uint)grid.Seed);
+        w.StoreFloat(grid.RadiusKm);
+        w.Store32((uint)grid.N);
+        w.EndSegment();
+        w.BeginSegment("CIVI", 1);
+        World.CivSim.CivMapArchive.WriteCivilization(w, civ);
+        w.EndSegment();
+        w.Finish();
+        ms.Position = 0;
+
+        // 读回：CIVI 段 → 文明结果（含重建派生场）；SeekSegment 后才能顺序读
+        var r = new ChunkReader(ms);
+        Assert.IsTrue(r.HasSegment("CIVI"));
+        Assert.IsFalse(r.HasSegment("NOPE"));
+        Assert.IsTrue(r.SeekSegment("CIVI"), "CIVI 可寻址");
+        var back = World.CivSim.CivMapArchive.ReadCivilization(r, grid, out bool corrupted);
+        Assert.IsFalse(corrupted, "CIVI 段解码不应报损坏");
+        Assert.IsNotNull(back);
+        Assert.AreEqual(100, back.FinalTick);
+        Assert.AreEqual(7, back.Context.Seed);
+        Assert.AreEqual(1, back.Context.Tribes.Count);
+        Assert.AreEqual(3, back.Context.Tribes[0].Id);
+        Assert.AreEqual(42f, back.Context.Tribes[0].P);
+        Assert.AreEqual(4, back.Context.NextTribeId);
+        Assert.AreEqual(2, back.Context.CultureKeyCount);
+        Assert.AreEqual(9, back.Context.NextSettlementId);
+        Assert.AreEqual(1, back.Context.Settlements.Count);
+        Assert.AreEqual(8, back.Context.Settlements[0].Id);
+        Assert.AreEqual(100, back.Context.Tick);   // 读档续跑从存档 tick 继续
+    }
+
+    [Test]
+    public void CiviSegment_Missing_IsNoCiv()
+    {
+        // 纯自然 .mpa：无 CIVI 段 → HasSegment false（列表/查看器据此识别纯自然地图）
+        var ms = WriteSample();
+        var r = new ChunkReader(ms);
+        Assert.IsFalse(r.HasSegment("CIVI"));
+    }
 }

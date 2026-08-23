@@ -59,9 +59,9 @@ corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
 content_margin_left = 18.0
-content_margin_top = 12.0
+content_margin_top = 14.0
 content_margin_right = 18.0
-content_margin_bottom = 12.0
+content_margin_bottom = 14.0
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_card_hover"]
@@ -76,9 +76,9 @@ corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
 content_margin_left = 18.0
-content_margin_top = 12.0
+content_margin_top = 14.0
 content_margin_right = 18.0
-content_margin_bottom = 12.0
+content_margin_bottom = 14.0
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_card_pressed"]
@@ -93,9 +93,9 @@ corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
 content_margin_left = 18.0
-content_margin_top = 12.0
+content_margin_top = 14.0
 content_margin_right = 18.0
-content_margin_bottom = 12.0
+content_margin_bottom = 14.0
 anti_aliasing = true
 
 [node name="MainMenu" type="Control"]
@@ -131,7 +131,7 @@ stretch_mode = 5
 
 [node name="Win" type="PanelContainer" parent="."]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(640, 480)
+custom_minimum_size = Vector2(680, 480)
 layout_mode = 1
 anchors_preset = 15
 anchor_left = 0.2
@@ -179,26 +179,33 @@ theme_override_font_sizes/font_size = 40
 text = "世界生成器"
 vertical_alignment = 1
 
+[node name="SubTitle" type="Label" parent="Win/V"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+text = "程序化行星 · 板块构造 → 气候 → 文明演化"
+horizontal_alignment = 1
+
 [node name="BodyPad" type="MarginContainer" parent="Win/V"]
 layout_mode = 2
 size_flags_vertical = 3
-theme_override_constants/margin_left = 30
+theme_override_constants/margin_left = 46
 theme_override_constants/margin_top = 10
-theme_override_constants/margin_right = 30
+theme_override_constants/margin_right = 46
 theme_override_constants/margin_bottom = 6
 
 [node name="Body" type="VBoxContainer" parent="Win/V/BodyPad"]
 layout_mode = 2
 size_flags_vertical = 3
 alignment = 1
-theme_override_constants/separation = 12
+theme_override_constants/separation = 18
 
 [node name="GenBtn" type="Button" parent="Win/V/BodyPad/Body"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 64)
+custom_minimum_size = Vector2(0, 88)
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 22
+theme_override_font_sizes/font_size = 24
 theme_override_styles/normal = SubResource("sb_card")
 theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/pressed = SubResource("sb_card_pressed")
@@ -206,14 +213,14 @@ theme_override_styles/focus = SubResource("sb_card")
 theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
 theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
 theme_override_colors/font_pressed_color = Color(0.8588, 0.902, 0.9608, 1)
-text = "🛠  生成地图"
+text = "🛠  创建世界"
 
 [node name="ViewBtn" type="Button" parent="Win/V/BodyPad/Body"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 64)
+custom_minimum_size = Vector2(0, 88)
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 22
+theme_override_font_sizes/font_size = 24
 theme_override_styles/normal = SubResource("sb_card")
 theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/pressed = SubResource("sb_card_pressed")
@@ -221,37 +228,7 @@ theme_override_styles/focus = SubResource("sb_card")
 theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
 theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
 theme_override_colors/font_pressed_color = Color(0.8588, 0.902, 0.9608, 1)
-text = "🗺  读取自然地图"
-
-[node name="EvolveBtn" type="Button" parent="Win/V/BodyPad/Body"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 64)
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 22
-theme_override_styles/normal = SubResource("sb_card")
-theme_override_styles/hover = SubResource("sb_card_hover")
-theme_override_styles/pressed = SubResource("sb_card_pressed")
-theme_override_styles/focus = SubResource("sb_card")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_pressed_color = Color(0.8588, 0.902, 0.9608, 1)
-text = "🌱  文明演化"
-
-[node name="CivBtn" type="Button" parent="Win/V/BodyPad/Body"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 64)
-layout_mode = 2
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 22
-theme_override_styles/normal = SubResource("sb_card")
-theme_override_styles/hover = SubResource("sb_card_hover")
-theme_override_styles/pressed = SubResource("sb_card_pressed")
-theme_override_styles/focus = SubResource("sb_card")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_pressed_color = Color(0.8588, 0.902, 0.9608, 1)
-text = "🎮  读取文明存档"
+text = "🌍  进入世界"
 
 [node name="FootPad" type="MarginContainer" parent="Win/V"]
 layout_mode = 2
@@ -266,5 +243,5 @@ layout_mode = 2
 size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.318, 0.376, 0.49, 1)
-text = "板块构造模拟 v3 · 球面直通存档 · 2026-08-02"
+text = "板块构造模拟 v3 · 球面直通存档 · 2026-08-23"
 horizontal_alignment = 1
