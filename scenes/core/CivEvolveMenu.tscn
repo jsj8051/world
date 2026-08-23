@@ -1,6 +1,130 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=14 format=3]
 
-[ext_resource type="Script" path="res://scripts/UI/CivEvolveMenu.cs" id="1_ev"]
+[ext_resource type="Script" path="res://scripts/UI/CivEvolveMenu.cs" id="1_cem"]
+[ext_resource type="Script" path="res://scripts/UI/ProgressTextBar.cs" id="2_ptb"]
+
+[sub_resource type="StyleBoxFlat" id="sb_win"]
+bg_color = Color(0.0353, 0.0549, 0.098, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1725, 0.251, 0.4, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 40
+shadow_offset = Vector2(0, 14)
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_logo"]
+bg_color = Color(0.114, 0.227, 0.388, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.302, 0.639, 1, 0.4)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+anti_aliasing = true
+
+[sub_resource type="Gradient" id="grad"]
+offsets = PackedFloat32Array(0, 1)
+colors = PackedColorArray(0.302, 0.639, 1, 0.1, 0.302, 0.639, 1, 0)
+
+[sub_resource type="GradientTexture2D" id="tex_glow"]
+gradient = SubResource("grad")
+width = 900
+height = 600
+fill = 1
+fill_from = Vector2(1, 0)
+fill_to = Vector2(0, 1)
+
+[sub_resource type="StyleBoxFlat" id="sb_ghost"]
+bg_color = Color(0.047, 0.071, 0.125, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1725, 0.251, 0.4, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_ghost_hover"]
+bg_color = Color(0.102, 0.165, 0.271, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.302, 0.639, 1, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_primary"]
+bg_color = Color(0.302, 0.639, 1, 0.12)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.302, 0.639, 1, 0.4)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_primary_hover"]
+bg_color = Color(0.302, 0.639, 1, 0.26)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.302, 0.639, 1, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_sel"]
+bg_color = Color(0.086, 0.133, 0.227, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.302, 0.639, 1, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_sel_hover"]
+bg_color = Color(0.086, 0.133, 0.227, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.302, 0.639, 1, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+anti_aliasing = true
 
 [node name="CivEvolveMenu" type="Control"]
 layout_mode = 3
@@ -9,4 +133,218 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_ev")
+script = ExtResource("1_cem")
+
+[node name="Bg" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.0275, 0.0431, 0.0706, 1)
+
+[node name="Glow" type="TextureRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = SubResource("tex_glow")
+expand_mode = 2
+stretch_mode = 5
+
+[node name="Win" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(680, 480)
+layout_mode = 1
+anchors_preset = 15
+anchor_left = 0.18
+anchor_top = 0.13
+anchor_right = 0.82
+anchor_bottom = 0.87
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("sb_win")
+
+[node name="V" type="VBoxContainer" parent="Win"]
+layout_mode = 2
+
+[node name="HeaderPad" type="MarginContainer" parent="Win/V"]
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 6
+
+[node name="TitleRow" type="HBoxContainer" parent="Win/V/HeaderPad"]
+layout_mode = 2
+theme_override_constants/separation = 14
+mouse_filter = 2
+
+[node name="Logo" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow"]
+custom_minimum_size = Vector2(44, 44)
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_logo")
+mouse_filter = 2
+
+[node name="LogoLabel" type="Label" parent="Win/V/HeaderPad/TitleRow/Logo"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "🌱"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Title" type="Label" parent="Win/V/HeaderPad/TitleRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 28
+text = "文明演化"
+vertical_alignment = 1
+
+[node name="TitleSub" type="Label" parent="Win/V/HeaderPad/TitleRow"]
+layout_mode = 2
+size_flags_horizontal = 2
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+text = "自然地图 → 后台演化 → .cmp 游玩存档"
+vertical_alignment = 1
+
+[node name="StatusPad" type="MarginContainer" parent="Win/V"]
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 4
+
+[node name="StatusRow" type="HBoxContainer" parent="Win/V/StatusPad"]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="StatusDot" type="Label" parent="Win/V/StatusPad/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+theme_override_colors/font_color = Color(0.302, 0.639, 1, 1)
+text = "●"
+
+[node name="Status" type="Label" parent="Win/V/StatusPad/StatusRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+text = "选择一张自然地图后开始演化。"
+
+[node name="BodyPad" type="MarginContainer" parent="Win/V"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 8
+
+[node name="Body" type="VBoxContainer" parent="Win/V/BodyPad"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+
+[node name="MapLabel" type="Label" parent="Win/V/BodyPad/Body"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+text = "选择自然地图（.mpa/.gmp）："
+
+[node name="ListScroll" type="ScrollContainer" parent="Win/V/BodyPad/Body"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="ListBox" type="VBoxContainer" parent="Win/V/BodyPad/Body/ListScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="ParamRow" type="HBoxContainer" parent="Win/V/BodyPad/Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 60)
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="BtnRow" type="HBoxContainer" parent="Win/V/BodyPad/Body"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="EvolveBtn" type="Button" parent="Win/V/BodyPad/Body/BtnRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("sb_primary")
+theme_override_styles/hover = SubResource("sb_primary_hover")
+theme_override_styles/pressed = SubResource("sb_primary_hover")
+theme_override_styles/focus = SubResource("sb_primary")
+theme_override_colors/font_color = Color(0.302, 0.639, 1, 1)
+theme_override_colors/font_hover_color = Color(0.8118, 0.9098, 1, 1)
+text = "▶ 开始演化"
+
+[node name="PlayBtn" type="Button" parent="Win/V/BodyPad/Body/BtnRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 46)
+layout_mode = 2
+disabled = true
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("sb_primary")
+theme_override_styles/hover = SubResource("sb_primary_hover")
+theme_override_styles/pressed = SubResource("sb_primary_hover")
+theme_override_styles/focus = SubResource("sb_primary")
+theme_override_colors/font_color = Color(0.302, 0.639, 1, 1)
+theme_override_colors/font_hover_color = Color(0.8118, 0.9098, 1, 1)
+text = "🎮 开始游戏"
+
+[node name="Spacer" type="Control" parent="Win/V/BodyPad/Body/BtnRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BackBtn" type="Button" parent="Win/V/BodyPad/Body/BtnRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("sb_ghost")
+theme_override_styles/hover = SubResource("sb_ghost_hover")
+theme_override_styles/pressed = SubResource("sb_ghost_hover")
+theme_override_styles/focus = SubResource("sb_ghost")
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_hover_color = Color(0.302, 0.639, 1, 1)
+text = "← 返回"
+
+[node name="BarWrap" type="MarginContainer" parent="Win/V"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 0
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 4
+
+[node name="BarCol" type="VBoxContainer" parent="Win/V/BarWrap"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ProgressRow" type="HBoxContainer" parent="Win/V/BarWrap/BarCol"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Bar" type="ProgressBar" parent="Win/V/BarWrap/BarCol/ProgressRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 0.0
+script = ExtResource("2_ptb")

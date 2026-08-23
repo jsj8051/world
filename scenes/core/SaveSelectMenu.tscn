@@ -1,7 +1,6 @@
-[gd_scene load_steps=14 format=3]
+[gd_scene load_steps=18 format=3]
 
-[ext_resource type="Script" path="res://scripts/UI/MapGenMenu.cs" id="1_mgm"]
-[ext_resource type="Script" path="res://scripts/UI/ProgressTextBar.cs" id="2_ptb"]
+[ext_resource type="Script" path="res://scripts/UI/SaveSelectMenu.cs" id="1_ssm"]
 
 [sub_resource type="StyleBoxFlat" id="sb_win"]
 bg_color = Color(0.0353, 0.0549, 0.098, 1)
@@ -87,6 +86,23 @@ content_margin_right = 6.0
 content_margin_bottom = 6.0
 anti_aliasing = true
 
+[sub_resource type="StyleBoxFlat" id="sb_count"]
+bg_color = Color(0.0667, 0.102, 0.1725, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1176, 0.1725, 0.2784, 1)
+corner_radius_top_left = 999
+corner_radius_top_right = 999
+corner_radius_bottom_right = 999
+corner_radius_bottom_left = 999
+content_margin_left = 14.0
+content_margin_top = 4.0
+content_margin_right = 14.0
+content_margin_bottom = 4.0
+anti_aliasing = true
+
 [sub_resource type="Gradient" id="grad"]
 offsets = PackedFloat32Array(0, 1)
 colors = PackedColorArray(0.302, 0.639, 1, 0.1, 0.302, 0.639, 1, 0)
@@ -98,6 +114,38 @@ height = 600
 fill = 1
 fill_from = Vector2(1, 0)
 fill_to = Vector2(0, 1)
+
+[sub_resource type="StyleBoxFlat" id="sb_dialog"]
+bg_color = Color(0.047, 0.071, 0.125, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1725, 0.251, 0.4, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_toast"]
+bg_color = Color(0.0667, 0.102, 0.1725, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1725, 0.251, 0.4, 1)
+corner_radius_top_left = 999
+corner_radius_top_right = 999
+corner_radius_bottom_right = 999
+corner_radius_bottom_left = 999
+content_margin_left = 22.0
+content_margin_top = 10.0
+content_margin_right = 22.0
+content_margin_bottom = 10.0
+shadow_color = Color(0, 0, 0, 0.45)
+shadow_size = 12
+anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_ghost"]
 bg_color = Color(0.047, 0.071, 0.125, 1)
@@ -125,40 +173,14 @@ corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
 anti_aliasing = true
 
-[sub_resource type="StyleBoxFlat" id="sb_primary"]
-bg_color = Color(0.302, 0.639, 1, 0.12)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.302, 0.639, 1, 0.4)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_primary_hover"]
-bg_color = Color(0.302, 0.639, 1, 0.26)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.302, 0.639, 1, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-anti_aliasing = true
-
-[node name="MapGenMenu" type="Control"]
+[node name="SaveSelectMenu" type="Control"]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_mgm")
+script = ExtResource("1_ssm")
 
 [node name="Bg" type="ColorRect" parent="."]
 layout_mode = 1
@@ -203,7 +225,7 @@ layout_mode = 2
 theme_override_constants/margin_left = 26
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 26
-theme_override_constants/margin_bottom = 6
+theme_override_constants/margin_bottom = 8
 
 [node name="TitleRow" type="HBoxContainer" parent="Win/V/HeaderPad"]
 layout_mode = 2
@@ -219,7 +241,7 @@ mouse_filter = 2
 [node name="LogoLabel" type="Label" parent="Win/V/HeaderPad/TitleRow/Logo"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
-text = "🛠"
+text = "🪐"
 horizontal_alignment = 1
 vertical_alignment = 1
 
@@ -228,13 +250,41 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 28
-text = "生成地图"
+text = "▶  选择地图"
 vertical_alignment = 1
+
+[node name="CountBadge" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow"]
+custom_minimum_size = Vector2(120, 30)
+layout_mode = 2
+size_flags_horizontal = 2
+size_flags_vertical = 4
+theme_override_styles/panel = SubResource("sb_count")
+mouse_filter = 2
+
+[node name="CountRow" type="HBoxContainer" parent="Win/V/HeaderPad/TitleRow/CountBadge"]
+layout_mode = 2
+theme_override_constants/separation = 6
+alignment = 1
+
+[node name="CountPre" type="Label" parent="Win/V/HeaderPad/TitleRow/CountBadge/CountRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+text = "存档"
+horizontal_alignment = 2
+
+[node name="Count" type="Label" parent="Win/V/HeaderPad/TitleRow/CountBadge/CountRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+theme_override_colors/font_color = Color(0.302, 0.639, 1, 1)
+text = "0"
+horizontal_alignment = 1
 
 [node name="TabPad" type="MarginContainer" parent="Win/V"]
 layout_mode = 2
 theme_override_constants/margin_left = 26
-theme_override_constants/margin_top = 8
+theme_override_constants/margin_top = 10
 theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 2
 
@@ -243,9 +293,9 @@ layout_mode = 2
 theme_override_constants/separation = 4
 mouse_filter = 2
 
-[node name="GenTab" type="Button" parent="Win/V/TabPad/TabStrip"]
+[node name="TabMap" type="Button" parent="Win/V/TabPad/TabStrip"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(150, 40)
+custom_minimum_size = Vector2(180, 40)
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
 theme_override_styles/normal = SubResource("sb_tab_active")
@@ -253,11 +303,11 @@ theme_override_styles/hover = SubResource("sb_tab_active")
 theme_override_styles/pressed = SubResource("sb_tab_active")
 theme_override_styles/focus = SubResource("sb_tab_active")
 theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-text = "⚙ 生成参数"
+text = "🗺  选择地图"
 
-[node name="PlanetTab" type="Button" parent="Win/V/TabPad/TabStrip"]
+[node name="TabCmp" type="Button" parent="Win/V/TabPad/TabStrip"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(150, 40)
+custom_minimum_size = Vector2(200, 40)
 layout_mode = 2
 theme_override_font_sizes/font_size = 15
 theme_override_styles/normal = SubResource("sb_tab_inactive")
@@ -265,19 +315,7 @@ theme_override_styles/hover = SubResource("sb_tab_inactive_hover")
 theme_override_styles/pressed = SubResource("sb_tab_inactive")
 theme_override_styles/focus = SubResource("sb_tab_inactive")
 theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
-text = "🪐 星球物理"
-
-[node name="TerrainTab" type="Button" parent="Win/V/TabPad/TabStrip"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(150, 40)
-layout_mode = 2
-theme_override_font_sizes/font_size = 15
-theme_override_styles/normal = SubResource("sb_tab_inactive")
-theme_override_styles/hover = SubResource("sb_tab_inactive_hover")
-theme_override_styles/pressed = SubResource("sb_tab_inactive")
-theme_override_styles/focus = SubResource("sb_tab_inactive")
-theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
-text = "🌍 地形与水量"
+text = "🎮  读取文明存档"
 
 [node name="StatusPad" type="MarginContainer" parent="Win/V"]
 layout_mode = 2
@@ -300,50 +338,20 @@ text = "●"
 [node name="Status" type="Label" parent="Win/V/StatusPad/StatusRow"]
 unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
 theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
-text = "选择参数后点击「开始生成」。生成需数分钟，可在后台进行。"
+text = "正在扫描存档…"
 
 [node name="Scroll" type="ScrollContainer" parent="Win/V"]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
-[node name="Content" type="VBoxContainer" parent="Win/V/Scroll"]
+[node name="List" type="VBoxContainer" parent="Win/V/Scroll"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 12
-
-[node name="GenerateGrid" type="GridContainer" parent="Win/V/Scroll/Content"]
-unique_name_in_owner = true
-columns = 2
-layout_mode = 2
-theme_override_constants/h_separation = 16
-theme_override_constants/v_separation = 12
-
-[node name="DerivedLabel" type="Label" parent="Win/V/Scroll/Content"]
-unique_name_in_owner = true
-layout_mode = 2
-theme_override_font_sizes/font_size = 14
-theme_override_colors/font_color = Color(0.72, 0.85, 0.72, 1)
-text = "—"
-
-[node name="PlanetGrid" type="GridContainer" parent="Win/V/Scroll/Content"]
-unique_name_in_owner = true
-visible = false
-columns = 2
-layout_mode = 2
-theme_override_constants/h_separation = 16
-theme_override_constants/v_separation = 12
-
-[node name="TerrainGrid" type="GridContainer" parent="Win/V/Scroll/Content"]
-unique_name_in_owner = true
-visible = false
-columns = 2
-layout_mode = 2
-theme_override_constants/h_separation = 16
-theme_override_constants/v_separation = 12
+theme_override_constants/separation = 8
 
 [node name="FootPad" type="MarginContainer" parent="Win/V"]
 layout_mode = 2
@@ -353,15 +361,12 @@ theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 16
 
 [node name="FootRow" type="HBoxContainer" parent="Win/V/FootPad"]
-unique_name_in_owner = true
 layout_mode = 2
-theme_override_constants/separation = 12
 
 [node name="BackBtn" type="Button" parent="Win/V/FootPad/FootRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(140, 46)
+custom_minimum_size = Vector2(150, 42)
 layout_mode = 2
-theme_override_font_sizes/font_size = 16
+theme_override_font_sizes/font_size = 17
 theme_override_styles/normal = SubResource("sb_ghost")
 theme_override_styles/hover = SubResource("sb_ghost_hover")
 theme_override_styles/pressed = SubResource("sb_ghost_hover")
@@ -370,44 +375,45 @@ theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
 theme_override_colors/font_hover_color = Color(0.302, 0.639, 1, 1)
 text = "← 返回"
 
-[node name="Spacer" type="Control" parent="Win/V/FootPad/FootRow"]
-layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="StartBtn" type="Button" parent="Win/V/FootPad/FootRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(160, 46)
-layout_mode = 2
-theme_override_font_sizes/font_size = 17
-theme_override_styles/normal = SubResource("sb_primary")
-theme_override_styles/hover = SubResource("sb_primary_hover")
-theme_override_styles/pressed = SubResource("sb_primary_hover")
-theme_override_styles/focus = SubResource("sb_primary")
-theme_override_colors/font_color = Color(0.302, 0.639, 1, 1)
-theme_override_colors/font_hover_color = Color(0.8118, 0.9098, 1, 1)
-text = "▶ 开始生成"
-
-[node name="ProgressWrap" type="MarginContainer" parent="Win/V"]
+[node name="Dim" type="ColorRect" parent="."]
 unique_name_in_owner = true
 visible = false
-layout_mode = 2
-theme_override_constants/margin_left = 26
-theme_override_constants/margin_top = 0
-theme_override_constants/margin_right = 26
-theme_override_constants/margin_bottom = 2
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+color = Color(0.0157, 0.0275, 0.051, 0.72)
 
-[node name="ProgressCol" type="VBoxContainer" parent="Win/V/ProgressWrap"]
-layout_mode = 2
-theme_override_constants/separation = 6
-
-[node name="ProgressRow" type="HBoxContainer" parent="Win/V/ProgressWrap/ProgressCol"]
-layout_mode = 2
-theme_override_constants/separation = 10
-
-[node name="Bar" type="ProgressBar" parent="Win/V/ProgressWrap/ProgressCol/ProgressRow"]
+[node name="Toast" type="PanelContainer" parent="."]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 24)
+visible = false
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_top = -62.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_toast")
+
+[node name="ToastText" type="Label" parent="Toast"]
+unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
-value = 0.0
-script = ExtResource("2_ptb")
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+text = ""
+
+[node name="Confirm" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "删除存档"
+size = Vector2i(420, 160)
+theme_override_styles/panel = SubResource("sb_dialog")
+ok_button_text = "删除"
+cancel_button_text = "取消"

@@ -8,6 +8,9 @@ namespace World.UI;
 
 /// <summary>
 /// 生成地图界面：参数选择（种子/网格分辨率/板块数/模拟时长）→ 后台生成（进度条）→ 完成。
+/// 静态骨架（背景/窗口框/页签/状态栏/滚动区/按钮/进度条）在 MapGenMenu.tscn 场景中定义
+/// （编辑器/MCP 可见节点树）；脚本只做动态部分：参数表单行注入、页签切换、生成逻辑。
+/// 窗口框动态分辨率：锚点 18%/13%~82%/87%（随窗口缩放），min 680×480 兜底。
 /// 生成在后台线程跑（MapGenerator.GenerateAsync），UI 不卡。
 /// </summary>
 public partial class MapGenMenu : Control
@@ -16,8 +19,8 @@ public partial class MapGenMenu : Control
     private SpinBox _platesBox;
     private Button _startBtn;
     private Button _backBtn;
-    private ProgressBar _bar;
     private Label _status;
+    private Label _derivedLabel;    // 半径 → n/顶点数/实际半径/格面积/耗时 派生显示
     private GridContainer _generateGrid;   // 分类：生成参数（两列）
     private GridContainer _planetGrid;     // 分类：星球物理（两列）
     private GridContainer _terrainGrid;    // 分类：地形与水量（两列）
@@ -28,7 +31,6 @@ public partial class MapGenMenu : Control
     private OptionButton _rotBox;   // 自转方向（枚举）
     private SpinBox _radiusSpin;    // 星球半径 km（主输入；n 派生，2026-08-10 口径：每格 5 km²）
     private SpinBox _continentsSpin; // 大陆块数（构造格局：2=超大陆/20=碎陆）
-    private Label _derivedLabel;    // 半径 → n/顶点数/实际半径/格面积/耗时 派生显示
     private SpinBox _tiltSpin;      // 轴向倾角（滑动+输入）
     private SpinBox _distSpin;      // 距太阳距离
     private SpinBox _speedSpin;     // 自转速度
@@ -37,74 +39,46 @@ public partial class MapGenMenu : Control
     private SpinBox _erosionSpin;   // 侵蚀强度
     private SpinBox _mySpin;        // 模拟时长（滑动+输入）
 
+    private ProgressTextBar _bar;       // 进度条（自绘文本：阶段+百分比一体）
+
     private MapGenerator _gen;
     private volatile float _progress;   // 后台线程写、主线程 _Process 读
     private string _lastOutPath;
 
     public override void _Ready()
     {
-        // 背景
-        var bg = new ColorRect { Color = new Color(0.06f, 0.08f, 0.12f) };
-        bg.SetAnchorsPreset(LayoutPreset.FullRect);
-        bg.MouseFilter = MouseFilterEnum.Ignore;   // 不拦截点击
-        AddChild(bg);
+        // 根 Control 强制全屏（防场景根未自动拉伸 → 锚点归零、框落左上角）
+        SetAnchorsPreset(LayoutPreset.FullRect);
 
-        var root = new VBoxContainer();
-        root.SetAnchorsPreset(LayoutPreset.FullRect);
-        root.Alignment = BoxContainer.AlignmentMode.Center;
-        root.AddThemeConstantOverride("separation", 16);
-        root.MouseFilter = MouseFilterEnum.Ignore;  // 容器不拦截，子控件自己响应
-        AddChild(root);
+        // 取场景节点（unique_name_in_owner 标记 %名）
+        _startBtn = GetNode<Button>("%StartBtn");
+        _backBtn = GetNode<Button>("%BackBtn");
+        _bar = GetNode<ProgressTextBar>("%Bar");
+        _status = GetNode<Label>("%Status");
+        _derivedLabel = GetNode<Label>("%DerivedLabel");
+        _generateGrid = GetNode<GridContainer>("%GenerateGrid");
+        _planetGrid = GetNode<GridContainer>("%PlanetGrid");
+        _terrainGrid = GetNode<GridContainer>("%TerrainGrid");
+        _genTab = GetNode<Button>("%GenTab");
+        _planetTab = GetNode<Button>("%PlanetTab");
+        _terrainTab = GetNode<Button>("%TerrainTab");
+        var progressWrap = GetNode<Control>("%ProgressWrap");
 
-        var title = new Label
-        {
-            Text = "🛠  生成地图",
-            HorizontalAlignment = HorizontalAlignment.Center,
-        };
-        title.AddThemeFontSizeOverride("font_size", 40);
-        root.AddChild(title);
-
-        // ── 分类页签（固定顶部，水平居中）──
-        var tabGroup = new ButtonGroup();
-        var tabRow = new HBoxContainer { SizeFlagsHorizontal = SizeFlags.ShrinkCenter };
-        tabRow.AddThemeConstantOverride("separation", 14);
-        tabRow.Alignment = BoxContainer.AlignmentMode.Center;
-        root.AddChild(tabRow);
-
-        _genTab = MakeTabBtn("⚙ 生成参数", tabGroup);
+        // 绑定事件
         _genTab.Pressed += () => ShowCategory(0);
-        tabRow.AddChild(_genTab);
-
-        _planetTab = MakeTabBtn("🪐 星球物理", tabGroup);
         _planetTab.Pressed += () => ShowCategory(1);
-        tabRow.AddChild(_planetTab);
-
-        _terrainTab = MakeTabBtn("🌍 地形与水量", tabGroup);
         _terrainTab.Pressed += () => ShowCategory(2);
-        tabRow.AddChild(_terrainTab);
+        _backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
+        _startBtn.Pressed += StartGenerate;
+        progressWrap.Visible = _bar.Visible = false;
 
-        // ── 滚动选项区：固定宽度 960 + 水平居中，固定高度 + 内部滚动 ──
-        // （不 fill 全宽：否则 GridContainer 被拉成巨列、参数堆左上角不对称）
-        var scroll = new ScrollContainer
-        {
-            CustomMinimumSize = new Vector2(960, 240),
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-            SizeFlagsVertical = SizeFlags.ExpandFill,
-            HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled,
-            VerticalScrollMode = ScrollContainer.ScrollMode.Auto,
-        };
-        root.AddChild(scroll);
+        // 状态点呼吸动画
+        var dot = GetNode<Label>("%StatusDot");
+        var tween = CreateTween().SetLoops();
+        tween.TweenProperty(dot, "modulate:a", 0.35f, 1.2f);
+        tween.TweenProperty(dot, "modulate:a", 1f, 1.2f);
 
-        var content = new VBoxContainer();
-        content.AddThemeConstantOverride("separation", 12);
-        scroll.AddChild(content);
-
-        // 分类 1：生成参数（两列，列宽自动均分 480+480）
-        _generateGrid = new GridContainer { Columns = 2 };
-        _generateGrid.AddThemeConstantOverride("h_separation", 16);
-        _generateGrid.AddThemeConstantOverride("v_separation", 12);
-        content.AddChild(_generateGrid);
-
+        // ── 注入参数表单（场景 grid 是空容器，行动态生成）──
         _generateGrid.AddChild(MakeRow("种子（Seed）", _seedBox = MakeSpin(0, 999999, 42, 1)));
         // 星球大小主输入（2026-08-10 口径定案：每格固定 5 km²，n 由半径派生）
         _generateGrid.AddChild(MakeSliderRow("星球半径(km)", 8f, 511f, 1f, 16f, 128f, out _radiusSpin));
@@ -112,87 +86,29 @@ public partial class MapGenMenu : Control
         _generateGrid.AddChild(MakeSliderRow("大陆块数", 2f, 20f, 1f, 2f, 6f, out _continentsSpin));
         _generateGrid.AddChild(MakeRow("初始板块数", _platesBox = MakeSpin(2, 32, 8, 1)));
         _generateGrid.AddChild(MakeSliderRow("模拟时长(My)", 100f, 2000f, 1f, 50f, 600f, out _mySpin));
-
-        // 半径 → 网格派生显示（跟随输入实时刷新；与生成参数页同显同隐）
-        _derivedLabel = new Label
-        {
-            CustomMinimumSize = new Vector2(960, 0),
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-        };
-        _derivedLabel.AddThemeFontSizeOverride("font_size", 17);
-        _derivedLabel.AddThemeColorOverride("font_color", new Color(0.72f, 0.85f, 0.72f));
-        content.AddChild(_derivedLabel);
+        _derivedLabel.AddThemeFontOverride("font", SaveRowStyle.MonoFont());
         var radiusRef = _radiusSpin;
         radiusRef.ValueChanged += _ => UpdateDerived();
         UpdateDerived();
 
         // 分类 2：星球物理（两列）
-        _planetGrid = new GridContainer { Columns = 2, Visible = false };
-        _planetGrid.AddThemeConstantOverride("h_separation", 16);
-        _planetGrid.AddThemeConstantOverride("v_separation", 12);
-        content.AddChild(_planetGrid);
-
         _planetGrid.AddChild(MakeRow("自转方向", _rotBox = MakeRotationOption()));
         _planetGrid.AddChild(MakeSliderRow("轴向倾角(°)", 0f, 90f, 0.1f, 5f, 23.4f, out _tiltSpin));
         _planetGrid.AddChild(MakeSliderRow("距太阳距离(AU)", 0.7f, 1.5f, 0.01f, 0.05f, 1.0f, out _distSpin));
         _planetGrid.AddChild(MakeSliderRow("自转速度(×)", 0.2f, 5f, 0.01f, 0.5f, 1.0f, out _speedSpin));
 
         // 分类 3：地形与水量（两列）
-        _terrainGrid = new GridContainer { Columns = 2, Visible = false };
-        _terrainGrid.AddThemeConstantOverride("h_separation", 16);
-        _terrainGrid.AddThemeConstantOverride("v_separation", 12);
-        content.AddChild(_terrainGrid);
-
         _terrainGrid.AddChild(MakeSliderRow("海洋水量(×)", 0.5f, 1.5f, 0.01f, 0.1f, 1.0f, out _oceanSpin));
         _terrainGrid.AddChild(MakeSliderRow("大陆周期(My)", 60f, 400f, 1f, 25f, 150f, out _scCycleSpin));
         _terrainGrid.AddChild(MakeSliderRow("侵蚀强度(×)", 0.5f, 2f, 0.01f, 0.25f, 1.0f, out _erosionSpin));
 
-        // ── 按钮区（固定底部，水平居中，不被选项挤走）──
-        var btnRow = new HBoxContainer { CustomMinimumSize = new Vector2(480, 0), SizeFlagsHorizontal = SizeFlags.ShrinkCenter };
-        btnRow.AddThemeConstantOverride("separation", 16);
-        btnRow.Alignment = BoxContainer.AlignmentMode.Center;
-        root.AddChild(btnRow);
-
-        _backBtn = MakeBtn("← 返回", 24);
-        _backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
-        btnRow.AddChild(_backBtn);
-
-        _startBtn = MakeBtn("开始生成", 24);
-        _startBtn.Pressed += StartGenerate;
-        btnRow.AddChild(_startBtn);
-
-        // ── 进度区（生成时显示，水平居中）──
-        _bar = new ProgressBar
-        {
-            MinValue = 0,
-            MaxValue = 100,
-            ShowPercentage = true,
-            CustomMinimumSize = new Vector2(960, 30),
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-            Visible = false,
-        };
-        root.AddChild(_bar);
-
-        _status = new Label
-        {
-            Text = "选择参数后点击「开始生成」。生成需数分钟，可在后台进行。",
-            HorizontalAlignment = HorizontalAlignment.Center,
-            AutowrapMode = TextServer.AutowrapMode.WordSmart,
-            CustomMinimumSize = new Vector2(960, 0),
-            SizeFlagsHorizontal = SizeFlags.ShrinkCenter,
-        };
-        _status.AddThemeFontSizeOverride("font_size", 18);
-        _status.AddThemeColorOverride("font_color", new Color(0.7f, 0.75f, 0.85f));
-        root.AddChild(_status);
-
         // 默认显示第一个分类
-        _genTab.ButtonPressed = true;
         ShowCategory(0);
     }
 
     public override void _Process(double delta)
     {
-        // 后台线程写 volatile 进度 → 主线程更新进度条（Godot Control 属性非线程安全）
+        // 后台线程写 volatile 进度 → 主线程更新进度条（Godot Control 属性非线程安全）；百分比由进度条自带
         if (_bar.Visible)
             _bar.Value = _progress * 100f;
     }
@@ -201,17 +117,18 @@ public partial class MapGenMenu : Control
 
     private HBoxContainer MakeRow(string label, Control field)
     {
-        var row = new HBoxContainer { CustomMinimumSize = new Vector2(480, 44) };
+        var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, 44) };
+        row.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         row.AddThemeConstantOverride("separation", 12);
         var lbl = new Label
         {
             Text = label,
-            CustomMinimumSize = new Vector2(160, 0),
+            CustomMinimumSize = new Vector2(150, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        lbl.AddThemeFontSizeOverride("font_size", 20);
+        lbl.AddThemeFontSizeOverride("font_size", 16);
         row.AddChild(lbl);
-        field.CustomMinimumSize = new Vector2(240, 40);
+        field.CustomMinimumSize = new Vector2(0, 40);
         field.SizeFlagsHorizontal = SizeFlags.ExpandFill;   // 拉伸到行尾，与滑动行右侧对齐
         row.AddChild(field);
         return row;
@@ -225,15 +142,16 @@ public partial class MapGenMenu : Control
     /// </summary>
     private HBoxContainer MakeSliderRow(string label, float min, float max, float step, float arrowStep, float val, out SpinBox spin)
     {
-        var row = new HBoxContainer { CustomMinimumSize = new Vector2(480, 44) };
+        var row = new HBoxContainer { CustomMinimumSize = new Vector2(0, 44) };
+        row.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         row.AddThemeConstantOverride("separation", 12);
         var lbl = new Label
         {
             Text = label,
-            CustomMinimumSize = new Vector2(160, 0),
+            CustomMinimumSize = new Vector2(150, 0),
             VerticalAlignment = VerticalAlignment.Center,
         };
-        lbl.AddThemeFontSizeOverride("font_size", 20);
+        lbl.AddThemeFontSizeOverride("font_size", 16);
         row.AddChild(lbl);
 
         var slider = new HSlider
@@ -242,7 +160,7 @@ public partial class MapGenMenu : Control
             MaxValue = max,
             Step = step,
             Value = val,
-            CustomMinimumSize = new Vector2(100, 40),
+            CustomMinimumSize = new Vector2(80, 40),
             SizeFlagsHorizontal = SizeFlags.ExpandFill,   // 吃掉中间空间
         };
         row.AddChild(slider);
@@ -258,7 +176,7 @@ public partial class MapGenMenu : Control
             CustomMinimumSize = new Vector2(100, 40),
         };
         spin.CustomArrowStep = arrowStep;   // 箭头增量（可大于对齐精度，快跳）
-        spin.AddThemeFontSizeOverride("font_size", 16);
+        spin.AddThemeFontSizeOverride("font_size", 15);
         row.AddChild(spin);
 
         // ⚠️ out 参数不能进 lambda：先存局部变量再捕获
@@ -306,27 +224,6 @@ public partial class MapGenMenu : Control
         return ob;
     }
 
-    private Button MakeBtn(string text, int size)
-    {
-        var b = new Button { Text = text, CustomMinimumSize = new Vector2(180, 52) };
-        b.AddThemeFontSizeOverride("font_size", size);
-        return b;
-    }
-
-    /// <summary>分类页签按钮（toggle 互斥组，选中态高亮）。</summary>
-    private Button MakeTabBtn(string text, ButtonGroup group)
-    {
-        var b = new Button
-        {
-            Text = text,
-            ToggleMode = true,
-            ButtonGroup = group,
-            CustomMinimumSize = new Vector2(180, 46),
-        };
-        b.AddThemeFontSizeOverride("font_size", 20);
-        return b;
-    }
-
     /// <summary>切换选项分类：只显示选中分类的网格，页签高亮跟随。</summary>
     private void ShowCategory(int idx)
     {
@@ -334,13 +231,31 @@ public partial class MapGenMenu : Control
         _planetGrid.Visible = idx == 1;
         _terrainGrid.Visible = idx == 2;
         _derivedLabel.Visible = idx == 0;   // 半径派生信息跟生成参数页
-        void SetTab(Button tab, bool active) =>
-            tab.AddThemeColorOverride("font_color", active
-                ? new Color(1f, 0.85f, 0.5f)      // 选中：亮金
-                : new Color(0.72f, 0.78f, 0.9f)); // 未选中：灰蓝
-        SetTab(_genTab, idx == 0);
-        SetTab(_planetTab, idx == 1);
-        SetTab(_terrainTab, idx == 2);
+        StyleTab(_genTab, idx == 0);
+        StyleTab(_planetTab, idx == 1);
+        StyleTab(_terrainTab, idx == 2);
+    }
+
+    private static void StyleTab(Button b, bool active)
+    {
+        if (active)
+        {
+            b.AddThemeStyleboxOverride("normal", SaveRowStyle.TabActive());
+            b.AddThemeStyleboxOverride("hover", SaveRowStyle.TabActive());
+            b.AddThemeStyleboxOverride("pressed", SaveRowStyle.TabActive());
+            b.AddThemeStyleboxOverride("focus", SaveRowStyle.TabActive());
+            b.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+            b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Fg);
+        }
+        else
+        {
+            b.AddThemeStyleboxOverride("normal", SaveRowStyle.TabInactive());
+            b.AddThemeStyleboxOverride("hover", SaveRowStyle.TabInactiveHover());
+            b.AddThemeStyleboxOverride("pressed", SaveRowStyle.TabInactive());
+            b.AddThemeStyleboxOverride("focus", SaveRowStyle.TabInactive());
+            b.AddThemeColorOverride("font_color", SaveRowStyle.Muted);
+            b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Muted);
+        }
     }
 
     // ── 星球大小 ↔ 网格分辨率（2026-08-10 口径定案：每格固定 5 km²，用户选半径，n 派生）──
@@ -436,8 +351,11 @@ public partial class MapGenMenu : Control
         _backBtn.Disabled = true;
 
         _progress = 0f;
+        _bar.Prefix = "（生成中…板块模拟阶段）";   // 阶段文字 + 自绘百分比一体显示
+        _bar.AddThemeColorOverride("font_color", new Color(0.7f, 0.75f, 0.85f));
+        GetNode<Control>("%ProgressWrap").Visible = true;
         _bar.Visible = true;
-        _status.Text = "生成中…（板块模拟阶段）";
+        _bar.Value = 0;
 
         int seed = (int)_seedBox.Value;
         float my = (float)_mySpin.Value;            // 模拟时长 My（滑块/输入）
@@ -483,24 +401,42 @@ public partial class MapGenMenu : Control
         _generating = false;
         _startBtn.Disabled = false;
         _backBtn.Disabled = false;
-        _bar.Visible = false;
 
         if (ok)
         {
-            _status.Text = "✅ 生成完成！存档：" + path.GetFile() + "（已保存，可返回主菜单进入游戏）";
+            // 进度条 100%（自绘文本：阶段+百分比一体）；完成信息显示在顶部状态栏（进度条底下不再显示）
+            _bar.Value = 100;
+            _bar.Prefix = "（生成完成）";
+            _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+            _status.Text = $"✅ 生成完成！存档：{path.GetFile()}（已保存，可返回主菜单进入游戏）";
             _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
             // 生成完可直接查看（水平居中，与整体列对齐）
-            var viewBtn = MakeBtn("▶ 查看地图", 22);
-            viewBtn.SizeFlagsHorizontal = SizeFlags.ShrinkCenter;
+            var viewBtn = new Button { Text = "▶ 查看地图" };
+            viewBtn.CustomMinimumSize = new Vector2(160, 44);
+            viewBtn.AddThemeFontSizeOverride("font_size", 16);
+            StylePrimary(viewBtn);
             viewBtn.Pressed += () => EnterViewer(path);
-            _status.GetParent().AddChild(viewBtn);
+            GetNode<HBoxContainer>("%FootRow").AddChild(viewBtn);
             LogService.Log("MapGenMenu", $"生成完成: {path}");
         }
         else
         {
+            _bar.Prefix = "（生成失败）";
+            _bar.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
             _status.Text = "❌ 生成失败，请查看控制台日志。";
             _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
         }
+    }
+
+    private static void StylePrimary(Button b)
+    {
+        b.AddThemeStyleboxOverride("normal", SaveRowStyle.PrimaryNormal());
+        b.AddThemeStyleboxOverride("hover", SaveRowStyle.PrimaryHover());
+        b.AddThemeStyleboxOverride("pressed", SaveRowStyle.PrimaryHover());
+        b.AddThemeStyleboxOverride("focus", SaveRowStyle.PrimaryNormal());
+        b.AddThemeColorOverride("font_color", SaveRowStyle.Accent);
+        b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Bg2);
+        b.AddThemeColorOverride("font_pressed_color", SaveRowStyle.Bg2);
     }
 
     private void EnterViewer(string path)

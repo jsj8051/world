@@ -41,7 +41,11 @@ public partial class MainMenu : Control
         var viewBtn = MakeButton("🗺  读取自然地图");
         viewBtn.SetAnchorsPreset(LayoutPreset.Center);
         viewBtn.Position = new Vector2(-200, -120);
-        viewBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapSelectMenu.tscn");
+        viewBtn.Pressed += () =>
+        {
+            SaveSelectMenu.InitialTab = "map";   // 合并界面：默认地图标签
+            GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
+        };
         AddChild(viewBtn);
 
         // 文明演化按钮（选自然地图 → 演化 → 生成 .cmp 游玩存档）
@@ -55,7 +59,11 @@ public partial class MainMenu : Control
         var civBtn = MakeButton("🎮  读取文明存档");
         civBtn.SetAnchorsPreset(LayoutPreset.Center);
         civBtn.Position = new Vector2(-200, 120);
-        civBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/CmpSelectMenu.tscn");
+        civBtn.Pressed += () =>
+        {
+            SaveSelectMenu.InitialTab = "cmp";   // 合并界面：文明存档标签
+            GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
+        };
         AddChild(civBtn);
 
         // 底部版本信息
