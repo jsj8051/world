@@ -1,43 +1,46 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using World.Biome;
 using World.Services;
+using World.Utils;
+using IOFileAccess = System.IO.FileAccess;
 
 namespace World.MapGen;
 
 /// <summary>
-/// 地图存档格式（二进制，版本化）。
+/// 地图存档格式 .mpa（v6 段表格式，2026-08-23 段表化）。
 ///
-/// v3（球面直通，2026-08-02）：
+/// 布局（docs/存档段表格式设计.md §2/§3.1）：
 ///   [4B]  magic "MPA1"
-///   [2B]  version = 3
-///   [4B]  seed (int)
-///   [4B]  vertexCount (int)
-///   [4B×3×N] 顶点单位方向 xyz（float，球面）
-///   [4B]  minElev / [4B] maxElev
-///   [4B×N] elev 每顶点海拔（米）
-///   [4B]  minTemp / [4B] maxTemp
-///   [4B×N] temp 年均温场（°C）
-///   [4B]  minPrecip / [4B] maxPrecip
-///   [4B×N] precip 年降水场（mm）
-///   [1B×N] biome 生物群系场（BiomeType）
-///   无投影、无平面中转——数据直接在球面顶点上。
+///   [2B]  skeletonVer = 6
+///   [2B]  reserved
+///   [..]  数据区（段：HEAD/VERT/ELEV/TEMP/PREC/BIOM/OCEN/RIVL/RIVF/RIVV/LAKE/MINE/SOIL/MONO/MPRC/MTMP）
+///   [12B×K] 段表 + [12B] 尾目录（ZIP 式；ChunkWriter/ChunkReader 容器）
 ///
-/// v2（等距柱状平面）：width×height 场。读时向后兼容（转成球面 0 顶点 + 平面标记）。
-/// v1 = 只有海拔场。
+/// 原则：一系统一段，段边界 = 系统边界；段缺失 = 现场重算兜底（不信任存档）。
+/// v1-v5 旧格式读取分支于 2026-08-23 删除（用户拍板：旧档全删，只支持段表格式）。
+/// IO 层从 FileAccess 迁移到 System.IO（存档往返可进单元测试）。
 /// </summary>
 public static class MapArchive
 {
     public const string Magic = "MPA1";
-    public const ushort Version = 5;   // v5：头部加 radiusKm（星球大小口径 5km²/格，2026-08-10）
+    public const ushort Version = 6;   // v6：段表容器骨架（2026-08-23 存档段表化）
 
     /// <summary>星球半径标准默认值（km，地球平均半径）。标度统一源（2026-08-10）：
     /// 所有"默认半径/旧档回退"引用此常量，禁止散落 6330/6367/6371 魔数。
     /// GameGrid.DefaultRadiusKm = 此值（LogicGrid 便捷别名）。</summary>
     public const float DefaultRadiusKm = 6371f;
 
-    /// <summary>v3 球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。</summary>
+    /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
+    private static string ResolvePath(string path) =>
+        path.StartsWith("user://", StringComparison.Ordinal)
+            ? ProjectSettings.GlobalizePath(path)
+            : path;
+
+    /// <summary>v6 段表球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。
+    /// 段存在即写入；null 段不写（读取端缺段 = null = 现场重算）。</summary>
     public static bool WriteSpherical(
         string path, int seed, Vector3[] verts,
         float minElev, float maxElev, float[] elev,
@@ -52,295 +55,290 @@ public static class MapArchive
         float radiusKm = DefaultRadiusKm,   // v5 头：星球半径（km；旧存档无=地球默认）
         bool log = true)
     {
-        string dir = path.GetBaseDir();
-        if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
-            DirAccess.MakeDirRecursiveAbsolute(dir);
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
-        if (f == null)
+        int n = verts.Length;
+        try
         {
-            LogService.LogErr("MapArchive", $"cannot open {path} for write: {FileAccess.GetOpenError()}");
+            string abs = ResolvePath(path);
+            string dir = Path.GetDirectoryName(abs) ?? "";
+            if (dir.Length > 0 && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            using var fs = new FileStream(abs, FileMode.Create, IOFileAccess.Write);
+            using var w = new ChunkWriter(fs, Magic, Version);
+
+            // ── HEAD：固定字段汇总 ──
+            w.BeginSegment("HEAD", 1);
+            w.Store32((uint)seed);
+            w.StoreFloat(radiusKm);
+            w.Store32((uint)n);
+            w.StoreFloat(minElev); w.StoreFloat(maxElev);
+            w.StoreFloat(minTemp); w.StoreFloat(maxTemp);
+            w.StoreFloat(minPrecip); w.StoreFloat(maxPrecip);
+            w.Store8((byte)(prograde ? 1 : 0));       // 自转方向（盛行风图层用）
+            w.StoreFloat(rotationSpeed);              // 自转速度（科里奥利强度）
+            w.StoreFloat(axialTilt);                  // 轴向倾角（季风月风场现场重算用）
+            w.EndSegment();
+
+            // ── VERT：顶点单位方向 ──
+            w.BeginSegment("VERT", 1);
+            foreach (var v in verts) { w.StoreFloat(v.X); w.StoreFloat(v.Y); w.StoreFloat(v.Z); }
+            w.EndSegment();
+
+            // ── ELEV / TEMP / PREC / BIOM ──
+            w.BeginSegment("ELEV", 1);
+            foreach (var e in elev) w.StoreFloat(e);
+            w.EndSegment();
+            w.BeginSegment("TEMP", 1);
+            foreach (var t in temp) w.StoreFloat(t);
+            w.EndSegment();
+            w.BeginSegment("PREC", 1);
+            foreach (var p in precip) w.StoreFloat(p);
+            w.EndSegment();
+            w.BeginSegment("BIOM", 1);
+            foreach (var b in biome) w.Store8(b);
+            w.EndSegment();
+
+            // ── OCEN：洋流（段存在即完整；psi 无条件写满——沿用 v4 教训，读端无条件读）──
+            if (currentDirs != null && currentWarmth != null)
+            {
+                w.BeginSegment("OCEN", 1);
+                foreach (var cd in currentDirs) { w.StoreFloat(cd.X); w.StoreFloat(cd.Y); w.StoreFloat(cd.Z); }
+                foreach (var cw in currentWarmth) w.StoreFloat(cw);
+                if (currentStrength != null)
+                    foreach (var cs in currentStrength) w.StoreFloat(cs);
+                else
+                    for (int i = 0; i < n; i++) w.StoreFloat(1f);   // 旧语义：无强度 = 默认 1
+                if (psi != null)
+                    foreach (var p in psi) w.StoreFloat(p);
+                else
+                    for (int i = 0; i < n; i++) w.StoreFloat(0f);
+                w.EndSegment();
+            }
+
+            // ── 河流/湖泊/矿藏/土壤：独立段（缺 = 现场重算）──
+            if (riverLevel != null) { w.BeginSegment("RIVL", 1); foreach (var rl in riverLevel) w.Store8(rl); w.EndSegment(); }
+            if (riverFlow != null) { w.BeginSegment("RIVF", 1); foreach (var rf in riverFlow) w.Store32((uint)rf); w.EndSegment(); }
+            if (riverVolume != null) { w.BeginSegment("RIVV", 1); foreach (var rv in riverVolume) w.StoreFloat(rv); w.EndSegment(); }
+            if (lakeLevel != null) { w.BeginSegment("LAKE", 1); foreach (var ll in lakeLevel) w.Store8(ll); w.EndSegment(); }
+            if (mineralLevel != null) { w.BeginSegment("MINE", 1); foreach (var ml in mineralLevel) w.Store8(ml); w.EndSegment(); }
+            if (soilLevel != null) { w.BeginSegment("SOIL", 1); foreach (var sl in soilLevel) w.Store8(sl); w.EndSegment(); }
+
+            // ── 季风 / 月降水 / 月温度 ──
+            if (monsoonLevel != null) { w.BeginSegment("MONO", 1); foreach (var ml in monsoonLevel) w.Store8(ml); w.EndSegment(); }
+            if (monthPrecip != null)
+            {
+                w.BeginSegment("MPRC", 1);
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+                    foreach (var v in monthPrecip[m]) w.Store8(v);
+                w.EndSegment();
+            }
+            if (monthTemp != null)
+            {
+                w.BeginSegment("MTMP", 1);
+                for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+                    foreach (var v in monthTemp[m]) w.Store8(v);
+                w.EndSegment();
+            }
+
+            w.Finish();
+        }
+        catch (Exception ex)
+        {
+            LogService.LogErr("MapArchive", $"写入失败 {path}: {ex.Message}");
             return false;
         }
-        int n = verts.Length;
-        f.Store8((byte)'M');
-        f.Store8((byte)'P');
-        f.Store8((byte)'A');
-        f.Store8((byte)'1');
-        f.Store16(Version);
-        f.Store32((uint)seed);
-        f.StoreFloat(radiusKm);   // v5 头：星球半径（km；旧档无=地球默认，读端 ver<5 跳过）
-        f.Store32((uint)n);
-        foreach (var v in verts) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
-        f.StoreFloat(minElev);
-        f.StoreFloat(maxElev);
-        foreach (var e in elev) f.StoreFloat(e);
-        f.StoreFloat(minTemp);
-        f.StoreFloat(maxTemp);
-        foreach (var t in temp) f.StoreFloat(t);
-        f.StoreFloat(minPrecip);
-        f.StoreFloat(maxPrecip);
-        foreach (var p in precip) f.StoreFloat(p);
-        foreach (var b in biome) f.Store8(b);
-        f.Store8((byte)(prograde ? 1 : 0));   // 尾部扩展1：自转方向（盛行风图层用；旧存档无此字节=默认顺转）
-        f.StoreFloat(rotationSpeed);          // 尾部扩展2：自转速度（科里奥利强度；旧存档无=1.0 地球）
-        f.StoreFloat(axialTilt);              // 尾部扩展2b（v3.8）：轴向倾角（季风月风场现场重算用；旧存档无=23.4）
-        // 尾部扩展3（2026-08-02）：洋流方向+冷暖+强度（流函数法；MapViewer 洋流图层用）
-        //   每顶点：方向 3 float（零=内陆无洋流）+ 冷暖 1 float + 强度 1 float。
-        //   旧存档无此段=默认无洋流。
-        if (currentDirs != null && currentWarmth != null)
-        {
-            foreach (var cd in currentDirs) { f.StoreFloat(cd.X); f.StoreFloat(cd.Y); f.StoreFloat(cd.Z); }
-            foreach (var cw in currentWarmth) f.StoreFloat(cw);
-            if (currentStrength != null)
-                foreach (var cs in currentStrength) f.StoreFloat(cs);
-            // 尾部扩展7（2026-08-06，v4）：流函数 psi（每格 1 float；环流圈"每环最外圈"显示用）
-            // ⚠️ 2026-08-10 修（同 .gmp 坑）：psi 必须无条件写满（null → 补零）——读取端 ver≥4 无条件读该段，
-            //   条件写会让"无 psi 的网格"（MapGenerator 同步路径曾不传 psi）写档后河流段错位
-            //   （读取端把河流段前 4n 字节误当 psi → RiverFlow 全垃圾 → MapViewer 流域 IndexOutOfRange）。
-            if (psi != null)
-                foreach (var p in psi) f.StoreFloat(p);
-            else
-                for (int i = 0; i < n; i++) f.StoreFloat(0f);
-        }
-        // 尾部扩展4（2026-08-02）：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无=null）
-        // 尾部扩展5（2026-08-02）：湖泊（级别 n bytes；旧存档无=null）
-        if (riverLevel != null && riverFlow != null)
-        {
-            foreach (var rl in riverLevel) f.Store8(rl);
-            foreach (var rf in riverFlow) f.Store32((uint)rf);
-            if (riverVolume != null)
-                foreach (var rv in riverVolume) f.StoreFloat(rv);
-            if (lakeLevel != null)
-                foreach (var ll in lakeLevel) f.Store8(ll);
-            // 尾部扩展6（2026-08-02）：矿藏（级别 n bytes；(富度<<4)|矿种；旧存档无=null）
-            if (mineralLevel != null)
-                foreach (var ml in mineralLevel) f.Store8(ml);
-            // 尾部扩展7（2026-08-03）：土壤肥力（n bytes 1-5；旧存档无=null）
-            if (soilLevel != null)
-                foreach (var sl in soilLevel) f.Store8(sl);
-        }
-        // 尾部扩展8（2026-08-16）：季风强度（n bytes 0-255 → 0-1；MonsoonSystem；旧存档无=null）
-        if (monsoonLevel != null)
-            foreach (var ml in monsoonLevel) f.Store8(ml);
-        // 尾部扩展9（2026-08-16）：月降水比例（12×n bytes；MonsoonSystem；旧存档无=null）
-        //   每顶点 12 个月比例 0-255（×年降水 = 月降水 mm）；海洋格 0
-        if (monthPrecip != null)
-            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
-                foreach (var v in monthPrecip[m]) f.Store8(v);
-        // 尾部扩展10（2026-08-16）：月温度（12×n bytes，−60~60°C → 0-255；温度系统月度化）
-        if (monthTemp != null)
-            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
-                foreach (var v in monthTemp[m]) f.Store8(v);
         if (log)
             LogService.Log("MapArchive", $"wrote v{Version} {path} (spherical {n} verts, elev[{minElev:F0},{maxElev:F0}] " +
                      $"temp[{minTemp:F1},{maxTemp:F1}] precip[{minPrecip:F0},{maxPrecip:F0}] prograde={prograde})");
         return true;
     }
 
+    /// <summary>v6 段表读档。段缺失 → 对应字段 null（现场重算兜底）；VERT/HEAD 缺失 → 拒绝（必需段）。
+    /// ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）。</summary>
     public static bool Read(string path, out MapData map)
     {
         map = new MapData();
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
-        if (f == null)
+        try
         {
-            LogService.LogErr("MapArchive", $"cannot open {path}: {FileAccess.GetOpenError()}");
-            return false;
-        }
-        string magic = "" + (char)f.Get8() + (char)f.Get8() + (char)f.Get8() + (char)f.Get8();
-        if (magic != Magic)
-        {
-            LogService.LogErr("MapArchive", $"bad magic '{magic}' in {path}");
-            return false;
-        }
-        ushort ver = f.Get16();
-        if (ver > Version)
-        {
-            LogService.LogErr("MapArchive", $"unsupported version {ver} (expected ≤ {Version})");
-            return false;
-        }
-        map.Seed = (int)f.Get32();
-        map.Version = ver;
-        map.RadiusKm = ver >= 5 ? f.GetFloat() : DefaultRadiusKm;   // v5 头：seed 后 radiusKm（旧档无=地球默认）
+            string abs = ResolvePath(path);
+            using var fs = new FileStream(abs, FileMode.Open, IOFileAccess.Read);
+            using var r = new ChunkReader(fs);
+            if (r.Magic != Magic)
+            {
+                LogService.LogErr("MapArchive", $"bad magic '{r.Magic}' in {path}");
+                return false;
+            }
+            if (r.SkeletonVer != Version)
+            {
+                LogService.LogErr("MapArchive", $"不支持的存档版本 {r.SkeletonVer}（当前 {Version}；旧版 v1-v5 已于 2026-08-23 段表化移除，请重新生成）");
+                return false;
+            }
+            map.Version = Version;
 
-        if (ver >= 3)
-        {
-            // ── v3 球面直通 ──
-            int n = (int)f.Get32();
-            map.Verts = new Vector3[n];
-            for (int i = 0; i < n; i++)
-                map.Verts[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());
-            map.MinElev = f.GetFloat();
-            map.MaxElev = f.GetFloat();
-            map.Elev = new float[n];
-            for (int i = 0; i < n; i++) map.Elev[i] = f.GetFloat();
-            map.MinTemp = f.GetFloat();
-            map.MaxTemp = f.GetFloat();
-            map.Temp = new float[n];
-            for (int i = 0; i < n; i++) map.Temp[i] = f.GetFloat();
-            map.MinPrecip = f.GetFloat();
-            map.MaxPrecip = f.GetFloat();
-            map.Precip = new float[n];
-            for (int i = 0; i < n; i++) map.Precip[i] = f.GetFloat();
-            map.Biome = new byte[n];
-            for (int i = 0; i < n; i++) map.Biome[i] = f.Get8();
+            // ── HEAD：固定字段 ──
+            if (!r.SeekSegment("HEAD"))
+            {
+                LogService.LogErr("MapArchive", $"{path}: 缺 HEAD 段（必需段）");
+                return false;
+            }
+            map.Seed = (int)r.Get32();
+            map.RadiusKm = r.GetFloat();
+            int n = (int)r.Get32();
+            map.MinElev = r.GetFloat();
+            map.MaxElev = r.GetFloat();
+            map.MinTemp = r.GetFloat();
+            map.MaxTemp = r.GetFloat();
+            map.MinPrecip = r.GetFloat();
+            map.MaxPrecip = r.GetFloat();
+            map.ProgradeRotation = r.Get8() != 0;
+            map.RotationSpeed = r.GetFloat();
+            map.AxialTilt = r.GetFloat();
             map.Width = 0;
             map.Height = 0;
-            // 尾部扩展：自转方向（旧存档没有此字节 → 默认顺转）+ 自转速度（旧存档没有 → 1.0）
-            map.ProgradeRotation = f.GetPosition() < f.GetLength() ? f.Get8() != 0 : true;
-            map.RotationSpeed = f.GetPosition() + 4 <= f.GetLength() ? f.GetFloat() : 1f;
-            // 尾部扩展2b（v3.8）：轴向倾角（旧存档没有 → 23.4 地球式；季风月风场现场重算用）
-            map.AxialTilt = f.GetPosition() + 4 <= f.GetLength() ? f.GetFloat() : 23.4f;
-            // 尾部扩展3（v3.1）：洋流段（方向 3n floats + 冷暖 n floats [+ 强度 n floats]；旧存档无 = null）
-            ulong currentBytes16 = (ulong)n * 16u;   // 3 方向 + 1 冷暖 = 16 字节/顶点
-            ulong currentBytes20 = (ulong)n * 20u;   // + 1 强度 = 20 字节/顶点
-            if (f.GetPosition() + currentBytes16 <= f.GetLength())
+
+            // ── VERT / ELEV / TEMP / PREC / BIOM ──
+            if (!r.SeekSegment("VERT"))
+            {
+                LogService.LogErr("MapArchive", $"{path}: 缺 VERT 段（必需段）");
+                return false;
+            }
+            map.Verts = new Vector3[n];
+            for (int i = 0; i < n; i++)
+                map.Verts[i] = new Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
+
+            if (r.SeekSegment("ELEV"))
+            {
+                map.Elev = new float[n];
+                for (int i = 0; i < n; i++) map.Elev[i] = r.GetFloat();
+            }
+            if (r.SeekSegment("TEMP"))
+            {
+                map.Temp = new float[n];
+                for (int i = 0; i < n; i++) map.Temp[i] = r.GetFloat();
+            }
+            if (r.SeekSegment("PREC"))
+            {
+                map.Precip = new float[n];
+                for (int i = 0; i < n; i++) map.Precip[i] = r.GetFloat();
+            }
+            if (r.SeekSegment("BIOM"))
+            {
+                map.Biome = new byte[n];
+                for (int i = 0; i < n; i++) map.Biome[i] = r.Get8();
+            }
+
+            // ── OCEN：洋流（段存在即完整）──
+            if (r.SeekSegment("OCEN"))
             {
                 map.CurrentDirs = new Vector3[n];
                 for (int i = 0; i < n; i++)
-                    map.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());
+                    map.CurrentDirs[i] = new Vector3(r.GetFloat(), r.GetFloat(), r.GetFloat());
                 map.CurrentWarmth = new float[n];
-                for (int i = 0; i < n; i++) map.CurrentWarmth[i] = f.GetFloat();
-                // 强度段（v3.1 加；⚠️ 2026-08-02 修复：判断必须用"剩余 ≥ 4n"——
-                //   原用 currentBytes20（整段 20n）从当前位置加必然超长 → strength 永不读
-                //   → 河流段错位读取全乱。旧存档只有 16n 字节 → 无强度，默认 1）
-                if (f.GetPosition() + (ulong)n * 4u <= f.GetLength())
-                {
-                    map.CurrentStrength = new float[n];
-                    for (int i = 0; i < n; i++) map.CurrentStrength[i] = f.GetFloat();
-                }
-                // 尾部扩展7（v4）：流函数 psi（v3 旧档无——必须用版本判断，长度检测会误读河流段）
-                if (ver >= 4 && f.GetPosition() + (ulong)n * 4u <= f.GetLength())
-                {
-                    map.Psi = new float[n];
-                    for (int i = 0; i < n; i++) map.Psi[i] = f.GetFloat();
-                }
+                for (int i = 0; i < n; i++) map.CurrentWarmth[i] = r.GetFloat();
+                map.CurrentStrength = new float[n];
+                for (int i = 0; i < n; i++) map.CurrentStrength[i] = r.GetFloat();
+                map.Psi = new float[n];
+                for (int i = 0; i < n; i++) map.Psi[i] = r.GetFloat();
             }
-            // 尾部扩展4：河流（级别 n bytes + 流向 n×4 bytes [+ 流量 n×4 bytes]；旧存档无 = null）
-            ulong riverBytes = (ulong)n * 5u;
-            if (f.GetPosition() + riverBytes <= f.GetLength())
+
+            // ── 河流/湖泊/矿藏/土壤：独立段 ──
+            if (r.SeekSegment("RIVL"))
             {
                 map.RiverLevel = new byte[n];
-                for (int i = 0; i < n; i++) map.RiverLevel[i] = f.Get8();
-                map.RiverFlow = new int[n];
-                for (int i = 0; i < n; i++) map.RiverFlow[i] = (int)f.Get32();
-                // 流量段（v3.3 加；⚠️ 判断用"剩余 ≥ 4n"——同 strength 修复，防错位）
-                if (f.GetPosition() + (ulong)n * 4u <= f.GetLength())
-                {
-                    map.RiverVolume = new float[n];
-                    for (int i = 0; i < n; i++) map.RiverVolume[i] = f.GetFloat();
-                }
-                // 湖泊段（v3.4 加；判断用"剩余 ≥ n"）
-                if (f.GetPosition() + (ulong)n <= f.GetLength())
-                {
-                    map.LakeLevel = new byte[n];
-                    for (int i = 0; i < n; i++) map.LakeLevel[i] = f.Get8();
-                }
-                // 矿藏段（v3.5 加；判断用"剩余 ≥ n"）
-                if (f.GetPosition() + (ulong)n <= f.GetLength())
-                {
-                    map.MineralLevel = new byte[n];
-                    for (int i = 0; i < n; i++) map.MineralLevel[i] = f.Get8();
-                }
-                // 土壤段（v3.6 加；判断用"剩余 ≥ n"）
-                if (f.GetPosition() + (ulong)n <= f.GetLength())
-                {
-                    map.SoilLevel = new byte[n];
-                    for (int i = 0; i < n; i++) map.SoilLevel[i] = f.Get8();
-                }
+                for (int i = 0; i < n; i++) map.RiverLevel[i] = r.Get8();
             }
-            // 季风段（v3.7 加；n bytes；判断用"剩余 ≥ n"）
-            if (f.GetPosition() + (ulong)n <= f.GetLength())
+            if (r.SeekSegment("RIVF"))
+            {
+                map.RiverFlow = new int[n];
+                for (int i = 0; i < n; i++) map.RiverFlow[i] = (int)r.Get32();
+            }
+            if (r.SeekSegment("RIVV"))
+            {
+                map.RiverVolume = new float[n];
+                for (int i = 0; i < n; i++) map.RiverVolume[i] = r.GetFloat();
+            }
+            if (r.SeekSegment("LAKE"))
+            {
+                map.LakeLevel = new byte[n];
+                for (int i = 0; i < n; i++) map.LakeLevel[i] = r.Get8();
+            }
+            if (r.SeekSegment("MINE"))
+            {
+                map.MineralLevel = new byte[n];
+                for (int i = 0; i < n; i++) map.MineralLevel[i] = r.Get8();
+            }
+            if (r.SeekSegment("SOIL"))
+            {
+                map.SoilLevel = new byte[n];
+                for (int i = 0; i < n; i++) map.SoilLevel[i] = r.Get8();
+            }
+
+            // ── 季风 / 月降水 / 月温度 ──
+            if (r.SeekSegment("MONO"))
             {
                 map.MonsoonLevel = new byte[n];
-                for (int i = 0; i < n; i++) map.MonsoonLevel[i] = f.Get8();
+                for (int i = 0; i < n; i++) map.MonsoonLevel[i] = r.Get8();
             }
-            // 月降水段（v3.8 加；12×n bytes）
-            if (f.GetPosition() + (ulong)(12 * n) <= f.GetLength())
+            if (r.SeekSegment("MPRC"))
             {
                 map.MonthPrecip = new byte[MonsoonSystem.MonthCount][];
                 for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     map.MonthPrecip[m] = new byte[n];
-                    for (int i = 0; i < n; i++) map.MonthPrecip[m][i] = f.Get8();
+                    for (int i = 0; i < n; i++) map.MonthPrecip[m][i] = r.Get8();
                 }
             }
-            // 月温度段（v3.8 加；12×n bytes，−60~60°C → 0-255）
-            if (f.GetPosition() + (ulong)(12 * n) <= f.GetLength())
+            if (r.SeekSegment("MTMP"))
             {
                 map.MonthTemp = new byte[MonsoonSystem.MonthCount][];
                 for (int m = 0; m < MonsoonSystem.MonthCount; m++)
                 {
                     map.MonthTemp[m] = new byte[n];
-                    for (int i = 0; i < n; i++) map.MonthTemp[m][i] = f.Get8();
+                    for (int i = 0; i < n; i++) map.MonthTemp[m][i] = r.Get8();
                 }
             }
+
             // ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）
             map.EnsureBuckets();
-            LogService.Log("MapArchive", $"read v{ver} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")} monsoon={(map.MonsoonLevel != null ? "yes" : "no")})");
+            LogService.Log("MapArchive", $"read v{Version} {path} (spherical {n} verts, prograde={map.ProgradeRotation} speed={map.RotationSpeed} currents={(map.CurrentDirs != null ? "yes" : "no")} rivers={(map.RiverLevel != null ? "yes" : "no")} monsoon={(map.MonsoonLevel != null ? "yes" : "no")})");
+            return true;
         }
-        else
+        catch (Exception ex)
         {
-            // ── v1/v2 平面（向后兼容：转成"平面模式"标记，Width/Height 保留）──
-            map.Width = (int)f.Get32();
-            map.Height = (int)f.Get32();
-            map.MinElev = f.GetFloat();
-            map.MaxElev = f.GetFloat();
-            int n = map.Width * map.Height;
-            map.Elev = new float[n];
-            for (int i = 0; i < n; i++) map.Elev[i] = f.GetFloat();
-            if (ver >= 2)
-            {
-                map.MinTemp = f.GetFloat();
-                map.MaxTemp = f.GetFloat();
-                map.Temp = new float[n];
-                for (int i = 0; i < n; i++) map.Temp[i] = f.GetFloat();
-                map.MinPrecip = f.GetFloat();
-                map.MaxPrecip = f.GetFloat();
-                map.Precip = new float[n];
-                for (int i = 0; i < n; i++) map.Precip[i] = f.GetFloat();
-                map.Biome = new byte[n];
-                for (int i = 0; i < n; i++) map.Biome[i] = f.Get8();
-            }
-            LogService.Log("MapArchive", $"read v{ver} {path} (planar {map.Width}x{map.Height})");
+            LogService.LogErr("MapArchive", $"读取失败 {path}: {ex.Message}");
+            return false;
         }
-        return true;
     }
 
-    /// <summary>轻量头部摘要读取（MapSelectMenu 存档列表用）：只读 magic/version/seed/radiusKm/顶点数与海拔范围，
-    /// 顶点数组用 Seek 跳过（不分配、不读取、不建桶索引、不打日志）——n=163842 档从全量 Read 的 ~54MB 降到 ~30 字节。
+    /// <summary>轻量头部摘要读取（MapSelectMenu 存档列表用）：段表版只读 HEAD 段（随机访问），
+    /// 不分配任何场数组、不建桶索引、不打日志——毫秒级。
     /// ⚠️ 2026-08-23：原列表 Describe 全量 Read 每个档（42 档共 532MB 主线程同步反序列化 + 42 次 EnsureBuckets）
-    ///   → 进存档界面卡 10s+。此方法只读头部，毫秒级。
-    /// 球面(v3+)：vertexCount=顶点数、height=0；平面(v1/v2)：vertexCount=width、height=height。
-    /// 失败（打不开/坏 magic/版本过新）→ false。与 CivMapArchive.Peek 同构。</summary>
+    ///   → 进存档界面卡 10s+；同日 Peek 改用 Seek 跳顶点数组后 → 段表格式 HEAD 段直达。
+    /// 输出：seed / vertexCount（球面顶点数）/ height（恒 0，v1/v2 平面格式已移除）/
+    ///   minElev / maxElev / skeletonVer。版本不符或损坏 → false。</summary>
     public static bool Peek(string path, out int seed, out int vertexCount, out int height,
                             out float minElev, out float maxElev, out ushort version)
     {
         seed = 0; vertexCount = 0; height = 0; minElev = 0f; maxElev = 0f; version = 0;
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
-        if (f == null) return false;
-        string magic = "" + (char)f.Get8() + (char)f.Get8() + (char)f.Get8() + (char)f.Get8();
-        if (magic != Magic) return false;
-        version = f.Get16();
-        if (version > Version) return false;   // 版本过新：布局未知（旧版本可读，读端有兼容分支）
-        seed = (int)f.Get32();
-        if (version >= 3)
+        try
         {
-            if (version >= 5) f.GetFloat();   // v5 radiusKm（列表不需要，跳过）
-            vertexCount = (int)f.Get32();
-            // 关键优化：Seek 跳过顶点数组（12n 字节），不读不分配
-            f.Seek(f.GetPosition() + (ulong)vertexCount * 12u);
-            minElev = f.GetFloat();
-            maxElev = f.GetFloat();
+            string abs = ResolvePath(path);
+            using var fs = new FileStream(abs, FileMode.Open, IOFileAccess.Read);
+            using var r = new ChunkReader(fs);
+            if (r.Magic != Magic) return false;                 // 坏 magic
+            if (r.SkeletonVer != Version) return false;         // 版本不符（旧 v1-v5 已移除）
+            version = r.SkeletonVer;
+            if (!r.SeekSegment("HEAD")) return false;           // 缺必需段
+            seed = (int)r.Get32();
+            r.GetFloat();                                       // radiusKm（列表不需要）
+            vertexCount = (int)r.Get32();
+            minElev = r.GetFloat();
+            maxElev = r.GetFloat();
+            return true;
         }
-        else
+        catch
         {
-            // v1/v2 平面：seed 后直接 width/height/minElev/maxElev（布局见 Read）
-            vertexCount = (int)f.Get32();   // width
-            height = (int)f.Get32();
-            minElev = f.GetFloat();
-            maxElev = f.GetFloat();
+            return false;   // 打不开/损坏（列表显示"(读取失败)"）
         }
-        return true;
     }
 }
 

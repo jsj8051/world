@@ -1,61 +1,72 @@
 using Godot;
+using System;
+using System.IO;
 using World.Biome;
 using World.HexPlanet;
 using World.Services;
+using World.Utils;
+using IOFileAccess = System.IO.FileAccess;
 
 namespace World.LogicGrid;
 
 /// <summary>
-/// 游戏地图存档格式 .gmp（自包含，独立于 .mpa 世界地图存档）。
+/// 游戏地图存档格式 .gmp（v3 段表，2026-08-23 段表化）。
 ///
-/// v1（2026-08-05）：
+/// 布局（docs/存档段表格式设计.md §2/§4）：
 ///   [4B]  magic "GMP1"
-///   [2B]  version = 1
-///   [4B]  gridN（原始网格参数 n）
-///   [4B]  N（格数 = 顶点数）
-///   [4B]  seed
-///   [4B]  radiusKm (float)
-///   [1B]  prograde | [4B] rotationSpeed | [4B] axialTilt | [4B] insolation
-///   [4B×6] minElev maxElev minTemp maxTemp minPrecip maxPrecip
-///   [4B×3×N] verts（球面单位方向）
-///   [4B×N] elev（米）| [4B×N] temp | [4B×N] precip
-///   [1B×N] biome | [1B×N] riverLevel | [4B×N] riverFlow | [4B×N] riverVolume
-///   [1B×N] lakeLevel | [1B×N] mineralLevel | [1B×N] soilLevel | [1B×N] monsoonLevel
-///   [1B×12×N] monthPrecip | [1B×12×N] monthTemp
-///   [4B×3×N] currentDirs | [4B×N] currentWarmth | [4B×N] currentStrength
-///   [4B×N] province | [4B×N] country（人文层；0=未分配/无主）
+///   [2B]  skeletonVer = 3
+///   [2B]  reserved
+///   [..]  BODY 段（唯一段；内容 = GameMapArchive.WriteBody 全量，与 .cmp NATR 段共用）
+///   [12B×1] 段表 + [12B] 尾目录
+///
+/// BODY 内部布局（v2 不变）：gridN/N/seed/radiusKm/自转+倾角+光强/场族/elev/temp/precip/
+/// biome/river/lake/mineral/soil/monsoon/monthPrecip/monthTemp/currentDirs/warmth/strength/psi/
+/// province/country——由 ArchiveLayout 字段表单源描述（BodyLength）。
 ///
 /// 邻接不存档（确定性重建，见 GameGrid.BuildNeighbors）——省 ~1MB（n=64）且永不与顶点不一致。
+/// v1/v2 旧格式读取分支于 2026-08-23 删除（用户拍板：旧档全删，只支持段表格式）。
+/// IO 层从 FileAccess 迁移到 System.IO（存档往返可进单元测试）。
 /// </summary>
 public static class GameMapArchive
 {
     public const string Magic = "GMP1";
-    public const ushort Version = 2;   // v2：自然层加洋流流函数 psi（环流圈显示）
+    public const ushort Version = 3;   // v3：段表容器骨架（2026-08-23）；BODY 内部布局仍为 v2（psi 有）
 
-    /// <summary>写 .gmp。log=false：后台线程调用（禁止 GD.Print）。</summary>
+    /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
+    private static string ResolvePath(string path) =>
+        path.StartsWith("user://", StringComparison.Ordinal)
+            ? ProjectSettings.GlobalizePath(path)
+            : path;
+
+    /// <summary>写 .gmp（v3 段表：单一 BODY 段）。log=false：后台线程调用（禁止 GD.Print）。</summary>
     public static bool Write(string path, GameGrid g, bool log = true)
     {
-        string dir = path.GetBaseDir();
-        if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
-            DirAccess.MakeDirRecursiveAbsolute(dir);
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
-        if (f == null)
+        try
         {
-            LogService.LogErr("GameMapArchive", $"cannot open {path} for write: {FileAccess.GetOpenError()}");
+            string abs = ResolvePath(path);
+            string dir = Path.GetDirectoryName(abs) ?? "";
+            if (dir.Length > 0 && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            using var fs = new FileStream(abs, FileMode.Create, IOFileAccess.Write);
+            using var w = new ChunkWriter(fs, Magic, Version);
+            w.BeginSegment("BODY", 1);
+            WriteBody(w, g);
+            w.EndSegment();
+            w.Finish();
+        }
+        catch (Exception ex)
+        {
+            LogService.LogErr("GameMapArchive", $"写入失败 {path}: {ex.Message}");
             return false;
         }
-        int n = g.N;
-        f.Store8((byte)'G'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
-        f.Store16(Version);
-        WriteBody(f, g);
         if (log)
-            LogService.Log("GameMapArchive", $"wrote v{Version} {path} (gridN={g.GridN} tiles={n} land={LandCount(g)} " +
+            LogService.Log("GameMapArchive", $"wrote v{Version} {path} (gridN={g.GridN} tiles={g.N} land={LandCount(g)} " +
                      $"elev[{g.MinElev:F0},{g.MaxElev:F0}] province={CountNonZero(g.Province)})");
         return true;
     }
 
-    /// <summary>主体序列化（magic/version 之后；.cmp 复用此段保证与 .gmp 布局完全一致）。</summary>
-    public static void WriteBody(FileAccess f, GameGrid g)
+    /// <summary>BODY 段内容序列化（.gmp 唯一段 / .cmp NATR 段复用，布局与 ArchiveLayout 字段表严格一致）。</summary>
+    public static void WriteBody(ChunkWriter f, GameGrid g)
     {
         int n = g.N;
         f.Store32((uint)g.GridN);
@@ -88,7 +99,7 @@ public static class GameMapArchive
         foreach (var v in g.CurrentDirs) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
         foreach (var v in g.CurrentWarmth) f.StoreFloat(v);
         foreach (var v in g.CurrentStrength) f.StoreFloat(v);
-        // ⚠️ Psi 必须无条件写满（null → 补零）：ReadBody(ver≥2) 无条件读该段，
+        // ⚠️ Psi 必须无条件写满（null → 补零）：ReadBody 无条件读该段，
         //   条件写会让无 Psi 的网格写档后自然段错位（实体段 count 读爆 → 卡死）
         if (g.Psi != null)
             foreach (var v in g.Psi) f.StoreFloat(v);
@@ -102,45 +113,50 @@ public static class GameMapArchive
     public static bool Read(string path, out GameGrid g)
     {
         g = null;
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
-        if (f == null)
+        try
         {
-            LogService.LogErr("GameMapArchive", $"cannot open {path} for read: {FileAccess.GetOpenError()}");
+            string abs = ResolvePath(path);
+            using var fs = new FileStream(abs, FileMode.Open, IOFileAccess.Read);
+            using var r = new ChunkReader(fs);
+            if (r.Magic != Magic)
+            {
+                LogService.LogErr("GameMapArchive", $"bad magic in {path}");
+                return false;
+            }
+            if (r.SkeletonVer != Version)
+            {
+                LogService.LogErr("GameMapArchive", $"不支持的存档版本 {r.SkeletonVer}（当前 {Version}；旧版 v1-v2 已于 2026-08-23 段表化移除）");
+                return false;
+            }
+            if (!r.SeekSegment("BODY"))
+            {
+                LogService.LogErr("GameMapArchive", $"{path}: 缺 BODY 段");
+                return false;
+            }
+            var grid = new GameGrid();
+            if (!ReadBody(r, grid))
+                return false;
+            g = grid;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogService.LogErr("GameMapArchive", $"读取失败 {path}: {ex.Message}");
             return false;
         }
-        if (f.Get8() != 'G' || f.Get8() != 'M' || f.Get8() != 'P' || f.Get8() != '1')
-        {
-            LogService.LogErr("GameMapArchive", $"bad magic in {path}");
-            return false;
-        }
-        ushort ver = f.Get16();
-        if (ver < 1 || ver > Version)
-        {
-            LogService.LogErr("GameMapArchive", $"unsupported version {ver} in {path} (need 1..{Version})");
-            return false;
-        }
-        var grid = new GameGrid();
-        if (!ReadBody(f, grid, ver))
-            return false;
-        g = grid;
-        return true;
     }
 
-    /// <summary>主体反序列化（magic/version 之后；与 WriteBody 严格对应）。
-    /// ver ≥ 2 读流函数 psi（v1 旧档无 psi）。
-    /// ⚠️ 返回 false = 结构损坏（GridN/N 不满足 10n²+2 不变量——魔数/版本被伪造或旧中间态写入器
-    ///   产物，正文错位会让 N 读到垃圾值 → 直接 new Vector3[N] 可分配 14GB 卡死，必须在任何分配前拦截）。
-    /// ⚠️ 2026-08-19：读完后断言文件长度 == 布局长度（ArchiveLayout.BodyLength 单源）——
+    /// <summary>BODY 段反序列化（与 WriteBody 严格对应；.cmp NATR 段复用）。
+    /// 结构校验（GridN/N 不变量）：任何分配前拦截错位档。
+    /// ⚠️ 布局长度断言（ArchiveLayout.BodyLength 单源）：读后必须 == 布局长度——
     ///   布局新增/漏读字段会立刻暴露（错位类 bug 的最后防线）。</summary>
-    public static bool ReadBody(FileAccess f, GameGrid grid, int ver = 2)
+    public static bool ReadBody(ChunkReader f, GameGrid grid)
     {
-        ulong startPos = f.GetPosition();
+        long startPos = f.Position;
         grid.GridN = (int)f.Get32();
         grid.N = (int)f.Get32();
         // ⚠️ 2026-08-07：任何分配前先验结构不变量（球面 Goldberg：顶点数 ≡ 10n²+2，n∈[8,512]）。
-        //   旧中间态 v4 文件（t7/t8/t20260806/n16 等，写于 v4 定稿前）魔数已是 CMP1+v4 但正文错位，
-        //   N 读到 11.7 亿 → new Vector3[N] = 14GB / new byte[N] = 1.2GB → 8GB 飙升 + 卡死（用户实证）。
-        //   用 long 防 10×n² 溢出回绕（n=2^31 时 int 乘会恰好"合法"）。
+        //   错位档 N 读到 11.7 亿 → new Vector3[N] = 14GB 卡死。用 long 防 10×n² 溢出回绕。
         long expectN = Icosahedron.VertexCountForLong(grid.GridN);
         if (grid.GridN < 8 || grid.GridN > 512 || (long)grid.N != expectN)
         {
@@ -181,36 +197,35 @@ public static class GameMapArchive
             grid.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());
         grid.CurrentWarmth = ReadFloats(f, n);
         grid.CurrentStrength = ReadFloats(f, n);
-        if (ver >= 2) grid.Psi = ReadFloats(f, n);   // v2：流函数（环流圈显示）
+        grid.Psi = ReadFloats(f, n);   // v2 布局：流函数（环流圈显示；无条件写满）
         grid.Province = ReadInts(f, n);
         grid.Country = ReadInts(f, n);
         // ⚠️ 布局长度断言（单源 ArchiveLayout.BodyLength）：读后位置必须 == 布局长度
-        //   （.gmp 文件 = magic 4B + version 2B + body；.cmp 头 38B + body，用相对偏移断言）
-        long bodyLen = ArchiveLayout.BodyLength(n, ver);
-        if ((long)(f.GetPosition() - startPos) != bodyLen)
+        long bodyLen = ArchiveLayout.BodyLength(n, 2);
+        if (f.Position - startPos != bodyLen)
         {
-            LogService.LogErr("GameMapArchive", $"布局长度断言失败：读 {f.GetPosition() - startPos}B ≠ 布局 {bodyLen}B（n={n} ver={ver}）——" +
+            LogService.LogErr("GameMapArchive", $"布局长度断言失败：读 {f.Position - startPos}B ≠ 布局 {bodyLen}B（n={n}）——" +
                         $"写入器与布局表不同步，请检查 ArchiveLayout 字段表与 WriteBody 一致性");
             return false;
         }
         return true;
     }
 
-    private static float[] ReadFloats(FileAccess f, int n)
+    private static float[] ReadFloats(ChunkReader f, int n)
     {
         var a = new float[n];
         for (int i = 0; i < n; i++) a[i] = f.GetFloat();
         return a;
     }
 
-    private static int[] ReadInts(FileAccess f, int n)
+    private static int[] ReadInts(ChunkReader f, int n)
     {
         var a = new int[n];
         for (int i = 0; i < n; i++) a[i] = (int)f.Get32();
         return a;
     }
 
-    private static byte[] ReadBytes(FileAccess f, int n)
+    private static byte[] ReadBytes(ChunkReader f, int n)
     {
         var a = new byte[n];
         for (int i = 0; i < n; i++) a[i] = f.Get8();

@@ -1,155 +1,166 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using World.Biome;
 using World.HexPlanet;
 using World.LogicGrid;
 using World.MapGen;
 using World.Services;
+using World.Utils;
+using IOFileAccess = System.IO.FileAccess;
 
 namespace World.CivSim;
 
 /// <summary>
-/// 游玩地图存档 .cmp v6（石器时代段；自包含——自然层快照 + 实体表，独立于 .mpa/.gmp）。
-/// 源自然地图只读，演化不修改任何自然字段。
+/// 游玩地图存档 .cmp v15（段表格式，2026-08-23 段表化）。
 ///
-/// v6（2026-08-09）：头部 +4B CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
-///   读档恢复的群计数器 ≠ 从头演化实际值 → 续跑群漂变 key 错位 → 读档续跑分叉（T04）。v5 旧档拒绝。
-/// v5（2026-08-17，两层食物流）：公式变更（R 场/按部落增长/农业尖峰）→ v4 旧档续跑行为不同，拒绝。
-/// v4（2026-08-06，纯实体模型）：
+/// 布局（docs/存档段表格式设计.md §2/§3.2）：
 ///   [4B]  magic "CMP1"
-///   [2B]  version = 6
-///   [4B]  seed | [4B] tick | [4B] years（= tick×100）
-///   [8B]  rngState | [4B] cultKey | [4B] cultgKey（v6） | [4B] relKey
-///   GameMapArchive.WriteBody（自然段，与 .gmp 布局一致，复用不变）
-///   实体段（部落表）：
-///     [4B] count
-///     每个：[4B] P(float) | [1B] IsFarming | [2B] techKeyCount
-///           [16B×n] key（定长 ASCII，\0 填充）
-///           [4B] CultureShare | [4B] CultureGroupShare | [5B] ReligionShare
-///           [4B] Cell | [4B] OriginCell | [4B] BornTick
+///   [2B]  skeletonVer = 15
+///   [2B]  reserved
+///   [..]  数据区：
+///     HEAD —— seed / finalTick / years / rngState / cultKey / cultgKey / relKey / nextTribeId
+///     NATR —— GameMapArchive.WriteBody 全量（自然层快照，与 .gmp BODY 段布局一致，复用不变）
+///     TRIB —— 实体段（alive count + 部落表，CivArchiveSchema 清单驱动）
+///     LAND —— 土地挂钩：Cultivation n + CellOwner n + LockedUntil n
+///     STTL —— 聚落段（NextSettlementId + count + Settlements[]）
+///     WARS —— 战争段（Wars[]）
+///   [12B×K] 段表 + [12B] 尾目录
 ///
-/// 旧档放弃（用户拍板）：v3/v4 部落表 / biome 值 4-11 一律报错要求重新生成，不做兼容转换。ver>5 拒绝。
+/// 段缺失语义 = 该系统不存在（旧档无）→ 现场派生/空列表。旧格式 v1-v14 读分支于
+/// 2026-08-23 删除（用户拍板：旧档全删，只支持段表格式；CompatibleArchiveVersions 移除）。
 /// WildCrops 不存档（确定性重建：同 seed 同网格同结果）。
 /// </summary>
-/// <summary>存档版本分类：Current（本版）/ Compatible（兼容表内旧版）/ Older（版本过旧）/ Newer（版本过新）/ Unknown（读不出）。</summary>
-public enum ArchiveVersionStatus { Unknown = 0, Current, Compatible, Older, Newer }
+/// <summary>存档版本分类：Current（本版）/ Older（版本过旧）/ Newer（版本过新）/ Unknown（读不出）。
+/// 2026-08-23 段表化：Compatible 已移除（旧档全删，无兼容列表）。</summary>
+public enum ArchiveVersionStatus { Unknown = 0, Current, Older, Newer }
 
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 14;   // v14（2026-08-19 阶段5 军事征服）：部落 +2 字段（ConqueredBy/LastWarTick）
-                                        //   + 新段 War[]（战争=外交状态：过程状态不可派生重建——用户拍板 P3）。
-                                        //   v13 旧档可读可进（无战争——仅新演化生成）。v9 及更旧拒绝。
+    public const ushort Version = 15;   // v15：段表容器骨架（2026-08-23 存档段表化）
     private const int KeyMaxLen = 16;
 
-    /// <summary>本游戏版本可读的存档格式版本列表（向后兼容声明）。
-    /// 升级格式时：旧档语义仍一致 → 加入列表（可读可进）；公式变更导致续跑行为不同 → 不加
-    /// （旧档显示"旧版本存档"，可展示但禁止进入）。
-    /// v14（2026-08-19）：军事征服——部落 +2 字段 + 新段 War[]——v13 档读入无战争
-    ///   （战争状态是过程数据，旧档没有 → 无战争起步；语义一致 → 可读可进）。
-    /// v13（2026-08-19）：聚落设计——部落 +2 字段 + 新段 Settlements[]——v12 档读入无聚落
-    ///   （仅新演化生成，用户拍板；语义一致 → 可读可进）。
-    /// v12（2026-08-18）：Goods[3]→Stocks[6] 商品目录扩展——v11 档读入 Goods→Stocks 映射，
-    ///   Food 槽默认 0，存储池为空起步（语义一致，可读可进）。
-    /// v11（2026-08-18）：IsBigMan/IsChief/ChiefdomId 移出入档改派生——v10 档读入后 SettleDerived 重算覆盖，
-    ///   语义一致 → 可读可进。
-    /// v6（2026-08-09）：头部 +4B 存 CultureGroupKeyCount 独立计数——v5 只存合并 cultureKeyCount，
-    ///   读档恢复的群计数器 = max(合并值, 场推导) ≠ 从头演化实际值 → 续跑群漂变 key 编号错位 → 读档续跑分叉（T04）。</summary>
-    public static readonly ushort[] CompatibleArchiveVersions = { Version, 13, 12, 11, 10 };
-
-    /// <summary>游戏版本号（project.godot application/config/version；仅供展示，兼容判断用 CompatibleArchiveVersions）。</summary>
+    /// <summary>游戏版本号（project.godot application/config/version；仅供展示）。</summary>
     public static string GameVersion =>
         ProjectSettings.GetSetting("application/config/version", "0.0.0").AsString();
 
-    /// <summary>版本分类：Current/Compatible 可读；Older/Newer/Unknown 拒绝（与 Read/Peek 共用，菜单据此区分文案）。</summary>
+    /// <summary>版本分类：Current 可读；Older/Newer/Unknown 拒绝（菜单据此区分文案）。
+    /// 2026-08-23 段表化：只有骨架版本 15 可读，其余一律拒绝（旧档全删）。</summary>
     public static ArchiveVersionStatus ClassifyVersion(ushort ver)
     {
         if (ver == Version) return ArchiveVersionStatus.Current;
-        foreach (ushort v in CompatibleArchiveVersions)
-            if (v == ver) return ArchiveVersionStatus.Compatible;
         if (ver == 0) return ArchiveVersionStatus.Unknown;
         return ver > Version ? ArchiveVersionStatus.Newer : ArchiveVersionStatus.Older;
     }
 
+    /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
+    private static string ResolvePath(string path) =>
+        path.StartsWith("user://", StringComparison.Ordinal)
+            ? ProjectSettings.GlobalizePath(path)
+            : path;
+
+    /// <summary>写 .cmp（v15 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {
         // ⚠️ 2026-08-18 阶段3：清单自检（字段改名/删除后清单过期 → 写档拒绝，防静默漏字段）
         if (!CivArchiveSchema.Validate()) return false;
-        string dir = path.GetBaseDir();
-        if (dir.Length > 0 && !DirAccess.DirExistsAbsolute(dir))
-            DirAccess.MakeDirRecursiveAbsolute(dir);
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
-        if (f == null)
-        {
-            LogService.LogErr("CivMapArchive", $"cannot open {path} for write: {FileAccess.GetOpenError()}");
-            return false;
-        }
         var ctx = result.Context;
-        f.Store8((byte)'C'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
-        f.Store16(Version);
-        f.Store32((uint)ctx.Seed);
-        f.Store32((uint)result.FinalTick);
-        f.Store32((uint)(result.FinalTick * CivSimContext.TickYears));
-        f.Store64((ctx.Rng as DeterministicRandom)?.State ?? (ulong)ctx.Seed);   // Rng 状态（读档续跑无分叉）
-        f.Store32((uint)ctx.CultureKeyCount);   // 文化 key 计数（分裂分化接续 key 空间；推导不可靠——被同化掉的 key 不在份额场）
-        f.Store32((uint)ctx.CultureGroupKeyCount);   // 文化群 key 计数（v6 独立入档：读档续跑群漂变无分叉——v5 只存合并值致 key 错位）
-        f.Store32((uint)ctx.ReligionKeyCount);  // 宗教派别 key 计数
-        f.Store32((uint)ctx.NextTribeId);      // 实体 Id 计数器（v8：存档只存活实体，Count 读档分叉）
-        GameMapArchive.WriteBody(f, grid);      // 自然层（只读源，原样快照）
-
         int alive = 0;
         for (int k = 0; k < ctx.Tribes.Count; k++) if (!ctx.Tribes[k].Dead) alive++;
-        f.Store32((uint)alive);
-        // ⚠️ 2026-08-18 阶段3：实体段由 CivArchiveSchema 清单驱动（单源，防漏字段）。
-        //   TechKeys 变长特例内联；其余遍历清单按当前版本过滤（SinceVer ≤ Version）。
-        foreach (var e in ctx.Tribes)
+        try
         {
-            if (e.Dead) continue;
-            foreach (var def in CivArchiveSchema.TribeFields)
+            string abs = ResolvePath(path);
+            string dir = Path.GetDirectoryName(abs) ?? "";
+            if (dir.Length > 0 && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+            using var fs = new FileStream(abs, FileMode.Create, IOFileAccess.Write);
+            using var w = new ChunkWriter(fs, Magic, Version);
+
+            // ── HEAD：固定字段 ──
+            w.BeginSegment("HEAD", 1);
+            w.Store32((uint)ctx.Seed);
+            w.Store32((uint)result.FinalTick);
+            w.Store32((uint)(result.FinalTick * CivSimContext.TickYears));
+            w.Store64((ctx.Rng as DeterministicRandom)?.State ?? (ulong)ctx.Seed);   // Rng 状态（读档续跑无分叉）
+            w.Store32((uint)ctx.CultureKeyCount);   // 文化 key 计数（分裂分化接续 key 空间；推导不可靠——被同化掉的 key 不在份额场）
+            w.Store32((uint)ctx.CultureGroupKeyCount);   // 文化群 key 计数（v6 独立入档：读档续跑群漂变无分叉）
+            w.Store32((uint)ctx.ReligionKeyCount);  // 宗教派别 key 计数
+            w.Store32((uint)ctx.NextTribeId);      // 实体 Id 计数器（v8：存档只存活实体，Count 读档分叉）
+            w.EndSegment();
+
+            // ── NATR：自然层快照（GameMapArchive 布局单源）──
+            w.BeginSegment("NATR", 1);
+            GameMapArchive.WriteBody(w, grid);
+            w.EndSegment();
+
+            // ── TRIB：实体段（CivArchiveSchema 清单驱动，单源防漏字段）──
+            w.BeginSegment("TRIB", 1);
+            w.Store32((uint)alive);
+            foreach (var e in ctx.Tribes)
             {
-                if (def.SinceVer > Version) continue;
-                if (def.Name == "TechKeys") { StoreTechKeys(f, e); continue; }
-                def.Write(f, e);
+                if (e.Dead) continue;
+                foreach (var def in CivArchiveSchema.TribeFields)
+                {
+                    if (def.Name == "TechKeys") { StoreTechKeys(w, e); continue; }
+                    def.Write(w, e);
+                }
             }
+            w.EndSegment();
+
+            // ── LAND：土地挂钩（开垦率场 + 格归属 + 实控锁定）──
+            w.BeginSegment("LAND", 1);
+            for (int c = 0; c < ctx.Grid.N; c++) w.StoreFloat(ctx.Cultivation != null ? ctx.Cultivation[c] : 0f);
+            for (int c = 0; c < ctx.Grid.N; c++) w.Store32((uint)ctx.CellOwner[c]);
+            for (int c = 0; c < ctx.Grid.N; c++) w.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);
+            w.EndSegment();
+
+            // ── STTL：聚落段 ──
+            w.BeginSegment("STTL", 1);
+            w.Store32((uint)ctx.NextSettlementId);
+            w.Store32((uint)ctx.Settlements.Count);
+            foreach (var s in ctx.Settlements)
+            {
+                w.Store32((uint)s.Id);
+                w.Store32((uint)s.Cell);
+                w.Store32((uint)s.BornTick);
+                w.Store32((uint)s.Level);
+                w.Store32((uint)s.LastLevelUpTick);
+                w.Store32((uint)s.DwellFrom);
+                w.Store32((uint)s.OccupantId);   // -1 → uint 全 1（读回 (int) 还原）
+                w.Store32((uint)s.RuinFrom);
+                for (int k = 0; k < CommodityTable.Count; k++)
+                    w.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
+            }
+            w.EndSegment();
+
+            // ── WARS：战争段（过程状态不可派生重建，读档必须恢复原样）──
+            w.BeginSegment("WARS", 1);
+            w.Store32((uint)ctx.Wars.Count);
+            for (int k = 0; k < ctx.Wars.Count; k++)
+            {
+                var war = ctx.Wars[k];
+                w.Store32((uint)war.StateIdA);
+                w.Store32((uint)war.StateIdB);
+                w.Store32((uint)war.Defender);        // -1 → uint 全 1（读回 (int) 还原）
+                w.Store32((uint)war.StartTick);
+                w.Store32((uint)war.WinsA);
+                w.Store32((uint)war.WinsB);
+                w.Store32((uint)war.LastBattleTick);
+                w.Store32((uint)war.TributeTo);       // -1 = 交战中
+                w.Store32((uint)war.TributeFrom);
+                w.Store32((uint)war.TributesLeft);
+            }
+            w.EndSegment();
+
+            w.Finish();
         }
-        // 尾部：土地挂钩（v9）——开垦率场 + 格归属 + 实控锁定（读档续跑无分叉）
-        // ⚠️ 2026-08-17：v8 的存量 Stock 段移除（砍存量再生），原位换开垦率 Cultivation
-        for (int c = 0; c < ctx.Grid.N; c++) f.StoreFloat(ctx.Cultivation != null ? ctx.Cultivation[c] : 0f);
-        for (int c = 0; c < ctx.Grid.N; c++) f.Store32((uint)ctx.CellOwner[c]);
-        for (int c = 0; c < ctx.Grid.N; c++) f.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);   // 实控锁定（v8 冲突机制；0=无）
-        // 尾部：聚落段（v13——追加在土地挂钩后，旧档布局不变）
-        f.Store32((uint)ctx.NextSettlementId);
-        f.Store32((uint)ctx.Settlements.Count);
-        foreach (var s in ctx.Settlements)
+        catch (Exception ex)
         {
-            f.Store32((uint)s.Id);
-            f.Store32((uint)s.Cell);
-            f.Store32((uint)s.BornTick);
-            f.Store32((uint)s.Level);
-            f.Store32((uint)s.LastLevelUpTick);
-            f.Store32((uint)s.DwellFrom);
-            f.Store32((uint)s.OccupantId);   // -1 → uint 全 1（读回 (int) 还原）
-            f.Store32((uint)s.RuinFrom);
-            for (int k = 0; k < CommodityTable.Count; k++)
-                f.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
-        }
-        // 尾部：战争段（v14——追加在聚落段后；过程状态不可派生重建，读档必须恢复原样）
-        f.Store32((uint)ctx.Wars.Count);
-        for (int k = 0; k < ctx.Wars.Count; k++)
-        {
-            var w = ctx.Wars[k];
-            f.Store32((uint)w.StateIdA);
-            f.Store32((uint)w.StateIdB);
-            f.Store32((uint)w.Defender);        // -1 → uint 全 1（读回 (int) 还原）
-            f.Store32((uint)w.StartTick);
-            f.Store32((uint)w.WinsA);
-            f.Store32((uint)w.WinsB);
-            f.Store32((uint)w.LastBattleTick);
-            f.Store32((uint)w.TributeTo);       // -1 = 交战中
-            f.Store32((uint)w.TributeFrom);
-            f.Store32((uint)w.TributesLeft);
+            LogService.LogErr("CivMapArchive", $"写入失败 {path}: {ex.Message}");
+            return false;
         }
         if (log)
             LogService.Log("CivMapArchive", $"wrote v{Version} {path} (ticks={result.FinalTick} " +
@@ -158,7 +169,7 @@ public static class CivMapArchive
         return true;
     }
 
-    private static void StoreKey(FileAccess f, string key)
+    private static void StoreKey(ChunkWriter f, string key)
     {
         var bytes = Encoding.ASCII.GetBytes(key);
         int n = Mathf.Min(bytes.Length, KeyMaxLen);
@@ -168,13 +179,13 @@ public static class CivMapArchive
 
     // ── 2026-08-18 阶段3：CivArchiveSchema 清单委托实现（Write/Read 由表驱动，布局严格对齐）──
 
-    private static void StoreTechKeys(FileAccess f, Tribe e)
+    private static void StoreTechKeys(ChunkWriter f, Tribe e)
     {
         f.Store16((ushort)e.TechKeys.Count);
         foreach (var key in e.TechKeys)
             StoreKey(f, key);
     }
-    private static bool ReadTechKeys(FileAccess f, Tribe e)
+    private static bool ReadTechKeys(ChunkReader f, Tribe e)
     {
         int keyCount = f.Get16();
         for (int q = 0; q < keyCount; q++)
@@ -187,28 +198,24 @@ public static class CivMapArchive
         return true;
     }
 
-    internal static void StoreReligionShare(FileAccess f, Tribe e)
+    internal static void StoreReligionShare(ChunkWriter f, Tribe e)
     {
         foreach (var s in e.ReligionShare) f.Store8(s.Frac);   // 固定 key 表 → 只存份额 5B
     }
-    internal static bool ReadReligionShare(FileAccess f, Tribe e)
+    internal static bool ReadReligionShare(ChunkReader f, Tribe e)
     {
         e.ReligionShare = ShareField.NewReligion(ReligionStage.Animism);   // 固定 key 重建，只读份额
         for (int q2 = 0; q2 < ReligionStage.Count; q2++) e.ReligionShare[q2].Frac = f.Get8();
         return true;
     }
-    internal static void StoreStocks(FileAccess f, Tribe e)
+    internal static void StoreStocks(ChunkWriter f, Tribe e)
     {
-        // v12：写全部商品槽（含 Food）。旧 Goods[3] 槽位（皮革/羊毛/秸秆）现在位于目录的 Material 槽——
-        // 字节序 = CommodityTable.All 顺序（grain/berry/meat/leather/wool/straw）。
+        // 字节序 = CommodityTable.All 顺序（grain/berry/meat/leather/wool/straw）
         if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
         for (int s = 0; s < CommodityTable.Count; s++) f.StoreFloat(e.Stocks[s]);
     }
-    internal static bool ReadStocks(FileAccess f, Tribe e)
+    internal static bool ReadStocks(ChunkReader f, Tribe e)
     {
-        // ⚠️ 2026-08-18 版本分支：ReadStocks 在 ver>=12 时被 schema 调用（写 Count 个）；
-        //   ver<12 时 schema 跳过（SinceVer=12>ver），但旧档 Goods[3] 3 个 float 仍在字节流——
-        //   由 Read 的 v11 兼容分支读掉并映射（见 CivMapArchive.Read）。
         e.Stocks = CommodityTable.NewStocks();
         for (int s = 0; s < CommodityTable.Count; s++) e.Stocks[s] = f.GetFloat();
         return true;
@@ -216,7 +223,7 @@ public static class CivMapArchive
 
     /// <summary>份额场序列化：(key 定长 16B + 份额 1B)×2。null key → 全 0。
     /// 2026-08-18 阶段3：internal 供 CivArchiveSchema 清单委托调用。</summary>
-    internal static void StoreShare(FileAccess f, ShareEntry[] s)
+    internal static void StoreShare(ChunkWriter f, ShareEntry[] s)
     {
         for (int i = 0; i < 2; i++)
         {
@@ -225,7 +232,7 @@ public static class CivMapArchive
         }
     }
 
-    internal static ShareEntry[] ReadShare(FileAccess f)
+    internal static ShareEntry[] ReadShare(ChunkReader f)
     {
         var r = new[] { new ShareEntry(), new ShareEntry() };
         for (int i = 0; i < 2; i++)
@@ -265,7 +272,7 @@ public static class CivMapArchive
         return c;
     }
 
-    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v4 校验：版本、旧 biome 值。
+    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v15 段表：HEAD/NATR/TRIB/LAND/STTL/WARS。
     /// ⚠️ 2026-08-07：读档入口必须 TechTable.Load()——否则 _byKey 空 → 读档后 RefreshCellState/YFarm
     /// 里 Get(key) 全 null → NRE（CmpSelectMenu 只 Read 不 Run 的场景崩溃根因）。Load 幂等。</summary>
     public static bool Read(string path, out GameGrid grid, out CivSimResult result)
@@ -273,241 +280,223 @@ public static class CivMapArchive
         TechTable.Load();
         grid = null;
         result = null;
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
-        if (f == null)
+        try
         {
-            LogService.LogErr("CivMapArchive", $"cannot open {path} for read: {FileAccess.GetOpenError()}");
-            return false;
-        }
-        if (f.Get8() != 'C' || f.Get8() != 'M' || f.Get8() != 'P' || f.Get8() != '1')
-        {
-            LogService.LogErr("CivMapArchive", $"bad magic in {path}");
-            return false;
-        }
-        ushort ver = f.Get16();
-        switch (ClassifyVersion(ver))
-        {
-            case ArchiveVersionStatus.Newer:
-                LogService.LogErr("CivMapArchive", $"unsupported version {ver} in {path} (need ≤{Version})");
-                return false;
-            case ArchiveVersionStatus.Older:
-            case ArchiveVersionStatus.Unknown:
-                LogService.LogErr("CivMapArchive", $"old version {ver} in {path}（旧档已放弃，请重新演化生成 v{Version}）");
-                return false;
-        }
-        int seed = (int)f.Get32();
-        int finalTick = (int)f.Get32();
-        int years = (int)f.Get32();
-        ulong rngState = f.Get64();   // Rng 状态（0=旧档无状态，用 seed 重建）
-        int cultureKeyCount = (int)f.Get32();   // 文化 key 计数（读档续跑接续 key 空间）
-        int cultureGroupKeyCount = (int)f.Get32();   // 文化群 key 计数（v6 独立入档——v5 只存合并值，读档恢复不可靠致续跑群漂变分叉）
-        int religionKeyCount = (int)f.Get32();  // 宗教派别 key 计数
-        int nextEntityId = ver >= 8 ? (int)f.Get32() : 0;   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
-        var g = new GameGrid();
-        if (!GameMapArchive.ReadBody(f, g))
-            return false;   // 结构校验失败（正文错位/损坏）已在内部打印
-        int n = g.N;
-
-        // ── 旧档放弃：biome 4-11 化石值 → 报错 ──
-        for (int i = 0; i < n; i++)
-        {
-            byte b = g.Biome[i];
-            if (b >= 4 && b <= 11)
+            string abs = ResolvePath(path);
+            using var fs = new FileStream(abs, FileMode.Open, IOFileAccess.Read);
+            using var r = new ChunkReader(fs);
+            if (r.Magic != Magic)
             {
-                LogService.LogErr("CivMapArchive", $"{path} 含化石 biome 值 {b}（旧档已放弃，请重新生成）");
+                LogService.LogErr("CivMapArchive", $"bad magic in {path}");
                 return false;
             }
-        }
-
-        int count = (int)f.Get32();
-        // ⚠️ 2026-08-07：实体表长度分配前校验——count 是正文错位后最易读爆的字段
-        //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<Tribe>(count) ≈ 9.4GB）。
-        //   单实体最小 ~79B（Id+P+IsFarm+keyCnt+2×(16+1)×3+relig5+Cell×3），用 64B 保守下界；
-        //   剩余文件字节数都不够 → 必为错位垃圾。
-        ulong remaining = f.GetLength() - f.GetPosition();
-        if (count < 0 || (ulong)count > remaining / 64)
-        {
-            LogService.LogErr("CivMapArchive", $"{path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
-            return false;
-        }
-        var entities = new List<Tribe>(count);
-        var cellTribes = new Tribe[n];
-        for (int i = 0; i < n; i++) cellTribes[i] = null;
-        for (int k = 0; k < count; k++)
-        {
-            var e = new Tribe();
-            // ⚠️ 2026-08-18 阶段3：实体段由 CivArchiveSchema 清单驱动（单源；按存档版本过滤 SinceVer ≤ ver）。
-            //   TechKeys 变长特例内联；v10 酋邦块字节序与 v11 不同（v10: Prestige→IsBigMan→IsChief→
-            //   ChiefdomId→Contributed→SuccessionUntil；v11: Prestige→Contributed→SuccessionUntil）→
-            //   Contributed/SuccessionUntil 在 v10 分支内联读（Prestige 两版同位，由清单读）。
-            foreach (var def in CivArchiveSchema.TribeFields)
+            ushort ver = r.SkeletonVer;
+            switch (ClassifyVersion(ver))
             {
-                if (def.SinceVer > ver) continue;
-                if (def.Name == "TechKeys") { ReadTechKeys(f, e); continue; }
-                if (ver == 10 && (def.Name == "Contributed" || def.Name == "SuccessionUntil")) continue;   // v10 内联
-                def.Read(f, e);
+                case ArchiveVersionStatus.Newer:
+                    LogService.LogErr("CivMapArchive", $"unsupported version {ver} in {path} (need ≤{Version})");
+                    return false;
+                case ArchiveVersionStatus.Older:
+                case ArchiveVersionStatus.Unknown:
+                    LogService.LogErr("CivMapArchive", $"old version {ver} in {path}（旧档已放弃，请重新演化生成 v{Version}）");
+                    return false;
             }
-            if (ver < 12)
-            {
-                // ⚠️ 2026-08-18 阶段3 兼容：v7-v11 旧档 Goods[3]（皮革/羊毛/秸秆 3 float，在 LastConflictTick 后）
-                //   schema 的 Stocks(SinceVer=12) 被跳过 → 此处读掉并映射到动态目录 Material 槽。
-                e.Stocks = CommodityTable.NewStocks();
-                e.Stocks[CommodityTable.Index(CommodityTable.Leather)] = f.GetFloat();
-                e.Stocks[CommodityTable.Index(CommodityTable.Wool)] = f.GetFloat();
-                e.Stocks[CommodityTable.Index(CommodityTable.Straw)] = f.GetFloat();
-                // Food 槽默认 0（旧档无食物存储概念）
-            }
-            if (ver == 10)
-            {
-                // v10 兼容：跳过 IsBigMan(1)+IsChief(1)+ChiefdomId(4)，读 Contributed/SuccessionUntil
-                //（SettleDerived 的 DeriveLeadership/ChiefdomModel.Rebuild 重算覆盖被跳过的 3 字段）
-                f.Get8(); f.Get8(); f.Get32();
-                e.Contributed = f.GetFloat();
-                e.SuccessionUntil = (int)f.Get32();
-            }
-            entities.Add(e);
-            if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell] = e;   // 一格一实体
-        }
 
-        // 尾部：土地挂钩（v9）——开垦率场 + 格归属
-        float[] cultivation = ver >= 9 ? new float[n] : null;
-        if (ver >= 9)
-        {
-            for (int c = 0; c < n; c++) cultivation[c] = f.GetFloat();
-        }
-        int[] cellOwner = ver >= 8 ? new int[n] : null;
-        if (ver >= 8)
-        {
-            for (int c = 0; c < n; c++) cellOwner[c] = (int)f.Get32();
-        }
-        int[] lockedUntil = ver >= 8 ? new int[n] : null;   // 实控锁定（v8 冲突机制）
-        if (ver >= 8)
-        {
-            for (int c = 0; c < n; c++) lockedUntil[c] = (int)f.Get32();
-        }
-
-        // 尾部：聚落段（v13——土地挂钩后；v12 旧档无聚落——仅新演化生成，用户拍板）
-        var settlements = new List<Settlement>();
-        int nextSettlementId = 0;
-        if (ver >= 13)
-        {
-            nextSettlementId = (int)f.Get32();
-            int sCount = (int)f.Get32();
-            // 长度校验（同实体表：最小聚落 ~56B——8×I32 + 6×F32；用 48B 保守下界防错位读爆）
-            ulong sRemaining = f.GetLength() - f.GetPosition();
-            if (sCount < 0 || (ulong)sCount > sRemaining / 48)
+            // ── HEAD ──
+            if (!r.SeekSegment("HEAD"))
             {
-                LogService.LogErr("CivMapArchive", $"{path} 聚落段长度异常：count={sCount}，剩余 {sRemaining}B——正文错位或损坏。");
+                LogService.LogErr("CivMapArchive", $"{path}: 缺 HEAD 段");
                 return false;
             }
-            for (int k = 0; k < sCount; k++)
+            int seed = (int)r.Get32();
+            int finalTick = (int)r.Get32();
+            int years = (int)r.Get32();
+            ulong rngState = r.Get64();   // Rng 状态（0=旧档无状态，用 seed 重建）
+            int cultureKeyCount = (int)r.Get32();   // 文化 key 计数（读档续跑接续 key 空间）
+            int cultureGroupKeyCount = (int)r.Get32();   // 文化群 key 计数（读档续跑群漂变无分叉）
+            int religionKeyCount = (int)r.Get32();  // 宗教派别 key 计数
+            int nextEntityId = (int)r.Get32();   // 实体 Id 计数器（读档续跑 Id 分配无分叉）
+
+            // ── NATR：自然层 ──
+            var g = new GameGrid();
+            if (!r.SeekSegment("NATR"))
             {
-                var s = new Settlement
+                LogService.LogErr("CivMapArchive", $"{path}: 缺 NATR 段");
+                return false;
+            }
+            if (!GameMapArchive.ReadBody(r, g))
+                return false;   // 结构校验失败（正文错位/损坏）已在内部打印
+            int n = g.N;
+
+            // ── TRIB：实体段 ──
+            if (!r.SeekSegment("TRIB"))
+            {
+                LogService.LogErr("CivMapArchive", $"{path}: 缺 TRIB 段");
+                return false;
+            }
+            int count = (int)r.Get32();
+            // ⚠️ 2026-08-07：实体表长度分配前校验——count 是正文错位后最易读爆的字段
+            //   （map_seed42_n16 等旧中间态档 count=11.7 亿 → new List<Tribe>(count) ≈ 9.4GB）。
+            //   单实体最小 ~79B，用 64B 保守下界；剩余文件字节数都不够 → 必为错位垃圾。
+            long remaining = r.Length - r.Position;
+            if (count < 0 || count > remaining / 64)
+            {
+                LogService.LogErr("CivMapArchive", $"{path} 实体表长度异常：count={count}，剩余 {remaining}B（最小实体 64B 装不下）——正文错位或损坏，请重新生成。");
+                return false;
+            }
+            var entities = new List<Tribe>(count);
+            var cellTribes = new Tribe[n];
+            for (int i = 0; i < n; i++) cellTribes[i] = null;
+            for (int k = 0; k < count; k++)
+            {
+                var e = new Tribe();
+                // 实体段由 CivArchiveSchema 清单驱动（单源）；TechKeys 变长特例内联
+                foreach (var def in CivArchiveSchema.TribeFields)
                 {
-                    Id = (int)f.Get32(),
-                    Cell = (int)f.Get32(),
-                    BornTick = (int)f.Get32(),
-                    Level = (int)f.Get32(),
-                    LastLevelUpTick = (int)f.Get32(),
-                    DwellFrom = (int)f.Get32(),
-                    OccupantId = (int)f.Get32(),
-                    RuinFrom = (int)f.Get32(),
-                };
-                s.Stocks = CommodityTable.NewStocks();
-                for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = f.GetFloat();
-                settlements.Add(s);
+                    if (def.Name == "TechKeys") { ReadTechKeys(r, e); continue; }
+                    def.Read(r, e);
+                }
+                entities.Add(e);
+                if (e.Cell >= 0 && e.Cell < n) cellTribes[e.Cell] = e;   // 一格一实体
             }
-        }
 
-        // 尾部：战争段（v14——聚落段后；过程状态不可派生重建，读档必须恢复原样；v13 旧档无战争）
-        var wars = new List<War>();
-        if (ver >= 14)
-        {
-            int wCount = (int)f.Get32();
-            if (wCount < 0 || wCount > 4096)
+            // ── LAND：土地挂钩（开垦率场 + 格归属 + 实控锁定）──
+            float[] cultivation = null;
+            int[] cellOwner = null;
+            int[] lockedUntil = null;
+            if (r.SeekSegment("LAND"))
             {
-                LogService.LogErr("CivMapArchive", $"{path} 战争段长度异常：count={wCount}——正文错位或损坏。");
-                return false;
+                cultivation = new float[n];
+                for (int c = 0; c < n; c++) cultivation[c] = r.GetFloat();
+                cellOwner = new int[n];
+                for (int c = 0; c < n; c++) cellOwner[c] = (int)r.Get32();
+                lockedUntil = new int[n];
+                for (int c = 0; c < n; c++) lockedUntil[c] = (int)r.Get32();
             }
-            for (int k = 0; k < wCount; k++)
+
+            // ── STTL：聚落段（段缺失 = 旧档无聚落 → 空列表）──
+            var settlements = new List<Settlement>();
+            int nextSettlementId = 0;
+            if (r.SeekSegment("STTL"))
             {
-                var w = new War
+                nextSettlementId = (int)r.Get32();
+                int sCount = (int)r.Get32();
+                // 长度校验（同实体表：最小聚落 ~56B；用 48B 保守下界防错位读爆）
+                long sRemaining = r.Length - r.Position;
+                if (sCount < 0 || sCount > sRemaining / 48)
                 {
-                    StateIdA = (int)f.Get32(),
-                    StateIdB = (int)f.Get32(),
-                    Defender = (int)f.Get32(),
-                    StartTick = (int)f.Get32(),
-                    WinsA = (int)f.Get32(),
-                    WinsB = (int)f.Get32(),
-                    LastBattleTick = (int)f.Get32(),
-                    TributeTo = (int)f.Get32(),
-                    TributeFrom = (int)f.Get32(),
-                    TributesLeft = (int)f.Get32(),
-                };
-                wars.Add(w);
+                    LogService.LogErr("CivMapArchive", $"{path} 聚落段长度异常：count={sCount}，剩余 {sRemaining}B——正文错位或损坏。");
+                    return false;
+                }
+                for (int k = 0; k < sCount; k++)
+                {
+                    var s = new Settlement
+                    {
+                        Id = (int)r.Get32(),
+                        Cell = (int)r.Get32(),
+                        BornTick = (int)r.Get32(),
+                        Level = (int)r.Get32(),
+                        LastLevelUpTick = (int)r.Get32(),
+                        DwellFrom = (int)r.Get32(),
+                        OccupantId = (int)r.Get32(),
+                        RuinFrom = (int)r.Get32(),
+                    };
+                    s.Stocks = CommodityTable.NewStocks();
+                    for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = r.GetFloat();
+                    settlements.Add(s);
+                }
             }
+
+            // ── WARS：战争段（段缺失 = 旧档无战争 → 空列表）──
+            var wars = new List<War>();
+            if (r.SeekSegment("WARS"))
+            {
+                int wCount = (int)r.Get32();
+                if (wCount < 0 || wCount > 4096)
+                {
+                    LogService.LogErr("CivMapArchive", $"{path} 战争段长度异常：count={wCount}——正文错位或损坏。");
+                    return false;
+                }
+                for (int k = 0; k < wCount; k++)
+                {
+                    var w = new War
+                    {
+                        StateIdA = (int)r.Get32(),
+                        StateIdB = (int)r.Get32(),
+                        Defender = (int)r.Get32(),
+                        StartTick = (int)r.Get32(),
+                        WinsA = (int)r.Get32(),
+                        WinsB = (int)r.Get32(),
+                        LastBattleTick = (int)r.Get32(),
+                        TributeTo = (int)r.Get32(),
+                        TributeFrom = (int)r.Get32(),
+                        TributesLeft = (int)r.Get32(),
+                    };
+                    wars.Add(w);
+                }
+            }
+
+            // 文化 key 计数兜底：份额场推导（被同化掉的 key 可能使推导偏小，故取 max）
+            int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
+            for (int k = 0; k < entities.Count; k++)
+            {
+                var e = entities[k];
+                maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[0].Key));
+                maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[1].Key));
+                maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[0].Key));
+                maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[1].Key));
+                maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[0].Key));
+                maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[1].Key));
+            }
+
+            var ctx = new CivSimContext
+            {
+                Grid = g,
+                CellTribes = cellTribes,
+                Tribes = entities,
+                Seed = seed,
+                OriginCount = 3,
+                Tick = finalTick,          // 读档续跑从存档 tick 继续（T04 验证）
+                Rng = rngState != 0 ? new DeterministicRandom(rngState) : new DeterministicRandom(seed),   // 状态恢复：随机序列与从头跑对齐
+                R = new float[n],
+                CellF = new float[n],
+                CellPop = new float[n],
+                CellFarmPop = new float[n],
+                BfsStamp = new int[n],
+                BfsStampValue = 1,
+                WildCrops = g.EnsureWildCrops(),
+                Suit = WildCropsSystem.Suitability(g),
+                FirstFarmTick = -1,
+                CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，标签份额推导兜底
+                CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数
+                ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
+                NextTribeId = nextEntityId,   // 实体 Id 计数器（读档续跑 Id 分配无分叉）
+                Settlements = settlements,    // 聚落段（段缺失 → 空列表）
+                NextSettlementId = nextSettlementId,
+                Wars = wars,                  // 战争段（段缺失 → 空列表——无战争起步）
+                // 土地挂钩：Cultivation 从存档恢复；暂存/领地索引重建
+                Cultivation = cultivation ?? new float[n],
+                CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
+                LockedUntil = lockedUntil ?? EnumerableRepeat(0, n),   // 实控锁定
+                CellBestOwner = EnumerableRepeat(-1, n),
+                CellBestInf = new float[n],
+                CellOwnerInf = new float[n],
+            };
+            ctx.EnsureTerritory();   // 惰性建领地索引（若长度不足 RebuildInfluence 内动态扩展）
+            CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
+            // 边界态统一重建（唯一入口，与 Run 结尾/Continue 同式）——读档重算路径 = 演化重算路径
+            CivEngine.SettleDerived(ctx);
+
+            result = new CivSimResult { Context = ctx, FinalTick = finalTick };
+            grid = g;
+            LogService.Log("CivMapArchive", $"read v{Version} {path} (ticks={finalTick} years={years} entities={count})");
+            return true;
         }
-
-        // 文化 key 计数兜底：份额场推导（旧档无头部计数时；被同化掉的 key 可能使推导偏小，故取 max）
-        // 2026-08-07：标签/群分开推导（群 "cultg_" 前缀独立空间，防标签挤占语言群 key）
-        int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
-        for (int k = 0; k < entities.Count; k++)
+        catch (Exception ex)
         {
-            var e = entities[k];
-            maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[0].Key));
-            maxCultId = Math.Max(maxCultId, KeyNum(e.CultureShare[1].Key));
-            maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[0].Key));
-            maxGroupId = Math.Max(maxGroupId, KeyNum(e.CultureGroupShare[1].Key));
-            maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[0].Key));
-            maxReligId = Math.Max(maxReligId, KeyNumRelig(e.ReligionCultShare[1].Key));
+            LogService.LogErr("CivMapArchive", $"读取失败 {path}: {ex.Message}");
+            return false;
         }
-        // 存档头部只存一个合并 cultureKeyCount（旧格式）；读档后标签/群各自取 max 兜底——
-        //   新档群前缀 cultg_ 由 KeyNum 解析出独立计数；旧档群仍是 cult_ 与标签共享，取合并值无冲突。
-
-        var ctx = new CivSimContext
-        {
-            Grid = g,
-            CellTribes = cellTribes,
-            Tribes = entities,
-            Seed = seed,
-            OriginCount = 3,
-            Tick = finalTick,          // 读档续跑从存档 tick 继续（T04 验证）
-            Rng = rngState != 0 ? new DeterministicRandom(rngState) : new DeterministicRandom(seed),   // 状态恢复：随机序列与从头跑对齐
-            R = new float[n],
-            CellF = new float[n],
-            CellPop = new float[n],
-            CellFarmPop = new float[n],
-            BfsStamp = new int[n],
-            BfsStampValue = 1,
-            WildCrops = g.EnsureWildCrops(),
-            Suit = WildCropsSystem.Suitability(g),
-            FirstFarmTick = -1,
-            CultureKeyCount = Math.Max(cultureKeyCount, maxCultId + 1),   // 标签计数：存档合并值优先，标签份额推导兜底
-            CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数：v6 头部独立值优先（续跑无分叉）；场推导兜底
-            ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
-            NextTribeId = nextEntityId,   // 实体 Id 计数器（v8；读档续跑 Id 分配无分叉）
-            Settlements = settlements,    // 聚落段（v13；v12 旧档空列表）
-            NextSettlementId = nextSettlementId,
-            Wars = wars,                  // 战争段（v14；v13 旧档空列表——无战争起步）
-            // 土地挂钩（v9）：Cultivation 从存档恢复；暂存/领地索引重建
-            Cultivation = cultivation ?? new float[n],
-            CellOwner = cellOwner ?? EnumerableRepeat(-1, n),
-            LockedUntil = lockedUntil ?? EnumerableRepeat(0, n),   // 实控锁定（v8 冲突机制）
-            CellBestOwner = EnumerableRepeat(-1, n),
-            CellBestInf = new float[n],
-            CellOwnerInf = new float[n],
-        };
-        ctx.EnsureTerritory();   // 惰性建领地索引（若长度不足 RebuildInfluence 内动态扩展）
-        CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（确定性重建，不存档）
-        // ⚠️ 2026-08-18 阶段3 方案 D：边界态统一重建（唯一入口，与 Run 结尾/Continue 同式）——
-        //   取代旧的手写拼装（RebuildInfluence→TerritoryModel.Rebuild→RecomputeProduction→RefreshCellState），
-        //   消除"读档重算路径 ≠ 演化重算路径"缺陷（T04 类分叉根治）。
-        CivEngine.SettleDerived(ctx);
-
-        result = new CivSimResult { Context = ctx, FinalTick = finalTick };
-        grid = g;
-        LogService.Log("CivMapArchive", $"read v{ver} {path} (ticks={finalTick} years={years} entities={count})");
-        return true;
     }
 
     private static int[] EnumerableRepeat(int v, int n)
@@ -517,7 +506,7 @@ public static class CivMapArchive
         return a;
     }
 
-    private static byte[] ReadBytes(FileAccess f, int n)
+    private static byte[] ReadBytes(ChunkReader f, int n)
     {
         var a = new byte[n];
         for (int i = 0; i < n; i++) a[i] = f.Get8();
@@ -527,59 +516,52 @@ public static class CivMapArchive
     private static bool IsMagic(byte[] a, char c0, char c1, char c2, char c3) =>
         a.Length == 4 && a[0] == (byte)c0 && a[1] == (byte)c1 && a[2] == (byte)c2 && a[3] == (byte)c3;
 
-    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：只读头部（seed/tick）+ 跳过自然段 + 统计实体段（人口/数量）。
-    /// 不加载任何自然数组、不重建 WildCrops/R/RefreshCellState——n=64 档从全量 Read 的 ~1-2s 降到 ~50ms。
-    /// 布局：CivMapArchive 头 38B + 自然段（WriteBody 直连，无 GMP1 magic，长度 = ArchiveLayout.BodyLength 单源） + 实体段（count + 每实体 130 + 16×keyCount B）。
-    /// 版本不符/损坏 → false，但输出版本号+状态（菜单区分"旧版本存档"与"损坏"）；结构失败 → false 状态 Unknown。</summary>
+    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：v15 段表版——只读 HEAD 段（seed/tick）
+    /// + SeekSegment("TRIB") 直达实体段统计人口/数量——**不再手算自然段长度**（段表随机访问的
+    /// 核心红利；旧版需要 ArchiveLayout.BodyLength 计算自然段偏移，段一多就难维护）。
+    /// 不加载自然数组、不重建 WildCrops/R/RefreshCellState——毫秒级。
+    /// 版本不符/损坏 → false，但输出版本号+状态（菜单区分"旧版本存档"与"损坏"）。</summary>
     public static bool Peek(string path, out int seed, out int tick, out float pop, out int entities,
                             out ushort archiveVersion, out ArchiveVersionStatus status)
     {
         seed = 0; tick = 0; pop = 0f; entities = 0;
         archiveVersion = 0; status = ArchiveVersionStatus.Unknown;
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Read);
-        if (f == null) return false;
-        if (!IsMagic(ReadBytes(f, 4), 'C', 'M', 'P', '1')) return false;
-        ushort ver = f.Get16();
-        archiveVersion = ver;
-        status = ClassifyVersion(ver);
-        if (status is ArchiveVersionStatus.Older or ArchiveVersionStatus.Newer or ArchiveVersionStatus.Unknown)
-            return false;   // 版本不符（菜单据此区分"旧版本存档"与"损坏"）
-        seed = (int)f.Get32();
-        tick = (int)f.Get32();
-        f.Get32(); f.Get64(); f.Get32(); f.Get32(); f.Get32(); f.Get32();   // years / rngState / cultKey / grpKey(v6) / relKey / nextEntityId(v8)
-        // 自然段（WriteBody 布局，无 GMP1 magic——.gmp 才有 magic+gVer 的 6B）：
-        // 直接 GridN + N，验结构不变量（10n²+2，防伪造 N 让偏移爆炸）后整体跳过
-        int gridN = (int)f.Get32();
-        int n = (int)f.Get32();
-        long expectN = Icosahedron.VertexCountForLong(gridN);
-        if (gridN < 8 || gridN > 512 || expectN != n) return false;   // 与 ReadBody 同语义（N=顶点数=10n²+2）
-        long naturalLen = ArchiveLayout.BodyLength(n, 2);   // WriteBody 布局单源（2026-08-19：原硬编码 53+94n 与 WriteBody 断链）
-        f.Seek((ulong)(42 + naturalLen));             // 实体段起点（CivMapArchive 头 42B：v8 含 NextTribeId 4B + 自然段）
-        // 实体段：count + 每实体只取 P，其余 Seek 跳过
-        long count = f.Get32();
-        if (count < 0 || count > 2000000) return false;
-        entities = (int)count;
-        for (int i = 0; i < count; i++)
+        try
         {
-            f.Get32();                  // Id
-            pop += f.GetFloat();        // P
-            f.Get8();                   // IsFarming
-            int keyCount = f.Get16();
-            // ⚠️ 2026-08-18：skip 按版本区分尾部字段——v10 含酋邦 IsBigMan/IsChief/ChiefdomId（+18B），
-            //   v11 移出（+12B），v12 Stocks 扩到 6 槽（+24B），v13 聚落关联 SettledSince/PlaceId（+8B），
-            //   v14 军事征服 ConqueredBy/LastWarTick（+8B）。
-            //   旧版恒跳 143B 漏尾部 → 错位。143 = keys 后固定（份额×4 107 + Cell系列24 + 货物/存储基础 12）。
-            long tailB = ver switch
+            string abs = ResolvePath(path);
+            using var fs = new FileStream(abs, FileMode.Open, IOFileAccess.Read);
+            using var r = new ChunkReader(fs);
+            if (r.Magic != Magic) return false;
+            ushort ver = r.SkeletonVer;
+            archiveVersion = ver;
+            status = ClassifyVersion(ver);
+            if (status != ArchiveVersionStatus.Current)
+                return false;   // 版本不符（菜单据此区分"旧版本存档"与"损坏"）
+            if (!r.SeekSegment("HEAD")) return false;
+            seed = (int)r.Get32();
+            tick = (int)r.Get32();
+            // 实体段：count + 每实体只取 P，其余 Seek 跳过（段表直达，无需手算自然段长度）
+            if (!r.SeekSegment("TRIB")) return false;
+            long count = r.Get32();
+            if (count < 0 || count > 2000000) return false;
+            entities = (int)count;
+            for (int i = 0; i < count; i++)
             {
-                10 => 143L + 18L,
-                11 => 143L + 12L,
-                12 => 143L + 24L,
-                13 => 143L + 24L + 8L,
-                _ => 143L + 24L + 8L + 8L,   // v14：+ConqueredBy/LastWarTick
-            };
-            long skip = 16L * keyCount + tailB;
-            f.Seek(f.GetPosition() + (ulong)skip);
+                r.Get32();                  // Id
+                pop += r.GetFloat();        // P
+                r.Get8();                   // IsFarming
+                int keyCount = r.Get16();
+                // 段表格式固定布局（v15，无版本分支）：keys 后固定尾部。
+                // 183 = 份额×4 107 + Relig5 + Cell系列24 + Stocks24 + Prestige/Contributed/Succession 12
+                //       + SettledSince/PlaceId 8 + ConqueredBy/LastWarTick 8（全字段 v15 布局，单一常数）。
+                long skip = 16L * keyCount + 183L;
+                r.Seek(r.Position + skip);
+            }
+            return true;
         }
-        return true;
+        catch
+        {
+            return false;   // 打不开/损坏（列表显示"存档已损坏"）
+        }
     }
 }

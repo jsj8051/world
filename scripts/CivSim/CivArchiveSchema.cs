@@ -1,7 +1,7 @@
-using Godot;
 using System;
 using System.Reflection;
 using World.Services;
+using World.Utils;
 
 namespace World.CivSim;
 
@@ -10,20 +10,23 @@ namespace World.CivSim;
 ///
 /// 设计要点：
 /// 1. **单源真值**：Tribe 持久字段在此集中声明，Write/Read 由表驱动 → 不可能一处写一处漏。
-/// 2. **布局不变**：字段顺序/大小与 .cmp v10/v11 字节布局严格一致（兼容旧档）——清单是"中央可见的布局表"，
-///    不是自动布局。每项含 SinceVer（版本引入号），Write 按当前版本过滤、Read 按存档版本过滤。
+/// 2. **布局不变**：字段顺序/大小与 .cmp 字节布局严格一致——清单是"中央可见的布局表"，
+///    不是自动布局。每项含 SinceVer（版本引入号），Write 按当前版本过滤。
+///    （2026-08-23 段表化：v15 起段表格式，SinceVer 语义保留作字段引入记录，但全字段恒写，
+///    不再有版本兼容分支——旧档全删。）
 /// 3. **反射校验**：Validate() 检查每项 Name 在 Tribe 上真实存在（字段改名后清单过期 → 测试红）。
 /// 4. 派生字段（FLast/Territory/IsBigMan 等）**不入清单**——它们是 SettleDerived 重算的缓存，入档即冗余。
 /// </summary>
 public static class CivArchiveSchema
 {
     /// <summary>字段定义：Name（反射校验）、SinceVer（该版本引入）、写入/读取委托。
-    /// 顺序即 .cmp 字节顺序（勿重排——破坏兼容）。v11 起 IsBigMan/IsChief/ChiefdomId 移出入档。</summary>
+    /// 顺序即 .cmp 字节顺序（勿重排——破坏兼容）。
+    /// 2026-08-23 段表化：委托签名 FileAccess → ChunkWriter/ChunkReader（方法同名，lambda 体不变）。</summary>
     public readonly record struct FieldDef(
         string Name,
         int SinceVer,
-        Action<FileAccess, Tribe> Write,
-        Func<FileAccess, Tribe, bool> Read);
+        Action<ChunkWriter, Tribe> Write,
+        Func<ChunkReader, Tribe, bool> Read);
 
     public static readonly FieldDef[] TribeFields =
     {
