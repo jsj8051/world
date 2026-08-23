@@ -14,6 +14,13 @@ public partial class ProgressTextBar : ProgressBar
     /// <summary>百分比前的阶段文字（如"（生成中…板块模拟阶段）"）。</summary>
     public string Prefix { get; set; } = "";
 
+    public ProgressTextBar()
+    {
+        // 关引擎自带百分比：场景若未显式设置 show_percentage，默认 true 会再画一份 "53%"
+        // 与自绘文本（已含百分比）在条内重叠（2026-08-23 用户反馈"数字和文字叠在一起"）。
+        ShowPercentage = false;
+    }
+
     public override void _Draw()
     {
         // 引擎已画背景和填充色（ProgressBar 内置绘制）；这里只补文本层
