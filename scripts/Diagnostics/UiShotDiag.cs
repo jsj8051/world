@@ -15,6 +15,7 @@ public partial class UiShotDiag : Node
     private bool _triggerStart;       // --start=1：模拟点「开始生成」（截生成中状态）
     private int _shotFrame = 8;       // 截图帧号（--shot-frame=N；生成完成态需等生成结束）
     private bool argsTryDumpUi;      // --dump-ui=1：截图前打印 HUD 节点 rect
+    private int _tabIdx = -1;        // --tab=N：mapgen 模拟点第 N 个页签（-1=不模拟）
 
     public override void _Ready()
     {
@@ -26,6 +27,9 @@ public partial class UiShotDiag : Node
         _triggerStart = args.TryGetValue("start", out var st) && st == "1";
         if (args.TryGetValue("shot-frame", out var sf) && int.TryParse(sf, out int sfn)) _shotFrame = sfn;
         argsTryDumpUi = args.TryGetValue("dump-ui", out var du) && du == "1";
+        // --tab=N：mapgen 场景模拟点第 N 个页签（截图前延迟一帧执行，等 _Ready 注入完成）
+        if (args.TryGetValue("tab", out var tb) && int.TryParse(tb, out int tabIdx))
+            _tabIdx = tabIdx;
 
         // 窗口尺寸：--w=1280 --h=720（不传则用命令行 --resolution 或项目默认）
         if (args.TryGetValue("w", out var w) && int.TryParse(w, out int ww))
@@ -50,6 +54,13 @@ public partial class UiShotDiag : Node
     public override void _Process(double delta)
     {
         _frame++;
+        if (_frame == 3 && _tabIdx >= 0 && GetChild(0) is Control tabMenu)
+        {
+            // mapgen 页签模拟：调私有 ShowCategory(idx)
+            var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            var m = tabMenu.GetType().GetMethod("ShowCategory", flags);
+            m?.Invoke(tabMenu, new object[] { _tabIdx });
+        }
         if (_frame == 5 && _triggerStart)
         {
             // 模拟点「开始生成」：设半径 12km（n≈6）+ 大陆块数 2（n/2=3 ≥ 2 校验通过，秒级完成），再调 StartGenerate

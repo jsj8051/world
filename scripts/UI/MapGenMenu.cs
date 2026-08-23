@@ -25,9 +25,11 @@ public partial class MapGenMenu : Control
     private GridContainer _generateGrid;   // 分类：生成参数（两列）
     private GridContainer _planetGrid;     // 分类：星球物理（两列）
     private GridContainer _terrainGrid;    // 分类：地形与水量（两列）
+    private GridContainer _civGrid;        // 分类：文明演化（两列）
     private Button _genTab;                // 分类页签
     private Button _planetTab;
     private Button _terrainTab;
+    private Button _civTab;
     private bool _generating;
     private OptionButton _rotBox;   // 自转方向（枚举）
     private SpinBox _radiusSpin;    // 星球半径 km（主输入；n 派生，2026-08-10 口径：每格 5 km²）
@@ -40,8 +42,7 @@ public partial class MapGenMenu : Control
     private SpinBox _erosionSpin;   // 侵蚀强度
     private SpinBox _mySpin;        // 模拟时长（滑动+输入）
 
-    // v7 单存档化：生成后自动文明演化（一条龙）
-    private CheckBox _evolveCheck;      // 是否生成后自动演化文明
+    // v7 单存档化：生成后自动文明演化（一条龙，无开关——用户拍板直接连）
     private SpinBox _evolveSeedSpin;    // 演化种子
     private SpinBox _evolveOriginsSpin; // 起源部落数
     private volatile bool _evolving;    // 演化阶段进行中（后台线程写进度）
@@ -70,15 +71,18 @@ public partial class MapGenMenu : Control
         _generateGrid = GetNode<GridContainer>("%GenerateGrid");
         _planetGrid = GetNode<GridContainer>("%PlanetGrid");
         _terrainGrid = GetNode<GridContainer>("%TerrainGrid");
+        _civGrid = GetNode<GridContainer>("%CivGrid");
         _genTab = GetNode<Button>("%GenTab");
         _planetTab = GetNode<Button>("%PlanetTab");
         _terrainTab = GetNode<Button>("%TerrainTab");
+        _civTab = GetNode<Button>("%CivTab");
         var progressWrap = GetNode<Control>("%ProgressWrap");
 
         // 绑定事件
         _genTab.Pressed += () => ShowCategory(0);
         _planetTab.Pressed += () => ShowCategory(1);
         _terrainTab.Pressed += () => ShowCategory(2);
+        _civTab.Pressed += () => ShowCategory(3);
         _backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
         _startBtn.Pressed += StartGenerate;
         progressWrap.Visible = _bar.Visible = false;
@@ -90,6 +94,11 @@ public partial class MapGenMenu : Control
         tween.TweenProperty(dot, "modulate:a", 1f, 1.2f);
 
         // ── 注入参数表单（场景 grid 是空容器，行动态生成）──
+        // 分类 4：文明演化（v7 单存档化：生成完自动演化，独立页签）
+        _civGrid.AddChild(MakeSliderRow("演化种子", 0f, 999999f, 1f, 10f, 42f, out _evolveSeedSpin));
+        _civGrid.AddChild(MakeSliderRow("起源部落数", 1f, 16f, 1f, 1f, 3f, out _evolveOriginsSpin));
+        _civGrid.AddChild(MakeNote("生成完成后自动运行文明演化，结果与地图一并存入同一存档"));
+
         _generateGrid.AddChild(MakeRow("种子（Seed）", _seedBox = MakeSpin(0, 999999, 42, 1)));
         // 星球大小主输入（2026-08-10 口径定案：每格固定 5 km²，n 由半径派生）
         _generateGrid.AddChild(MakeSliderRow("星球半径(km)", 8f, 511f, 1f, 16f, 128f, out _radiusSpin));
@@ -101,17 +110,6 @@ public partial class MapGenMenu : Control
         var radiusRef = _radiusSpin;
         radiusRef.ValueChanged += _ => UpdateDerived();
         UpdateDerived();
-
-        // v7 单存档化：文明演化开关 + 参数（生成完成自动衔接，写入 CIVI 段）
-        _evolveCheck = new CheckBox
-        {
-            Text = "生成后自动演化文明（一条龙，产出含文明的 .mpa）",
-            ButtonPressed = true,
-        };
-        _evolveCheck.AddThemeFontSizeOverride("font_size", 15);
-        _generateGrid.AddChild(MakeRow("文明演化", _evolveCheck));
-        _generateGrid.AddChild(MakeSliderRow("演化种子", 0f, 999999f, 1f, 10f, 42f, out _evolveSeedSpin));
-        _generateGrid.AddChild(MakeSliderRow("起源部落数", 1f, 16f, 1f, 1f, 3f, out _evolveOriginsSpin));
 
         // 分类 2：星球物理（两列）
         _planetGrid.AddChild(MakeRow("自转方向", _rotBox = MakeRotationOption()));
@@ -159,6 +157,21 @@ public partial class MapGenMenu : Control
         field.SizeFlagsHorizontal = SizeFlags.ExpandFill;   // 拉伸到行尾，与滑动行右侧对齐
         row.AddChild(field);
         return row;
+    }
+
+    /// <summary>说明文字行（横向跨两列的 GridContainer 子项：文字 + 空占位居右）。</summary>
+    private Control MakeNote(string text)
+    {
+        var note = new Label
+        {
+            Text = "ℹ " + text,
+            CustomMinimumSize = new Vector2(0, 36),
+            SizeFlagsHorizontal = SizeFlags.ExpandFill,
+        };
+        note.AddThemeFontSizeOverride("font_size", 13);
+        note.AddThemeColorOverride("font_color", SaveRowStyle.Muted);
+        note.VerticalAlignment = VerticalAlignment.Center;
+        return note;
     }
 
     /// <summary>
@@ -257,10 +270,12 @@ public partial class MapGenMenu : Control
         _generateGrid.Visible = idx == 0;
         _planetGrid.Visible = idx == 1;
         _terrainGrid.Visible = idx == 2;
+        _civGrid.Visible = idx == 3;
         _derivedLabel.Visible = idx == 0;   // 半径派生信息跟生成参数页
         StyleTab(_genTab, idx == 0);
         StyleTab(_planetTab, idx == 1);
         StyleTab(_terrainTab, idx == 2);
+        StyleTab(_civTab, idx == 3);
     }
 
     private static void StyleTab(Button b, bool active)
@@ -431,14 +446,9 @@ public partial class MapGenMenu : Control
 
         if (ok)
         {
-            // v7 单存档化：勾选了「自动演化文明」→ 无缝接入演化阶段（同一条进度条）
-            if (_evolveCheck != null && _evolveCheck.ButtonPressed)
-            {
-                StartCivEvolution(path);
-                return;   // 演化完成后 OnCivEvolutionDone 收尾
-            }
-            // 纯自然地图（未勾选演化）→ 直接完成态
-            FinishGenerateUI(path);
+            // v7 单存档化：生成完成 → 自动接入文明演化（一条龙，无开关——用户拍板）
+            StartCivEvolution(path);
+            return;   // 演化完成后 OnCivEvolutionDone 收尾
         }
         else
         {
@@ -525,25 +535,6 @@ public partial class MapGenMenu : Control
         _status.Text = $"❌ 文明演化失败（{_civOutPath.GetFile()} 保持纯自然地图）。";
         _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
         LogService.LogErr("MapGenMenu", $"文明演化失败: {_civOutPath}");
-    }
-
-    /// <summary>纯自然地图（未勾选演化）的完成态收尾。</summary>
-    private void FinishGenerateUI(string path)
-    {
-        // 进度条 100%（自绘文本：阶段+百分比一体）；完成信息显示在顶部状态栏（进度条底下不再显示）
-        _bar.Value = 100;
-        _bar.Prefix = "（生成完成）";
-        _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
-        _status.Text = $"✅ 生成完成！存档：{path.GetFile()}（已保存，可返回主菜单进入世界）";
-        _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
-        // 生成完可直接查看（水平居中，与整体列对齐）
-        var viewBtn = new Button { Text = "▶ 查看地图" };
-        viewBtn.CustomMinimumSize = new Vector2(160, 44);
-        viewBtn.AddThemeFontSizeOverride("font_size", 16);
-        StylePrimary(viewBtn);
-        viewBtn.Pressed += () => EnterViewer(path);
-        GetNode<HBoxContainer>("%FootRow").AddChild(viewBtn);
-        LogService.Log("MapGenMenu", $"生成完成: {path}");
     }
 
     private static void StylePrimary(Button b)
