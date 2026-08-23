@@ -32,7 +32,7 @@ public sealed class GrowthModel : CivModelBase
             // ⚠️ 2026-08-18 阶段3 存储机制：有效粮食 = 当年产出 + Food 存储缓冲（AccumulateStorage 已做衰变/容量）。
             //   缺口（FLast<P）：从 Food 存储扣，**优先吃易腐（高衰变：浆果/肉），耐储者（谷物）留底**——
             //   这是"特定食物耐储"的机制意义（谷物是饥荒最后防线，新石器革命核心）。
-            //   盈余（FLast>P）：按容量入仓（随身 0.06×P → 粮仓 0.5×P×等级倍率）。
+            //   盈余（FLast>P）：按容量入仓（随身 0.06×P → 粮仓 0.5×P×城镇级倍率（2026-08-23 功能定性））。
             //   饥荒 = 连续歉年吃空存粮 → 缺口扩大 → 饿死（非硬标志）。
             //   ⚠️ 2026-08-19 聚落双池：缺口**先吃随身、再吃粮仓**（粮仓=耐储最后防线——人先耗行囊）；
             //   盈余**随身先满、粮仓后收**（正式存储归聚落，用户拍板）。
@@ -64,7 +64,7 @@ public sealed class GrowthModel : CivModelBase
                 }
                 else if (f > e.P)
                 {
-                    // 盈余入仓：随身谷物（cap CarryFoodCap）→ 粮仓谷物（cap SettleFoodCap×等级倍率）
+                    // 盈余入仓：随身谷物（cap CarryFoodCap）→ 粮仓谷物（cap SettleFoodCap×城镇级倍率（2026-08-23 功能定性））
                     int gi = CommodityTable.Index(CommodityTable.Grain);
                     float surplus = f - e.P;
                     float carryRoom = Mathf.Max(0f, CivSimContext.CarryFoodCap * e.P - e.Stocks[gi]);
@@ -73,7 +73,7 @@ public sealed class GrowthModel : CivModelBase
                     surplus -= toCarry;
                     if (st != null && surplus > 0f)
                     {
-                        float granCap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * st.Level) * e.P;
+                        float granCap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * st.TownTier) * e.P;   // 城镇级系数（村庄0/集镇1/城市2）
                         st.Stocks[gi] += Mathf.Min(surplus, Mathf.Max(0f, granCap - st.Stocks[gi]));
                     }
                 }
@@ -82,9 +82,9 @@ public sealed class GrowthModel : CivModelBase
             // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
             float rEff = r;
             if (CapabilityTable.Has(ctx, e, CapabilityTable.Settle)) rEff *= CivSimContext.SettleGrowthMult;   // 1.5
-            // ⚠️ 2026-08-19 聚落城市化集聚：占据高等级聚落 → 增长加成（城镇 ×1.25、城市 ×1.5——集聚收益）
-            if (st != null && st.Level > 0)
-                rEff *= 1f + CivSimContext.SettlementGrowthPerLevel * st.Level;
+            // ⚠️ 2026-08-19 聚落城市化集聚（2026-08-23 功能定性：TownTier 替代 Level——集镇×1.25、城市×1.5）
+            if (st != null && st.TownTier > 0)
+                rEff *= 1f + CivSimContext.SettlementGrowthPerLevel * st.TownTier;
             float factor = Mathf.Exp(rEff * (1f - e.P / f));
             // 酋邦再分配互惠（2026-08-17：Halstead-O'Shea 1989 坏年景开仓——贡献过才受赈）：
             //   成员 band 曾交贡赋（Contributed>0）→ 灾年缺口 ×0.5（酋长开仓）；未贡献不受赈

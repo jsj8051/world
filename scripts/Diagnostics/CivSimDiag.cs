@@ -155,7 +155,7 @@ public partial class CivSimDiag : DiagSceneBase
         if (Want("T59")) T59_ChiefdomPatronage();
         if (Want("T60")) T60_TradeFlowStats();
         if (Want("T61")) T61_SettlementFormation();
-        if (Want("T62")) T62_SettlementLevel();
+        if (Want("T62")) T62_TownFunction();
         if (Want("T63")) T63_SettlementPersistence();
         if (Want("T64")) T64_StateEmergence();
         if (Want("T65")) T65_StateMechanisms();

@@ -258,7 +258,7 @@ public class CivSimMechanics2Tests
     {
         var e = new Polity { Id = 0, Cell = 0, P = 100, IsFarming = true, PlaceId = 0 };
         e.FHuntLast = 10f;          // 狩猎产出 → 皮革副产 = 10×0.10 = 1.0
-        var s = new Habitation { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, OccupantId = e.Id, DwellFrom = 0 };
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
         ctx.Polities = new List<Polity> { e };
         ctx.Habitations = new List<Habitation> { s };

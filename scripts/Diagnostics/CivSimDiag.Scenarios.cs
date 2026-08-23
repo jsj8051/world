@@ -623,46 +623,55 @@ public partial class CivSimDiag
         var sm = new HabitationModel();
         sm.Execute(ctx);
         var fs = ctx.HabitationOf(farm);
-        bool farmHas = farm.PlaceId >= 0 && fs != null && fs.Cell == 0 && fs.Level == 0;
+        bool farmHas = farm.PlaceId >= 0 && fs != null && fs.Cell == 0;   // 2026-08-23 功能定性：无 Level，村庄=无职能默认
         bool hunterNone = hunter.PlaceId < 0;
         sm.Execute(ctx);   // 幂等：不重复建
         bool stable = ctx.Habitations.Count == 1 && ctx.HabitationOf(farm) != null;
         Check("T61 聚落形成", farmHas && hunterNone && stable,
-            $"农→聚落(格0/Level0)={farmHas} 猎→无={hunterNone} 幂等={stable}(聚落数={ctx.Habitations.Count})");
+            $"农→聚落(格0)={farmHas} 猎→无={hunterNone} 幂等={stable}(聚落数={ctx.Habitations.Count})");
     }
 
 
-    /// <summary>T62 聚落等级（2026-08-19）：Dwell（定居时长）× P 阈值 → 等级升级；
-    /// 等级收益：粮仓容量 0.5×P×(1+0.5×Level) + 增长倍率加成（城市化集聚）。</summary>
-    private void T62_SettlementLevel()
+    /// <summary>T62 功能定性（2026-08-23 用户拍板：村庄/集镇/城市 = 职能条件，非人口等级）：
+    /// HasAdmin（酋邦中心）→ 城市；HasMarket/HasRitual → 集镇；无 → 村庄；TownTier 收益系数。
+    /// 收益：粮仓容量 0.5×P×(1+0.5×TownTier)——城市 1.0×P、集镇 0.75×P、村庄 0.5×P。</summary>
+    private void T62_TownFunction()
     {
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
-        var e = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        e.IsFarming = true;
-        var s = AddHabitation(ctx, e);
-        s.LastLevelUpTick = -10;             // 过冷却
-        e.SettledSince = ctx.Tick - 5;
-        s.DwellFrom = ctx.Tick - 5;          // 已定居 5 tick（≥3 → 村庄）
+        // 城市：酋邦中心（至尊酋长聚落——HasAdmin 涌现）
+        var chief = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        chief.IsFarming = true;
+        chief.IsChief = true;             // 酋长——酋邦中心聚落
+        chief.ChiefdomId = chief.Id;      // 自己酋邦中心
+        var city = AddHabitation(ctx, chief);
         var sm = new HabitationModel();
         sm.Execute(ctx);
-        bool levelUp = s.Level == 1;
-        // 等级收益：村庄容量 = 0.5×P×1.5（×500 = 375）
-        float granCap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * s.Level) * e.P;
-        bool capOk = Mathf.Abs(granCap - 375f) < 0.01f;
-        // 增长加成：同条件对照（Level 0 vs Level 1）——有等级增长更快
+        bool cityOk = city.HasAdmin && city.IsCity && city.TownTier == 2;
+        // 集镇：仪式条件（宗教多样性——主导份额 < 0.7）
         var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx2 = MakeCtx(g2);
-        var a2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
-        a2.IsFarming = true;
-        AddHabitation(ctx2, a2);             // 无等级（Level 0）对照
-        e.FLast = 600f; a2.FLast = 600f;     // 盈余（settle ×1.5 基础 + 等级加成）
-        var growth = new GrowthModel();
-        growth.Execute(ctx2);
-        growth.Execute(ctx);
-        bool growthOk = e.P > a2.P;
-        Check("T62 聚落等级", levelUp && capOk && growthOk,
-            $"Level={s.Level}(应1) 粮仓容量={granCap:F0}(应375) 增长加成(Level1={e.P:F1} > Level0={a2.P:F1})");
+        var e2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        e2.IsFarming = true;
+        var town = AddHabitation(ctx2, e2);
+        ShareField.DomFrac01(e2.ReligionShare);   // 直接设份额：主导 60% < 70% 阈值 → 多教汇聚
+        e2.ReligionShare[0].Frac = (byte)(255 * 0.6f);   // 主导派别 60%
+        sm.Execute(ctx2);
+        bool townOk = town.HasRitual && town.IsMarketTown && town.TownTier == 1;
+        // 村庄：无职能（默认）
+        var g3 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var ctx3 = MakeCtx(g3);
+        var e3 = AddPolity(ctx3, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
+        e3.IsFarming = true;
+        var vil = AddHabitation(ctx3, e3);
+        sm.Execute(ctx3);
+        bool vilOk = !vil.HasAdmin && !vil.HasMarket && !vil.HasRitual && vil.TownTier == 0;
+        // 收益：城市粮仓容量 = 0.5×P×2.0（×500 = 500）vs 村庄 0.5×P（250）
+        float cityCap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * city.TownTier) * chief.P;
+        float vilCap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * vil.TownTier) * e3.P;
+        bool capOk = Mathf.Abs(cityCap - 500f) < 0.01f && Mathf.Abs(vilCap - 250f) < 0.01f;
+        Check("T62 功能定性", cityOk && townOk && vilOk && capOk,
+            $"城市(HasAdmin/tier2)={cityOk} 集镇(HasRitual/tier1)={townOk} 村庄(tier0)={vilOk} 粮仓容量(城500/村250)={capOk}");
     }
 
 
@@ -675,8 +684,7 @@ public partial class CivSimDiag
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsFarming = true;
-        var s = AddHabitation(ctx, a);
-        s.Level = 2;   // 已有城镇
+        var s = AddHabitation(ctx, a);   // 2026-08-23 功能定性：无 Level——接管后条件由新占据者涌现
         // 部落迁走（Cell 变化——模拟迁徙）
         a.Cell = 3;
         ctx.CellPolities[0] = null;
@@ -686,13 +694,13 @@ public partial class CivSimDiag
         bool ruin = s.IsRuin && s.RuinFrom >= 0;                          // 旧聚落留废墟（场所比人长寿）
         var newHome = ctx.HabitationOf(a);
         bool newSettled = newHome != null && newHome.Cell == 3;           // 迁后新址建新村
-        // 新部落迁入接管（继承 Level 2）
+        // 新部落迁入接管（占据恢复——条件由新占据者重新涌现，非继承）
         var b = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         b.IsFarming = true;
         sm.Execute(ctx);
-        bool reclaim = !s.IsRuin && s.OccupantId == b.Id && b.PlaceId == s.Id && s.Level == 2;
+        bool reclaim = !s.IsRuin && s.OccupantId == b.Id && b.PlaceId == s.Id;
         Check("T63 聚落存续", ruin && newSettled && reclaim,
-            $"迁走→旧聚落废墟={ruin} 新址建村={newSettled} 新部落接管(继承Level{s.Level})={reclaim}");
+            $"迁走→旧聚落废墟={ruin} 新址建村={newSettled} 新部落接管={reclaim}");
     }
 
 
@@ -710,9 +718,9 @@ public partial class CivSimDiag
         a.IsChief = true;   // 至尊酋长（自己中心）
         SetupStateChiefdom(ctx, a, b, c);
         var cap = AddHabitation(ctx, a);
-        cap.Level = 2; cap.BornTick = 0;                      // 都城：城镇 + 存续 50 ≥ 20
+        cap.HasAdmin = true; cap.BornTick = 0;                 // 都城：治理中心（2026-08-23 功能定性）
         var sub = AddHabitation(ctx, b);
-        sub.Level = 1;                                        // 次级中心：村庄
+        sub.HasMarket = true;                                  // 次级中心：集镇级职能（市场）
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;   // 池 150 ≥ 阈值 1000×StateTributePerCap(0.01)=10
         StateAssign.Rebuild(ctx);
         bool emerged = a.StateId == a.Id && b.StateId == a.Id && c.StateId == a.Id && a.StateSize == 3;
@@ -725,9 +733,9 @@ public partial class CivSimDiag
         a2.IsChief = true;
         SetupStateChiefdom(ctx2, a2, b2, c2);
         var cap2 = AddHabitation(ctx2, a2);
-        cap2.Level = 2; cap2.BornTick = 0;
+        cap2.HasAdmin = true; cap2.BornTick = 0;
         var sub2 = AddHabitation(ctx2, b2);
-        sub2.Level = 1;
+        sub2.HasMarket = true;
         a2.Contributed = 2f; b2.Contributed = 2f; c2.Contributed = 1f;   // 池 5 < 阈值 10（2026-08-19 同步 0.1→0.01 校准；旧值 50 已足额）
         StateAssign.Rebuild(ctx2);
         bool noTribute = a2.StateId < 0 && b2.StateId < 0;
@@ -740,9 +748,9 @@ public partial class CivSimDiag
         a3.IsChief = true;
         SetupStateChiefdom(ctx3, a3, b3, c3);
         var cap3 = AddHabitation(ctx3, a3);
-        cap3.Level = 2; cap3.BornTick = 0;
+        cap3.HasAdmin = true; cap3.BornTick = 0;
         var sub3 = AddHabitation(ctx3, b3);
-        sub3.Level = 0;                                       // 新村——非次级中心
+        sub3.HasMarket = false;                                // 无集镇职能——非次级中心
         a3.Contributed = 50f; b3.Contributed = 50f; c3.Contributed = 50f;
         StateAssign.Rebuild(ctx3);
         bool noHierarchy = a3.StateId < 0;
@@ -755,9 +763,9 @@ public partial class CivSimDiag
         a4.IsChief = true;
         SetupStateChiefdom(ctx4, a4, b4, c4);
         var cap4 = AddHabitation(ctx4, a4);
-        cap4.Level = 2; cap4.BornTick = 40;                   // 存续 10 < 20
+        cap4.HasAdmin = true; cap4.BornTick = 40;              // 存续 10 < 20（都城条件 OK，存续不足）
         var sub4 = AddHabitation(ctx4, b4);
-        sub4.Level = 1;
+        sub4.HasMarket = true;
         a4.Contributed = 50f; b4.Contributed = 50f; c4.Contributed = 50f;
         StateAssign.Rebuild(ctx4);
         bool noDwell = a4.StateId < 0;
@@ -836,9 +844,9 @@ public partial class CivSimDiag
         a.IsChief = true;
         SetupStateChiefdom(ctx, a, b, c);
         var cap = AddHabitation(ctx, a);
-        cap.Level = 2; cap.BornTick = 0;
+        cap.HasAdmin = true; cap.BornTick = 0;
         var sub = AddHabitation(ctx, b);
-        sub.Level = 1;
+        sub.HasMarket = true;
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;
         StateAssign.Rebuild(ctx);
         bool emerged = a.StateId == a.Id;
@@ -941,8 +949,8 @@ public partial class CivSimDiag
         // 战利品基线：b 池 = 100×3（含酋长）→ ×0.5 = 150；A 需是正式国家（重映射断言用）
         a.Contributed = 100f; b.Contributed = 100f; b1.Contributed = 100f; b2.Contributed = 100f;
         b.Prestige = 5f;   // ⚠️ 庇护竞争平局（10 vs 10）时 BFS 序敏感——降低败方声望消除歧义
-        var capA = AddHabitation(ctx, a); capA.Level = 2; capA.BornTick = 0;
-        var subA = AddHabitation(ctx, a1); subA.Level = 1;
+        var capA = AddHabitation(ctx, a); capA.HasAdmin = true; capA.BornTick = 0;
+        var subA = AddHabitation(ctx, a1); subA.HasMarket = true;
         StateAssign.Rebuild(ctx);
         ctx.Wars.Add(new War { StateIdA = a.Id, StateIdB = b.Id, Defender = b.Id, StartTick = ctx.Tick - 10, LastBattleTick = ctx.Tick, WinsA = 3, WinsB = 0 });
         new WarModel().Execute(ctx);
@@ -971,8 +979,8 @@ public partial class CivSimDiag
         var (b, b1, b2) = AddWarState(ctx, 5, 6, 7, popA: 600f);
         AttachWarTerritory(ctx, new[] { (a, 0), (a1, 1), (a2, 2), (b, 5), (b1, 6), (b2, 7) });
         a.Contributed = 100f; b.Contributed = 100f; b1.Contributed = 100f; b2.Contributed = 100f;
-        var capA2 = AddHabitation(ctx, a); capA2.Level = 2; capA2.BornTick = 0;
-        var subA2 = AddHabitation(ctx, a1); subA2.Level = 1;
+        var capA2 = AddHabitation(ctx, a); capA2.HasAdmin = true; capA2.BornTick = 0;
+        var subA2 = AddHabitation(ctx, a1); subA2.HasMarket = true;
         StateAssign.Rebuild(ctx);
         ctx.Wars.Add(new War { StateIdA = a.Id, StateIdB = b.Id, Defender = b.Id, StartTick = ctx.Tick - 10, LastBattleTick = ctx.Tick, WinsA = 2, WinsB = 0 });
         new WarModel().Execute(ctx);

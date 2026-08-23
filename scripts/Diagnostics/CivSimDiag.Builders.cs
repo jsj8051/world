@@ -186,8 +186,6 @@ public partial class CivSimDiag
             Id = ctx.NextHabitationId++,
             Cell = occupant.Cell,
             BornTick = ctx.Tick,
-            Level = 0,
-            LastLevelUpTick = ctx.Tick,
             DwellFrom = ctx.Tick,
             OccupantId = occupant.Id,
         };

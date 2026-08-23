@@ -24,11 +24,10 @@ public sealed class SettlementLayer : MapLayer
 
     public override void BuildLegend(LegendBuilder b, LayerContext ctx)
     {
-        b.Row(SettlementLevelColors[0], "新村/营地");
-        b.Row(SettlementLevelColors[1], "村庄");
-        b.Row(SettlementLevelColors[2], "城镇");
-        b.Row(SettlementLevelColors[3], "城市");
-        b.Row(SettlementLevelColors[4], "废墟");
+        b.Row(SettlementLevelColors[0], "村庄");   // 2026-08-23 功能定性：无 Level 五档——村庄/集镇/城市/废墟
+        b.Row(SettlementLevelColors[1], "集镇");
+        b.Row(SettlementLevelColors[2], "城市");
+        b.Row(SettlementLevelColors[3], "废墟");
         b.Text("农业部落（settle）驻扎点固化；场所比人长寿，新部落可接管");
     }
 }

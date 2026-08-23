@@ -12,12 +12,14 @@ namespace World.CivSim.Mechanics.Territory;
 
 
 // ══════════════════════════════════════════════════════════════════
-// ①j 聚落（Order 48，2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md）：
+// ①j 聚集地（Order 48，2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md；
+//   ⚠️ 2026-08-23 功能定性重设计：Dwell×P 等级演化已删（用户拍板 D3）→ 职能条件系统）：
 //    物理场所实体——农业部落（settle）的驻扎点固化；场所比人长寿。
-//    形成：IsFarming 部落无聚落 → 所在格废墟接管（继承 Level）/新建（Level 0）；
+//    形成：IsFarming 部落无聚落 → 所在格废墟接管/新建；
 //    存续：部落迁徙/灭绝 → 聚落 OccupantId=-1（废墟——实体保留）；
-//    等级：Dwell（定居时长）× P 阈值纯函数（无 Rng，读档续跑无分叉）；都城（至尊酋长聚落）阈值减半；
-//    收益：存储容量 ×(1+0.5×Level)（AccumulateStorage）、增长 ×(1+0.25×Level)（GrowthModel）。
+//    条件：职能条件收集（用户拍板："有了什么条件才能做什么；集镇/城市也是一个条件"）——
+//      HasAdmin（酋邦中心=城市）/HasRitual（宗教圣地=集镇级）/HasMarket（商路节点=集镇级，TradeModel 写）；
+//    收益：存储容量 ×(1+0.5×TownTier)（AccumulateStorage）、增长 ×(1+0.25×TownTier)（GrowthModel）。
 // ══════════════════════════════════════════════════════════════════
 public sealed class HabitationModel : CivModelBase
 {
@@ -55,7 +57,7 @@ public sealed class HabitationModel : CivModelBase
                 if (ctx.Habitations[k].Cell == e.Cell && ctx.Habitations[k].IsRuin) { reclaim = ctx.Habitations[k]; break; }
             if (reclaim != null)
             {
-                // 接管废墟：继承 Level（场所比人长寿）；粮仓清空（新占据者从零开始）
+                // 接管废墟：占据恢复（场所比人长寿）；粮仓清空（新占据者从零开始）——2026-08-23 功能定性：无 Level，条件由新占据者重新涌现
                 reclaim.OccupantId = e.Id;
                 reclaim.DwellFrom = ctx.Tick;
                 reclaim.RuinFrom = -1;
@@ -69,8 +71,6 @@ public sealed class HabitationModel : CivModelBase
                     Id = ctx.NextHabitationId++,
                     Cell = e.Cell,
                     BornTick = ctx.Tick,
-                    Level = 0,
-                    LastLevelUpTick = ctx.Tick,
                     DwellFrom = ctx.Tick,
                     OccupantId = e.Id,
                 };
@@ -78,21 +78,22 @@ public sealed class HabitationModel : CivModelBase
                 e.PlaceId = s.Id;
             }
         }
-        // ③ 等级演化（Dwell×P 阈值 + 冷却；都城 = 至尊酋长聚落，阈值减半）
+        // ⚠️ ③ 职能条件收集（2026-08-23 功能定性重设计：旧 Dwell×P 升阶移除——用户拍板 D3）。
+        //    村庄/集镇/城市 = 职能条件（用户拍板："有了什么条件才能做什么；集镇/城市也是一个条件"）：
+        //    HasAdmin（治理）→ 城市；HasMarket（市场）/HasRitual（仪式）→ 集镇；无 → 村庄。
+        //    条件 = 每 tick 派生缓存（确定性无 Rng；**入档**——Growth 等 Order 前机制滞后读需恢复，防分叉）。
+        //    HasMarket 由 TradeModel（Order 55）扫描统计写入（晚于此机制）。
         for (int i = 0; i < ctx.Habitations.Count; i++)
         {
             var s = ctx.Habitations[i];
             if (s.OccupantId < 0) continue;
             var occ = FindPolity(ctx, s.OccupantId);
             if (occ == null || occ.Dead) continue;
-            if (ctx.Tick - s.LastLevelUpTick < CivSimContext.SettlementLevelCooldown) continue;
-            int dwell = ctx.Tick - s.DwellFrom;
-            bool capital = occ.IsChief && occ.ChiefdomId == occ.Id;   // 至尊酋长（自己酋邦中心）聚落 = 都城
-            int target = s.Level;
-            if (dwell >= CivSimContext.SettlementLevelTicks1 && occ.P >= (capital ? CivSimContext.SettlementPop1 / 2f : CivSimContext.SettlementPop1)) target = Math.Max(target, 1);
-            if (dwell >= CivSimContext.SettlementLevelTicks2 && occ.P >= (capital ? CivSimContext.SettlementPop2 / 2f : CivSimContext.SettlementPop2)) target = Math.Max(target, 2);
-            if (dwell >= CivSimContext.SettlementLevelTicks3 && occ.P >= (capital ? CivSimContext.SettlementPop3 / 2f : CivSimContext.SettlementPop3)) target = Math.Max(target, 3);
-            if (target > s.Level) { s.Level = target; s.LastLevelUpTick = ctx.Tick; }
+            // 治理条件：酋邦中心（至尊酋长聚落——D2 拍板"历史上存在什么就是什么"：
+            //   乌尔前期/杰里科酋长中心即城市雏形；国家都城也是酋邦中心——同一聚落）
+            s.HasAdmin = occ.IsChief && occ.ChiefdomId == occ.Id;
+            // 仪式条件：宗教多教汇聚（主导派别份额 < 阈值——圣地涌现；ShareField.DomFrac01 主导份额）
+            s.HasRitual = ShareField.DomFrac01(occ.ReligionShare) < CivSimContext.RitualDominantFrac;
         }
     }
 

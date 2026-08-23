@@ -146,8 +146,8 @@ public sealed class CivSimContext
     public const float StateTributeRate = 0.2f;        // 国家贡赋率（酋邦 TributeRate=0.1 翻倍——税制化，Earle）
     public const float StateEliteFrac = 0.25f;         // 国家官僚/精英比例（酋邦 EliteFrac=0.1——官僚化）
     public const float StateInternalConflictMult = 0.25f; // 国家内部冲突概率倍率（酋邦 0.5——Weber 强制力垄断）
-    public const int StateCapitalLevel = 2;            // 都城最低聚落等级（城镇+；都城判定本就放宽一档——首都更易达标，Childe 权力中心）
-    public const int StateSubCenterLevel = 1;          // 次级中心最低聚落等级（村庄+；Wright-Johnson 决策层级第 2 级）
+    // 都城/次级中心条件（2026-08-23 功能定性：不再用聚落 Level——都城 = 治理中心（IsCity）、
+    // 次级中心 = 集镇级职能（IsMarketTown）——国家涌现 = 已有城市 + 官僚节点（Childe））
     public const float StateTributePerCap = 0.01f;     // 贡赋盈余线：贡赋池 ≥ 酋邦总人口×此值（剩余集中，Childe）
                                                        //   ★ 校准（0.1→0.01，2026-08-16 探针）：Contributed 是互惠记录且被
                                                        //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
@@ -170,16 +170,12 @@ public sealed class CivSimContext
     public const float WarPlunderRate = 0.5f;      // 吞并战利品：战胜国池 += 战败国池×此值（Tilly 战争养战争）
     public const float WarConflictMult = 2.0f;     // 交战国边境冲突概率 ×2（战争中的治安战更凶——外交断交的格级表现）
     public const int WarCedeCells = 3;             // 朝贡割地格数（战败国边境格易主）
-    // ── 聚落实体参数（2026-08-19 阶段3 聚落设计；docs/阶段3设计-聚落实体.md §2.3）──
-    public const int SettlementLevelTicks1 = 3;    // 新村→村庄 Dwell ticks（★ 待校准）
-    public const int SettlementLevelTicks2 = 8;    // 村庄→城镇
-    public const int SettlementLevelTicks3 = 20;   // 城镇→城市
-    public const float SettlementPop1 = 200f;      // 村庄人口阈值
-    public const float SettlementPop2 = 800f;      // 城镇人口阈值
-    public const float SettlementPop3 = 3000f;     // 城市人口阈值
-    public const float SettlementStoragePerLevel = 0.5f;   // 每级存储容量加成（×0.5/级——村庄 1.5×、城市 2.5×）
-    public const float SettlementGrowthPerLevel = 0.25f;   // 每级增长倍率加成（×0.25/级——城市化集聚）
-    public const int SettlementLevelCooldown = 2;  // 升级冷却 ticks（防跳级抖动；须 < 最小时限阈值 3）
+    // ── 聚集地职能条件参数（2026-08-23 功能定性重设计——村庄/集镇/城市 = 职能条件，非人口等级；
+    //    旧 Dwell×P 升阶常量（SettlementPop/LevelTicks/Cooldown）已删除——用户拍板 D3）
+    public const int MarketTradePartners = 2;   // 市场条件：占据者贸易伙伴 ≥ 此数（商路节点——TradeModel 扫描统计）
+    public const float RitualDominantFrac = 0.7f;   // 仪式条件：占据者主导教派份额 < 此值（多教汇聚 → 圣地涌现）
+    public const float SettlementStoragePerLevel = 0.5f;   // 每城镇级存储容量加成（×0.5/级——村庄×0、集镇×1.5、城市×2.0）
+    public const float SettlementGrowthPerLevel = 0.25f;   // 每城镇级增长倍率加成（×0.25/级——城市化集聚）
     // 随身池（Polity.Stocks 新语义 2026-08-19：正式存储迁聚落，部落只剩随身）——
     //   容量沿用原游群档（游群即随身；定居部落也随身基础量——行囊/工具/日粮）
     public const float CarryFoodCap = 0.06f;   // 随身食物容量（×P）

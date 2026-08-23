@@ -191,7 +191,7 @@ public static class CivEngine
     ///   · **随身池**（Polity.Stocks，v12 字段语义改）：衰变用**基础年率**（携带即自然损耗——存储科技不保护
     ///     随身物）；Material 流入的**溢余**；容量 CarryFoodCap/CarryMatCap×P（游群即随身）。
     ///   · **粮仓**（Habitation.Stocks，v13）：衰变用 techMult（storage/pottery/settle/grinding 分层保藏——
-    ///     谷物耐储核心）；Material 流入**优先入仓**；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×Level)。
+    ///     谷物耐储核心）；Material 流入**优先入仓**；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×TownTier)（2026-08-23 功能定性：城镇级系数）。
     ///   Food 流入/消耗由 GrowthModel 管（缺口吃随身→粮仓，耐储者留底）；本方法只做衰变+流入+容量。
     /// 单位 Stocks = 人当量（与 FLast/P 同量纲）。衰变按年率折算 tick：
     ///   decayTick = 1 − (1 − BaseDecay×techMult)^TickYears（年衰变史实锚点 → 100 年聚合）。</summary>
@@ -231,7 +231,7 @@ public static class CivEngine
                 if (inflow <= 0f) continue;
                 if (s != null)
                 {
-                    float granCap = CivSimContext.SettleMatCap * (1f + CivSimContext.SettlementStoragePerLevel * s.Level) * e.P;
+                    float granCap = CivSimContext.SettleMatCap * (1f + CivSimContext.SettlementStoragePerLevel * s.TownTier) * e.P;   // 城镇级系数（2026-08-23 功能定性）
                     float toGran = Mathf.Min(inflow, Mathf.Max(0f, granCap - s.Stocks[k]));
                     s.Stocks[k] += toGran;
                     inflow -= toGran;
@@ -248,7 +248,7 @@ public static class CivEngine
                 if (s != null)
                 {
                     float granCap = (def.Kind == CommodityKind.Food ? CivSimContext.SettleFoodCap : CivSimContext.SettleMatCap)
-                                  * (1f + CivSimContext.SettlementStoragePerLevel * s.Level) * e.P;
+                                  * (1f + CivSimContext.SettlementStoragePerLevel * s.TownTier) * e.P;   // 城镇级系数（2026-08-23 功能定性）
                     if (s.Stocks[k] > granCap) s.Stocks[k] = granCap;
                     if (s.Stocks[k] < 0f) s.Stocks[k] = 0f;
                 }

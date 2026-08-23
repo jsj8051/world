@@ -30,7 +30,7 @@ public sealed class TileDataCache
     public byte[] TilePolityKind;   // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
     public byte[] TileTechEpoch;    // 每格主导部落最高技术时代 0-4
     public int[] TileTerritory;     // 每格主导 band 的领地（语言群 key 完整哈希；0=无领地）
-    public byte[] TileSettlement;   // 每格聚落（2026-08-19 阶段3：0=无 1=新村 2=村庄 3=城镇 4=城市 5=废墟）
+    public byte[] TileSettlement;   // 每格聚落（2026-08-23 功能定性：0=无 1=村庄 2=集镇 3=城市 4=废墟）
     // 身份族系映射（2026-08-19 族系分色图例：文化/派别 → 语言群 hash；惰性建一次）
     public Dictionary<int, int> CultGroup;
     public Dictionary<int, int> SectGroup;

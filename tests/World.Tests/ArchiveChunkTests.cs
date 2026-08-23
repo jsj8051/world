@@ -182,7 +182,7 @@ public class ArchiveChunkTests
             NextHabitationId = 9,
             Habitations = new System.Collections.Generic.List<Habitation>
             {
-                new Habitation { Id = 8, Cell = 2, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
+                new Habitation { Id = 8, Cell = 2, BornTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
             },
             Wars = new System.Collections.Generic.List<War>(),
             CellOwner = new int[n],

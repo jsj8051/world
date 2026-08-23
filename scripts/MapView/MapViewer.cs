@@ -508,7 +508,7 @@ public partial class MapViewer : Node3D
         if (hasCiv && _civCtx.Habitations != null)
             foreach (var s in _civCtx.Habitations)
                 if (s.Cell >= 0 && s.Cell < n)
-                    settlementByCell[s.Cell] = (byte)(s.IsRuin ? 5 : (s.Level + 1));   // 1-4=等级 5=废墟
+                    settlementByCell[s.Cell] = (byte)(s.IsRuin ? 4 : s.IsCity ? 3 : s.IsMarketTown ? 2 : 1);   // 0=无 1=村庄 2=集镇 3=城市 4=废墟（2026-08-23 功能定性）
 
         // 盛行风图层：用存档自转方向/速度（旧存档默认顺转 1.0）
         World.Biome.WindField.Prograde = map.ProgradeRotation;

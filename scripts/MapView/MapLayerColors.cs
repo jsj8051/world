@@ -93,12 +93,12 @@ public static class MapLayerColors
         new(0.65f, 0.40f, 0.85f),  // 古典/中世纪：紫（帝国）
     };
 
-    /// <summary>聚落图层色（2026-08-19 阶段3：索引 = _tileSettlement 值 − 1——0 新村 1 村庄 2 城镇 3 城市 4 废墟）。</summary>
+    /// <summary>聚落图层色（2026-08-23 功能定性：索引 = _tileSettlement 值 − 1——0 村庄 1 集镇 2 城市 3 废墟；
+    /// 旧 5 档（新村/村庄/城镇/城市/废墟）随 Level 删除而收缩）。</summary>
     public static readonly Color[] SettlementLevelColors =
     {
-        new(0.72f, 0.55f, 0.35f),  // 新村/营地：棕
         new(0.35f, 0.72f, 0.35f),  // 村庄：绿
-        new(0.95f, 0.65f, 0.25f),  // 城镇：橙
+        new(0.95f, 0.65f, 0.25f),  // 集镇：橙
         new(0.85f, 0.25f, 0.20f),  // 城市：红
         new(0.45f, 0.45f, 0.50f),  // 废墟：灰
     };

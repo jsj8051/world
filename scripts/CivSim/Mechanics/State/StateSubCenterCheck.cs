@@ -25,7 +25,7 @@ public static class StateSubCenterCheck
             Habitation s = m.PlaceId >= 0 && settleById.TryGetValue(m.PlaceId, out var st) ? st : null;
             if (s == null || s.OccupantId != m.Id) continue;
             memberHabitations++;
-            if (s.Id != capitalId && s.Level >= CivSimContext.StateSubCenterLevel) hasSubCenter = true;
+            if (s.Id != capitalId && s.IsMarketTown) hasSubCenter = true;   // 次级中心 = 集镇级职能（市场/仪式）
         }
         return memberHabitations >= 2 && hasSubCenter;
     }

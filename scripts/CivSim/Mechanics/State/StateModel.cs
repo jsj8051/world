@@ -6,8 +6,8 @@ namespace World.CivSim.Mechanics.State;
 // ①k 国家涌现机制外壳（Order 49，2026-08-16 阶段4；docs/阶段4设计-国家涌现.md；用户拍板 1A2A3A4A）。
 //   酋邦 → 国家 = **制度化**（无规模阈值——性质跃迁非体积达标）。
 //   涌现条件（AND，全部用已入档持久字段 → 纯派生不存档，读档续跑无分叉）：
-//     ① 都城：至尊酋长（ChiefdomId==Id 且 IsChief）占据聚落，Level ≥ StateCapitalLevel(2=城镇+)
-//     ② 决策层级：酋邦内 ≥2 个成员聚落，且存在 Level ≥ StateSubCenterLevel(1=村庄+) 的非都城聚落
+//     ① 都城：至尊酋长（ChiefdomId==Id 且 IsChief）占据聚落，且为治理中心（IsCity——2026-08-23 功能定性，旧 Level 门槛已删）
+//     ② 决策层级：酋邦内 ≥2 个成员聚落，且存在集镇级职能（IsMarketTown）的非都城聚落——2026-08-23 功能定性
 //     ③ 贡赋盈余：贡赋池（Σ 成员 Contributed）≥ 酋邦总人口 × StateTributePerCap
 //     ④ 存续：Tick − 都城.BornTick ≥ StateDwellTicks（都城实体存续——场所比人长寿）
 //   ⚠️ 2026-08-23 概念 = 机制组合（Phase 1）：判定拆为 4 个规范积木（Specification）+ 1 个写入积木

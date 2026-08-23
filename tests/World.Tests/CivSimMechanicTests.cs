@@ -253,7 +253,7 @@ public class CivSimMechanicTests
         var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 8, IsFarming = true };   // 缺口 2，定居
         e.Stocks[BerryIdx] = 0.4f;
         e.Stocks[MeatIdx] = 0.4f;
-        var s = new Habitation { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, OccupantId = e.Id, DwellFrom = 0 };
         s.Stocks[BerryIdx] = 1.5f;
         s.Stocks[GrainIdx] = 3.0f;
         e.PlaceId = s.Id;
@@ -284,7 +284,7 @@ public class CivSimMechanicTests
     public void Growth_Surplus_SettledStoresToGranary()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 25, IsFarming = true };
-        var s = new Habitation { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, OccupantId = e.Id, DwellFrom = 0 };
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
         ctx.Habitations.Add(s);
@@ -299,7 +299,7 @@ public class CivSimMechanicTests
     public void Growth_Surplus_GranaryCapScalesWithLevel()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 30, IsFarming = true };
-        var s = new Habitation { Id = 0, Cell = 0, Level = 2, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, HasAdmin = true, OccupantId = e.Id, DwellFrom = 0 };   // 城市用例（2026-08-23 功能定性）
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
         ctx.Habitations.Add(s);
@@ -480,60 +480,61 @@ public class CivSimMechanicTests
         var s = ctx.Habitations[0];
         Assert.AreEqual(0, s.Id, "NextHabitationId 从 0 分配");
         Assert.AreEqual(e.Cell, s.Cell);
-        Assert.AreEqual(0, s.Level, "新村 Level 0");
         Assert.AreEqual(e.Id, s.OccupantId);
         Assert.False(s.IsRuin);
         Assert.AreEqual(e.PlaceId, s.Id, "部落占据聚落");
         Assert.AreEqual(10, e.SettledSince, "定居起点 = 转农当 tick");
         Assert.AreEqual(10, s.DwellFrom);
-        Assert.AreEqual(10, s.LastLevelUpTick);
         Assert.AreEqual(10, s.BornTick);
     }
 
     [Test]
-    public void Habitation_LevelUp_ByDwellAndPop_WithCooldown()
+    public void Habitation_TownConditions_EmergeFromOccupant()
     {
+        // 2026-08-23 功能定性（用户拍板）：村庄/集镇/城市 = 职能条件，非人口等级。
+        // 基础聚落（无职能）→ 村庄（TownTier 0）；宗教多教汇聚 → 仪式条件 → 集镇。
         var e = new Polity { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = 0 };
-        var s = new Habitation { Id = 0, Cell = 0, Level = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0, OccupantId = e.Id };
+        e.ReligionShare[0].Frac = (byte)(255 * 0.6f);   // 主导派别 60% < 70% → 多教汇聚
+        var s = new Habitation { Id = 0, Cell = 0, DwellFrom = 0, BornTick = 0, OccupantId = e.Id };
         var ctx = GrowthCtx(e);
         ctx.Habitations.Add(s);
         ctx.Tick = 20;
         new HabitationModel().Execute(ctx);
-        // dwell=20 ≥ SettlementLevelTicks1(3) 且 P=300 ≥ SettlementPop1(200) → 村庄；< 800 → 不到城镇
-        Assert.AreEqual(1, s.Level, "dwell×P 阈值驱动等级");
-        Assert.AreEqual(20, s.LastLevelUpTick);
-        // 升级冷却 SettlementLevelCooldown=2：紧接下一 tick 不再跳级
-        ctx.Tick = 21;
-        new HabitationModel().Execute(ctx);
-        Assert.AreEqual(1, s.Level, "冷却内不跳级");
+        Assert.True(s.HasRitual, "宗教多教汇聚 → 仪式条件");
+        Assert.True(s.IsMarketTown, "仪式条件 → 集镇资格");
+        Assert.AreEqual(1, s.TownTier, "集镇 = 城镇级 1");
     }
 
     [Test]
-    public void Settlement_Capital_HalvesLevelThresholds()
+    public void Habitation_ChiefCenter_IsCity()
     {
+        // 2026-08-23 功能定性（D2 用户拍板）：酋邦中心（至尊酋长聚落）就是城市——历史上存在什么就是什么
         var capitalChief = new Polity { Id = 0, Cell = 0, P = 400, IsFarming = true, IsChief = true, ChiefdomId = 0, PlaceId = 0 };
-        var cap = new Habitation { Id = 0, Cell = 0, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 0 };
+        var cap = new Habitation { Id = 0, Cell = 0, DwellFrom = 10, BornTick = 0, OccupantId = 0 };
         var ctx = GrowthCtx(capitalChief);
         ctx.Habitations.Add(cap);
         ctx.Tick = 20;
         new HabitationModel().Execute(ctx);
-        // 都城（至尊酋长聚落）阈值减半：L2 需 800/2=400 → P=400 达标 → 城镇
-        Assert.AreEqual(2, cap.Level, "都城（ChiefdomId==Id 的酋长聚落）阈值减半");
+        Assert.True(cap.HasAdmin, "酋邦中心 → 治理条件");
+        Assert.True(cap.IsCity, "治理条件 → 城市资格");
+        Assert.AreEqual(2, cap.TownTier, "城市 = 城镇级 2");
 
+        // 对照：普通部落聚落无治理条件 → 村庄
         var plain = new Polity { Id = 1, Cell = 1, P = 400, IsFarming = true, PlaceId = 1 };
-        var ps = new Habitation { Id = 1, Cell = 1, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 1 };
+        var ps = new Habitation { Id = 1, Cell = 1, DwellFrom = 10, BornTick = 0, OccupantId = 1 };
         var ctx2 = GrowthCtx(plain);
         ctx2.Tick = 20;
         ctx2.Habitations.Add(ps);
         new HabitationModel().Execute(ctx2);
-        Assert.AreEqual(1, ps.Level, "非都城 P=400 只到村庄（<800）");
+        Assert.False(ps.HasAdmin, "普通聚落无治理条件");
+        Assert.AreEqual(0, ps.TownTier, "村庄 = 城镇级 0");
     }
 
     [Test]
     public void Settlement_Abandoned_OnOccupantDeath()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 300, IsFarming = true, Dead = true, PlaceId = 0 };
-        var s = new Habitation { Id = 0, Cell = 0, Level = 1, OccupantId = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, OccupantId = 0, DwellFrom = 0, BornTick = 0 };
         var ctx = GrowthCtx(e);
         ctx.Habitations.Add(s);
         ctx.Tick = 5;
@@ -653,8 +654,8 @@ public class CivSimMechanicTests
     {
         var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
         var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = 11, TerritoryId = 1 };
-        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
-        var sub = new Habitation { Id = 11, Cell = 1, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 1 };
+        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, HasAdmin = true, DwellFrom = 0, OccupantId = 0 };
+        var sub = new Habitation { Id = 11, Cell = 1, BornTick = 5, HasMarket = true, DwellFrom = 5, OccupantId = 1 };
         var cells = new List<int>[8];
         foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
         cells[0] = new List<int> { 0, 1 };
@@ -666,7 +667,7 @@ public class CivSimMechanicTests
             Tick = 30,
         };
         StateAssign.Rebuild(ctx);
-        // ①都城 Level2(≥2) ✓ ②成员聚落 2 + 次级中心 Level1 ✓ ③池 2.0 ≥ 150×0.01 ✓ ④30−0≥20 ✓
+        // ①都城治理中心 ✓ ②成员聚落 2 + 次级中心（集镇职能）✓ ③池 2.0 ≥ 150×0.01 ✓ ④30−0≥20 ✓
         Assert.AreEqual(0, chief.StateId, "酋邦制度化 → 国家");
         Assert.AreEqual(2, chief.StateSize);
         Assert.AreEqual(0, member.StateId);
@@ -678,7 +679,7 @@ public class CivSimMechanicTests
     {
         var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
         var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = -1, TerritoryId = 1 };
-        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
+        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, HasAdmin = true, DwellFrom = 0, OccupantId = 0 };
         var cells = new List<int>[8];
         foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
         cells[0] = new List<int> { 0, 1 };

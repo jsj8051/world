@@ -33,7 +33,7 @@ namespace World.MapGen;
 public static class MapArchive
 {
     public const string Magic = "MPA1";
-    public const ushort Version = 8;   // v8：CIVI 文明段字段概念分组（2026-08-23 Phase 3——v7 世界档作废）
+    public const ushort Version = 9;   // v9：CIVI 文明段功能定性（2026-08-23——v8 世界档作废）
 
     /// <summary>便捷重载：从已读档的 MapData 原样写回（v8 单存档化：生成→演化→重写带 CIVI 用）。
     /// 所有自然场按 Read 装载的原字段回写；civResult 非 null → 附 CIVI 段。</summary>
@@ -208,7 +208,7 @@ public static class MapArchive
                 LogService.LogErr("MapArchive", $"不支持的存档版本 {r.SkeletonVer}（仅支持 v{Version}；v1-v7 已于 2026-08-23 起作废——旧档全删，请重新生成）");
                 return false;
             }
-            map.Version = r.SkeletonVer;   // v8 = 段表格式（含 CIVI 段 = 有文明；段缺失 = 纯自然）
+            map.Version = r.SkeletonVer;   // v9 = 段表格式（含 CIVI 段 = 有文明；段缺失 = 纯自然）
 
             // ── HEAD：固定字段 ──
             if (!r.SeekSegment("HEAD"))

@@ -275,7 +275,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             if (e.IsChief && e.ChiefdomId == e.Id)
             {
                 var st = ctx.HabitationOf(e);
-                if (st != null) capitals[e.StateId] = st.Level;
+                if (st != null) capitals[e.StateId] = st.TownTier;   // 2026-08-23 功能定性：都城城镇级
             }
         }
         var list = new List<KeyValuePair<int, (int Polities, float Pop)>>(byState);
@@ -317,11 +317,11 @@ public partial class HumanLayersProbe : DiagSceneBase
                 if (st != null && st.OccupantId == m.Id)
                 {
                     settles++;
-                    if (cap != null && st.Id != cap.Id && st.Level >= CivSimContext.StateSubCenterLevel) sub = true;
+                    if (cap != null && st.Id != cap.Id && st.IsMarketTown) sub = true;   // 次级中心 = 集镇级职能
                 }
             }
             int dwell = cap != null ? ctx.Tick - cap.BornTick : -1;
-            diag.Add((kv.Key, members.Count, pop, cap != null ? cap.Level : -1, pool, pop * CivSimContext.StateTributePerCap, settles, sub, dwell));
+            diag.Add((kv.Key, members.Count, pop, cap != null ? cap.TownTier : -1, pool, pop * CivSimContext.StateTributePerCap, settles, sub, dwell));
         }
         diag.Sort((x, y) => y.Pop.CompareTo(x.Pop));
         var dSb = new System.Text.StringBuilder();
@@ -459,7 +459,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         foreach (var s in ctx.Habitations)
         {
             if (s.IsRuin) { ruins++; continue; }
-            if (s.Level >= 0 && s.Level < 4) levels[s.Level]++;
+            if (s.IsRuin) levels[0]++; else if (s.IsCity) levels[3]++; else if (s.IsMarketTown) levels[2]++; else levels[1]++;   // 2026-08-23：废墟/城市/集镇/村庄分布
             if (byId.TryGetValue(s.OccupantId, out var occ) && occ.IsChief && occ.ChiefdomId == occ.Id) capitals++;
         }
         LogService.Log("HumanLayersProbe", $"聚落: {ctx.Habitations.Count} 个 | 新村{levels[0]} 村庄{levels[1]} 城镇{levels[2]} 城市{levels[3]} 废墟{ruins} 都城{capitals}");

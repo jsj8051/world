@@ -15,7 +15,7 @@ using World.CivSim.Entities;
 namespace World.CivSim;
 
 /// <summary>
-/// 游玩地图存档 .cmp v16（段表格式；2026-08-23 段表化 v15，Phase 3 字段概念分组 → v16）。
+/// 游玩地图存档 .cmp v17（段表格式；2026-08-23 段表化 v15 → Phase 3 概念分组 v16 → 功能定性 v17）。
 ///
 /// 布局（docs/存档段表格式设计.md §2/§3.2）：
 ///   [4B]  magic "CMP1"
@@ -41,7 +41,7 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Older, Newer }
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 16;   // v16：Polity 字段按概念分组重排（2026-08-23 Phase 3——v15 档作废）
+    public const ushort Version = 17;   // v17：聚集地功能定性（2026-08-23——STTL 删 Level/LastLevelUpTick，加 3 职能条件字节；v16 及更早作废）
     private const int KeyMaxLen = 16;
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示）。</summary>
@@ -49,7 +49,7 @@ public static class CivMapArchive
         ProjectSettings.GetSetting("application/config/version", "0.0.0").AsString();
 
     /// <summary>版本分类：Current 可读；Older/Newer/Unknown 拒绝（菜单据此区分文案）。
-    /// 2026-08-23 段表化：只有骨架版本 16 可读，其余一律拒绝（旧档全删——v15 字段顺序旧布局作废）。</summary>
+    /// 2026-08-23 段表化：只有骨架版本 17 可读，其余一律拒绝（旧档全删——v16 及更早布局作废）。</summary>
     public static ArchiveVersionStatus ClassifyVersion(ushort ver)
     {
         if (ver == Version) return ArchiveVersionStatus.Current;
@@ -191,7 +191,7 @@ public static class CivMapArchive
         // STTL 顺序读
         rec.NextHabitationId = (int)r.Get32();
         int sCount = (int)r.Get32();
-        if (sCount < 0 || sCount > (r.Length - r.Position) / 48) { corrupted = true; return null; }
+        if (sCount < 0 || sCount > (r.Length - r.Position) / 55) { corrupted = true; return null; }   // v17: 15B 核心+3 条件+Stocks24
         var habitations = new List<Habitation>(sCount);
         for (int k = 0; k < sCount; k++)
         {
@@ -200,11 +200,12 @@ public static class CivMapArchive
                 Id = (int)r.Get32(),
                 Cell = (int)r.Get32(),
                 BornTick = (int)r.Get32(),
-                Level = (int)r.Get32(),
-                LastLevelUpTick = (int)r.Get32(),
                 DwellFrom = (int)r.Get32(),
                 OccupantId = (int)r.Get32(),
                 RuinFrom = (int)r.Get32(),
+                HasAdmin = r.Get8() != 0,      // v17 职能条件（2026-08-23 功能定性）
+                HasMarket = r.Get8() != 0,
+                HasRitual = r.Get8() != 0,
             };
             s.Stocks = CommodityTable.NewStocks();
             for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = r.GetFloat();
@@ -285,11 +286,12 @@ public static class CivMapArchive
             w.Store32((uint)s.Id);
             w.Store32((uint)s.Cell);
             w.Store32((uint)s.BornTick);
-            w.Store32((uint)s.Level);
-            w.Store32((uint)s.LastLevelUpTick);
             w.Store32((uint)s.DwellFrom);
             w.Store32((uint)s.OccupantId);   // -1 → uint 全 1（读回 (int) 还原）
             w.Store32((uint)s.RuinFrom);
+            w.Store8((byte)(s.HasAdmin ? 1 : 0));   // v17 职能条件（2026-08-23 功能定性）
+            w.Store8((byte)(s.HasMarket ? 1 : 0));
+            w.Store8((byte)(s.HasRitual ? 1 : 0));
             for (int k = 0; k < CommodityTable.Count; k++)
                 w.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
         }
@@ -311,7 +313,7 @@ public static class CivMapArchive
         }
     }
 
-    /// <summary>写 .cmp（v16 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
+    /// <summary>写 .cmp（v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {
         // ⚠️ 2026-08-18 阶段3：清单自检（字段改名/删除后清单过期 → 写档拒绝，防静默漏字段）
@@ -375,11 +377,12 @@ public static class CivMapArchive
                 w.Store32((uint)s.Id);
                 w.Store32((uint)s.Cell);
                 w.Store32((uint)s.BornTick);
-                w.Store32((uint)s.Level);
-                w.Store32((uint)s.LastLevelUpTick);
                 w.Store32((uint)s.DwellFrom);
                 w.Store32((uint)s.OccupantId);   // -1 → uint 全 1（读回 (int) 还原）
                 w.Store32((uint)s.RuinFrom);
+                w.Store8((byte)(s.HasAdmin ? 1 : 0));   // v17 职能条件（2026-08-23 功能定性）
+                w.Store8((byte)(s.HasMarket ? 1 : 0));
+                w.Store8((byte)(s.HasRitual ? 1 : 0));
                 for (int k = 0; k < CommodityTable.Count; k++)
                     w.StoreFloat(s.Stocks != null && k < s.Stocks.Length ? s.Stocks[k] : 0f);
             }
@@ -521,7 +524,7 @@ public static class CivMapArchive
         return c;
     }
 
-    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v16 段表：HEAD/NATR/TRIB/LAND/STTL/WARS。
+    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS。
     /// ⚠️ 2026-08-07：读档入口必须 TechTable.Load()——否则 _byKey 空 → 读档后 RefreshCellState/YFarm
     /// 里 Get(key) 全 null → NRE（CmpSelectMenu 只 Read 不 Run 的场景崩溃根因）。Load 幂等。</summary>
     public static bool Read(string path, out GameGrid grid, out CivSimResult result)
@@ -644,11 +647,12 @@ public static class CivMapArchive
                         Id = (int)r.Get32(),
                         Cell = (int)r.Get32(),
                         BornTick = (int)r.Get32(),
-                        Level = (int)r.Get32(),
-                        LastLevelUpTick = (int)r.Get32(),
                         DwellFrom = (int)r.Get32(),
                         OccupantId = (int)r.Get32(),
                         RuinFrom = (int)r.Get32(),
+                        HasAdmin = r.Get8() != 0,      // v17 职能条件（2026-08-23 功能定性）
+                        HasMarket = r.Get8() != 0,
+                        HasRitual = r.Get8() != 0,
                     };
                     s.Stocks = CommodityTable.NewStocks();
                     for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = r.GetFloat();
@@ -765,7 +769,7 @@ public static class CivMapArchive
     private static bool IsMagic(byte[] a, char c0, char c1, char c2, char c3) =>
         a.Length == 4 && a[0] == (byte)c0 && a[1] == (byte)c1 && a[2] == (byte)c2 && a[3] == (byte)c3;
 
-    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：v16 段表版——只读 HEAD 段（seed/tick）
+    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：v17 段表版——只读 HEAD 段（seed/tick）
     /// + SeekSegment("TRIB") 直达实体段统计人口/数量——**不再手算自然段长度**（段表随机访问的
     /// 核心红利；旧版需要 ArchiveLayout.BodyLength 计算自然段偏移，段一多就难维护）。
     /// 不加载自然数组、不重建 WildCrops/R/RefreshCellState——毫秒级。
@@ -800,7 +804,7 @@ public static class CivMapArchive
                 pop += r.GetFloat();        // P
                 r.Get8();                   // IsFarming
                 int keyCount = r.Get16();
-                // 段表格式固定布局（v16，无版本分支）：keys 后固定尾部。
+                // 段表格式固定布局（v17，无版本分支）：keys 后固定尾部。
                 // 183 = 份额×4 107 + Relig5 + Cell系列24 + Stocks24 + SettledSince/PlaceId 8
                 //       + Prestige/Contributed/Succession 12 + ConqueredBy/LastWarTick 8
                 //       （v16 概念分组布局，单一常数——重排后总长不变，Peek 只跳过不解析）。

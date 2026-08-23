@@ -19,10 +19,10 @@ public static class StateCapitalCheck
         return s.OccupantId == chief.Id ? s : null;
     }
 
-    /// <summary>① 都城判定：酋长占据聚落且 Level ≥ 都城线。</summary>
+    /// <summary>① 都城判定：酋长占据聚落且已是治理中心（IsCity——城市条件涌现）。</summary>
     public static bool Check(CivSimContext ctx, Polity chief, Dictionary<int, Habitation> settleById)
     {
         var capital = Of(chief, settleById);
-        return capital != null && capital.Level >= CivSimContext.StateCapitalLevel;
+        return capital != null && capital.IsCity;
     }
 }

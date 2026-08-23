@@ -137,8 +137,8 @@ public partial class CivSimDiag
         for (int i = 0; i < sa.Count; i++)
         {
             var x = sa[i]; var y = sb[i];
-            if (x.Id != y.Id || x.Cell != y.Cell || x.BornTick != y.BornTick || x.Level != y.Level
-                || x.LastLevelUpTick != y.LastLevelUpTick || x.DwellFrom != y.DwellFrom
+            if (x.Id != y.Id || x.Cell != y.Cell || x.BornTick != y.BornTick || x.DwellFrom != y.DwellFrom
+                || x.HasAdmin != y.HasAdmin || x.HasMarket != y.HasMarket || x.HasRitual != y.HasRitual
                 || x.OccupantId != y.OccupantId || x.RuinFrom != y.RuinFrom) return false;
             if (!FloatSeqEqual(x.Stocks, y.Stocks)) return false;
         }

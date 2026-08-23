@@ -75,13 +75,13 @@ public sealed class WarModel : CivModelBase
         else { w.WinsB++; ApplyLoss(ctx, w.StateIdA, byId); }
     }
 
-    /// <summary>国家军力 = Σ 成员 P×MilitMult × (1+WarCapitalBonus×都城Level) × 防御加成（城墙，P6）。
+    /// <summary>国家军力 = Σ 成员 P×MilitMult × (1+WarCapitalBonus×都城城镇级（2026-08-23 功能定性）) × 防御加成（城墙，P6）。
     /// ⚠️ 每会战调 2 次（每 5 tick）——成员数百量级，O(成员) 可接受（T18 教训仅约束每 tick 路径）。</summary>
     private static float PowerOf(CivSimContext ctx, int stateId, War w, Polity[] byId, Dictionary<int, Habitation> settleById)
     {
         var members = MembersOf(ctx, stateId);
         float f = 0f;
-        int capitalLevel = 0, cities = 0;
+        int capitalTier = 0, cities = 0;
         for (int k = 0; k < members.Count; k++)
         {
             int mid = members[k];
@@ -91,10 +91,10 @@ public sealed class WarModel : CivModelBase
             f += m.P * TechTable.MilitaryMult(m.TechKeys);
             var st = m.PlaceId >= 0 && settleById.TryGetValue(m.PlaceId, out var s) ? s : null;
             if (st == null || st.OccupantId != m.Id) continue;
-            if (m.Id == stateId) capitalLevel = Math.Max(capitalLevel, st.Level);   // 都城（酋长聚落）
-            if (st.Level >= 3) cities++;                                            // 城市=要塞（P6）
+            if (m.Id == stateId) capitalTier = Math.Max(capitalTier, st.TownTier);   // 都城城镇级（村庄0/集镇1/城市2——2026-08-23 功能定性）
+            if (st.IsCity) cities++;                                                        // 城市=要塞（P6——治理中心即城墙）
         }
-        f *= 1f + CivSimContext.WarCapitalBonus * capitalLevel;
+        f *= 1f + CivSimContext.WarCapitalBonus * capitalTier;
         if (stateId == w.Defender)
             f *= 1f + CivSimContext.WarCityDefenseBonus * cities;   // 防御方城墙加成
         return f;
