@@ -1,3 +1,4 @@
+using Godot;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
@@ -24,4 +25,13 @@ public static class ArchiveService
     /// <summary>写文明存档（.cmp）。</summary>
     public static bool SaveCiv(string path, GameGrid grid, CivSimResult result, bool log = true) =>
         CivMapArchive.Write(path, grid, result, log);
+
+    /// <summary>删除存档文件（.mpa/.cmp/.gmp 通用）。user:// 路径 → 绝对路径 → File.Delete；
+    /// 文件不存在视为成功（幂等）。失败抛异常（调用方 UI 提示，勿吞）。</summary>
+    public static void DeleteSave(string path)
+    {
+        string abs = ProjectSettings.GlobalizePath(path);
+        if (System.IO.File.Exists(abs))
+            System.IO.File.Delete(abs);
+    }
 }

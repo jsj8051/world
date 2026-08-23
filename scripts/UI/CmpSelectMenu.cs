@@ -11,6 +11,7 @@ namespace World.UI;
 /// 显示自然图层 + 文明图层：人口/文化/部落）。
 /// 显示：文件名 + seed + 纪元 + 演化时长 + 总人口 + 部落数。
 /// 2026-08-07：损坏存档也展示（红字 ⚠️），可选中但禁止进入（点击提示无法进入）。
+/// 2026-08-23：每行加「删除」按钮（ConfirmationDialog 确认后 File.Delete + 刷新列表；坏档/版本不符档也可删）。
 /// </summary>
 public partial class CmpSelectMenu : Control
 {
@@ -18,6 +19,8 @@ public partial class CmpSelectMenu : Control
     private Label _status;
     private readonly HashSet<string> _broken = new();   // 损坏存档路径（可展示可选，但禁止进入）
     private readonly HashSet<string> _locked = new();   // 版本不符存档路径（旧版本/过新，可展示可选，但禁止进入）
+    private ConfirmationDialog _confirm;   // 删除确认对话框（复用，避免反复建节点）
+    private string _pendingDelete = "";     // 待删除存档路径（确认后执行）
 
     public override void _Ready()
     {
@@ -61,6 +64,17 @@ public partial class CmpSelectMenu : Control
         backBtn.AddThemeFontSizeOverride("font_size", 22);
         backBtn.Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
         root.AddChild(backBtn);
+
+        // 删除确认对话框（复用）
+        _confirm = new ConfirmationDialog
+        {
+            Title = "删除文明存档",
+            OkButtonText = "删除",
+            CancelButtonText = "取消",
+            DialogText = "",
+        };
+        _confirm.Confirmed += ConfirmDelete;
+        AddChild(_confirm);
 
         RefreshList();
     }
@@ -106,12 +120,18 @@ public partial class CmpSelectMenu : Control
             bool locked = !broken && !enterable;
             if (broken) _broken.Add(path);
             else if (locked) _locked.Add(path);
+
+            // 行容器：进入按钮（占满剩余宽）+ 删除按钮（固定宽）
+            var row = new HBoxContainer();
+            row.AddThemeConstantOverride("separation", 6);
+            row.CustomMinimumSize = new Vector2(740, 56);
+
             var btn = new Button
             {
                 Text = broken ? $"⚠️ {f}   （存档已损坏，无法进入）"
                      : locked ? $"⚠️ {f}   {info}"
                      : $"📜 {f}   {info}",
-                CustomMinimumSize = new Vector2(740, 56),
+                SizeFlagsHorizontal = SizeFlags.ExpandFill,   // 进入按钮吃满剩余宽度
                 Alignment = HorizontalAlignment.Left,
             };
             btn.AddThemeFontSizeOverride("font_size", 18);
@@ -119,10 +139,51 @@ public partial class CmpSelectMenu : Control
             else if (locked) btn.AddThemeColorOverride("font_color", new Color(0.9f, 0.8f, 0.4f)); // 版本不符黄字
             string captured = path;   // 闭包捕获
             btn.Pressed += () => EnterGame(captured);
-            _list.AddChild(btn);
+
+            var delBtn = new Button
+            {
+                Text = "🗑 删除",
+                CustomMinimumSize = new Vector2(96, 56),
+            };
+            delBtn.AddThemeFontSizeOverride("font_size", 16);
+            delBtn.AddThemeColorOverride("font_color", new Color(1f, 0.6f, 0.5f));   // 删除 = 警示红
+            delBtn.Pressed += () => RequestDelete(captured, f);
+
+            row.AddChild(btn);
+            row.AddChild(delBtn);
+            _list.AddChild(row);
         }
         if (_broken.Count > 0 || _locked.Count > 0)
             _status.Text += $"（{_broken.Count} 个损坏 + {_locked.Count} 个版本不符，均无法进入）";
+    }
+
+    /// <summary>请求删除：弹确认对话框（防误删），确认后 ConfirmDelete。</summary>
+    private void RequestDelete(string path, string fileName)
+    {
+        _pendingDelete = path;
+        _confirm.DialogText = $"确定删除文明存档「{fileName}」？此操作不可恢复。";
+        _confirm.PopupCentered();
+    }
+
+    private void ConfirmDelete()
+    {
+        if (_pendingDelete.Length == 0) return;
+        string path = _pendingDelete;
+        _pendingDelete = "";
+        try
+        {
+            ArchiveService.DeleteSave(path);
+            _broken.Remove(path);
+            _locked.Remove(path);
+            _status.Text = $"🗑 已删除 {path.GetFile()}";
+            LogService.Log("CmpSelectMenu", $"删除存档 {path}");
+        }
+        catch (Exception ex)
+        {
+            _status.Text = $"⚠️ 删除失败：{ex.Message}";
+            LogService.LogErr("CmpSelectMenu", $"删除失败 {path}: {ex}");
+        }
+        RefreshList();
     }
 
     /// <summary>读取 .cmp 轻量摘要（seed/时长/人口/部落数）——Peek 跳过自然段，不重建 WildCrops/R
