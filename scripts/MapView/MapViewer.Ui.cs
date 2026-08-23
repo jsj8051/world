@@ -78,6 +78,9 @@ public partial class MapViewer
                 ButtonGroup = group,
                 CustomMinimumSize = new Vector2(42, 38),
                 IconAlignment = HorizontalAlignment.Center,
+                // ⚠️ 2026-08-23 场景化修复：行矩形被锚点 Offset 拉高（-90~0）时，默认 Fill
+                //   会把 38px 图标按钮撑满 90px → 盖住下方分类行。ShrinkCenter 保持原高。
+                SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
             };
             btn.AddThemeStyleboxOverride("normal", HudBtnStyle());
             btn.AddThemeStyleboxOverride("hover", HudBtnHoverStyle());
@@ -166,9 +169,15 @@ public partial class MapViewer
         // ⚠️ 必须用 Offset（相对 anchor 的原始偏移）而非 Position——Position setter 会用
         //   父尺寸反推 offset（offset = pos - anchor×parentSize），AddChild 后调用会把
         //   rect 起点推到屏幕外（实测 global=(-113,-84)，2026-08-08）。
+        // 2026-08-23 场景化修复：OffsetRight 必须对称设置（只设 Left 时右边界=0 → 行宽被
+        //   min size 撑成非对称矩形，盖到下方分类行）。OffsetTop 上移 90px（原 84，避开
+        //   分类行 -44 处）；行高收敛到内容（不设 OffsetBottom，由内容 min 高 40± 决定）。
         float halfW = 21f * visible + 2f * (visible - 1);
         _layerRow.OffsetLeft = -halfW;
-        _layerRow.OffsetTop = -84;
+        _layerRow.OffsetRight = halfW;
+        _layerRow.OffsetTop = -90;
+        // 行高收敛到按钮高（40）；不设则被 bottom=0 撑到 90 → 高矩形遮挡下方分类行
+        _layerRow.OffsetBottom = -50;
     }
 
 
