@@ -55,13 +55,14 @@ public static class StateAssign
         }
     }
 
-    /// <summary>国家涌现判定 = 规范积木 AND 组合（纯函数——全部输入已入档/派生）。</summary>
+    /// <summary>国家涌现判定 = 规范积木 AND 组合（纯函数——全部输入已入档/派生）。
+    /// ⚠️ 2026-08-24 用户拍板：国家 = 三条件（都城 + 贡赋 + 存续）——"首都即可承担行政网络"，
+    ///   城邦就是国家默认形态；次级中心（决策层级）从硬性条件移除（回归普通机制，非概念门槛）。</summary>
     private static bool IsState(CivSimContext ctx, Polity chief, List<int> members, Polity[] byId, Dictionary<int, Habitation> settleById)
     {
-        Habitation capital = StateCapitalCheck.Of(chief, settleById);   // 解析都城（供 ②④ 复用）
-        if (!StateCapitalCheck.Check(ctx, chief, settleById)) return false;          // ① 都城
+        Habitation capital = StateCapitalCheck.Of(chief, settleById);   // 解析都城（供 ④ 复用）
+        if (!StateCapitalCheck.Check(ctx, chief, settleById)) return false;          // ① 都城（治理中心）
         if (!StateDwellCheck.Check(ctx, capital)) return false;                      // ④ 存续（弱滞回）
-        if (!StateSubCenterCheck.Check(members, byId, settleById, capital.Id)) return false;   // ② 决策层级
         return StateTributePoolCheck.Check(members, byId);                           // ③ 贡赋盈余
     }
 }

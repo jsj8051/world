@@ -72,10 +72,12 @@ public class CivSimModelTests
     // ── 影响力/产出距离权重查表 ──
 
     [TestCase(0f, 1f)]
-    [TestCase(1f, 0.544f)]
-    [TestCase(2f, 0.192f)]
-    [TestCase(3f, 0f)]
-    [TestCase(4f, 0f)]
+    [TestCase(1f, 0.761f)]
+    [TestCase(2f, 0.544f)]
+    [TestCase(3f, 0.354f)]
+    [TestCase(4f, 0.192f)]
+    [TestCase(5f, 0.068f)]
+    [TestCase(6f, 0f)]
     [TestCase(-1f, 0f)]
     public void InfluenceWeight_Lut(float d, float expected)
     {

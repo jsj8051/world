@@ -90,19 +90,17 @@ public partial class CivSimDiag
         ctx.TerritoryCells[1].Add(1);
         ctx.TerritoryDists[1].Add(1);
 
-        // 手动跑能量/增长/模式循环（不含发明，只测选择动力学）
+        // 手动跑能量/模式循环（不含发明/增长——人口由场景固定 P=3y0 保证选择分离点；
+        // ⚠️ 2026-08-23 移除 GrowthModel：旧实现靠 FLast=0 冻结（continue）保 P，新饿死语义
+        //   （F=0 → P×0.7 减员）会让 P 跌落 → eF=yF/P 双曲线翻转 → φ=0.3 也转农，污染选择动力学）
         var mode = new ModeModel();
         var energy = new EnergyModel();
-        var growth = new GrowthModel();
         for (int tick = 0; tick < 200; tick++)
         {
             ctx.Tick = tick;
             CivEngine.RefreshCellState(ctx);
             energy.Execute(ctx);
-            growth.Execute(ctx);
             mode.Execute(ctx);
-            if (ea.P < 1f) ea.P = 3f * y0;   // 防饿死干扰（只测选择）
-            if (eb.P < 1f) eb.P = 3f * y0;
         }
         bool aFarms = ea.IsFarming;    // φ=1.0 → 稳态农业
         bool bFarms = eb.IsFarming;    // φ=0.3 → 稳态狩猎（农业 K<狩猎 K 自动拒绝）
@@ -167,13 +165,15 @@ public partial class CivSimDiag
     }
 
 
-    /// <summary>S4：分裂继承（2026-08-10 殖民式语义）——母 band 超载 → 45% 分群殖民 1-3 跳内最高富饶**无主**格；
-    /// 母领地不动；份额等比例、TechKeys 完整、BornTick。</summary>
+    /// <summary>S4：分裂继承（2026-08-10 殖民式语义 + 2026-08-23 segmentary lineage 领地继承）——
+    /// 母 band 超载 → 45% 分群殖民无主格，子体继承母体领地**远半**（CellOwner 转移）；
+    /// 份额等比例、TechKeys 完整、BornTick。</summary>
     private void S4_FissionInherit()
     {
-        // 8 格赤道网格（45° 间隔全 lat=0，BuildNeighbors 桶索引正常——N=4 的 (0,1,0) 是北极会进极区桶查不到）：
-        // 格 0 领地主 band，格 1 无主 → 殖民目标
+        // 8 格赤道环（RingLinks 精确邻接）：
+        // 格 0-3 母体领地（dist 0/1/2/3），格 4 无主 → 殖民目标（distance best）
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        RingLinks(g);
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
         e.CultureShare = new[] { new ShareEntry { Key = "cult_7", Frac = 200 }, new ShareEntry { Key = "cult_9", Frac = 55 } };
@@ -181,22 +181,25 @@ public partial class CivSimDiag
         e.ReligionShare = ShareField.NewReligion(ReligionStage.Shaman);
         e.IsFarming = false;
         ctx.CellPolities[0] = e;
-        // 领地 1 格（驻扎点格 0 归属 e）；格 1 无主 → 殖民目标
-        ctx.CellOwner[0] = 0;
-        ctx.TerritoryCells[0].Add(0);
-        ctx.TerritoryDists[0].Add(0);
+        // 领地 4 格（0-3，CellOwner 归母体）；格 4+ 无主 → 殖民目标
+        for (int c = 0; c < 4; c++) ctx.CellOwner[c] = 0;
+        ctx.TerritoryCells[0] = new List<int> { 0, 1, 2, 3 };
+        ctx.TerritoryDists[0] = new List<byte> { 0, 1, 2, 3 };
         var sm = new SplitMigrateModel();
         sm.Execute(ctx);
         bool ok = ctx.Polities.Count == 2;
         var nt = ctx.Polities[1];
+        // 新语义：newPop = min(45% 分群, 继承远半领地承载)——远半 2 格承载 ≥ 225 → 走 45%；
+        // 子体落点 = 继承远半中 R 最大格（定居分得地盘）——R 全等（MakeGrid）→ 平局取先见（dist 降序首格 3）
         ok &= Mathf.Abs(nt.P - 225f) < 0.01f && Mathf.Abs(e.P - 275f) < 0.01f;   // 45% 带走
-        ok &= nt.Cell != 0 && ctx.CellOwner[nt.Cell] == -1;   // 殖民到任一无主格（tie-break 由遍历顺序定）
-        ok &= ctx.CellOwner[0] == 0;   // 母领地不动
+        ok &= nt.Cell == 3 && ctx.CellPolities[3] == nt;   // 子体定居继承地盘（远半格 3，R 平局取先见）
+        ok &= ctx.CellOwner[0] == 0 && ctx.CellOwner[1] == 0;   // 近半领地留母体（2026-08-23 领地继承）
+        ok &= ctx.CellOwner[2] == nt.Id && ctx.CellOwner[3] == nt.Id;   // 远半领地继承给子体
         ok &= nt.CultureShare[0].Key == "cult_7" && nt.CultureShare[0].Frac == 200 && nt.CultureShare[1].Frac == 55;   // 等比例继承
         ok &= nt.TechKeys.Count == 3 && nt.TechKeys.Contains(TechTable.Fire);    // TechKeys 完整
         ok &= nt.BornTick == 0 && nt.OriginCell == 0;
         ok &= nt.CultureGroupShare[0].Key == "cult_3";   // 群份额继承
-        Check("S4 分裂继承", ok, $"新实体 P={nt.P:F0}（应225） 格={nt.Cell}（应1） 份额={nt.CultureShare[0].Frac}（应200） 科技={nt.TechKeys.Count}（应3）");
+        Check("S4 分裂继承", ok, $"新实体 P={nt.P:F0}（应225） 格={nt.Cell}（应无主） 份额={nt.CultureShare[0].Frac}（应200） 科技={nt.TechKeys.Count}（应3） 远半归子体={ctx.CellOwner[2]}={nt.Id}");
     }
 
 
@@ -301,9 +304,10 @@ public partial class CivSimDiag
         var ctxA = MakeCtx(gA);
         var famine = AddPolity(ctxA, 0, 20f, TechTable.StoneCore);
         famine.FLast = 5f;            // 产出 1/4（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
-        ctxA.CellOwner[0] = 0;        // 领地 1 格；其余格无主 → 殖民目标
-        ctxA.TerritoryCells[0].Add(0);
-        ctxA.TerritoryDists[0].Add(0);
+        // ⚠️ 2026-08-23 领地继承：无领地可分（terr<2 格）→ 不分裂——场景补 4 格领地
+        for (int c = 0; c < 4; c++) ctxA.CellOwner[c] = 0;
+        ctxA.TerritoryCells[0] = new List<int> { 0, 1, 2, 3 };
+        ctxA.TerritoryDists[0] = new List<byte> { 0, 1, 2, 3 };
         var sm = new SplitMigrateModel();
         sm.Execute(ctxA);
         bool famineFissioned = ctxA.Fissions == 1;
@@ -704,11 +708,12 @@ public partial class CivSimDiag
     }
 
 
-    /// <summary>T64 国家涌现（2026-08-16 阶段4，docs/阶段4设计-国家涌现.md）：酋邦满足 AND 四条件
-    /// （都城 Level≥2 + 存续 + 决策层级 + 贡赋盈余）→ StateModel 标 StateId；任一条件缺 → 非国家。</summary>
+    /// <summary>T64 国家涌现（2026-08-16 阶段4，docs/阶段4设计-国家涌现.md；2026-08-24 用户拍板三条件）：
+    /// 酋邦满足 AND 三条件（都城 + 贡赋盈余 + 存续）→ StateModel 标 StateId；任一条件缺 → 非国家。
+    /// ⚠️ 次级中心（决策层级）已从硬条件移除——"首都即可承担行政网络"，城邦即国家默认形态。</summary>
     private void T64_StateEmergence()
     {
-        // 构造国家：酋长 A（都城 L2，BornTick 早）+ 成员 B（次级中心 L1）+ 成员 C（无聚落）+ 贡赋池足
+        // 构造国家：酋长 A（都城治理中心，BornTick 早）+ 成员 B/C（+贡赋池足）
         var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
@@ -719,8 +724,6 @@ public partial class CivSimDiag
         SetupStateChiefdom(ctx, a, b, c);
         var cap = AddHabitation(ctx, a);
         cap.HasAdmin = true; cap.BornTick = 0;                 // 都城：治理中心（2026-08-23 功能定性）
-        var sub = AddHabitation(ctx, b);
-        sub.HasMarket = true;                                  // 次级中心：集镇级职能（市场）
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;   // 池 150 ≥ 阈值 1000×StateTributePerCap(0.01)=10
         StateAssign.Rebuild(ctx);
         bool emerged = a.StateId == a.Id && b.StateId == a.Id && c.StateId == a.Id && a.StateSize == 3;
@@ -734,12 +737,10 @@ public partial class CivSimDiag
         SetupStateChiefdom(ctx2, a2, b2, c2);
         var cap2 = AddHabitation(ctx2, a2);
         cap2.HasAdmin = true; cap2.BornTick = 0;
-        var sub2 = AddHabitation(ctx2, b2);
-        sub2.HasMarket = true;
         a2.Contributed = 2f; b2.Contributed = 2f; c2.Contributed = 1f;   // 池 5 < 阈值 10（2026-08-19 同步 0.1→0.01 校准；旧值 50 已足额）
         StateAssign.Rebuild(ctx2);
         bool noTribute = a2.StateId < 0 && b2.StateId < 0;
-        // 反例②：无次级中心（B 聚落 L0）→ 非国家
+        // 反例②：都城非治理中心（HasAdmin=false → 无行政职能→非城市）→ 非国家（2026-08-24：原"无次级中心"反例随三条件拍板移除，改测 ① 都城）
         var ctx3 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx3.Tick = 50;
         var a3 = AddPolity(ctx3, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -748,12 +749,10 @@ public partial class CivSimDiag
         a3.IsChief = true;
         SetupStateChiefdom(ctx3, a3, b3, c3);
         var cap3 = AddHabitation(ctx3, a3);
-        cap3.HasAdmin = true; cap3.BornTick = 0;
-        var sub3 = AddHabitation(ctx3, b3);
-        sub3.HasMarket = false;                                // 无集镇职能——非次级中心
+        cap3.HasAdmin = false; cap3.BornTick = 0;              // 都城格子无治理职能 → 非城市
         a3.Contributed = 50f; b3.Contributed = 50f; c3.Contributed = 50f;
         StateAssign.Rebuild(ctx3);
-        bool noHierarchy = a3.StateId < 0;
+        bool noAdmin = a3.StateId < 0;
         // 反例③：都城存续不足（BornTick 近）→ 非国家
         var ctx4 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx4.Tick = 50;
@@ -764,13 +763,11 @@ public partial class CivSimDiag
         SetupStateChiefdom(ctx4, a4, b4, c4);
         var cap4 = AddHabitation(ctx4, a4);
         cap4.HasAdmin = true; cap4.BornTick = 40;              // 存续 10 < 20（都城条件 OK，存续不足）
-        var sub4 = AddHabitation(ctx4, b4);
-        sub4.HasMarket = true;
         a4.Contributed = 50f; b4.Contributed = 50f; c4.Contributed = 50f;
         StateAssign.Rebuild(ctx4);
         bool noDwell = a4.StateId < 0;
-        Check("T64 国家涌现", emerged && noTribute && noHierarchy && noDwell,
-            $"涌现={emerged}(StateId={a.StateId}/size={a.StateSize}) 贡赋不足={noTribute} 无层级={noHierarchy} 存续不足={noDwell}");
+        Check("T64 国家涌现", emerged && noTribute && noAdmin && noDwell,
+            $"涌现={emerged}(StateId={a.StateId}/size={a.StateSize}) 贡赋不足={noTribute} 都城非城市={noAdmin} 存续不足={noDwell}");
     }
 
 
@@ -845,8 +842,6 @@ public partial class CivSimDiag
         SetupStateChiefdom(ctx, a, b, c);
         var cap = AddHabitation(ctx, a);
         cap.HasAdmin = true; cap.BornTick = 0;
-        var sub = AddHabitation(ctx, b);
-        sub.HasMarket = true;
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;
         StateAssign.Rebuild(ctx);
         bool emerged = a.StateId == a.Id;

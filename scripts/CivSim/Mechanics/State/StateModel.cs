@@ -7,12 +7,13 @@ namespace World.CivSim.Mechanics.State;
 //   酋邦 → 国家 = **制度化**（无规模阈值——性质跃迁非体积达标）。
 //   涌现条件（AND，全部用已入档持久字段 → 纯派生不存档，读档续跑无分叉）：
 //     ① 都城：至尊酋长（ChiefdomId==Id 且 IsChief）占据聚落，且为治理中心（IsCity——2026-08-23 功能定性，旧 Level 门槛已删）
-//     ② 决策层级：酋邦内 ≥2 个成员聚落，且存在集镇级职能（IsMarketTown）的非都城聚落——2026-08-23 功能定性
 //     ③ 贡赋盈余：贡赋池（Σ 成员 Contributed）≥ 酋邦总人口 × StateTributePerCap
 //     ④ 存续：Tick − 都城.BornTick ≥ StateDwellTicks（都城实体存续——场所比人长寿）
-//   ⚠️ 2026-08-23 概念 = 机制组合（Phase 1）：判定拆为 4 个规范积木（Specification）+ 1 个写入积木
-//     （StateCapitalCheck / StateSubCenterCheck / StateTributePoolCheck / StateDwellCheck / StateAssign）——
-//     本类退化为机制外壳，执行端 = StateAssign（"State = AND(①②③④) → Assign"）。
+//   ⚠️ 2026-08-24 用户拍板：国家 = **三条件**——"首都即可承担行政网络"，城邦即国家默认形态；
+//     次级中心（决策层级）从硬条件移除（回归普通机制，非概念门槛；概念轴保持 band/tribe/chiefdom/state 四级）。
+//   ⚠️ 2026-08-23 概念 = 机制组合（Phase 1）：判定拆为规范积木（Specification）+ 写入积木
+//     （StateCapitalCheck / StateTributePoolCheck / StateDwellCheck / StateAssign）——本类退化为机制外壳，
+//     执行端 = StateAssign（"State = AND(①③④) → Assign"）。
 //   执行位置：Order 49（Chiefdom 46 之后——读最新 ChiefdomId/成员表；Conflict 75 之前——冲突豁免生效）。
 //   滞后 1 tick 语义（PrestigeModel 25 读 StateId 为上一 tick 值）：SettleDerived 重建值 ≡ 演化末写入值
 //     （同输入同公式）→ 读档续跑无分叉（T04 验证）。
@@ -22,6 +23,6 @@ public sealed class StateModel : CivModelBase
     public override string Name => "国家涌现";
     public override int Order => 49;
 
-    /// <summary>机制外壳：执行端 = StateAssign 规范积木（清空 + 四判定 AND + 写入）。</summary>
+    /// <summary>机制外壳：执行端 = StateAssign 规范积木（清空 + 三判定 AND + 写入）。</summary>
     protected override void Apply(CivSimContext ctx) => StateAssign.Rebuild(ctx);
 }

@@ -38,15 +38,46 @@ public sealed class SplitMigrateModel : CivModelBase
             float tension = Mathf.Clamp((t.P - CivSimContext.FissionTensionStart) / CivSimContext.FissionTensionSpan, 0f, 1f);
             float pEff = t.P * (1f + Mathf.Max(0f, 1f - t.FLast / t.P) + tension);
             if (pEff <= CivSimContext.SplitPop) continue;
-            int target = PickMigrateTarget(ctx, t);   // 殖民目标：影响圈外 1-6 跳最高分无主可居格
-            if (target < 0) continue;                 // 无主地耗尽 → 不分裂
-            // ⚠️ 2026-08-19 扩张修正：分裂人口**自适应目标承载**——殖民者带"能活的数量"。
-            //   旧 45% 固定：母体 P=1600 → 新实体 720 落贫瘠格（承载 ~155）→ GrowthModel 指数减员
-            //   （exp(0.5×(1−P/f)) ≈ 0.045/tick）→ 2-3 tick 饿死 → 殖民即死 → 扩散被死亡抵消
-            //   （n128 实测：分裂 1.8 万 / 净增 0.6 万 = 死亡 1.2 万）。
-            //   史实：band 分裂 = 溢出小群殖民，带走量由目的地可养决定（压力小就少分）。
-            float cap = ctx.R[target] * ctx.Grid.CellAreaKm2 * TechTable.HuntingCarry(t.TechKeys);   // 目标格狩猎承载（人）
-            float newPop = Mathf.Min(t.P * CivSimContext.SplitShare, Mathf.Max(1f, cap));
+            // ⚠️ 2026-08-19 扩张修正 + 2026-08-23 领地继承适配（segmentary lineage）：
+            //   ① 分群前先算母体领地远半（idx 按 dists 降序）——此半格将转给子体；
+            //   ② 子体落点 = 继承远半格中潜在最大者（**定居分得地盘**，非殖民异地）——
+            //      旧落点 PickMigrateTarget（影响圈外无主格）与继承领地不连通 → 子体领地 BFS 吃不到
+            //      → F=0 → 饿死（修复后 n64 实测仍残 5 僵尸：e252 领地 2 格却驻扎格不自属）。
+            //      史实：氏族裂变 = 子氏族留在分得的地盘上；扩散靠母体领地逐步扩张（影响场赢无主格）。
+            //   ③ 无领地可分（terr<2 格）→ 不分裂（流亡裂变无意义，保底 2 人仍是饿死僵尸）。
+            //   确定性：固定遍历序 + dists 降序排序（比较器无平局随机），R 最大值用严格 >（平局取先见）。
+            var terr = ctx.TerritoryOf(t);
+            var dists = ctx.TerritoryDistsOf(t);
+            List<int> idx = null;
+            int half = 0;
+            int subCell = -1;
+            float subBest = -1f;
+            if (terr != null && terr.Count > 1 && dists != null && dists.Count == terr.Count)
+            {
+                idx = new List<int>(terr.Count);
+                for (int k = 0; k < terr.Count; k++) idx.Add(k);
+                idx.Sort((a, b) =>
+                {
+                    int db = dists[b], da = dists[a];
+                    return db != da ? db.CompareTo(da) : a.CompareTo(b);   // 远→近；dist 平局按格索引（排序实现无关的显式定义，跨运行时确定性）
+                });
+                half = terr.Count / 2;
+                for (int k = 0; k < half && k < idx.Count; k++)
+                {
+                    int c = terr[idx[k]];
+                    // ⚠️ 2026-08-24：子体落点排除**他人驻扎格**（领地格=归属格，可能含他属驻扎者
+                    //   ——定居自属 84% 意味着 16% 实体住别人领地）——否则 CellPolities[c] 被覆盖
+                    //   → 一格一实体破坏（S7 状态不变量实测抓到）。
+                    if (ctx.CellPolities != null && ctx.CellPolities[c] != null) continue;
+                    if (ctx.R[c] > subBest) { subBest = ctx.R[c]; subCell = c; }
+                }
+            }
+            if (subCell < 0) continue;   // 无领地可分 → 不分裂（原 target<0 语义保留）
+            int target = subCell;        // 子体定居继承地盘（潜在最大格）
+            float subCap = 0f;
+            for (int k = 0; k < half && k < idx.Count; k++)
+                subCap += ctx.R[terr[idx[k]]] * ctx.Grid.CellAreaKm2 * TechTable.HuntingCarry(t.TechKeys);
+            float newPop = Mathf.Min(t.P * CivSimContext.SplitShare, Mathf.Max(2f, subCap));
             t.P -= newPop;
             t.LastSplitTick = ctx.Tick;
             var nt = new Polity
@@ -75,7 +106,12 @@ public sealed class SplitMigrateModel : CivModelBase
             if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
             ctx.Polities.Add(nt);
-            ctx.CellPolities[target] = nt;   // 一格一实体：分裂殖民到空格
+            ctx.CellPolities[target] = nt;   // 一格一实体：子体占据继承地盘格
+            // ⚠️ 2026-08-23 领地继承：把上面算好的远半格 CellOwner 转给子体——旧"母领地完全不动"
+            //   = 子体殖民无主格 → 归属竞争必输 → 领地 0 → F=0 饿死。确定性：固定遍历序。
+            if (idx != null && ctx.CellOwner != null)
+                for (int k = 0; k < half && k < idx.Count; k++)
+                    ctx.CellOwner[terr[idx[k]]] = nt.Id;
             ctx.Fissions++;
         }
 

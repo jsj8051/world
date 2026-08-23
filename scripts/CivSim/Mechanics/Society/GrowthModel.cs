@@ -78,7 +78,15 @@ public sealed class GrowthModel : CivModelBase
                     }
                 }
             }
-            if (f <= 0f) continue;
+            if (f <= 0f)
+            {
+                // ⚠️ 2026-08-23 僵尸修复：无产出不再永久冻结（旧 continue = 不增不减的死残影，占格子、
+                // 稀释统计）。慢性饿死 ×StarveMult——被完全压制者持续减员，期间饥饿迁移（SplitMigrate
+                // Order 80）可找到立锥之地，找不到则灭绝释放格子供其他实体殖民。
+                e.P *= CivSimContext.StarveMult;
+                if (e.P < 1f) { e.P = 0f; e.Dead = true; }
+                continue;
+            }
             // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
             float rEff = r;
             if (CapabilityTable.Has(ctx, e, CapabilityTable.Settle)) rEff *= CivSimContext.SettleGrowthMult;   // 1.5

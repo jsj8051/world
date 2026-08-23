@@ -79,6 +79,7 @@ public sealed class CivSimContext
     public List<War> Wars = new();                 // 进行中的战争（交战 + 朝贡期）
     public int WarsDeclared;   // 演化统计：宣战场次（不入档——同 Conflicts 模式，诊断/日志）
     public int WarsAnnexed;    // 演化统计：吞并场次
+    public int WarsPlagued;    // 演化统计：瘟疫爆发场次（战争结算 v2，2026-08-23）
 
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
     public Habitation HabitationOf(Polity e)
@@ -101,6 +102,8 @@ public sealed class CivSimContext
     // ═══════════════════════ 参数（★ 定稿，docs/石器时代设计.md）═══════════════════
 
     public const float GrowthRatePerYear = 0.005f;   // r_eff 年率（0.5%/年）；tick=100 年 → 0.5/tick
+    public const float StarveMult = 0.7f;   // 无产出存活倍率/tick（2026-08-23 僵尸修复：F=0 不再冻结——
+                                            //   慢性饿死 ×0.7（约 2-7 tick 灭绝），逼饥饿迁移或释放格子）
     public const int TickYears = 100;
     public const float W = 0.2f;                      // 耕作劳动成本差（Sahlins；稳态论证 0.8 > 0.77）
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
@@ -146,8 +149,8 @@ public sealed class CivSimContext
     public const float StateTributeRate = 0.2f;        // 国家贡赋率（酋邦 TributeRate=0.1 翻倍——税制化，Earle）
     public const float StateEliteFrac = 0.25f;         // 国家官僚/精英比例（酋邦 EliteFrac=0.1——官僚化）
     public const float StateInternalConflictMult = 0.25f; // 国家内部冲突概率倍率（酋邦 0.5——Weber 强制力垄断）
-    // 都城/次级中心条件（2026-08-23 功能定性：不再用聚落 Level——都城 = 治理中心（IsCity）、
-    // 次级中心 = 集镇级职能（IsMarketTown）——国家涌现 = 已有城市 + 官僚节点（Childe））
+    // 都城条件（2026-08-23 功能定性：不再用聚落 Level——都城 = 治理中心（IsCity））；
+    // ⚠️ 2026-08-24 用户拍板：国家 = 三条件（都城 + 贡赋 + 存续）——次级中心不再是硬条件（首都即可承担行政网络）
     public const float StateTributePerCap = 0.01f;     // 贡赋盈余线：贡赋池 ≥ 酋邦总人口×此值（剩余集中，Childe）
                                                        //   ★ 校准（0.1→0.01，2026-08-16 探针）：Contributed 是互惠记录且被
                                                        //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
@@ -170,6 +173,40 @@ public sealed class CivSimContext
     public const float WarPlunderRate = 0.5f;      // 吞并战利品：战胜国池 += 战败国池×此值（Tilly 战争养战争）
     public const float WarConflictMult = 2.0f;     // 交战国边境冲突概率 ×2（战争中的治安战更凶——外交断交的格级表现）
     public const int WarCedeCells = 3;             // 朝贡割地格数（战败国边境格易主）
+    // ── 战争结算 v2（2026-08-23 用户拍板：参数+随机直接结算——进程随机事件 + 概率分档，取代纯硬阈值）──
+    // 会战（每场独立掷）
+    public const float WarMoraleMin = 0.8f;        // 士气骰子下限（军力 ×此值~此值——同参数每场波动，战争迷雾）
+    public const float WarMoraleMax = 1.2f;        // 士气骰子上限
+    public const float WarTreasuryLoss = 0.01f;    // 会战胜方军费损耗（×此值——打仗烧钱；败方已有 WarLoss）
+    // 瘟疫事件（进程事件 A——营地病：斑疹伤寒/痢疾；围城/营地拥挤史实）
+    public const float WarPlagueBase = 0.05f;      // 每场会战后瘟疫触发概率（基础）
+    public const float WarPlagueRamp = 0.02f;      // 战争持续每 WarPlagueRampTicks 概率 +此值（打越久营越脏）
+    public const int WarPlagueRampTicks = 5;       // 瘟疫概率递增节奏（=会战节奏——每场会战 +2%）
+    public const float WarPlagueLossMin = 0.05f;   // 瘟疫减员下限（遭灾方人口/贡赋 ×(1−此值~此值)）
+    public const float WarPlagueLossMax = 0.10f;   // 瘟疫减员上限
+    // 天气事件（进程事件 B——接交战地真实气候 MonthTemp/MonthPrecip：当地本来就这样，非凭空随机）
+    public const float WarColdMonthTemp = -5f;     // 严寒：最冷月均温 < 此值（高纬/高原——冬季攻势）
+    public const float WarColdAttackerMult = 0.8f; // 严寒：进攻方（宣战方）军力 ×此值
+    public const float WarColdLoss = 0.05f;        // 严寒：双方损耗 +此值（冻伤/补给线）
+    public const float WarRainyMonthFrac = 0.25f;  // 雨季：最大月降水比例 > 此值（季风区——泥泞/补给断）
+    public const float WarRainyAttackerMult = 0.75f; // 雨季：进攻方军力 ×此值
+    public const float WarDryMonthPrecip = 30f;    // 干旱：最干月降水 < 此值 mm 且年均温 > WarDryTemp（旱区缺水）
+    public const float WarDryTemp = 20f;           // 干旱年均温阈值（°C）
+    public const float WarDryLoss = 0.05f;         // 干旱：双方损耗 +此值（缺水）
+    // 开战动机门（用户拍板"该打的才打"——动机/关系/实力，纯函数判定，Rng 只在最终概率掷）
+    public const float WarAimTerritoryRatio = 1.2f;   // 领土野心：对方成员数 ≥ 本国×此值（扩张对象更大）
+    public const float WarAimPowerRatio = 1.5f;       // 军事优势：本国军力 ≥ 对方×此值（机会主义——弱肉强食）
+    public const float WarPowerGapMult = 0.3f;        // 实力门槛：弱挑战方开战概率 ×此值（打不过不敢打）
+    public const float WarPowerGapRatio = 0.5f;       // 实力门槛触发线：本国军力 < 对方×此值 → 视为弱方
+    public const float WarRelationCultureMult = 0.5f; // 关系调节：同文化群主导 → ×此值（亲缘纽带）
+    public const float WarRelationTradeMult = 0.7f;   // 关系调节：有贸易往来（商路节点）→ ×此值（利益纽带）
+    public const float WarRelationGrudgeMult = 2.0f;  // 关系调节：被对方征服过（ConqueredBy 痕迹）→ ×此值（仇恨记忆）
+    // 结果概率分档（取代旧"达标即必然"——中间地带按军力比掷；碾压仍走硬路径不掷）
+    public const float WarAnnexHardMult = 2.0f;       // 碾压确认线：军力比 ≥ WarPowerRatio×此值 → 不掷，必然吞并/朝贡（强弱悬殊无悬念）
+    public const float WarAnnexWeightBase = 2.0f;     // 概率路径吞并权重基数（×军力比²——越碾压越可能）
+    public const float WarTributeWeightBase = 1.5f;   // 概率路径朝贡权重基数（×军力比）
+    public const float WarStalemateWeight = 1.0f;     // 维持现状权重（兜底——拉锯战常态）
+    public const float WarPrestigeGain = 0.5f;        // 战争声望：胜方 Prestige += 净胜场差×此值，败方 −（接 Sahlins 声望体系）
     // ── 聚集地职能条件参数（2026-08-23 功能定性重设计——村庄/集镇/城市 = 职能条件，非人口等级；
     //    旧 Dwell×P 升阶常量（SettlementPop/LevelTicks/Cooldown）已删除——用户拍板 D3）
     public const int MarketTradePartners = 2;   // 市场条件：占据者贸易伙伴 ≥ 此数（商路节点——TradeModel 扫描统计）
@@ -221,6 +258,8 @@ public sealed class CivSimContext
     // ── 影响力场模型常量（2026-08-10 定稿）──
     public const int InfluenceRadius = 6;        // 影响范围（格步数；2026-08 史实标定：密度0.1下养25人band需~300km²=~60格，3步仅24格不足→扩到6步~110格对应5km+利用半径）
     public const float Stickiness = 1.15f;       // 归属粘性：非 owner 需超现 owner 影响力 ×1.15 才易主
+    public const float InfluenceExponent = 0.5f; // 影响力规模指数（2026-08-23 根因修复：强度 = P^exp×M——0.5=√P 边际递减，
+                                                 //   线性 P×M + 紧支撑核 = 赢家通吃 → 小实体领地 0 格僵尸化。史实：核心-边缘有极限）
     // ── 土地挂钩（2026-08-17 用户拍板：砍存量再生——采集=建筑×可用土地×劳动力；农田占用土地）──
     public const float CultivateRate = 0.05f;    // 开垦速率/tick（农田占用增长：20 tick=2000 年满开垦；★ 待校准）
     public const float PreyHabitatLoss = 0.5f;   // 猎物栖息地破碎系数（开垦对猎物间接削减；浆果被直接替代）
@@ -555,7 +594,11 @@ public sealed class CivSimContext
     ///   （含粘性）——家门口稳定（foraging site catchment，Binford）；d≥R 严格 0（紧支撑不变）。
     /// ⚠️ 2026-08-19 曾扩展远格弱权重（d=3-5）→ 领地产出去中心化 → 采集经济增强、农业门槛被压
     ///   （n128 实测 farm 412→74 崩溃）——回退（领地大小保持 3 跳；扩散靠殖民机制，不靠领地核）。</summary>
-    private static readonly float[] InfluenceWeightLUT = { 1f, 0.544f, 0.192f, 0f };   // (1−d/3)^1.5 查表
+    // ⚠️ 2026-08-23 根因修复（3→6 步核对齐）：旧 LUT = (1−d/3)^1.5 三项 {1, 0.544, 0.192, 0}——紧支撑
+    //   半径 3 步，但 InfluenceRadius=6（2026-08 史实标定"3步仅24格不足→扩到6步~110格"）——BFS 扫到 6 步
+    //   权重却 3 步归零 → 有效领地上限 19 格 ≈ 9.5 人当量（r128 5km²/格）→ 部落规模锁死 ~10 人，
+    //   永远达不到 SplitPop=25（需 50 格）→ 分裂/盈余/国家全断。6 步核 (1−d/6)^1.5 与半径一致。
+    private static readonly float[] InfluenceWeightLUT = { 1f, 0.761f, 0.544f, 0.354f, 0.192f, 0.068f, 0f };
     public static float InfluenceWeight(float d)
     {
         // ⚠️ 2026-08-17 修正：衰减陡化（用户质疑：弱 band 驻扎格不该被轻易覆盖——家门口应优势明显）。
@@ -612,7 +655,11 @@ public sealed class CivSimContext
             var e = Polities[i];
             if (e.Dead) continue;
             float M = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
-            float strength = e.P * M;
+            // ⚠️ 2026-08-23 赢家通吃根因修复：强度 = P^InfluenceExponent×M（√P 边际递减）。
+            //   旧线性 P×M：大实体垄断全部归属格（n64 实测 58 号酋邦 50 部落吃 175/200 格），
+            //   小实体领地 0 格 → F=0 →（旧 GrowthModel 冻结）僵尸化。规模报酬递减后：
+            //   小实体靠家门口 w(0)=1 + 粘性 1.15 保住立锥之地，2 跳外强邻衰减至 0.192 也抢不走。
+            float strength = Mathf.Pow(Mathf.Max(1f, e.P), CivSimContext.InfluenceExponent) * M;
             if (strength <= 0f) continue;
             BfsRadius(e.Cell, InfluenceRadius, (c, d) =>
             {

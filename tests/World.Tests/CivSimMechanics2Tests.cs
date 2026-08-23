@@ -431,8 +431,9 @@ public class CivSimMechanics2Tests
         Assert.AreEqual(0.05f * area * 9f, ctx.ColdFloor(both), 1e-4f * area, "皮毛再 ×3（0.05·area·3·3）");
     }
 
-    /// <summary>保证：InfluenceModel 影响力场归属 = argmax(P×M×w(d))，粘性 1.15；
-    /// 强族能覆盖弱族**驻扎格**（弱 band 家被吞——Absorption 前置条件）；远格权重按紧支撑核衰减。</summary>
+    /// <summary>保证：InfluenceModel 影响力场归属 = argmax(P^0.5×M×w(d))（2026-08-23 √P 边际递减），
+    /// 粘性 1.15；强族仍能覆盖弱族**驻扎格**（吸收前置条件）——6 步核 (1−d/6)^1.5 覆盖到 3 跳；
+    /// 差距悬殊时弱族无立锥之地（旧核 3 步下弱族 3 跳外可守，新核需更远）。</summary>
     [Test]
     public void Influence_StrongOverlaysWeakHome_StickyField()
     {
@@ -448,14 +449,66 @@ public class CivSimMechanics2Tests
 
         new InfluenceModel().Execute(ctx);
 
-        // A 强度 1000、B 强度 10：A 的紧支撑核（w:1/.544/.192/0）覆盖整条链上近前 3 格；
-        // B 驻扎格(1)被 A 覆盖（A 544 >> B 10），只有 B 能凭"远格权重衰减到 0"守住格 3。
+        // A 强度 √1000×1.1=34.8、B √10×1.1=3.48（差 10×）：6 步核覆盖到整条链（4 格全 A）；
+        // 弱 B 只可能在 A 权重归零（d≥6）的更远处保住——悬殊差距仍是碾压（√P 缓解的是温和差距）。
         Assert.AreEqual(0, ctx.CellOwner[0], "A 家格归 A");
         Assert.AreEqual(0, ctx.CellOwner[1], "强 A 覆盖弱 B 驻扎格（家 w=1 也守不住）");
-        Assert.AreEqual(0, ctx.CellOwner[2], "A 权重 0.192×1000=192 仍压过 B 的 0.544×10 —— 紧支撑核让强族扩张");
-        Assert.AreEqual(1, ctx.CellOwner[3], "A 权重在格3 衰减到 0 → 弱 B 保住远格（弱族靠距离保住边角）");
-        Assert.True(ctx.TerritoryOf(b).Contains(3), "B 领地 = 其实际归属格集合（仅保住的远格）");
-        Assert.False(ctx.TerritoryOf(b).Contains(2), "被覆盖格不入 B 领地");
+        Assert.AreEqual(0, ctx.CellOwner[2], "A 权重 0.544×34.8=18.9 仍压过 B 的 0.761×3.48 —— 6 步核强族扩张");
+        Assert.AreEqual(0, ctx.CellOwner[3], "A 权重 0.354×34.8=12.3 压过 B（2 跳 0.544×3.48=1.89）—— 新核覆盖更远");
+        Assert.AreEqual(0, ctx.TerritoryOf(b).Count, "B 全被覆盖——极悬殊下无立锥之地");
+    }
+
+    /// <summary>保证：√P 边际递减让**温和差距**下弱族靠粘性+家门口守家（旧线性 P×M 必吞并）。
+    /// A=16（√16×1.1=4.4）vs B=10（3.48）：A 1 跳外 4.4×0.761≈3.35 < B 家门口 3.48×1.15=4.0 → B 保家；
+    /// 2 跳外 A 更弱 → B 守住格 1-3 全数领地。人口差 ≤1.6× 时小社群立锥之地成立（史实：核心-边缘有极限）。</summary>
+    [Test]
+    public void Influence_WeakKeepsHome_WhenGapModerate()
+    {
+        var grid = PathGrid();
+        var a = new Polity { Id = 0, Cell = 0, P = 16 };    // 强（1.6×）
+        a.TechKeys.Add(TechTable.StoneCore);
+        var b = new Polity { Id = 1, Cell = 1, P = 10 };    // 弱
+        b.TechKeys.Add(TechTable.StoneCore);
+        var ctx = InitFullCtx(grid, 3);
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
+        ctx.R = new float[4] { 1f, 1f, 1f, 1f };
+
+        new InfluenceModel().Execute(ctx);
+
+        Assert.AreEqual(0, ctx.CellOwner[0], "A 家格归 A");
+        Assert.AreEqual(1, ctx.CellOwner[1], "人口差 1.6×：A 1 跳外 3.35 < B 家门口 4.0（粘性）→ 弱族保家");
+        Assert.AreEqual(1, ctx.CellOwner[2], "A 2 跳 2.39 更压不过 B 1 跳 2.65×1.15");
+        Assert.AreEqual(1, ctx.CellOwner[3], "A 3 跳 1.56 vs B 2 跳 1.89 → B");
+        Assert.AreEqual(3, ctx.TerritoryOf(b).Count, "B 保住 3 格（立锥之地）");
+    }
+
+    /// <summary>保证：√P 边际递减在**粘性场**上真正判别（子 agent 复查指出：16 vs 10 的差距
+    /// 在旧线性+旧核下弱族同样保家，判别力弱）。本用例 A=22 vs B=10（2.2×）：
+    /// · √P（新）：√22×1.1=5.16，1 跳 5.16×0.761=3.93 < B 家门口 3.48×1.15（粘性）=4.0 → B 保家；
+    /// · 线性（旧）：22×1.1×0.544=13.2 >> 4.0 → A 必吞家。
+    /// B 先占有（CellOwner 预置）→ 粘性介入 → 同一输入下新旧行为分叉，判别 √P 边际递减。</summary>
+    [Test]
+    public void Influence_SqrtKeepsHome_WhereLinearWouldSwallow()
+    {
+        var grid = PathGrid();
+        var a = new Polity { Id = 0, Cell = 0, P = 22 };    // 强（2.2×）
+        a.TechKeys.Add(TechTable.StoneCore);
+        var b = new Polity { Id = 1, Cell = 1, P = 10 };    // 弱
+        b.TechKeys.Add(TechTable.StoneCore);
+        var ctx = InitFullCtx(grid, 3);
+        ctx.Polities = new List<Polity> { a, b };
+        ctx.CellPolities[0] = a; ctx.CellPolities[1] = b;
+        ctx.R = new float[4] { 1f, 1f, 1f, 1f };
+        ctx.CellOwner[1] = 1; ctx.CellOwner[2] = 1; ctx.CellOwner[3] = 1;   // B 先占有 → 粘性介入
+
+        new InfluenceModel().Execute(ctx);
+
+        Assert.AreEqual(0, ctx.CellOwner[0], "A 家格归 A");
+        Assert.AreEqual(1, ctx.CellOwner[1], "√P：A 1 跳 3.93 < B 家门口 3.48×1.15 → B 保家（旧线性 13.2 必吞）");
+        Assert.AreEqual(1, ctx.CellOwner[2], "B 领地延续");
+        Assert.AreEqual(1, ctx.CellOwner[3], "B 领地延续");
+        Assert.AreEqual(3, ctx.TerritoryOf(b).Count, "B 保住全部 3 格（立锥之地）");
     }
 
     /// <summary>保证：AbsorptionModel 散兵穿越被覆盖→无主格可逃则迁走（保留身份流亡）；否则并入

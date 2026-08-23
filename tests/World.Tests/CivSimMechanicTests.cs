@@ -421,10 +421,20 @@ public class CivSimMechanicTests
     public void Split_FissionCarvesNewPolity_AtShare()
     {
         // P=30 → 张力 (30−25)/8=0.625，pEff=30×(1+0.667+0.625)≈68.8 > SplitPop(25) → 分裂
-        // R=2e-6 → 目标格承载 = R×Area×carry ≈ 24.3 > 30×0.45=13.5 → 新实体带 13.5（SplitShare=0.45）
+        // ⚠️ 2026-08-23 领地继承适配：newPop = min(45% 分群, 继承远半领地承载)。
+        //   给母体 4 格领地 {0,1,2,3}（dist 0/1/2/3，R=2e-6 → 每格承载 ≈2e-6×3.15e6×1.1≈6.9）：
+        //   远半 2 格承载 ≈13.9 ≥ 30×0.45=13.5 → 仍走 45% 分支（保底量级覆盖）。
         var e = new Polity { Id = 0, Cell = 0, P = 30, FLast = 10, LastSplitTick = -1, LastMigrateTick = 0 };
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = SplitCtx(e);
+        int n = ctx.Grid.N;
+        ctx.TerritoryCells = new List<int>[8];
+        ctx.TerritoryDists = new List<byte>[8];
+        for (int i = 0; i < 8; i++) { ctx.TerritoryCells[i] = new List<int>(); ctx.TerritoryDists[i] = new List<byte>(); }
+        ctx.TerritoryCells[0] = new List<int> { 0, 1, 2, 3 };
+        ctx.TerritoryDists[0] = new List<byte> { 0, 1, 2, 3 };
+        ctx.CellOwner = Enumerable.Repeat(-1, n).ToArray();
+        ctx.CellOwner[0] = 0; ctx.CellOwner[1] = 0; ctx.CellOwner[2] = 0; ctx.CellOwner[3] = 0;   // 母体领地
         new SplitMigrateModel().Execute(ctx);
         Assert.AreEqual(1, ctx.Fissions);
         Assert.AreEqual(2, ctx.Polities.Count);
@@ -439,6 +449,11 @@ public class CivSimMechanicTests
         Assert.AreEqual(0, nt.LastSplitTick);
         Assert.AreEqual(0, e.LastSplitTick, "母体记录分裂 tick（冷却用）");
         Assert.AreEqual(0, ctx.Migrations, "本 tick 母体迁移冷却（LastMigrateTick=0）→ 只分裂不迁移");
+        // 2026-08-23 segmentary lineage：远半格（dist 2/3 → 格 2/3）CellOwner 转给子体
+        Assert.AreEqual(0, ctx.CellOwner[0], "近半格留母体");
+        Assert.AreEqual(0, ctx.CellOwner[1], "近半格留母体");
+        Assert.AreEqual(1, ctx.CellOwner[2], "远半格继承给子体（dist 降序前一半）");
+        Assert.AreEqual(1, ctx.CellOwner[3], "远半格继承给子体");
     }
 
     [Test]
@@ -650,32 +665,7 @@ public class CivSimMechanicTests
     }
 
     [Test]
-    public void State_Emergence_RequiresCapital_Hierarchy_Pool_Dwell()
-    {
-        var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
-        var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = 11, TerritoryId = 1 };
-        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, HasAdmin = true, DwellFrom = 0, OccupantId = 0 };
-        var sub = new Habitation { Id = 11, Cell = 1, BornTick = 5, HasMarket = true, DwellFrom = 5, OccupantId = 1 };
-        var cells = new List<int>[8];
-        foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
-        cells[0] = new List<int> { 0, 1 };
-        var ctx = new CivSimContext
-        {
-            Polities = new List<Polity> { chief, member },
-            Habitations = new List<Habitation> { capital, sub },
-            ChiefdomCells = cells,
-            Tick = 30,
-        };
-        StateAssign.Rebuild(ctx);
-        // ①都城治理中心 ✓ ②成员聚落 2 + 次级中心（集镇职能）✓ ③池 2.0 ≥ 150×0.01 ✓ ④30−0≥20 ✓
-        Assert.AreEqual(0, chief.StateId, "酋邦制度化 → 国家");
-        Assert.AreEqual(2, chief.StateSize);
-        Assert.AreEqual(0, member.StateId);
-        Assert.AreEqual(2, member.StateSize);
-    }
-
-    [Test]
-    public void State_NotEmerging_WithoutSubCenter()
+    public void State_Emergence_RequiresCapital_Pool_Dwell()
     {
         var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
         var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = -1, TerritoryId = 1 };
@@ -691,7 +681,32 @@ public class CivSimMechanicTests
             Tick = 30,
         };
         StateAssign.Rebuild(ctx);
-        Assert.AreEqual(-1, chief.StateId, "决策层级（成员聚落 ≥2 + 次级中心）缺失 → 非国家");
+        // 2026-08-24 三条件拍板：①都城治理中心 ✓ ③池 2.0 ≥ 150×0.01 ✓ ④30−0≥20 ✓（次级中心条件已移除）——国家涌现
+        Assert.AreEqual(0, chief.StateId, "酋邦制度化 → 国家");
+        Assert.AreEqual(2, chief.StateSize);
+        Assert.AreEqual(0, member.StateId);
+        Assert.AreEqual(2, member.StateSize);
+    }
+
+    [Test]
+    public void State_NotEmerging_WithoutCapital()
+    {
+        // 2026-08-24 三条件拍板：首都缺失/非治理中心 → 非国家（原 State_NotEmerging_WithoutSubCenter
+        //   语义随"次级中心不再是硬条件"移除，改测 ① 都城条件）
+        var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = -1, TerritoryId = 0 };
+        var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = -1, TerritoryId = 1 };
+        var cells = new List<int>[8];
+        foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
+        cells[0] = new List<int> { 0, 1 };
+        var ctx = new CivSimContext
+        {
+            Polities = new List<Polity> { chief, member },
+            Habitations = new List<Habitation>(),
+            ChiefdomCells = cells,
+            Tick = 30,
+        };
+        StateAssign.Rebuild(ctx);
+        Assert.AreEqual(-1, chief.StateId, "都城缺失 → 非国家");
         Assert.AreEqual(-1, member.StateId);
     }
 

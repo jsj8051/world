@@ -290,7 +290,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         }
         LogService.Log("HumanLayersProbe", $"国家统计: {list.Count} 个国家（{capSum} 有都城）| {sb}");
         // 诊断：按酋邦打印未达标条件（前 10 大酋邦）
-        var diag = new List<(int Chief, int Polities, float Pop, int CapLvl, float Pool, float Need, int Settles, bool Sub, int Dwell)>();
+        var diag = new List<(int Chief, int Polities, float Pop, int CapLvl, float Pool, float Need, int Settles, int Dwell)>();
         var byId = new Dictionary<int, Polity>();
         foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
         var groups = new Dictionary<int, List<Polity>>();
@@ -306,29 +306,26 @@ public partial class HumanLayersProbe : DiagSceneBase
             if (members.Count < 2) continue;
             Polity chief = null;
             foreach (var m in members) if (m.IsChief && m.ChiefdomId == m.Id) { chief = m; break; }
-            if (chief == null) { diag.Add((kv.Key, members.Count, 0f, -1, 0f, 0f, 0, false, -1)); continue; }
+            if (chief == null) { diag.Add((kv.Key, members.Count, 0f, -1, 0f, 0f, 0, -1)); continue; }
             var cap = ctx.HabitationOf(chief);
             float pop = 0f, pool = 0f;
-            int settles = 0; bool sub = false;
+            int settles = 0;
             foreach (var m in members)
             {
                 pop += m.P; pool += m.Contributed;
                 var st = ctx.HabitationOf(m);
                 if (st != null && st.OccupantId == m.Id)
-                {
                     settles++;
-                    if (cap != null && st.Id != cap.Id && st.IsMarketTown) sub = true;   // 次级中心 = 集镇级职能
-                }
             }
             int dwell = cap != null ? ctx.Tick - cap.BornTick : -1;
-            diag.Add((kv.Key, members.Count, pop, cap != null ? cap.TownTier : -1, pool, pop * CivSimContext.StateTributePerCap, settles, sub, dwell));
+            diag.Add((kv.Key, members.Count, pop, cap != null ? cap.TownTier : -1, pool, pop * CivSimContext.StateTributePerCap, settles, dwell));
         }
         diag.Sort((x, y) => y.Pop.CompareTo(x.Pop));
         var dSb = new System.Text.StringBuilder();
         for (int i = 0; i < Math.Min(10, diag.Count); i++)
         {
             var d = diag[i];
-            dSb.Append($"邦{d.Chief}:{d.Polities}b/{d.Pop:F0}p 都城L{d.CapLvl} 池{d.Pool:F0}/需{d.Need:F0} 聚落{d.Settles} 次级{d.Sub} 存续{d.Dwell} | ");
+            dSb.Append($"邦{d.Chief}:{d.Polities}b/{d.Pop:F0}p 都城L{d.CapLvl} 池{d.Pool:F0}/需{d.Need:F0} 聚落{d.Settles} 存续{d.Dwell} | ");
         }
         LogService.Log("HumanLayersProbe", $"国家诊断(前10大酋邦): {dSb}");
     }

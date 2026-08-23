@@ -367,7 +367,9 @@ public partial class CivSimDiag
             if (p > popMax) popMax = p;
         }
         float popRatio = 0f;
-        if (pops.Count >= 20)
+        // ⚠️ 2026-08-23 下限 20→10：僵尸清除后 n64 演化终态有人格 ~18（修复前 62 实体含 39 僵尸稀释），
+        //   下限 20 在此规模下永远不满足；10 格仍能稳定捕获 P99/P1 梯度（n64 实测 90/1）。
+        if (pops.Count >= 10)
         {
             pops.Sort();
             float p1 = pops[pops.Count / 100];
