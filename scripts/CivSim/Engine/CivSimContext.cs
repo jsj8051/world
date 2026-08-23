@@ -71,8 +71,8 @@ public sealed class CivSimContext
     public int[] LockedUntil;  // 武力夺取格锁定到期 tick（-1=无锁定；2026-08-10 冲突机制——锁定内场不重算）
 
     // ── 聚落实体（2026-08-19 阶段3 聚落设计，docs/阶段3设计-聚落实体.md）──
-    public List<Settlement> Settlements = new();   // 全部聚落（存活 + 废墟；场所比人长寿）
-    public int NextSettlementId;                   // 聚落 Id 分配器（确定性；读档恢复）
+    public List<Habitation> Habitations = new();   // 全部聚落（存活 + 废墟；场所比人长寿）
+    public int NextHabitationId;                   // 聚落 Id 分配器（确定性；读档恢复）
 
     // ── 战争状态（2026-08-19 阶段5 军事征服，docs/阶段5设计-军事征服.md）──
     // 外交状态：多 tick 持续，**v14 存档段**（过程状态不可派生重建——用户拍板 P3）。
@@ -81,11 +81,11 @@ public sealed class CivSimContext
     public int WarsAnnexed;    // 演化统计：吞并场次
 
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
-    public Settlement SettlementOf(Polity e)
+    public Habitation HabitationOf(Polity e)
     {
-        if (e == null || e.PlaceId < 0 || Settlements == null) return null;
-        for (int i = 0; i < Settlements.Count; i++)
-            if (Settlements[i].Id == e.PlaceId) return Settlements[i];
+        if (e == null || e.PlaceId < 0 || Habitations == null) return null;
+        for (int i = 0; i < Habitations.Count; i++)
+            if (Habitations[i].Id == e.PlaceId) return Habitations[i];
         return null;
     }
 

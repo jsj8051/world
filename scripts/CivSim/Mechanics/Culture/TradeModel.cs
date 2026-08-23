@@ -60,7 +60,7 @@ public sealed class TradeModel : CivModelBase
     private static float PoolOf(CivSimContext ctx, Polity e, int s)
     {
         float v = e.Stocks != null && s < e.Stocks.Length ? e.Stocks[s] : 0f;
-        var st = ctx.SettlementOf(e);
+        var st = ctx.HabitationOf(e);
         if (st != null && st.Stocks != null && s < st.Stocks.Length) v += st.Stocks[s];
         return v;
     }
@@ -91,7 +91,7 @@ public sealed class TradeModel : CivModelBase
         if (amount <= 0f) return;
         // 出方：粮仓先出 → 随身后出
         float moved = 0f;
-        var fs = ctx.SettlementOf(from);
+        var fs = ctx.HabitationOf(from);
         if (fs != null && fs.Stocks != null && s < fs.Stocks.Length && fs.Stocks[s] > 0f)
         {
             float take = Mathf.Min(amount, fs.Stocks[s]);
@@ -106,7 +106,7 @@ public sealed class TradeModel : CivModelBase
         }
         if (moved <= 0f) return;
         // 入方：粮仓先收（定居）→ 随身（游群；不查上限——AccumulateStorage 下 tick clamp）
-        var ts = ctx.SettlementOf(to);
+        var ts = ctx.HabitationOf(to);
         if (ts != null && ts.Stocks != null && s < ts.Stocks.Length)
             ts.Stocks[s] += moved;
         else

@@ -47,7 +47,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         DumpEnclaveStats(ctx, grid.N);
         DumpPolitySizes(ctx);
         DumpModeStocks(ctx);
-        DumpSettlements(ctx);
+        DumpHabitations(ctx);
         DumpPowerColorCheck(ctx, grid.N);
         DumpTerritoryColorCheck(ctx, grid.N);
         DumpStateStats(ctx);
@@ -274,7 +274,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             byState[e.StateId] = agg;
             if (e.IsChief && e.ChiefdomId == e.Id)
             {
-                var st = ctx.SettlementOf(e);
+                var st = ctx.HabitationOf(e);
                 if (st != null) capitals[e.StateId] = st.Level;
             }
         }
@@ -307,13 +307,13 @@ public partial class HumanLayersProbe : DiagSceneBase
             Polity chief = null;
             foreach (var m in members) if (m.IsChief && m.ChiefdomId == m.Id) { chief = m; break; }
             if (chief == null) { diag.Add((kv.Key, members.Count, 0f, -1, 0f, 0f, 0, false, -1)); continue; }
-            var cap = ctx.SettlementOf(chief);
+            var cap = ctx.HabitationOf(chief);
             float pop = 0f, pool = 0f;
             int settles = 0; bool sub = false;
             foreach (var m in members)
             {
                 pop += m.P; pool += m.Contributed;
-                var st = ctx.SettlementOf(m);
+                var st = ctx.HabitationOf(m);
                 if (st != null && st.OccupantId == m.Id)
                 {
                     settles++;
@@ -445,9 +445,9 @@ public partial class HumanLayersProbe : DiagSceneBase
     }
 
     /// <summary>聚落统计（2026-08-19 阶段3）：等级分布（新村/村庄/城镇/城市）+ 废墟数 + 都城（至尊酋长聚落）。</summary>
-    private void DumpSettlements(CivSimContext ctx)
+    private void DumpHabitations(CivSimContext ctx)
     {
-        if (ctx.Settlements == null || ctx.Settlements.Count == 0)
+        if (ctx.Habitations == null || ctx.Habitations.Count == 0)
         {
             LogService.Log("HumanLayersProbe", "聚落: 无（旧档/无农业定居——v12 旧档仅新演化生成）");
             return;
@@ -456,13 +456,13 @@ public partial class HumanLayersProbe : DiagSceneBase
         int ruins = 0, capitals = 0;
         var byId = new Dictionary<int, Polity>();
         foreach (var e in ctx.Polities) if (!e.Dead) byId[e.Id] = e;
-        foreach (var s in ctx.Settlements)
+        foreach (var s in ctx.Habitations)
         {
             if (s.IsRuin) { ruins++; continue; }
             if (s.Level >= 0 && s.Level < 4) levels[s.Level]++;
             if (byId.TryGetValue(s.OccupantId, out var occ) && occ.IsChief && occ.ChiefdomId == occ.Id) capitals++;
         }
-        LogService.Log("HumanLayersProbe", $"聚落: {ctx.Settlements.Count} 个 | 新村{levels[0]} 村庄{levels[1]} 城镇{levels[2]} 城市{levels[3]} 废墟{ruins} 都城{capitals}");
+        LogService.Log("HumanLayersProbe", $"聚落: {ctx.Habitations.Count} 个 | 新村{levels[0]} 村庄{levels[1]} 城镇{levels[2]} 城市{levels[3]} 废墟{ruins} 都城{capitals}");
     }
 
     /// <summary>生产方式 × 人均库存画像（2026-08-19 贸易专业化观测）：农/牧/猎主导部落的库存分布——
@@ -489,7 +489,7 @@ public partial class HumanLayersProbe : DiagSceneBase
                 foreach (var e in kv.Value)
                 {
                     float perCap = e.P > 0f ? e.Stocks[s] / e.P : 0f;
-                    var st = ctx.SettlementOf(e);   // 粮仓（2026-08-19 双池：正式存储归聚落）
+                    var st = ctx.HabitationOf(e);   // 粮仓（2026-08-19 双池：正式存储归聚落）
                     if (st != null) perCap += st.Stocks[s] / e.P;
                     sum += perCap;
                 }

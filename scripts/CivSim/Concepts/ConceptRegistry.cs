@@ -15,7 +15,7 @@ namespace World.CivSim.Concepts;
 /// 四概念配方单（声明序 = band → tribe → chiefdom → state；Union 推导按此序，确定性）：
 ///   band     = { Origin, GatherHunt(Harvest), Energy, Growth, SplitMigrate, Culture, Religion,
 ///                Trade, Conflict, Influence }                        —— 游群地基（10 机制）
-///   tribe    = band ∪ { Cultivate, Territory, Mode, Invention, Spread, Settlement }   —— 农业部落
+///   tribe    = band ∪ { Cultivate, Territory, Mode, Invention, Spread, Habitation }   —— 农业部落
 ///   chiefdom = tribe ∪ { Prestige, Chiefdom, Absorption, Conflict(参数 0.5) }        —— 酋邦
 ///   state    = chiefdom ∪ { State, War, Conflict(参数 0.25) }                        —— 国家
 /// 设计要点：
@@ -23,7 +23,7 @@ namespace World.CivSim.Concepts;
 ///      不在机制本身）；Union 按类型去重 → 运行时仍一份实例（StoneAge 推导）。
 ///   ② 配方参数表（Params）是声明层 + 未来消费入口：值 = CivSimContext 现状常量（行为不变）；
 ///      未来"村庄+军队"等新配方 = 加一行 ConceptDef（military_mult 0.3 等参数自定义）。
-///   ③ 游牧聚落/村庄/城市配方占位：需要 Herd 新积木 / Settlement 概念运行时状态——Q2 拍板暂不纳入，
+///   ③ 游牧聚落/村庄/城市配方占位：需要 Herd 新积木 / Habitation 概念运行时状态——Q2 拍板暂不纳入，
 ///      架构天然支持（积木箱 + 配方单模型）。
 /// </summary>
 public static class ConceptRegistry
@@ -60,7 +60,7 @@ public static class ConceptRegistry
             (typeof(ModeModel), () => new ModeModel()),               // 生产方式（猎↔农滞回）
             (typeof(InventionModel), () => new InventionModel()),     // 科技发明
             (typeof(SpreadModel), () => new SpreadModel()),           // 科技传播（邻格接触）
-            (typeof(SettlementModel), () => new SettlementModel()),   // 聚落实体（定居点）
+            (typeof(HabitationModel), () => new HabitationModel()),   // 聚落实体（定居点）
         },
         Params = Array.Empty<(string, float)>(),
     };

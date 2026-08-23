@@ -401,8 +401,8 @@ public partial class CivSimDiag
         var withG = AddPolity(ctx, 0, 100f, TechTable.Grinding, TechTable.Storage);   // 加工+存储
         var noG = AddPolity(ctx, 1, 100f, TechTable.Storage);                          // 仅存储（无加工）
         int gi = CommodityTable.Index(CommodityTable.Grain);
-        var s1 = AddSettlement(ctx, withG);   // 粮仓（正式存储——techMult 生效处）
-        var s2 = AddSettlement(ctx, noG);
+        var s1 = AddHabitation(ctx, withG);   // 粮仓（正式存储——techMult 生效处）
+        var s2 = AddHabitation(ctx, noG);
         s1.Stocks[gi] = 100f; s2.Stocks[gi] = 100f;
         withG.FLast = 100f; noG.FLast = 100f;   // 平衡产出（Food 流入=0——AccumulateStorage 只衰变 Food）
         CivEngine.RefreshCellStateCore(ctx);    // 算 CapMask（grinding/storage 能力）
@@ -620,15 +620,15 @@ public partial class CivSimDiag
         var farm = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
         var hunter = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
-        var sm = new SettlementModel();
+        var sm = new HabitationModel();
         sm.Execute(ctx);
-        var fs = ctx.SettlementOf(farm);
+        var fs = ctx.HabitationOf(farm);
         bool farmHas = farm.PlaceId >= 0 && fs != null && fs.Cell == 0 && fs.Level == 0;
         bool hunterNone = hunter.PlaceId < 0;
         sm.Execute(ctx);   // 幂等：不重复建
-        bool stable = ctx.Settlements.Count == 1 && ctx.SettlementOf(farm) != null;
+        bool stable = ctx.Habitations.Count == 1 && ctx.HabitationOf(farm) != null;
         Check("T61 聚落形成", farmHas && hunterNone && stable,
-            $"农→聚落(格0/Level0)={farmHas} 猎→无={hunterNone} 幂等={stable}(聚落数={ctx.Settlements.Count})");
+            $"农→聚落(格0/Level0)={farmHas} 猎→无={hunterNone} 幂等={stable}(聚落数={ctx.Habitations.Count})");
     }
 
 
@@ -640,11 +640,11 @@ public partial class CivSimDiag
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         e.IsFarming = true;
-        var s = AddSettlement(ctx, e);
+        var s = AddHabitation(ctx, e);
         s.LastLevelUpTick = -10;             // 过冷却
         e.SettledSince = ctx.Tick - 5;
         s.DwellFrom = ctx.Tick - 5;          // 已定居 5 tick（≥3 → 村庄）
-        var sm = new SettlementModel();
+        var sm = new HabitationModel();
         sm.Execute(ctx);
         bool levelUp = s.Level == 1;
         // 等级收益：村庄容量 = 0.5×P×1.5（×500 = 375）
@@ -655,7 +655,7 @@ public partial class CivSimDiag
         var ctx2 = MakeCtx(g2);
         var a2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         a2.IsFarming = true;
-        AddSettlement(ctx2, a2);             // 无等级（Level 0）对照
+        AddHabitation(ctx2, a2);             // 无等级（Level 0）对照
         e.FLast = 600f; a2.FLast = 600f;     // 盈余（settle ×1.5 基础 + 等级加成）
         var growth = new GrowthModel();
         growth.Execute(ctx2);
@@ -675,16 +675,16 @@ public partial class CivSimDiag
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsFarming = true;
-        var s = AddSettlement(ctx, a);
+        var s = AddHabitation(ctx, a);
         s.Level = 2;   // 已有城镇
         // 部落迁走（Cell 变化——模拟迁徙）
         a.Cell = 3;
         ctx.CellPolities[0] = null;
         ctx.CellPolities[3] = a;
-        var sm = new SettlementModel();
+        var sm = new HabitationModel();
         sm.Execute(ctx);
         bool ruin = s.IsRuin && s.RuinFrom >= 0;                          // 旧聚落留废墟（场所比人长寿）
-        var newHome = ctx.SettlementOf(a);
+        var newHome = ctx.HabitationOf(a);
         bool newSettled = newHome != null && newHome.Cell == 3;           // 迁后新址建新村
         // 新部落迁入接管（继承 Level 2）
         var b = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -709,9 +709,9 @@ public partial class CivSimDiag
         var c = AddPolity(ctx, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsChief = true;   // 至尊酋长（自己中心）
         SetupStateChiefdom(ctx, a, b, c);
-        var cap = AddSettlement(ctx, a);
+        var cap = AddHabitation(ctx, a);
         cap.Level = 2; cap.BornTick = 0;                      // 都城：城镇 + 存续 50 ≥ 20
-        var sub = AddSettlement(ctx, b);
+        var sub = AddHabitation(ctx, b);
         sub.Level = 1;                                        // 次级中心：村庄
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;   // 池 150 ≥ 阈值 1000×StateTributePerCap(0.01)=10
         StateAssign.Rebuild(ctx);
@@ -724,9 +724,9 @@ public partial class CivSimDiag
         var c2 = AddPolity(ctx2, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a2.IsChief = true;
         SetupStateChiefdom(ctx2, a2, b2, c2);
-        var cap2 = AddSettlement(ctx2, a2);
+        var cap2 = AddHabitation(ctx2, a2);
         cap2.Level = 2; cap2.BornTick = 0;
-        var sub2 = AddSettlement(ctx2, b2);
+        var sub2 = AddHabitation(ctx2, b2);
         sub2.Level = 1;
         a2.Contributed = 2f; b2.Contributed = 2f; c2.Contributed = 1f;   // 池 5 < 阈值 10（2026-08-19 同步 0.1→0.01 校准；旧值 50 已足额）
         StateAssign.Rebuild(ctx2);
@@ -739,9 +739,9 @@ public partial class CivSimDiag
         var c3 = AddPolity(ctx3, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a3.IsChief = true;
         SetupStateChiefdom(ctx3, a3, b3, c3);
-        var cap3 = AddSettlement(ctx3, a3);
+        var cap3 = AddHabitation(ctx3, a3);
         cap3.Level = 2; cap3.BornTick = 0;
-        var sub3 = AddSettlement(ctx3, b3);
+        var sub3 = AddHabitation(ctx3, b3);
         sub3.Level = 0;                                       // 新村——非次级中心
         a3.Contributed = 50f; b3.Contributed = 50f; c3.Contributed = 50f;
         StateAssign.Rebuild(ctx3);
@@ -754,9 +754,9 @@ public partial class CivSimDiag
         var c4 = AddPolity(ctx4, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a4.IsChief = true;
         SetupStateChiefdom(ctx4, a4, b4, c4);
-        var cap4 = AddSettlement(ctx4, a4);
+        var cap4 = AddHabitation(ctx4, a4);
         cap4.Level = 2; cap4.BornTick = 40;                   // 存续 10 < 20
-        var sub4 = AddSettlement(ctx4, b4);
+        var sub4 = AddHabitation(ctx4, b4);
         sub4.Level = 1;
         a4.Contributed = 50f; b4.Contributed = 50f; c4.Contributed = 50f;
         StateAssign.Rebuild(ctx4);
@@ -835,9 +835,9 @@ public partial class CivSimDiag
         var c = AddPolity(ctx, 2, 200f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsChief = true;
         SetupStateChiefdom(ctx, a, b, c);
-        var cap = AddSettlement(ctx, a);
+        var cap = AddHabitation(ctx, a);
         cap.Level = 2; cap.BornTick = 0;
-        var sub = AddSettlement(ctx, b);
+        var sub = AddHabitation(ctx, b);
         sub.Level = 1;
         a.Contributed = 50f; b.Contributed = 50f; c.Contributed = 50f;
         StateAssign.Rebuild(ctx);
@@ -941,8 +941,8 @@ public partial class CivSimDiag
         // 战利品基线：b 池 = 100×3（含酋长）→ ×0.5 = 150；A 需是正式国家（重映射断言用）
         a.Contributed = 100f; b.Contributed = 100f; b1.Contributed = 100f; b2.Contributed = 100f;
         b.Prestige = 5f;   // ⚠️ 庇护竞争平局（10 vs 10）时 BFS 序敏感——降低败方声望消除歧义
-        var capA = AddSettlement(ctx, a); capA.Level = 2; capA.BornTick = 0;
-        var subA = AddSettlement(ctx, a1); subA.Level = 1;
+        var capA = AddHabitation(ctx, a); capA.Level = 2; capA.BornTick = 0;
+        var subA = AddHabitation(ctx, a1); subA.Level = 1;
         StateAssign.Rebuild(ctx);
         ctx.Wars.Add(new War { StateIdA = a.Id, StateIdB = b.Id, Defender = b.Id, StartTick = ctx.Tick - 10, LastBattleTick = ctx.Tick, WinsA = 3, WinsB = 0 });
         new WarModel().Execute(ctx);
@@ -971,8 +971,8 @@ public partial class CivSimDiag
         var (b, b1, b2) = AddWarState(ctx, 5, 6, 7, popA: 600f);
         AttachWarTerritory(ctx, new[] { (a, 0), (a1, 1), (a2, 2), (b, 5), (b1, 6), (b2, 7) });
         a.Contributed = 100f; b.Contributed = 100f; b1.Contributed = 100f; b2.Contributed = 100f;
-        var capA2 = AddSettlement(ctx, a); capA2.Level = 2; capA2.BornTick = 0;
-        var subA2 = AddSettlement(ctx, a1); subA2.Level = 1;
+        var capA2 = AddHabitation(ctx, a); capA2.Level = 2; capA2.BornTick = 0;
+        var subA2 = AddHabitation(ctx, a1); subA2.Level = 1;
         StateAssign.Rebuild(ctx);
         ctx.Wars.Add(new War { StateIdA = a.Id, StateIdB = b.Id, Defender = b.Id, StartTick = ctx.Tick - 10, LastBattleTick = ctx.Tick, WinsA = 2, WinsB = 0 });
         new WarModel().Execute(ctx);
@@ -1435,8 +1435,8 @@ public partial class CivSimDiag
         // ② 存储分层（2026-08-18 阶段3 新语义；2026-08-19 双池改造——粮仓测 techMult）：预置同量谷物
         //    入粮仓，AccumulateStorage 一 tick——陶器 techMult×0.3（衰变更慢）→ 粮仓剩余更多
         int gi = CommodityTable.Index(CommodityTable.Grain);
-        var st1 = AddSettlement(ctx, s1);   // 粮仓（storage techMult 0.6）
-        var st2 = AddSettlement(ctx, s2);   // +陶器（0.3）
+        var st1 = AddHabitation(ctx, s1);   // 粮仓（storage techMult 0.6）
+        var st2 = AddHabitation(ctx, s2);   // +陶器（0.3）
         st1.Stocks[gi] = 100f; st2.Stocks[gi] = 100f;
         s1.FLast = 100f; s2.FLast = 100f;
         CivEngine.AccumulateStorage(ctx);

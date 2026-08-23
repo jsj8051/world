@@ -52,7 +52,7 @@ public class CivSimWarTests
             Tick = 0,
             Rng = new DeterministicRandom(7),
             NextPolityId = 4,
-            Settlements = new List<Settlement>(),
+            Habitations = new List<Habitation>(),
             Wars = new List<War>(),
             CellOwner = new int[grid.N],
             CellBestOwner = new int[grid.N],

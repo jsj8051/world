@@ -310,7 +310,7 @@ public partial class CivSimDiag : DiagSceneBase
 
 // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 // Slices (2026-08-19 pure refactor: partial class, behavior unchanged):
-//   CivSimDiag.Builders.cs  - scenario construction helpers (MakeGrid/MakeCtx/AddPolity/AddSettlement/SetupStateChiefdom/WriteBad*)
+//   CivSimDiag.Builders.cs  - scenario construction helpers (MakeGrid/MakeCtx/AddPolity/AddHabitation/SetupStateChiefdom/WriteBad*)
 //   CivSimDiag.Scenarios.cs - S1-S6 + construct-style T tests (T23-T67 series)
 //   CivSimDiag.MapTests.cs  - archive-driven map tests (T03/T04/T05/T09-T22/T52/T18 + helpers)
 //   CivSimDiag.Compare.cs   - round-trip equality helpers (EntitiesEqual/ShareStr/NaturalUnchanged/...)

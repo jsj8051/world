@@ -178,12 +178,12 @@ public partial class CivSimDiag
     }
 
 
-    /// <summary>手造聚落（测试辅助——SettlementModel 形成逻辑的等价物）：给部落建粮仓并关联。</summary>
-    private static Settlement AddSettlement(CivSimContext ctx, Polity occupant)
+    /// <summary>手造聚落（测试辅助——HabitationModel 形成逻辑的等价物）：给部落建粮仓并关联。</summary>
+    private static Habitation AddHabitation(CivSimContext ctx, Polity occupant)
     {
-        var s = new Settlement
+        var s = new Habitation
         {
-            Id = ctx.NextSettlementId++,
+            Id = ctx.NextHabitationId++,
             Cell = occupant.Cell,
             BornTick = ctx.Tick,
             Level = 0,
@@ -191,7 +191,7 @@ public partial class CivSimDiag
             DwellFrom = ctx.Tick,
             OccupantId = occupant.Id,
         };
-        ctx.Settlements.Add(s);
+        ctx.Habitations.Add(s);
         occupant.PlaceId = s.Id;
         return s;
     }

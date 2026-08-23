@@ -26,7 +26,7 @@ namespace World.CivSim;
 ///     NATR —— GameMapArchive.WriteBody 全量（自然层快照，与 .gmp BODY 段布局一致，复用不变）
 ///     TRIB —— 实体段（alive count + 部落表，CivArchiveSchema 清单驱动）
 ///     LAND —— 土地挂钩：Cultivation n + CellOwner n + LockedUntil n
-///     STTL —— 聚落段（NextSettlementId + count + Settlements[]）
+///     STTL —— 聚落段（NextHabitationId + count + Habitations[]）
 ///     WARS —— 战争段（Wars[]）
 ///   [12B×K] 段表 + [12B] 尾目录
 ///
@@ -74,13 +74,13 @@ public static class CivMapArchive
         public int FinalTick;
         public int Years;
         public ulong RngState;
-        public int CultureKeyCount, CultureGroupKeyCount, ReligionKeyCount, NextEntityId, NextSettlementId;
+        public int CultureKeyCount, CultureGroupKeyCount, ReligionKeyCount, NextEntityId, NextHabitationId;
         public List<Polity> Entities;
         public Polity[] CellPolities;
         public float[] Cultivation;
         public int[] CellOwner;
         public int[] LockedUntil;
-        public List<Settlement> Settlements;
+        public List<Habitation> Habitations;
         public List<War> Wars;
     }
 
@@ -123,8 +123,8 @@ public static class CivMapArchive
             CultureGroupKeyCount = Math.Max(rec.CultureGroupKeyCount, maxGroupId + 1),
             ReligionKeyCount = Math.Max(rec.ReligionKeyCount, maxReligId + 1),
             NextPolityId = rec.NextEntityId,
-            Settlements = rec.Settlements,
-            NextSettlementId = rec.NextSettlementId,
+            Habitations = rec.Habitations,
+            NextHabitationId = rec.NextHabitationId,
             Wars = rec.Wars,
             Cultivation = rec.Cultivation ?? new float[n],
             CellOwner = rec.CellOwner ?? EnumerableRepeat(-1, n),
@@ -189,13 +189,13 @@ public static class CivMapArchive
         rec.LockedUntil = new int[n];
         for (int c = 0; c < n; c++) rec.LockedUntil[c] = (int)r.Get32();
         // STTL 顺序读
-        rec.NextSettlementId = (int)r.Get32();
+        rec.NextHabitationId = (int)r.Get32();
         int sCount = (int)r.Get32();
         if (sCount < 0 || sCount > (r.Length - r.Position) / 48) { corrupted = true; return null; }
-        var settlements = new List<Settlement>(sCount);
+        var habitations = new List<Habitation>(sCount);
         for (int k = 0; k < sCount; k++)
         {
-            var s = new Settlement
+            var s = new Habitation
             {
                 Id = (int)r.Get32(),
                 Cell = (int)r.Get32(),
@@ -208,9 +208,9 @@ public static class CivMapArchive
             };
             s.Stocks = CommodityTable.NewStocks();
             for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = r.GetFloat();
-            settlements.Add(s);
+            habitations.Add(s);
         }
-        rec.Settlements = settlements;
+        rec.Habitations = habitations;
         // WARS 顺序读
         int wCount = (int)r.Get32();
         if (wCount < 0 || wCount > 4096) { corrupted = true; return null; }
@@ -278,9 +278,9 @@ public static class CivMapArchive
         for (int c = 0; c < ctx.Grid.N; c++) w.Store32((uint)ctx.CellOwner[c]);
         for (int c = 0; c < ctx.Grid.N; c++) w.Store32(ctx.LockedUntil != null && ctx.LockedUntil[c] > 0 ? (uint)ctx.LockedUntil[c] : 0u);
         // ── STTL ──
-        w.Store32((uint)ctx.NextSettlementId);
-        w.Store32((uint)ctx.Settlements.Count);
-        foreach (var s in ctx.Settlements)
+        w.Store32((uint)ctx.NextHabitationId);
+        w.Store32((uint)ctx.Habitations.Count);
+        foreach (var s in ctx.Habitations)
         {
             w.Store32((uint)s.Id);
             w.Store32((uint)s.Cell);
@@ -368,9 +368,9 @@ public static class CivMapArchive
 
             // ── STTL：聚落段 ──
             w.BeginSegment("STTL", 1);
-            w.Store32((uint)ctx.NextSettlementId);
-            w.Store32((uint)ctx.Settlements.Count);
-            foreach (var s in ctx.Settlements)
+            w.Store32((uint)ctx.NextHabitationId);
+            w.Store32((uint)ctx.Habitations.Count);
+            foreach (var s in ctx.Habitations)
             {
                 w.Store32((uint)s.Id);
                 w.Store32((uint)s.Cell);
@@ -414,7 +414,7 @@ public static class CivMapArchive
         if (log)
             LogService.Log("CivMapArchive", $"wrote v{Version} {path} (ticks={result.FinalTick} " +
                      $"entities={alive} pop={ctx.TotalPopulation():F0} farm={CountFarming(ctx)} fission={ctx.Fissions} migrate={ctx.Migrations}" +
-                     $" settlements={ctx.Settlements.Count} wars={ctx.Wars.Count})");
+                     $" habitations={ctx.Habitations.Count} wars={ctx.Wars.Count})");
         return true;
     }
 
@@ -624,11 +624,11 @@ public static class CivMapArchive
             }
 
             // ── STTL：聚落段（段缺失 = 旧档无聚落 → 空列表）──
-            var settlements = new List<Settlement>();
-            int nextSettlementId = 0;
+            var habitations = new List<Habitation>();
+            int nextHabitationId = 0;
             if (r.SeekSegment("STTL"))
             {
-                nextSettlementId = (int)r.Get32();
+                nextHabitationId = (int)r.Get32();
                 int sCount = (int)r.Get32();
                 // 长度校验（同实体表：最小聚落 ~56B；用 48B 保守下界防错位读爆）
                 long sRemaining = r.Length - r.Position;
@@ -639,7 +639,7 @@ public static class CivMapArchive
                 }
                 for (int k = 0; k < sCount; k++)
                 {
-                    var s = new Settlement
+                    var s = new Habitation
                     {
                         Id = (int)r.Get32(),
                         Cell = (int)r.Get32(),
@@ -652,7 +652,7 @@ public static class CivMapArchive
                     };
                     s.Stocks = CommodityTable.NewStocks();
                     for (int q = 0; q < CommodityTable.Count; q++) s.Stocks[q] = r.GetFloat();
-                    settlements.Add(s);
+                    habitations.Add(s);
                 }
             }
 
@@ -720,8 +720,8 @@ public static class CivMapArchive
                 CultureGroupKeyCount = Math.Max(cultureGroupKeyCount, maxGroupId + 1),  // 群计数
                 ReligionKeyCount = Math.Max(religionKeyCount, maxReligId + 1),
                 NextPolityId = nextEntityId,   // 实体 Id 计数器（读档续跑 Id 分配无分叉）
-                Settlements = settlements,    // 聚落段（段缺失 → 空列表）
-                NextSettlementId = nextSettlementId,
+                Habitations = habitations,    // 聚落段（段缺失 → 空列表）
+                NextHabitationId = nextHabitationId,
                 Wars = wars,                  // 战争段（段缺失 → 空列表——无战争起步）
                 // 土地挂钩：Cultivation 从存档恢复；暂存/领地索引重建
                 Cultivation = cultivation ?? new float[n],

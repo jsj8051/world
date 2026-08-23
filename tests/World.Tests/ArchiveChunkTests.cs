@@ -179,10 +179,10 @@ public class ArchiveChunkTests
             CultureKeyCount = 2,
             CultureGroupKeyCount = 1,
             ReligionKeyCount = 1,
-            NextSettlementId = 9,
-            Settlements = new System.Collections.Generic.List<Settlement>
+            NextHabitationId = 9,
+            Habitations = new System.Collections.Generic.List<Habitation>
             {
-                new Settlement { Id = 8, Cell = 2, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
+                new Habitation { Id = 8, Cell = 2, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
             },
             Wars = new System.Collections.Generic.List<War>(),
             CellOwner = new int[n],
@@ -230,9 +230,9 @@ public class ArchiveChunkTests
         Assert.AreEqual(42f, back.Context.Polities[0].P);
         Assert.AreEqual(4, back.Context.NextPolityId);
         Assert.AreEqual(2, back.Context.CultureKeyCount);
-        Assert.AreEqual(9, back.Context.NextSettlementId);
-        Assert.AreEqual(1, back.Context.Settlements.Count);
-        Assert.AreEqual(8, back.Context.Settlements[0].Id);
+        Assert.AreEqual(9, back.Context.NextHabitationId);
+        Assert.AreEqual(1, back.Context.Habitations.Count);
+        Assert.AreEqual(8, back.Context.Habitations[0].Id);
         Assert.AreEqual(100, back.Context.Tick);   // 读档续跑从存档 tick 继续
     }
 

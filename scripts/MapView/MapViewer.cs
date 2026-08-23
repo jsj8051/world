@@ -505,8 +505,8 @@ public partial class MapViewer : Node3D
         };
         // 聚落索引（2026-08-19 阶段3：Cell → 聚落；按逻辑格查——平行循环内 FaceToVertex 后查）
         var settlementByCell = new Dictionary<int, byte>();
-        if (hasCiv && _civCtx.Settlements != null)
-            foreach (var s in _civCtx.Settlements)
+        if (hasCiv && _civCtx.Habitations != null)
+            foreach (var s in _civCtx.Habitations)
                 if (s.Cell >= 0 && s.Cell < n)
                     settlementByCell[s.Cell] = (byte)(s.IsRuin ? 5 : (s.Level + 1));   // 1-4=等级 5=废墟
 

@@ -98,9 +98,9 @@ public partial class CivSimDiag
             }
         }
         // ⚠️ 2026-08-19 阶段3 聚落：聚落实体（v13 新段）是场所持久状态——往返/续跑必须一致
-        if (!SettlementsEqual(a, b))
+        if (!HabitationsEqual(a, b))
         {
-            LogService.Log("往返诊断{tag}", $"Settlements 不一致（聚落状态分叉）");
+            LogService.Log("往返诊断{tag}", $"Habitations 不一致（聚落状态分叉）");
             return false;
         }
         // ⚠️ 2026-08-19 阶段5 战争：War 段（v14 新段）是过程状态——往返/续跑必须逐位一致
@@ -130,9 +130,9 @@ public partial class CivSimDiag
     }
 
 
-    private static bool SettlementsEqual(CivSimContext a, CivSimContext b)
+    private static bool HabitationsEqual(CivSimContext a, CivSimContext b)
     {
-        var sa = a.Settlements; var sb = b.Settlements;
+        var sa = a.Habitations; var sb = b.Habitations;
         if (sa == null || sb == null || sa.Count != sb.Count) return false;
         for (int i = 0; i < sa.Count; i++)
         {

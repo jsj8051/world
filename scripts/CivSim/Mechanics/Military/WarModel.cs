@@ -77,7 +77,7 @@ public sealed class WarModel : CivModelBase
 
     /// <summary>国家军力 = Σ 成员 P×MilitMult × (1+WarCapitalBonus×都城Level) × 防御加成（城墙，P6）。
     /// ⚠️ 每会战调 2 次（每 5 tick）——成员数百量级，O(成员) 可接受（T18 教训仅约束每 tick 路径）。</summary>
-    private static float PowerOf(CivSimContext ctx, int stateId, War w, Polity[] byId, Dictionary<int, Settlement> settleById)
+    private static float PowerOf(CivSimContext ctx, int stateId, War w, Polity[] byId, Dictionary<int, Habitation> settleById)
     {
         var members = MembersOf(ctx, stateId);
         float f = 0f;
@@ -387,11 +387,11 @@ public sealed class WarModel : CivModelBase
         return byId;
     }
 
-    private static Dictionary<int, Settlement> SettleIndex(CivSimContext ctx)
+    private static Dictionary<int, Habitation> SettleIndex(CivSimContext ctx)
     {
-        var d = new Dictionary<int, Settlement>();
-        if (ctx.Settlements != null)
-            foreach (var s in ctx.Settlements)
+        var d = new Dictionary<int, Habitation>();
+        if (ctx.Habitations != null)
+            foreach (var s in ctx.Habitations)
                 d[s.Id] = s;
         return d;
     }

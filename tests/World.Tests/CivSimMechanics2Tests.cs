@@ -164,8 +164,8 @@ public class CivSimMechanics2Tests
         sb.Append(";Conf=").Append(ctx.Conflicts);
         sb.Append(";TradeEv=").Append(ctx.TradeEvents);
         sb.Append(";TradeVol=").Append(ctx.TradeVolume.ToString("0.000000", CultureInfo.InvariantCulture));
-        sb.Append(";NextT=").Append(ctx.NextPolityId).Append(";NextS=").Append(ctx.NextSettlementId);
-        sb.Append(";Settles=").Append(ctx.Settlements.Count).Append(";Wars=").Append(ctx.Wars.Count);
+        sb.Append(";NextT=").Append(ctx.NextPolityId).Append(";NextS=").Append(ctx.NextHabitationId);
+        sb.Append(";Settles=").Append(ctx.Habitations.Count).Append(";Wars=").Append(ctx.Wars.Count);
         var ts = ctx.Polities.OrderBy(t => t.Id).ToArray();
         foreach (var t in ts)
         {
@@ -237,7 +237,7 @@ public class CivSimMechanics2Tests
         e.Stocks[LeatherIdx] = CivSimContext.CarryMatCap * 100f;     // 2
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
         ctx.Polities = new List<Polity> { e };
-        ctx.Settlements = new List<Settlement>();   // 无聚落 = 游群（随身即全部）
+        ctx.Habitations = new List<Habitation>();   // 无聚落 = 游群（随身即全部）
 
         CivEngine.AccumulateStorage(ctx);
 
@@ -258,10 +258,10 @@ public class CivSimMechanics2Tests
     {
         var e = new Polity { Id = 0, Cell = 0, P = 100, IsFarming = true, PlaceId = 0 };
         e.FHuntLast = 10f;          // 狩猎产出 → 皮革副产 = 10×0.10 = 1.0
-        var s = new Settlement { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
         ctx.Polities = new List<Polity> { e };
-        ctx.Settlements = new List<Settlement> { s };
+        ctx.Habitations = new List<Habitation> { s };
 
         CivEngine.AccumulateStorage(ctx);
 
@@ -281,7 +281,7 @@ public class CivSimMechanics2Tests
         e.Stocks[CommodityTable.Index(CommodityTable.Straw)] = 5f * CivSimContext.CarryMatCap * 100f;   // 超上限 5×（秸秆随身）
         var ctx = InitFullCtx(MakeMiniGrid(), 1);
         ctx.Polities = new List<Polity> { e };
-        ctx.Settlements = new List<Settlement>();   // 游群
+        ctx.Habitations = new List<Habitation>();   // 游群
 
         CivEngine.AccumulateStorage(ctx);
 

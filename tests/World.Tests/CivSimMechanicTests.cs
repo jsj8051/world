@@ -253,12 +253,12 @@ public class CivSimMechanicTests
         var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 8, IsFarming = true };   // 缺口 2，定居
         e.Stocks[BerryIdx] = 0.4f;
         e.Stocks[MeatIdx] = 0.4f;
-        var s = new Settlement { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
         s.Stocks[BerryIdx] = 1.5f;
         s.Stocks[GrainIdx] = 3.0f;
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
-        ctx.Settlements.Add(s);
+        ctx.Habitations.Add(s);
         new GrowthModel().Execute(ctx);
         // 缺口 2：随身全部（易腐先吃：浆果 0.4 + 肉 0.4 = 0.8）→ 粮仓浆果补 1.2（易腐）→
         // 粮仓谷物不动（耐储留底）。实现契约：先吃随身整池、再吃粮仓整池，池内易腐优先。
@@ -284,10 +284,10 @@ public class CivSimMechanicTests
     public void Growth_Surplus_SettledStoresToGranary()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 25, IsFarming = true };
-        var s = new Settlement { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
-        ctx.Settlements.Add(s);
+        ctx.Habitations.Add(s);
         new GrowthModel().Execute(ctx);
         // 盈余 15：随身先满 0.6，粮仓收至 SettleFoodCap×(1+0.5×Level)×P = 0.5×10 = 5
         Assert.AreEqual(CivSimContext.CarryFoodCap * 10f, e.Stocks[GrainIdx], 1e-4f);
@@ -299,10 +299,10 @@ public class CivSimMechanicTests
     public void Growth_Surplus_GranaryCapScalesWithLevel()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 10, FLast = 30, IsFarming = true };
-        var s = new Settlement { Id = 0, Cell = 0, Level = 2, OccupantId = e.Id, DwellFrom = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, Level = 2, OccupantId = e.Id, DwellFrom = 0 };
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
-        ctx.Settlements.Add(s);
+        ctx.Habitations.Add(s);
         new GrowthModel().Execute(ctx);
         // 城镇（Level 2）：0.5×(1+0.5×2)×10 = 10
         float cap = CivSimContext.SettleFoodCap * (1f + CivSimContext.SettlementStoragePerLevel * 2) * 10f;
@@ -470,15 +470,15 @@ public class CivSimMechanicTests
     // ══════════════════════════════════════════════════════════════════
 
     [Test]
-    public void Settlement_FarmingPolity_CreatesLevel0()
+    public void Habitation_FarmingPolity_CreatesLevel0()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = -1, SettledSince = -1 };
         var ctx = GrowthCtx(e);
         ctx.Tick = 10;
-        new SettlementModel().Execute(ctx);
-        Assert.AreEqual(1, ctx.Settlements.Count);
-        var s = ctx.Settlements[0];
-        Assert.AreEqual(0, s.Id, "NextSettlementId 从 0 分配");
+        new HabitationModel().Execute(ctx);
+        Assert.AreEqual(1, ctx.Habitations.Count);
+        var s = ctx.Habitations[0];
+        Assert.AreEqual(0, s.Id, "NextHabitationId 从 0 分配");
         Assert.AreEqual(e.Cell, s.Cell);
         Assert.AreEqual(0, s.Level, "新村 Level 0");
         Assert.AreEqual(e.Id, s.OccupantId);
@@ -491,20 +491,20 @@ public class CivSimMechanicTests
     }
 
     [Test]
-    public void Settlement_LevelUp_ByDwellAndPop_WithCooldown()
+    public void Habitation_LevelUp_ByDwellAndPop_WithCooldown()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = 0 };
-        var s = new Settlement { Id = 0, Cell = 0, Level = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0, OccupantId = e.Id };
+        var s = new Habitation { Id = 0, Cell = 0, Level = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0, OccupantId = e.Id };
         var ctx = GrowthCtx(e);
-        ctx.Settlements.Add(s);
+        ctx.Habitations.Add(s);
         ctx.Tick = 20;
-        new SettlementModel().Execute(ctx);
+        new HabitationModel().Execute(ctx);
         // dwell=20 ≥ SettlementLevelTicks1(3) 且 P=300 ≥ SettlementPop1(200) → 村庄；< 800 → 不到城镇
         Assert.AreEqual(1, s.Level, "dwell×P 阈值驱动等级");
         Assert.AreEqual(20, s.LastLevelUpTick);
         // 升级冷却 SettlementLevelCooldown=2：紧接下一 tick 不再跳级
         ctx.Tick = 21;
-        new SettlementModel().Execute(ctx);
+        new HabitationModel().Execute(ctx);
         Assert.AreEqual(1, s.Level, "冷却内不跳级");
     }
 
@@ -512,20 +512,20 @@ public class CivSimMechanicTests
     public void Settlement_Capital_HalvesLevelThresholds()
     {
         var capitalChief = new Polity { Id = 0, Cell = 0, P = 400, IsFarming = true, IsChief = true, ChiefdomId = 0, PlaceId = 0 };
-        var cap = new Settlement { Id = 0, Cell = 0, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 0 };
+        var cap = new Habitation { Id = 0, Cell = 0, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 0 };
         var ctx = GrowthCtx(capitalChief);
-        ctx.Settlements.Add(cap);
+        ctx.Habitations.Add(cap);
         ctx.Tick = 20;
-        new SettlementModel().Execute(ctx);
+        new HabitationModel().Execute(ctx);
         // 都城（至尊酋长聚落）阈值减半：L2 需 800/2=400 → P=400 达标 → 城镇
         Assert.AreEqual(2, cap.Level, "都城（ChiefdomId==Id 的酋长聚落）阈值减半");
 
         var plain = new Polity { Id = 1, Cell = 1, P = 400, IsFarming = true, PlaceId = 1 };
-        var ps = new Settlement { Id = 1, Cell = 1, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 1 };
+        var ps = new Habitation { Id = 1, Cell = 1, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 1 };
         var ctx2 = GrowthCtx(plain);
         ctx2.Tick = 20;
-        ctx2.Settlements.Add(ps);
-        new SettlementModel().Execute(ctx2);
+        ctx2.Habitations.Add(ps);
+        new HabitationModel().Execute(ctx2);
         Assert.AreEqual(1, ps.Level, "非都城 P=400 只到村庄（<800）");
     }
 
@@ -533,11 +533,11 @@ public class CivSimMechanicTests
     public void Settlement_Abandoned_OnOccupantDeath()
     {
         var e = new Polity { Id = 0, Cell = 0, P = 300, IsFarming = true, Dead = true, PlaceId = 0 };
-        var s = new Settlement { Id = 0, Cell = 0, Level = 1, OccupantId = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0 };
+        var s = new Habitation { Id = 0, Cell = 0, Level = 1, OccupantId = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0 };
         var ctx = GrowthCtx(e);
-        ctx.Settlements.Add(s);
+        ctx.Habitations.Add(s);
         ctx.Tick = 5;
-        new SettlementModel().Execute(ctx);
+        new HabitationModel().Execute(ctx);
         Assert.True(s.IsRuin, "部落灭绝 → 聚落成废墟（场所比人长寿）");
         Assert.AreEqual(-1, s.OccupantId);
         Assert.AreEqual(5, s.RuinFrom);
@@ -653,15 +653,15 @@ public class CivSimMechanicTests
     {
         var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
         var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = 11, TerritoryId = 1 };
-        var capital = new Settlement { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
-        var sub = new Settlement { Id = 11, Cell = 1, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 1 };
+        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
+        var sub = new Habitation { Id = 11, Cell = 1, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 1 };
         var cells = new List<int>[8];
         foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
         cells[0] = new List<int> { 0, 1 };
         var ctx = new CivSimContext
         {
             Polities = new List<Polity> { chief, member },
-            Settlements = new List<Settlement> { capital, sub },
+            Habitations = new List<Habitation> { capital, sub },
             ChiefdomCells = cells,
             Tick = 30,
         };
@@ -678,14 +678,14 @@ public class CivSimMechanicTests
     {
         var chief = new Polity { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
         var member = new Polity { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = -1, TerritoryId = 1 };
-        var capital = new Settlement { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
+        var capital = new Habitation { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
         var cells = new List<int>[8];
         foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
         cells[0] = new List<int> { 0, 1 };
         var ctx = new CivSimContext
         {
             Polities = new List<Polity> { chief, member },
-            Settlements = new List<Settlement> { capital },
+            Habitations = new List<Habitation> { capital },
             ChiefdomCells = cells,
             Tick = 30,
         };
@@ -758,16 +758,16 @@ public class CivSimMechanicTests
     // ══════════════════════════════════════════════════════════════════
 
     [Test]
-    public void Context_SettlementOf_ResolvesByPlaceId()
+    public void Context_HabitationOf_ResolvesByPlaceId()
     {
-        var s = new Settlement { Id = 5, Cell = 0, OccupantId = 7 };
-        var ctx = new CivSimContext { Settlements = new List<Settlement> { s } };
+        var s = new Habitation { Id = 5, Cell = 0, OccupantId = 7 };
+        var ctx = new CivSimContext { Habitations = new List<Habitation> { s } };
         var t = new Polity { Id = 7, PlaceId = 5 };
-        Assert.AreSame(s, ctx.SettlementOf(t));
+        Assert.AreSame(s, ctx.HabitationOf(t));
         t.PlaceId = -1;
-        Assert.IsNull(ctx.SettlementOf(t));
+        Assert.IsNull(ctx.HabitationOf(t));
         t.PlaceId = 99;
-        Assert.IsNull(ctx.SettlementOf(t), "未知 PlaceId → null");
+        Assert.IsNull(ctx.HabitationOf(t), "未知 PlaceId → null");
     }
 
     [Test]
@@ -894,10 +894,10 @@ public class CivSimMechanicTests
         Assert.AreEqual(a.TradeVolume, b.TradeVolume, 0.001f);
         Assert.AreEqual(a.TradeEvents, b.TradeEvents);
         Assert.AreEqual(a.NextPolityId, b.NextPolityId);
-        Assert.AreEqual(a.NextSettlementId, b.NextSettlementId);
+        Assert.AreEqual(a.NextHabitationId, b.NextHabitationId);
         Assert.AreEqual(a.CultureKeyCount, b.CultureKeyCount);
         Assert.AreEqual(a.ReligionKeyCount, b.ReligionKeyCount);
-        Assert.AreEqual(a.Settlements.Count, b.Settlements.Count);
+        Assert.AreEqual(a.Habitations.Count, b.Habitations.Count);
         Assert.AreEqual(a.Wars.Count, b.Wars.Count);
 
         var ta = a.Polities.OrderBy(t => t.Id).ToArray();

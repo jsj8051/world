@@ -10,6 +10,6 @@ namespace World.CivSim.Mechanics.State;
 public static class StateDwellCheck
 {
     /// <summary>④ 存续判定：都城聚落存在且存续达线。</summary>
-    public static bool Check(CivSimContext ctx, Settlement capital) =>
+    public static bool Check(CivSimContext ctx, Habitation capital) =>
         capital != null && ctx.Tick - capital.BornTick >= CivSimContext.StateDwellTicks;
 }

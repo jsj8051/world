@@ -11,7 +11,7 @@ namespace World.CivSim.Mechanics.State;
 /// ① 清空全部 StateId/StateSize；② 按酋邦（ChiefdomCells 成员表）判定涌现条件（4 个规范积木 AND）；
 /// ③ 满足 → 全部成员 StateId = 酋长 Id、StateSize = 成员数。
 /// ⚠️ 2026-08-16 性能（T18 暴露 309s 劣化）：每 tick 执行 → 必须 O(1) 索引——Id→Polity 数组
-///   + PlaceId→Settlement 字典（线性扫描 × 成员数 × 酋邦数 = 每 tick 上千万比较）。
+///   + PlaceId→Habitation 字典（线性扫描 × 成员数 × 酋邦数 = 每 tick 上千万比较）。
 /// </summary>
 public static class StateAssign
 {
@@ -28,10 +28,10 @@ public static class StateAssign
         var byId = new Polity[bufLen];
         for (int i = 0; i < ctx.Polities.Count; i++)
             if (!ctx.Polities[i].Dead && ctx.Polities[i].Id < bufLen) byId[ctx.Polities[i].Id] = ctx.Polities[i];
-        // 聚落索引：Settlement.Id → Settlement（O(1) 查询）
-        var settleById = new Dictionary<int, Settlement>();
-        if (ctx.Settlements != null)
-            foreach (var s in ctx.Settlements)
+        // 聚落索引：Habitation.Id → Habitation（O(1) 查询）
+        var settleById = new Dictionary<int, Habitation>();
+        if (ctx.Habitations != null)
+            foreach (var s in ctx.Habitations)
                 settleById[s.Id] = s;
         // 按酋邦遍历（ChiefdomId = 酋长 Id——ChiefdomModel.Rebuild 已填成员表）
         for (int chiefId = 0; chiefId < ctx.ChiefdomCells.Length; chiefId++)
@@ -56,9 +56,9 @@ public static class StateAssign
     }
 
     /// <summary>国家涌现判定 = 规范积木 AND 组合（纯函数——全部输入已入档/派生）。</summary>
-    private static bool IsState(CivSimContext ctx, Polity chief, List<int> members, Polity[] byId, Dictionary<int, Settlement> settleById)
+    private static bool IsState(CivSimContext ctx, Polity chief, List<int> members, Polity[] byId, Dictionary<int, Habitation> settleById)
     {
-        Settlement capital = StateCapitalCheck.Of(chief, settleById);   // 解析都城（供 ②④ 复用）
+        Habitation capital = StateCapitalCheck.Of(chief, settleById);   // 解析都城（供 ②④ 复用）
         if (!StateCapitalCheck.Check(ctx, chief, settleById)) return false;          // ① 都城
         if (!StateDwellCheck.Check(ctx, capital)) return false;                      // ④ 存续（弱滞回）
         if (!StateSubCenterCheck.Check(members, byId, settleById, capital.Id)) return false;   // ② 决策层级

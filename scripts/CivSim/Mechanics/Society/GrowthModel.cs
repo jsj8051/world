@@ -36,7 +36,7 @@ public sealed class GrowthModel : CivModelBase
             //   饥荒 = 连续歉年吃空存粮 → 缺口扩大 → 饿死（非硬标志）。
             //   ⚠️ 2026-08-19 聚落双池：缺口**先吃随身、再吃粮仓**（粮仓=耐储最后防线——人先耗行囊）；
             //   盈余**随身先满、粮仓后收**（正式存储归聚落，用户拍板）。
-            var st = ctx.SettlementOf(e);   // 粮仓（定居部落；null=游群——随身即全部）
+            var st = ctx.HabitationOf(e);   // 粮仓（定居部落；null=游群——随身即全部）
             if (e.Stocks != null && e.Stocks.Length == CommodityTable.Count)
             {
                 if (f < e.P)

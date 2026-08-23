@@ -1,4 +1,4 @@
-// 职责：Settlement (Order 48)（2026-08-19 拆分自 CivModels.cs 纯重构；2026-08-23 概念=机制组合迁移至 Mechanics/<域>/ 目录）
+// 职责：Habitation (Order 48)（2026-08-19 拆分自 CivModels.cs 纯重构；2026-08-23 概念=机制组合迁移至 Mechanics/<域>/ 目录）
 using Godot;
 using System;
 using System.Collections.Generic;
@@ -19,7 +19,7 @@ namespace World.CivSim.Mechanics.Territory;
 //    等级：Dwell（定居时长）× P 阈值纯函数（无 Rng，读档续跑无分叉）；都城（至尊酋长聚落）阈值减半；
 //    收益：存储容量 ×(1+0.5×Level)（AccumulateStorage）、增长 ×(1+0.25×Level)（GrowthModel）。
 // ══════════════════════════════════════════════════════════════════
-public sealed class SettlementModel : CivModelBase
+public sealed class HabitationModel : CivModelBase
 {
     public override string Name => "聚落";
     public override int Order => 48;
@@ -27,9 +27,9 @@ public sealed class SettlementModel : CivModelBase
     protected override void Apply(CivSimContext ctx)
     {
         // ① 占据同步：已死/迁走部落释放聚落（废墟——场所比人长寿）
-        for (int i = 0; i < ctx.Settlements.Count; i++)
+        for (int i = 0; i < ctx.Habitations.Count; i++)
         {
-            var s = ctx.Settlements[i];
+            var s = ctx.Habitations[i];
             if (s.OccupantId < 0) continue;
             var occ = FindPolity(ctx, s.OccupantId);
             if (occ == null || occ.Dead || occ.Cell != s.Cell || occ.PlaceId != s.Id)
@@ -50,9 +50,9 @@ public sealed class SettlementModel : CivModelBase
             var e = ctx.Polities[i];
             if (e.Dead || !e.IsFarming || e.PlaceId >= 0) continue;
             if (e.SettledSince < 0) e.SettledSince = ctx.Tick;   // 定居起点（转农/迁入当 tick）
-            Settlement reclaim = null;
-            for (int k = 0; k < ctx.Settlements.Count; k++)
-                if (ctx.Settlements[k].Cell == e.Cell && ctx.Settlements[k].IsRuin) { reclaim = ctx.Settlements[k]; break; }
+            Habitation reclaim = null;
+            for (int k = 0; k < ctx.Habitations.Count; k++)
+                if (ctx.Habitations[k].Cell == e.Cell && ctx.Habitations[k].IsRuin) { reclaim = ctx.Habitations[k]; break; }
             if (reclaim != null)
             {
                 // 接管废墟：继承 Level（场所比人长寿）；粮仓清空（新占据者从零开始）
@@ -64,9 +64,9 @@ public sealed class SettlementModel : CivModelBase
             }
             else
             {
-                var s = new Settlement
+                var s = new Habitation
                 {
-                    Id = ctx.NextSettlementId++,
+                    Id = ctx.NextHabitationId++,
                     Cell = e.Cell,
                     BornTick = ctx.Tick,
                     Level = 0,
@@ -74,14 +74,14 @@ public sealed class SettlementModel : CivModelBase
                     DwellFrom = ctx.Tick,
                     OccupantId = e.Id,
                 };
-                ctx.Settlements.Add(s);
+                ctx.Habitations.Add(s);
                 e.PlaceId = s.Id;
             }
         }
         // ③ 等级演化（Dwell×P 阈值 + 冷却；都城 = 至尊酋长聚落，阈值减半）
-        for (int i = 0; i < ctx.Settlements.Count; i++)
+        for (int i = 0; i < ctx.Habitations.Count; i++)
         {
-            var s = ctx.Settlements[i];
+            var s = ctx.Habitations[i];
             if (s.OccupantId < 0) continue;
             var occ = FindPolity(ctx, s.OccupantId);
             if (occ == null || occ.Dead) continue;

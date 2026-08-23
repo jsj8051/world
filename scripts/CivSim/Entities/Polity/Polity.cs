@@ -50,13 +50,13 @@ public partial class Polity
 
     // ── 商品随身池（2026-08-18 阶段3：动态商品目录 CommodityTable；2026-08-19 聚落设计改语义）──
     //   ⚠️ v12 存档字段 Stocks 保留同名但语义改为**随身携带**（容量 CarryFoodCap/CarryMatCap×P——
-    //   游群即随身；定居部落也随身基础量）。**正式存储（粮仓）迁到聚落实体**（Settlement.Stocks，
+    //   游群即随身；定居部落也随身基础量）。**正式存储（粮仓）迁到聚落实体**（Habitation.Stocks，
     //   用户拍板"存粮迁移到聚落"）——人走粮留。旧 v12 档 Stocks 读入 = 随身池。
     public float[] Stocks = CommodityTable.NewStocks();   // 随身池（索引 = CommodityTable.Index(id)；Food 类被人口消耗）
 
     // ── 聚落关联（2026-08-19 阶段3 聚落设计；v13 入档）──
     public int SettledSince = -1;   // 当前农业定居起点 tick（-1=游动中/未定居；迁徙重置）；v12 旧档默认 -1
-    public int PlaceId = -1;        // 占据聚落 Id（-1=无）；SettlementModel 形成/接管时赋值
+    public int PlaceId = -1;        // 占据聚落 Id（-1=无）；HabitationModel 形成/接管时赋值
 
     // ── 生产方式 F 分量（派生缓存：RefreshCellState 每 tick；不存档——货物分解用）──
     public float FHuntLast, FHerdLast, FFarmLast;   // 各方式当 tick 产出

@@ -190,7 +190,7 @@ public static class CivEngine
     /// 双池（用户拍板"存粮迁移到聚落"）：
     ///   · **随身池**（Polity.Stocks，v12 字段语义改）：衰变用**基础年率**（携带即自然损耗——存储科技不保护
     ///     随身物）；Material 流入的**溢余**；容量 CarryFoodCap/CarryMatCap×P（游群即随身）。
-    ///   · **粮仓**（Settlement.Stocks，v13）：衰变用 techMult（storage/pottery/settle/grinding 分层保藏——
+    ///   · **粮仓**（Habitation.Stocks，v13）：衰变用 techMult（storage/pottery/settle/grinding 分层保藏——
     ///     谷物耐储核心）；Material 流入**优先入仓**；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×Level)。
     ///   Food 流入/消耗由 GrowthModel 管（缺口吃随身→粮仓，耐储者留底）；本方法只做衰变+流入+容量。
     /// 单位 Stocks = 人当量（与 FLast/P 同量纲）。衰变按年率折算 tick：
@@ -202,7 +202,7 @@ public static class CivEngine
             var e = ctx.Polities[i];
             if (e.Dead || e.P <= 0f) continue;
             if (e.Stocks == null || e.Stocks.Length != CommodityTable.Count) e.Stocks = CommodityTable.NewStocks();
-            var s = ctx.SettlementOf(e);   // 粮仓（定居部落）；null = 游群
+            var s = ctx.HabitationOf(e);   // 粮仓（定居部落）；null = 游群
             if (s != null && (s.Stocks == null || s.Stocks.Length != CommodityTable.Count)) s.Stocks = CommodityTable.NewStocks();
             bool hasStorage = CapabilityTable.Has(ctx, e, CapabilityTable.Storage);
             bool hasPottery = CapabilityTable.Has(ctx, e, CapabilityTable.Pottery);
