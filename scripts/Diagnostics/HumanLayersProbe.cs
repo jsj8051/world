@@ -6,6 +6,7 @@ using World.LogicGrid;
 using World.MapView;
 using World.Services;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 /// <summary>人文图层探针（2026-08-19 临时）：读 .cmp → 统计 文化/文化群/宗教派别/领地 分布
@@ -29,7 +30,7 @@ public partial class HumanLayersProbe : DiagSceneBase
             return;
         }
         var ctx = res.Context;
-        LogService.Log("HumanLayersProbe", $"{path} n={grid.N} 实体={ctx.Tribes.Count} tick={res.FinalTick} 人口={ctx.TotalPopulation():F0}");
+        LogService.Log("HumanLayersProbe", $"{path} n={grid.N} 实体={ctx.Bands.Count} tick={res.FinalTick} 人口={ctx.TotalPopulation():F0}");
 
         var ownerCells = new Dictionary<int, int>();
         if (ctx.CellOwner != null)
@@ -54,7 +55,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         DumpExpansionStats(ctx, grid);
 
         var terrBands = new Dictionary<int, int>();
-        foreach (var e in ctx.Tribes)
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead) continue;
             terrBands[e.TerritoryId] = terrBands.TryGetValue(e.TerritoryId, out var v) ? v + 1 : 1;
@@ -76,8 +77,8 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// 报告归属格分布（= 地图实际显示的文化分布）；定居/领地只差明度。</summary>
     private void DumpDisplayStats(CivSimContext ctx, int n)
     {
-        var byId = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
         var cultCells = new Dictionary<string, int>();
         int owned = 0;
         for (int v = 0; v < n; v++)
@@ -108,15 +109,15 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// ③ 文化图层最大连通同色区域（BFS，显示色 = 定居自身 or 归属者）——衡量地图碎成孤岛 vs 存在连贯区域。</summary>
     private void DumpEnclaveStats(CivSimContext ctx, int n)
     {
-        var bestByCell = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes)
+        var bestByCell = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
             if (ctx.R != null && ctx.R[e.Cell] <= 0f) continue;
             if (!bestByCell.TryGetValue(e.Cell, out var cur) || e.P > cur.P) bestByCell[e.Cell] = e;
         }
-        var byId = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
         int land = 0, owned = 0, selfOwned = 0, foreignOwned = 0, cultDiff = 0, powerDiff = 0;
         for (int v = 0; v < n; v++)
         {
@@ -243,14 +244,14 @@ public partial class HumanLayersProbe : DiagSceneBase
         return (compMax, compCount);
     }
 
-    private static string PowerKey(Tribe e)
+    private static string PowerKey(Band e)
     {
         if (e.ChiefdomId >= 0) return "C" + e.ChiefdomId;
         if (e.TerritorySize >= 2) return "T" + e.TerritoryId;
         return "B" + e.Id;
     }
 
-    private static int PowerIdOf(Tribe e)
+    private static int PowerIdOf(Band e)
     {
         if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
         if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
@@ -264,7 +265,7 @@ public partial class HumanLayersProbe : DiagSceneBase
     {
         var byState = new Dictionary<int, (int Bands, float Pop)>();
         var capitals = new Dictionary<int, int>();   // stateId → 都城 Level
-        foreach (var e in ctx.Tribes)
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead || e.StateId < 0) continue;
             if (!byState.TryGetValue(e.StateId, out var agg)) agg = (0, 0f);
@@ -290,20 +291,20 @@ public partial class HumanLayersProbe : DiagSceneBase
         LogService.Log("HumanLayersProbe", $"国家统计: {list.Count} 个国家（{capSum} 有都城）| {sb}");
         // 诊断：按酋邦打印未达标条件（前 10 大酋邦）
         var diag = new List<(int Chief, int Bands, float Pop, int CapLvl, float Pool, float Need, int Settles, bool Sub, int Dwell)>();
-        var byId = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) byId[e.Id] = e;
-        var groups = new Dictionary<int, List<Tribe>>();
-        foreach (var e in ctx.Tribes)
+        var byId = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
+        var groups = new Dictionary<int, List<Band>>();
+        foreach (var e in ctx.Bands)
             if (!e.Dead && e.ChiefdomId >= 0)
             {
-                if (!groups.TryGetValue(e.ChiefdomId, out var l)) groups[e.ChiefdomId] = l = new List<Tribe>();
+                if (!groups.TryGetValue(e.ChiefdomId, out var l)) groups[e.ChiefdomId] = l = new List<Band>();
                 l.Add(e);
             }
         foreach (var kv in groups)
         {
             var members = kv.Value;
             if (members.Count < 2) continue;
-            Tribe chief = null;
+            Band chief = null;
             foreach (var m in members) if (m.IsChief && m.ChiefdomId == m.Id) { chief = m; break; }
             if (chief == null) { diag.Add((kv.Key, members.Count, 0f, -1, 0f, 0f, 0, false, -1)); continue; }
             var cap = ctx.SettlementOf(chief);
@@ -356,7 +357,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         var entByR = new int[5];
         var ownedByR = new int[5];   // 归属格按 R 分桶
         float[] rBins = { 0.02f, 0.05f, 0.1f, 0.2f, float.MaxValue };
-        foreach (var e in ctx.Tribes)
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead || e.Cell < 0 || e.Cell >= n) continue;
             int ri = BucketIndex(ctx.R[e.Cell], rBins);
@@ -391,8 +392,8 @@ public partial class HumanLayersProbe : DiagSceneBase
     private void DumpPowerColorCheck(CivSimContext ctx, int n)
     {
         var ids = new HashSet<int>();
-        var byId = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
         if (ctx.CellOwner != null)
             for (int v = 0; v < n; v++)
                 if (ctx.CellOwner[v] >= 0 && byId.TryGetValue(ctx.CellOwner[v], out var o))
@@ -418,8 +419,8 @@ public partial class HumanLayersProbe : DiagSceneBase
     private void DumpTerritoryColorCheck(CivSimContext ctx, int n)
     {
         var ids = new HashSet<int>();
-        var byId = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
         if (ctx.CellOwner != null)
             for (int v = 0; v < n; v++)
                 if (ctx.CellOwner[v] >= 0 && byId.TryGetValue(ctx.CellOwner[v], out var o))
@@ -453,8 +454,8 @@ public partial class HumanLayersProbe : DiagSceneBase
         }
         int[] levels = new int[4];
         int ruins = 0, capitals = 0;
-        var byId = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) byId[e.Id] = e;
+        var byId = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) byId[e.Id] = e;
         foreach (var s in ctx.Settlements)
         {
             if (s.IsRuin) { ruins++; continue; }
@@ -468,15 +469,15 @@ public partial class HumanLayersProbe : DiagSceneBase
     /// 预期农持谷物、牧持羊毛、猎持皮革（比较优势 → 各产所长 → 贸易互通）。</summary>
     private void DumpModeStocks(CivSimContext ctx)
     {
-        var modes = new Dictionary<string, List<Tribe>>();
-        foreach (var e in ctx.Tribes)
+        var modes = new Dictionary<string, List<Band>>();
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead) continue;
             string m;
             if (e.IsFarming && e.FFarmLast >= e.FHuntLast && e.FFarmLast >= e.FHerdLast) m = "农";
             else if (e.FHerdLast > e.FHuntLast) m = "牧";
             else m = "猎";
-            if (!modes.TryGetValue(m, out var l)) modes[m] = l = new List<Tribe>();
+            if (!modes.TryGetValue(m, out var l)) modes[m] = l = new List<Band>();
             l.Add(e);
         }
         foreach (var kv in modes)
@@ -505,7 +506,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         var chiefBands = new Dictionary<int, int>();
         var chiefPop = new Dictionary<int, float>();
         var terrBands = new Dictionary<int, int>();
-        foreach (var e in ctx.Tribes)
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead) continue;
             if (e.ChiefdomId >= 0)
@@ -523,7 +524,7 @@ public partial class HumanLayersProbe : DiagSceneBase
         LogService.Log("HumanLayersProbe", $"酋邦 {cb.Count} 个 | 最大: {sb}");
         // 大领地（≥100 band）内酋邦数——语言网络 vs 政治统一
         var terrChiefs = new Dictionary<int, HashSet<int>>();
-        foreach (var e in ctx.Tribes)
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead || e.ChiefdomId < 0) continue;
             if (!terrChiefs.TryGetValue(e.TerritoryId, out var s)) terrChiefs[e.TerritoryId] = s = new HashSet<int>();
@@ -542,10 +543,10 @@ public partial class HumanLayersProbe : DiagSceneBase
         LogService.Log("HumanLayersProbe", $"大领地内酋邦数（语言网络 vs 政治统一）: {sb2}");
     }
 
-    private void DumpLayer(CivSimContext ctx, Dictionary<int, int> ownerCells, string name, Func<Tribe, string> keyOf)
+    private void DumpLayer(CivSimContext ctx, Dictionary<int, int> ownerCells, string name, Func<Band, string> keyOf)
     {
         var agg = new Dictionary<string, Agg>();
-        foreach (var e in ctx.Tribes)
+        foreach (var e in ctx.Bands)
         {
             if (e.Dead) continue;
             string k = keyOf(e) ?? "无";
@@ -563,7 +564,7 @@ public partial class HumanLayersProbe : DiagSceneBase
     }
 
     /// <summary>等距柱状导出（归属格主导：每像素→最近逻辑顶点→CellOwner→该 band 的 key 哈希→色）。</summary>
-    private void ExportMap(GameGrid grid, CivSimContext ctx, string tag, Func<Tribe, int> keyOf)
+    private void ExportMap(GameGrid grid, CivSimContext ctx, string tag, Func<Band, int> keyOf)
     {
         const int w = 1024, h = 512;
         var verts = grid.Verts;
@@ -581,8 +582,8 @@ public partial class HumanLayersProbe : DiagSceneBase
             int lon = (int)Mathf.Clamp((Mathf.Atan2(p.Z, p.X) / Mathf.Tau + 0.5f) * BL, 0, BL - 1);
             buckets[lat][lon].Add(v);
         }
-        var idMap = new Dictionary<int, Tribe>();
-        foreach (var e in ctx.Tribes) if (!e.Dead) idMap[e.Id] = e;
+        var idMap = new Dictionary<int, Band>();
+        foreach (var e in ctx.Bands) if (!e.Dead) idMap[e.Id] = e;
         var img = Image.CreateEmpty(w, h, false, Image.Format.Rgba8);
         for (int y = 0; y < h; y++)
         {

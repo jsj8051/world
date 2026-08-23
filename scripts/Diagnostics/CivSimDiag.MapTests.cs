@@ -10,6 +10,9 @@ using World.LogicGrid;
 using World.MapGen;
 using World.Services;
 
+using World.CivSim.Entities;
+using World.CivSim.Mechanics.Society;
+using World.CivSim.Mechanics.Territory;
 namespace World.Diagnostics;
 
 public partial class CivSimDiag
@@ -21,7 +24,7 @@ public partial class CivSimDiag
     {
         var r2 = CivEngine.Run(_grid, seed, origins);
         bool repro = EntitiesEqual(c, r2.Context);
-        Check("T03 复现性（同 seed 两次一致）", repro, $"实体 {c.Tribes.Count}");
+        Check("T03 复现性（同 seed 两次一致）", repro, $"实体 {c.Bands.Count}");
         return repro;
     }
 
@@ -83,8 +86,8 @@ public partial class CivSimDiag
                                        out ushort aVer, out var aSt))
                 {
                     bool pkOk = pSeed == rBack.Context.Seed && pTick == rBack.Context.Tick
-                        && pPop == rBack.Context.TotalPopulation() && pEnt == rBack.Context.Tribes.Count;
-                    LogService.Log("Peek验证", $"seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Tribes.Count}) 一致={pkOk}");
+                        && pPop == rBack.Context.TotalPopulation() && pEnt == rBack.Context.Bands.Count;
+                    LogService.Log("Peek验证", $"seed={pSeed}({rBack.Context.Seed}) tick={pTick}({rBack.Context.Tick}) pop={pPop:F0}({rBack.Context.TotalPopulation():F0}) ent={pEnt}({rBack.Context.Bands.Count}) 一致={pkOk}");
                 }
                 else LogService.Log("Peek验证", "FAIL 无法 Peek");
             }
@@ -98,7 +101,7 @@ public partial class CivSimDiag
             biomeRejected = !CivMapArchive.Read(badPath, out _, out _);
         }
         if (Want("T01")) Check("T01 自然层零改动（硬验收）", natOk, outPath ?? "无 --out");
-        if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Tribes.Count}");
+        if (Want("T02")) Check("T02 实体往返", rtOk, $"实体 {c.Bands.Count}");
         if (Want("T19")) Check("T19 存档版本拒绝", verRejected && v4Rejected && biomeRejected,
             $"ver>7 拒绝={verRejected} v6/v5/v4旧档拒绝={v4Rejected} biome4-11 拒绝={biomeRejected}");
         return rtOk;
@@ -133,8 +136,8 @@ public partial class CivSimDiag
                 ctxMem.AbsorptionLastEval = rBack.Context.AbsorptionLastEval;
                 RunTicks(ctxMem, 20);                 // 内存态续跑 20
                 RunTicks(rBack.Context, 20);          // 读档态续跑 20（Rng 状态读档已恢复）
-                ctxMem.Tribes.RemoveAll(e => e.Dead);
-                rBack.Context.Tribes.RemoveAll(e => e.Dead);
+                ctxMem.Bands.RemoveAll(e => e.Dead);
+                rBack.Context.Bands.RemoveAll(e => e.Dead);
                 TerritoryModel.Rebuild(rBack.Context);
                 TerritoryModel.Rebuild(ctxMem);
                 contOk = EntitiesEqual(rBack.Context, ctxMem);
@@ -175,9 +178,9 @@ public partial class CivSimDiag
     private static string DerivedSnapshot(CivSimContext ctx)
     {
         var sb = new System.Text.StringBuilder();
-        for (int i = 0; i < ctx.Tribes.Count; i++)
+        for (int i = 0; i < ctx.Bands.Count; i++)
         {
-            var e = ctx.Tribes[i];
+            var e = ctx.Bands[i];
             if (e.Dead) continue;
             sb.Append(e.Id).Append(':')
               .Append(e.FLast.ToString("F3")).Append('/')
@@ -210,23 +213,23 @@ public partial class CivSimDiag
         bool t05 = false;
         var ctx0 = MakeCtx(_grid, seed, origins);
         new OriginModel().Execute(ctx0);
-        if (ctx0.Tribes.Count == origins)
+        if (ctx0.Bands.Count == origins)
         {
             bool distOk = true, richOk = true, cultOk = true;
             var richSet = RichZone(_grid);
             float minKm = CivSimContext.OriginDistMin * Mathf.Sqrt(_grid.CellAreaKm2);
-            for (int i = 0; i < ctx0.Tribes.Count; i++)
+            for (int i = 0; i < ctx0.Bands.Count; i++)
             {
-                var e = ctx0.Tribes[i];
+                var e = ctx0.Bands[i];
                 if (e.P != CivSimContext.OriginPop || !e.TechKeys.Contains(TechTable.StoneCore)) cultOk = false;
                 if (ShareField.DomReligion(e.ReligionShare) != ReligionStage.Animism) cultOk = false;
                 if (!richSet.Contains(e.Cell)) richOk = false;
-                for (int j = i + 1; j < ctx0.Tribes.Count; j++)
-                    if (_grid.DistKm(e.Cell, ctx0.Tribes[j].Cell) < minKm) distOk = false;
+                for (int j = i + 1; j < ctx0.Bands.Count; j++)
+                    if (_grid.DistKm(e.Cell, ctx0.Bands[j].Cell) < minKm) distOk = false;
             }
             t05 = distOk && richOk && cultOk;
         }
-        Check("T05 起源播种", t05, $"N={ctx0.Tribes.Count} 格距≥12格 富饶区 泛灵 独立文化");
+        Check("T05 起源播种", t05, $"N={ctx0.Bands.Count} 格距≥12格 富饶区 泛灵 独立文化");
     }
 
 
@@ -234,7 +237,7 @@ public partial class CivSimDiag
     private void T09_DependencyChain(CivSimContext c)
     {
         bool depOk = true;
-        foreach (var e in c.Tribes)
+        foreach (var e in c.Bands)
         {
             if (e.TechKeys.Contains(TechTable.Bow) && !e.TechKeys.Contains(TechTable.Microlith)) depOk = false;
             if (e.TechKeys.Contains(TechTable.Microlith) && !e.TechKeys.Contains(TechTable.Handaxe)) depOk = false;
@@ -259,7 +262,7 @@ public partial class CivSimDiag
         int revertCount = 0;
         int goodFarm = 0;   // 良田农业实体数（e_农≥0.5，纳入稳态检查）
         int[] seedHolders = new int[5];
-        foreach (var e in c.Tribes)
+        foreach (var e in c.Bands)
         {
             for (int s = 0; s < 5; s++)
                 if (e.TechKeys.Contains(TechTable.SeedKeys[s])) seedHolders[s]++;
@@ -293,7 +296,7 @@ public partial class CivSimDiag
     {
         int farmCount = CountFarming(c);
         int toolTechHolders = 0;
-        foreach (var e in c.Tribes)
+        foreach (var e in c.Bands)
             if (e.TechKeys.Contains(TechTable.Bow)) toolTechHolders++;
         bool spreadOk = toolTechHolders > 0;   // 软指标：工具类科技扩散存在性（量级随地形漂移——2026-08-18 放宽）
         Check("T10 传播扩散", spreadOk, $"弓箭持有 {toolTechHolders} ≥ 农业实体 {farmCount}");
@@ -314,7 +317,7 @@ public partial class CivSimDiag
         bool relOk = true;
         int shamanEnts = 0;
         var cultSet = new System.Collections.Generic.HashSet<string>();
-        foreach (var e in c.Tribes)
+        foreach (var e in c.Bands)
         {
             // ⚠️ 2026-08-17 定居落地：祖先不再全 0（农业 band 定居 → 祖先合理）——只锁多神/一神（后续阶段）
             if (ShareField.RelFrac(e.ReligionShare, ReligionStage.Polytheism) > 0
@@ -335,17 +338,17 @@ public partial class CivSimDiag
         {
             if (_grid.IsLandCell(i)) land++;
             if (c.CellPop[i] > 0f) occupied++;
-            if (c.CellTribes[i] != null) cellsWithEnts++;
-            if (c.CellTribes[i] != null && maxCellEnts < 1) maxCellEnts = 1;
+            if (c.CellBands[i] != null) cellsWithEnts++;
+            if (c.CellBands[i] != null && maxCellEnts < 1) maxCellEnts = 1;
         }
-        LogService.Log("CivSimDiag", $"实体格分布: 占 {cellsWithEnts} 格（实体 {c.Tribes.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxTribesPerCell}）");
+        LogService.Log("CivSimDiag", $"实体格分布: 占 {cellsWithEnts} 格（实体 {c.Bands.Count}） 单格最大 {maxCellEnts}（上限 {CivSimContext.MaxBandsPerCell}）");
         float cover = land > 0 ? occupied * 100f / land : 0f;
         if (Want("T15")) Check("T15 覆盖", true, $"覆盖 {occupied}/{land} = {cover:F0}%（⚠️ 数据展示型：恒 PASS 参考指标，不硬卡——改阈值需先讨论）");
         if (Want("T16"))
         {
             int farmCount = CountFarming(c);
-            bool pyramid = farmCount < c.Tribes.Count / 2;
-            Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Tribes.Count - farmCount}");
+            bool pyramid = farmCount < c.Bands.Count / 2;
+            Check("T16 时代分布金字塔", pyramid, $"新石器(农) {farmCount} ≪ 旧石器 {c.Bands.Count - farmCount}");
         }
     }
 
@@ -384,11 +387,11 @@ public partial class CivSimDiag
     private void T22_TerritoryEmergence(CivSimContext c)
     {
         var ids = new HashSet<int>();
-        int inTribe = 0;
-        foreach (var e in c.Tribes)
-            if (e.TerritorySize >= 2) { ids.Add(e.TerritoryId); inTribe++; }
+        int inBand = 0;
+        foreach (var e in c.Bands)
+            if (e.TerritorySize >= 2) { ids.Add(e.TerritoryId); inBand++; }
         bool emerged = ids.Count >= 1;
-        Check("T22 领地涌现", emerged, $"领地 {ids.Count} 个（≥2 band），成员 band {inTribe} 个");
+        Check("T22 领地涌现", emerged, $"领地 {ids.Count} 个（≥2 band），成员 band {inBand} 个");
     }
 
 
@@ -398,7 +401,7 @@ public partial class CivSimDiag
     {
         int prestigeEnts = 0, bigMen = 0, chiefs = 0;
         var chiefdomIds = new HashSet<int>();
-        foreach (var e in c.Tribes)
+        foreach (var e in c.Bands)
         {
             if (e.Prestige > 0f) prestigeEnts++;
             if (e.IsBigMan) bigMen++;
@@ -426,7 +429,7 @@ public partial class CivSimDiag
     private static int CountFarming(CivSimContext c)
     {
         int n = 0;
-        foreach (var e in c.Tribes) if (e.IsFarming) n++;
+        foreach (var e in c.Bands) if (e.IsFarming) n++;
         return n;
     }
 

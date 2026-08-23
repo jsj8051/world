@@ -41,7 +41,7 @@ public partial class EvolveCmp : DiagSceneBase
         });
         sw.Stop();
         var ctx = result.Context;
-        LogService.Log("EvolveCmp", $"演化完成 {result.FinalTick} tick（{result.FinalTick * CivSimContext.TickYears} 年）| 实体 {ctx.Tribes.Count} | 人口 {ctx.TotalPopulation():F0} | 首转农 tick {ctx.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
+        LogService.Log("EvolveCmp", $"演化完成 {result.FinalTick} tick（{result.FinalTick * CivSimContext.TickYears} 年）| 实体 {ctx.Bands.Count} | 人口 {ctx.TotalPopulation():F0} | 首转农 tick {ctx.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
                  $" | 贸易 {ctx.TradeEvents} 次/{ctx.TradeVolume:F0} 量 | 冲突 {ctx.Conflicts} | 分裂 {ctx.Fissions}");
         bool wrote = CivMapArchive.Write(outPath, grid, result);
         LogService.Log("EvolveCmp", $"写档 {outPath} = {wrote}");

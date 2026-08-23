@@ -10,6 +10,7 @@ using World.LogicGrid;
 using World.MapGen;
 using World.Services;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 public partial class CivSimDiag
@@ -17,9 +18,9 @@ public partial class CivSimDiag
 
     private static bool EntitiesEqual(CivSimContext a, CivSimContext b, string tag = "")
     {
-        if (a.Tribes.Count != b.Tribes.Count)
+        if (a.Bands.Count != b.Bands.Count)
         {
-            LogService.Log("往返诊断{tag}", $"实体数 {a.Tribes.Count} vs {b.Tribes.Count}");
+            LogService.Log("往返诊断{tag}", $"实体数 {a.Bands.Count} vs {b.Bands.Count}");
             return false;
         }
         // ⚠️ 2026-08-17 审查修复：场层对比（Cultivation/CellOwner/LockedUntil/Rng 状态）——
@@ -45,9 +46,9 @@ public partial class CivSimDiag
             LogService.Log("往返诊断{tag}", $"Rng 状态不一致 {RngStateOf(a)} vs {RngStateOf(b)}");
             return false;
         }
-        for (int k = 0; k < a.Tribes.Count; k++)
+        for (int k = 0; k < a.Bands.Count; k++)
         {
-            var x = a.Tribes[k]; var y = b.Tribes[k];
+            var x = a.Bands[k]; var y = b.Bands[k];
             if (x.Id != y.Id || x.Cell != y.Cell || x.P != y.P || x.IsFarming != y.IsFarming
                 || x.OriginCell != y.OriginCell || x.BornTick != y.BornTick
                 || x.TerritoryId != y.TerritoryId || x.TerritorySize != y.TerritorySize
@@ -173,7 +174,7 @@ public partial class CivSimDiag
     }
 
 
-    private static bool ShareEqual(World.CivSim.ShareEntry[] a, World.CivSim.ShareEntry[] b)
+    private static bool ShareEqual(ShareEntry[] a, ShareEntry[] b)
     {
         if (a == null || b == null || a.Length != b.Length) return false;
         for (int i = 0; i < a.Length; i++)
@@ -182,7 +183,7 @@ public partial class CivSimDiag
     }
 
 
-    private static string ShareStr(World.CivSim.ShareEntry[] s)
+    private static string ShareStr(ShareEntry[] s)
     {
         var parts = new System.Collections.Generic.List<string>();
         for (int i = 0; i < s.Length; i++)

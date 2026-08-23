@@ -5,6 +5,7 @@ using World.LogicGrid;
 using World.MapGen;
 using World.Services;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 /// <summary>

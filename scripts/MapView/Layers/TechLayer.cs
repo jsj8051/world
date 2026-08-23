@@ -15,8 +15,8 @@ public sealed class TechLayer : MapLayer
     public override Color ColorOf(LayerContext ctx, HexTile tile)
     {
         int id = tile.Id;
-        if (ctx.IsSea(id) && ctx.Cache.TileTribe[id] < 0) return SeaColor;
-        if (ctx.Cache.TileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
+        if (ctx.IsSea(id) && ctx.Cache.TileBand[id] < 0) return SeaColor;
+        if (ctx.Cache.TileBand[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
         byte ep = ctx.Cache.TileTechEpoch[id];
         return ep == 0 ? new Color(0.55f, 0.42f, 0.28f)   // 石器：棕（有基础技术，非"无"）
             : TechEpochColors[Mathf.Clamp(ep - 1, 0, TechEpochColors.Length - 1)];

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 
+using World.CivSim.Entities;
 namespace World.MapView;
 
 /// <summary>地图图层策略注册表（2026-08-21 策略模式重构 M2）：索引/Id → 策略实例。

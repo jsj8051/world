@@ -9,6 +9,7 @@ using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 public partial class CivSimDiag
@@ -101,8 +102,8 @@ public partial class CivSimDiag
         var ctx = new CivSimContext
         {
             Grid = g,
-            CellTribes = new Tribe[n],
-            Tribes = new List<Tribe>(),
+            CellBands = new Band[n],
+            Bands = new List<Band>(),
             Seed = seed,
             OriginCount = origins,
             Rng = new DeterministicRandom(seed),
@@ -112,7 +113,7 @@ public partial class CivSimDiag
             CellFarmPop = new float[n],
             BfsStamp = new int[n],
             BfsStampValue = 1,
-            NextTribeId = 0,   // 实体 Id 计数器（测试构造从 0 起）
+            NextBandId = 0,   // 实体 Id 计数器（测试构造从 0 起）
             WildCrops = g.EnsureWildCrops(),
             Suit = WildCropsSystem.Suitability(g),
             FirstFarmTick = -1,
@@ -131,7 +132,7 @@ public partial class CivSimDiag
             ctx.TerritoryCells[i] = new List<int>();
             ctx.TerritoryDists[i] = new List<byte>();
         }
-        for (int i = 0; i < n; i++) ctx.CellTribes[i] = null;
+        for (int i = 0; i < n; i++) ctx.CellBands[i] = null;
         CivEngine.BuildLayer1(ctx);   // 层1 空间生产力 R（两层模型 2026-08-17）
         // ⚠️ 2026-08-17：砍存量再生——无 InitStock；开垦率场已在构造建好（全 0）
         return ctx;
@@ -157,11 +158,11 @@ public partial class CivSimDiag
     }
 
 
-    private static Tribe AddTribe(CivSimContext ctx, int cell, float pop, params string[] techs)
+    private static Band AddBand(CivSimContext ctx, int cell, float pop, params string[] techs)
     {
-        var e = new Tribe
+        var e = new Band
         {
-            Id = ctx.NextTribeId++,   // 独立计数器（与 Origin/分裂一致，2026-08-10）
+            Id = ctx.NextBandId++,   // 独立计数器（与 Origin/分裂一致，2026-08-10）
             Cell = cell,
             P = pop,
             OriginCell = cell,
@@ -171,14 +172,14 @@ public partial class CivSimDiag
             ReligionShare = ShareField.NewReligion(ReligionStage.Animism),
         };
         foreach (var t in techs) e.TechKeys.Add(t);
-        ctx.Tribes.Add(e);
-        ctx.CellTribes[cell] = e;   // 一格一实体
+        ctx.Bands.Add(e);
+        ctx.CellBands[cell] = e;   // 一格一实体
         return e;
     }
 
 
     /// <summary>手造聚落（测试辅助——SettlementModel 形成逻辑的等价物）：给部落建粮仓并关联。</summary>
-    private static Settlement AddSettlement(CivSimContext ctx, Tribe occupant)
+    private static Settlement AddSettlement(CivSimContext ctx, Band occupant)
     {
         var s = new Settlement
         {
@@ -198,7 +199,7 @@ public partial class CivSimDiag
 
     /// <summary>T64 辅助：手动构造酋邦成员关系（ChiefdomId 全部指向酋长 a；ChiefdomCells 成员表）。
     /// ⚠️ 不跑 ChiefdomModel（测试直接构造酋邦状态——StateModel 只读成员表）。</summary>
-    private static void SetupStateChiefdom(CivSimContext ctx, Tribe chief, Tribe m1, Tribe m2)
+    private static void SetupStateChiefdom(CivSimContext ctx, Band chief, Band m1, Band m2)
     {
         foreach (var e in new[] { chief, m1, m2 })
         {

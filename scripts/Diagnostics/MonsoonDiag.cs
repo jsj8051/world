@@ -6,6 +6,7 @@ using World.Biome;
 using World.MapGen;
 using World.Services;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 /// <summary>

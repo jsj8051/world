@@ -6,6 +6,7 @@ using World.MapGen;
 using World.MapGen.Model;
 using World.Tectonics;
 
+using World.CivSim.Entities;
 namespace World.Tests;
 
 /// <summary>

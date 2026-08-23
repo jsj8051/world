@@ -6,6 +6,7 @@ using NUnit.Framework;
 using World.Biome;
 using World.HexPlanet;
 
+using World.CivSim.Entities;
 namespace World.Tests;
 
 /// <summary>

@@ -8,6 +8,13 @@ using World.CivSim;
 using World.HexPlanet;
 using World.LogicGrid;
 
+using World.CivSim.Entities;
+using World.CivSim.Mechanics.Society;
+using World.CivSim.Mechanics.Territory;
+using World.CivSim.Mechanics.Politics;
+using World.CivSim.Mechanics.State;
+using World.CivSim.Mechanics.Culture;
+using World.CivSim.Mechanics.Military;
 namespace World.Tests;
 
 /// <summary>
@@ -171,8 +178,8 @@ public class CivSimMechanicTests
     public void CapabilityTable_Settle_RequiresFarming()
     {
         var ctx = new CivSimContext { Grid = MakeMiniGrid() };
-        var hunter = new Tribe { P = 10 };
-        var farmer = new Tribe { P = 10, IsFarming = true };
+        var hunter = new Band { P = 10 };
+        var farmer = new Band { P = 10, IsFarming = true };
         Assert.False(CapabilityTable.Has(ctx, hunter, CapabilityTable.Settle), "旧石器（未转农）无定居能力");
         Assert.AreEqual(0u, hunter.CapMask, "无科技部落能力位图应为 0");
         Assert.True(CapabilityTable.Has(ctx, farmer, CapabilityTable.Settle), "转农即定居（源码：Settle = IsFarming，无发明事件）");
@@ -183,27 +190,27 @@ public class CivSimMechanicTests
     // 3. 人口增长（单模型隔离，重点）
     // ══════════════════════════════════════════════════════════════════
 
-    private static CivSimContext GrowthCtx(Tribe e)
+    private static CivSimContext GrowthCtx(Band e)
     {
         var grid = MakeMiniGrid();
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[grid.N],
-            Tribes = new List<Tribe> { e },
+            CellBands = new Band[grid.N],
+            Bands = new List<Band> { e },
             Tick = 0,
             Rng = new DeterministicRandom(1),
             R = Enumerable.Repeat(1f, grid.N).ToArray(),
             RMax = 1f,
         };
-        ctx.CellTribes[e.Cell] = e;
+        ctx.CellBands[e.Cell] = e;
         return ctx;
     }
 
     [Test]
     public void Growth_FBelowP_NoStocks_NegativeGrowth()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 5 };
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 5 };
         var ctx = GrowthCtx(e);
         new GrowthModel().Execute(ctx);
         // P_i ×= exp(r·(1 − D/F))，r=0.5，D=F... D=P=10，F=5 → exp(0.5·(1−2)) = e^−0.5
@@ -215,7 +222,7 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_PBelowOne_Extinction()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 3, FLast = 0.5f };
+        var e = new Band { Id = 0, Cell = 0, P = 3, FLast = 0.5f };
         var ctx = GrowthCtx(e);
         new GrowthModel().Execute(ctx);
         // exp(0.5·(1−6)) = e^−2.5 ≈ 0.0821 → P≈0.246 < 1 → 灭绝
@@ -226,7 +233,7 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_Deficit_EatsPerishableBeforeStaple()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 9 };   // 缺口 1
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 9 };   // 缺口 1
         e.Stocks[BerryIdx] = 0.5f;
         e.Stocks[MeatIdx] = 0.3f;
         e.Stocks[GrainIdx] = 0.7f;
@@ -243,7 +250,7 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_Deficit_EatsCarryBeforeGranary()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 8, IsFarming = true };   // 缺口 2，定居
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 8, IsFarming = true };   // 缺口 2，定居
         e.Stocks[BerryIdx] = 0.4f;
         e.Stocks[MeatIdx] = 0.4f;
         var s = new Settlement { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
@@ -265,7 +272,7 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_Surplus_FillsCarryToCap_NoGranary()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 20 };   // 盈余 10（游群，无聚落）
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 20 };   // 盈余 10（游群，无聚落）
         float p0 = e.P;
         var ctx = GrowthCtx(e);
         new GrowthModel().Execute(ctx);
@@ -276,7 +283,7 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_Surplus_SettledStoresToGranary()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 25, IsFarming = true };
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 25, IsFarming = true };
         var s = new Settlement { Id = 0, Cell = 0, Level = 0, OccupantId = e.Id, DwellFrom = 0 };
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
@@ -291,7 +298,7 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_Surplus_GranaryCapScalesWithLevel()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 30, IsFarming = true };
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 30, IsFarming = true };
         var s = new Settlement { Id = 0, Cell = 0, Level = 2, OccupantId = e.Id, DwellFrom = 0 };
         e.PlaceId = s.Id;
         var ctx = GrowthCtx(e);
@@ -306,9 +313,9 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_SettleCapability_MultipliesGrowth()
     {
-        var nomad = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 20 };
+        var nomad = new Band { Id = 0, Cell = 0, P = 10, FLast = 20 };
         new GrowthModel().Execute(GrowthCtx(nomad));
-        var farmer = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 20, IsFarming = true };
+        var farmer = new Band { Id = 0, Cell = 0, P = 10, FLast = 20, IsFarming = true };
         new GrowthModel().Execute(GrowthCtx(farmer));
         float nomadExpected = 10f * MathF.Exp(0.5f * (1f - 10f / 20f));         // r=0.5
         float farmerExpected = 10f * MathF.Exp(0.75f * (1f - 10f / 20f));       // r×1.5
@@ -320,9 +327,9 @@ public class CivSimMechanicTests
     [Test]
     public void Growth_ChiefdomTributeRelief_HalvesLoss()
     {
-        var relieved = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 9, ChiefdomId = 5, Contributed = 1f };
+        var relieved = new Band { Id = 0, Cell = 0, P = 10, FLast = 9, ChiefdomId = 5, Contributed = 1f };
         new GrowthModel().Execute(GrowthCtx(relieved));
-        var plain = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 9 };
+        var plain = new Band { Id = 0, Cell = 0, P = 10, FLast = 9 };
         new GrowthModel().Execute(GrowthCtx(plain));
         // 灾年（factor<1）且 Contributed>0（酋邦成员曾交贡赋）→ 缺口 ×0.5 缓冲
         float expectedRelieved = 10f * (1f + (MathF.Exp(0.5f * (1f - 10f / 9f)) - 1f) * 0.5f);
@@ -335,15 +342,15 @@ public class CivSimMechanicTests
     // ══════════════════════════════════════════════════════════════════
 
     [Test]
-    public void Origin_SeedsSingleTribe_WithStoneAgeCulture()
+    public void Origin_SeedsSingleBand_WithStoneAgeCulture()
     {
         var grid = MakeMiniGrid();
         int n = grid.N;
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[n],
-            Tribes = new List<Tribe>(),
+            CellBands = new Band[n],
+            Bands = new List<Band>(),
             Seed = 42,
             OriginCount = 3,
             Rng = new DeterministicRandom(42),
@@ -354,8 +361,8 @@ public class CivSimMechanicTests
         new OriginModel().Execute(ctx);
         // n=2 网格 42 格：最小格距阈值 = 12×√AreaKm² ≈ 41815 km > 星球最大球面距 πR ≈ 20015 km
         // → 第二个起源永不能满足格距约束 → 恰 1 个起源（与 Rng 无关，确定性）。
-        Assert.AreEqual(1, ctx.Tribes.Count, "42 格小网格上格距约束使起源数恒为 1");
-        var e = ctx.Tribes[0];
+        Assert.AreEqual(1, ctx.Bands.Count, "42 格小网格上格距约束使起源数恒为 1");
+        var e = ctx.Bands[0];
         Assert.AreEqual(CivSimContext.OriginPop, e.P);
         Assert.AreEqual(0, e.Id);
         Assert.True(e.TechKeys.Contains(TechTable.StoneCore), "起源自带 stone_core");
@@ -363,8 +370,8 @@ public class CivSimMechanicTests
         Assert.AreEqual(255, (int)ShareField.DomFrac(e.CultureShare), "文化份额全占（255 归一）");
         Assert.AreEqual(ReligionStage.Animism, ShareField.DomReligion(e.ReligionShare), "起源宗教 = 泛灵");
         Assert.AreEqual("relig_0", ShareField.DomKey(e.ReligionCultShare));
-        Assert.AreSame(e, ctx.CellTribes[e.Cell], "一格一实体：起源占据空格");
-        Assert.AreEqual(1, ctx.NextTribeId);
+        Assert.AreSame(e, ctx.CellBands[e.Cell], "一格一实体：起源占据空格");
+        Assert.AreEqual(1, ctx.NextBandId);
     }
 
     [Test]
@@ -375,58 +382,58 @@ public class CivSimMechanicTests
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[n],
-            Tribes = new List<Tribe>(),
+            CellBands = new Band[n],
+            Bands = new List<Band>(),
             Rng = new DeterministicRandom(1),
             R = Enumerable.Repeat(1f, n).ToArray(),
             Tick = 5,
         };
         new OriginModel().Execute(ctx);
-        Assert.AreEqual(0, ctx.Tribes.Count, "起源只在 Tick==0 播种");
+        Assert.AreEqual(0, ctx.Bands.Count, "起源只在 Tick==0 播种");
     }
 
     // ══════════════════════════════════════════════════════════════════
     // 5. 分裂 / 迁徙（行为级——目标寻路为 internal 不可直接断言）
     // ══════════════════════════════════════════════════════════════════
 
-    private static CivSimContext SplitCtx(Tribe e, int rngSeed = 7)
+    private static CivSimContext SplitCtx(Band e, int rngSeed = 7)
     {
         var grid = MakeMiniGrid();
         int n = grid.N;
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[n],
-            Tribes = new List<Tribe> { e },
+            CellBands = new Band[n],
+            Bands = new List<Band> { e },
             Tick = 0,
-            NextTribeId = 1,   // e.Id=0 已手动分配 → 计数器必须 >0（新实体 Id = NextTribeId++）
+            NextBandId = 1,   // e.Id=0 已手动分配 → 计数器必须 >0（新实体 Id = NextBandId++）
             Rng = new DeterministicRandom(rngSeed),
             R = Enumerable.Repeat(2e-6f, n).ToArray(),
             RMax = 2e-6f,
             BfsStamp = new int[n],
             BfsStampValue = 1,
         };
-        ctx.CellTribes[e.Cell] = e;
+        ctx.CellBands[e.Cell] = e;
         return ctx;
     }
 
     [Test]
-    public void Split_FissionCarvesNewTribe_AtShare()
+    public void Split_FissionCarvesNewBand_AtShare()
     {
         // P=30 → 张力 (30−25)/8=0.625，pEff=30×(1+0.667+0.625)≈68.8 > SplitPop(25) → 分裂
         // R=2e-6 → 目标格承载 = R×Area×carry ≈ 24.3 > 30×0.45=13.5 → 新实体带 13.5（SplitShare=0.45）
-        var e = new Tribe { Id = 0, Cell = 0, P = 30, FLast = 10, LastSplitTick = -1, LastMigrateTick = 0 };
+        var e = new Band { Id = 0, Cell = 0, P = 30, FLast = 10, LastSplitTick = -1, LastMigrateTick = 0 };
         e.TechKeys.Add(TechTable.StoneCore);
         var ctx = SplitCtx(e);
         new SplitMigrateModel().Execute(ctx);
         Assert.AreEqual(1, ctx.Fissions);
-        Assert.AreEqual(2, ctx.Tribes.Count);
-        var nt = ctx.Tribes[1];
-        Assert.AreEqual(1, nt.Id, "新实体 Id = NextTribeId 分配（读档安全计数）");
+        Assert.AreEqual(2, ctx.Bands.Count);
+        var nt = ctx.Bands[1];
+        Assert.AreEqual(1, nt.Id, "新实体 Id = NextBandId 分配（读档安全计数）");
         Assert.AreEqual(30f - CivSimContext.SplitShare * 30f, e.P, 1e-4f, "母体扣减 45%");
         Assert.AreEqual(CivSimContext.SplitShare * 30f, nt.P, 1e-4f, "新实体带走 SplitShare 比例");
         Assert.AreNotEqual(e.Cell, nt.Cell, "殖民到新格");
-        Assert.AreSame(nt, ctx.CellTribes[nt.Cell], "一格一实体：殖民占空格");
+        Assert.AreSame(nt, ctx.CellBands[nt.Cell], "一格一实体：殖民占空格");
         Assert.True(nt.TechKeys.SetEquals(e.TechKeys), "分裂瞬间技术相同（此后各自发明）");
         Assert.AreEqual(0, nt.BornTick);
         Assert.AreEqual(0, nt.LastSplitTick);
@@ -437,24 +444,24 @@ public class CivSimMechanicTests
     [Test]
     public void Split_DoesNotTrigger_BelowThreshold()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 10 };
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 10 };
         var ctx = SplitCtx(e);
         new SplitMigrateModel().Execute(ctx);
-        Assert.AreEqual(1, ctx.Tribes.Count, "P=10 pEff=10 ≤ SplitPop 25 → 不分裂");
+        Assert.AreEqual(1, ctx.Bands.Count, "P=10 pEff=10 ≤ SplitPop 25 → 不分裂");
         Assert.AreEqual(0, ctx.Fissions);
     }
 
     [Test]
-    public void Migrate_StarvingTribe_MovesToNewCell()
+    public void Migrate_StarvingBand_MovesToNewCell()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 10, FLast = 3, LastMigrateTick = -1, LastSplitTick = 0 };
+        var e = new Band { Id = 0, Cell = 0, P = 10, FLast = 3, LastMigrateTick = -1, LastSplitTick = 0 };
         var ctx = SplitCtx(e);
         new SplitMigrateModel().Execute(ctx);
         Assert.AreEqual(1, ctx.Migrations);
         Assert.AreEqual(0, ctx.Fissions, "pEff=17 ≤ 25 不分裂");
         Assert.AreNotEqual(0, e.Cell, "饿（F<P）→ 迁徙搬家");
-        Assert.AreSame(e, ctx.CellTribes[e.Cell]);
-        Assert.IsNull(ctx.CellTribes[0], "旧格清除（一格一实体）");
+        Assert.AreSame(e, ctx.CellBands[e.Cell]);
+        Assert.IsNull(ctx.CellBands[0], "旧格清除（一格一实体）");
         Assert.AreEqual(0, e.LastMigrateTick, "迁移冷却记录");
     }
 
@@ -463,9 +470,9 @@ public class CivSimMechanicTests
     // ══════════════════════════════════════════════════════════════════
 
     [Test]
-    public void Settlement_FarmingTribe_CreatesLevel0()
+    public void Settlement_FarmingBand_CreatesLevel0()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = -1, SettledSince = -1 };
+        var e = new Band { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = -1, SettledSince = -1 };
         var ctx = GrowthCtx(e);
         ctx.Tick = 10;
         new SettlementModel().Execute(ctx);
@@ -486,7 +493,7 @@ public class CivSimMechanicTests
     [Test]
     public void Settlement_LevelUp_ByDwellAndPop_WithCooldown()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = 0 };
+        var e = new Band { Id = 0, Cell = 0, P = 300, IsFarming = true, PlaceId = 0 };
         var s = new Settlement { Id = 0, Cell = 0, Level = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0, OccupantId = e.Id };
         var ctx = GrowthCtx(e);
         ctx.Settlements.Add(s);
@@ -504,7 +511,7 @@ public class CivSimMechanicTests
     [Test]
     public void Settlement_Capital_HalvesLevelThresholds()
     {
-        var capitalChief = new Tribe { Id = 0, Cell = 0, P = 400, IsFarming = true, IsChief = true, ChiefdomId = 0, PlaceId = 0 };
+        var capitalChief = new Band { Id = 0, Cell = 0, P = 400, IsFarming = true, IsChief = true, ChiefdomId = 0, PlaceId = 0 };
         var cap = new Settlement { Id = 0, Cell = 0, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 0 };
         var ctx = GrowthCtx(capitalChief);
         ctx.Settlements.Add(cap);
@@ -513,7 +520,7 @@ public class CivSimMechanicTests
         // 都城（至尊酋长聚落）阈值减半：L2 需 800/2=400 → P=400 达标 → 城镇
         Assert.AreEqual(2, cap.Level, "都城（ChiefdomId==Id 的酋长聚落）阈值减半");
 
-        var plain = new Tribe { Id = 1, Cell = 1, P = 400, IsFarming = true, PlaceId = 1 };
+        var plain = new Band { Id = 1, Cell = 1, P = 400, IsFarming = true, PlaceId = 1 };
         var ps = new Settlement { Id = 1, Cell = 1, Level = 0, DwellFrom = 10, LastLevelUpTick = 0, BornTick = 0, OccupantId = 1 };
         var ctx2 = GrowthCtx(plain);
         ctx2.Tick = 20;
@@ -525,7 +532,7 @@ public class CivSimMechanicTests
     [Test]
     public void Settlement_Abandoned_OnOccupantDeath()
     {
-        var e = new Tribe { Id = 0, Cell = 0, P = 300, IsFarming = true, Dead = true, PlaceId = 0 };
+        var e = new Band { Id = 0, Cell = 0, P = 300, IsFarming = true, Dead = true, PlaceId = 0 };
         var s = new Settlement { Id = 0, Cell = 0, Level = 1, OccupantId = 0, DwellFrom = 0, LastLevelUpTick = 0, BornTick = 0 };
         var ctx = GrowthCtx(e);
         ctx.Settlements.Add(s);
@@ -544,13 +551,13 @@ public class CivSimMechanicTests
     [Test]
     public void Energy_ComputesPerCapAndSurplus()
     {
-        var a = new Tribe { Id = 0, Cell = 1, P = 10, FLast = 20 };
-        var b = new Tribe { Id = 1, Cell = 1, P = 5, FLast = 10 };
-        var dead = new Tribe { Id = 2, Cell = 2, P = 100, FLast = 100, Dead = true };
+        var a = new Band { Id = 0, Cell = 1, P = 10, FLast = 20 };
+        var b = new Band { Id = 1, Cell = 1, P = 5, FLast = 10 };
+        var dead = new Band { Id = 2, Cell = 2, P = 100, FLast = 100, Dead = true };
         var ctx = new CivSimContext
         {
             CellPop = new float[4],
-            Tribes = new List<Tribe> { a, b, dead },
+            Bands = new List<Band> { a, b, dead },
             Grid = PathGrid(),
         };
         new EnergyModel().Execute(ctx);
@@ -565,12 +572,12 @@ public class CivSimMechanicTests
     [Test]
     public void Cultivate_RaisesTerritoryCultivation_FarmingOnly()
     {
-        var farmer = new Tribe { Id = 0, Cell = 0, P = 20, IsFarming = true };
-        var hunter = new Tribe { Id = 1, Cell = 2, P = 20, IsFarming = false };
+        var farmer = new Band { Id = 0, Cell = 0, P = 20, IsFarming = true };
+        var hunter = new Band { Id = 1, Cell = 2, P = 20, IsFarming = false };
         var ctx = new CivSimContext
         {
             Cultivation = new float[4],
-            Tribes = new List<Tribe> { farmer, hunter },
+            Bands = new List<Band> { farmer, hunter },
             Grid = PathGrid(),
             TerritoryCells = new List<int>[4],
             TerritoryDists = new List<byte>[4],
@@ -588,18 +595,18 @@ public class CivSimMechanicTests
     [Test]
     public void Territory_UnionFinds_ByCultureGroup()
     {
-        var a = new Tribe { Id = 1, Cell = 0, P = 10 };
+        var a = new Band { Id = 1, Cell = 0, P = 10 };
         a.CultureGroupShare = ShareField.NewCulture("g");
-        var b = new Tribe { Id = 5, Cell = 1, P = 10 };
+        var b = new Band { Id = 5, Cell = 1, P = 10 };
         b.CultureGroupShare = ShareField.NewCulture("g");
-        var c = new Tribe { Id = 2, Cell = 3, P = 10 };
+        var c = new Band { Id = 2, Cell = 3, P = 10 };
         c.CultureGroupShare = ShareField.NewCulture("h");
         var grid = PathGrid();
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[4] { a, b, null, c },
-            Tribes = new List<Tribe> { a, b, c },
+            CellBands = new Band[4] { a, b, null, c },
+            Bands = new List<Band> { a, b, c },
         };
         TerritoryModel.Rebuild(ctx);
         Assert.AreEqual(1, a.TerritoryId, "分量标号 = 分量最小实体 Id");
@@ -617,14 +624,14 @@ public class CivSimMechanicTests
     [Test]
     public void Chiefdom_Patronage_AssignsChief_PrestigeHighestWins()
     {
-        var c1 = new Tribe { Id = 0, Cell = 0, P = 20, Prestige = 2.0f, IsChief = true, TerritoryId = 0 };
-        var n1 = new Tribe { Id = 1, Cell = 1, P = 10, Prestige = 0f, TerritoryId = 1 };
-        var c2 = new Tribe { Id = 2, Cell = 2, P = 20, Prestige = 1.5f, IsChief = true, TerritoryId = 2 };
+        var c1 = new Band { Id = 0, Cell = 0, P = 20, Prestige = 2.0f, IsChief = true, TerritoryId = 0 };
+        var n1 = new Band { Id = 1, Cell = 1, P = 10, Prestige = 0f, TerritoryId = 1 };
+        var c2 = new Band { Id = 2, Cell = 2, P = 20, Prestige = 1.5f, IsChief = true, TerritoryId = 2 };
         var ctx = new CivSimContext
         {
             Grid = PathGrid(),
-            CellTribes = new Tribe[4] { c1, n1, c2, null },
-            Tribes = new List<Tribe> { c1, n1, c2 },
+            CellBands = new Band[4] { c1, n1, c2, null },
+            Bands = new List<Band> { c1, n1, c2 },
             R = Enumerable.Repeat(1f, 4).ToArray(),
             BfsStamp = new int[4],
             Tick = 0,
@@ -635,7 +642,7 @@ public class CivSimMechanicTests
         Assert.AreEqual(2, n1.ChiefdomSize);
         Assert.AreEqual(0, c1.ChiefdomId, "酋长 = 自己酋邦中心");
         Assert.AreEqual(2, c1.ChiefdomSize);
-        // c2 只有自己一名成员 → 少于 ChiefdomMinTribes(2) → 解散
+        // c2 只有自己一名成员 → 少于 ChiefdomMinBands(2) → 解散
         Assert.AreEqual(-1, c2.ChiefdomId, "单人酋邦不成邦（<2 解散）");
         Assert.AreEqual(1, c2.ChiefdomSize);
         Assert.True(ctx.ChiefdomCells[0].Contains(0) && ctx.ChiefdomCells[0].Contains(1), "成员表按酋邦 id 填充");
@@ -644,8 +651,8 @@ public class CivSimMechanicTests
     [Test]
     public void State_Emergence_RequiresCapital_Hierarchy_Pool_Dwell()
     {
-        var chief = new Tribe { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
-        var member = new Tribe { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = 11, TerritoryId = 1 };
+        var chief = new Band { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
+        var member = new Band { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = 11, TerritoryId = 1 };
         var capital = new Settlement { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
         var sub = new Settlement { Id = 11, Cell = 1, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 1 };
         var cells = new List<int>[8];
@@ -653,12 +660,12 @@ public class CivSimMechanicTests
         cells[0] = new List<int> { 0, 1 };
         var ctx = new CivSimContext
         {
-            Tribes = new List<Tribe> { chief, member },
+            Bands = new List<Band> { chief, member },
             Settlements = new List<Settlement> { capital, sub },
             ChiefdomCells = cells,
             Tick = 30,
         };
-        StateModel.Rebuild(ctx);
+        StateAssign.Rebuild(ctx);
         // ①都城 Level2(≥2) ✓ ②成员聚落 2 + 次级中心 Level1 ✓ ③池 2.0 ≥ 150×0.01 ✓ ④30−0≥20 ✓
         Assert.AreEqual(0, chief.StateId, "酋邦制度化 → 国家");
         Assert.AreEqual(2, chief.StateSize);
@@ -669,20 +676,20 @@ public class CivSimMechanicTests
     [Test]
     public void State_NotEmerging_WithoutSubCenter()
     {
-        var chief = new Tribe { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
-        var member = new Tribe { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = -1, TerritoryId = 1 };
+        var chief = new Band { Id = 0, Cell = 0, P = 100, IsChief = true, ChiefdomId = 0, Contributed = 1.5f, PlaceId = 10, TerritoryId = 0 };
+        var member = new Band { Id = 1, Cell = 1, P = 50, Contributed = 0.5f, PlaceId = -1, TerritoryId = 1 };
         var capital = new Settlement { Id = 10, Cell = 0, BornTick = 0, Level = 2, LastLevelUpTick = 0, DwellFrom = 0, OccupantId = 0 };
         var cells = new List<int>[8];
         foreach (var i in Enumerable.Range(0, 8)) cells[i] = new List<int>();
         cells[0] = new List<int> { 0, 1 };
         var ctx = new CivSimContext
         {
-            Tribes = new List<Tribe> { chief, member },
+            Bands = new List<Band> { chief, member },
             Settlements = new List<Settlement> { capital },
             ChiefdomCells = cells,
             Tick = 30,
         };
-        StateModel.Rebuild(ctx);
+        StateAssign.Rebuild(ctx);
         Assert.AreEqual(-1, chief.StateId, "决策层级（成员聚落 ≥2 + 次级中心）缺失 → 非国家");
         Assert.AreEqual(-1, member.StateId);
     }
@@ -721,15 +728,15 @@ public class CivSimMechanicTests
     [Test]
     public void Trade_TransfersSurplus_ToDeficitNeighbor()
     {
-        var a = new Tribe { Id = 0, Cell = 0, P = 10 };
-        var b = new Tribe { Id = 1, Cell = 1, P = 10 };
+        var a = new Band { Id = 0, Cell = 0, P = 10 };
+        var b = new Band { Id = 1, Cell = 1, P = 10 };
         a.Stocks[GrainIdx] = 1.0f;
         var grid = PathGrid();
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[4] { a, b, null, null },
-            Tribes = new List<Tribe> { a, b },
+            CellBands = new Band[4] { a, b, null, null },
+            Bands = new List<Band> { a, b },
             TerritoryCells = new List<int>[2],
             TerritoryDists = new List<byte>[2],
         };
@@ -755,7 +762,7 @@ public class CivSimMechanicTests
     {
         var s = new Settlement { Id = 5, Cell = 0, OccupantId = 7 };
         var ctx = new CivSimContext { Settlements = new List<Settlement> { s } };
-        var t = new Tribe { Id = 7, PlaceId = 5 };
+        var t = new Band { Id = 7, PlaceId = 5 };
         Assert.AreSame(s, ctx.SettlementOf(t));
         t.PlaceId = -1;
         Assert.IsNull(ctx.SettlementOf(t));
@@ -776,10 +783,10 @@ public class CivSimMechanicTests
     [Test]
     public void Context_TotalPopulation_CountsLiveOnly()
     {
-        var a = new Tribe { P = 10 };
-        var dead = new Tribe { P = 100, Dead = true };
-        var b = new Tribe { P = 5 };
-        var ctx = new CivSimContext { Tribes = new List<Tribe> { a, dead, b } };
+        var a = new Band { P = 10 };
+        var dead = new Band { P = 100, Dead = true };
+        var b = new Band { P = 5 };
+        var ctx = new CivSimContext { Bands = new List<Band> { a, dead, b } };
         Assert.AreEqual(15f, ctx.TotalPopulation());
     }
 
@@ -787,8 +794,8 @@ public class CivSimMechanicTests
     public void Context_IsStarving_WhenFBelowP()
     {
         var ctx = new CivSimContext();
-        var fed = new Tribe { P = 10, FLast = 10 };
-        var starving = new Tribe { P = 10, FLast = 5 };
+        var fed = new Band { P = 10, FLast = 10 };
+        var starving = new Band { P = 10, FLast = 5 };
         Assert.False(ctx.IsStarving(fed), "F ≥ P×0.999 → 不饿");
         Assert.True(ctx.IsStarving(starving), "F < P → 饿（迁徙/冲突压力判据）");
     }
@@ -806,8 +813,8 @@ public class CivSimMechanicTests
         var ctx = new CivSimContext
         {
             Grid = grid,
-            CellTribes = new Tribe[n],
-            Tribes = new List<Tribe>(),
+            CellBands = new Band[n],
+            Bands = new List<Band>(),
             Seed = seed,
             OriginCount = 3,
             Rng = new DeterministicRandom(seed),
@@ -830,7 +837,7 @@ public class CivSimMechanicTests
             Tick = 0,
         };
         var registry = CivModelRegistry.StoneAge();
-        // ⚠️ 循环条件不能含 Tribes.Count>0：起源在循环内 tick 0 由 OriginModel 播种（复刻
+        // ⚠️ 循环条件不能含 Bands.Count>0：起源在循环内 tick 0 由 OriginModel 播种（复刻
         //   CivEngine.Run 主循环——其循环无空检查）；旧条件使循环一次都不执行 → 空演化。
         for (int t = 0; t < ticks; t++)
         {
@@ -839,7 +846,7 @@ public class CivSimMechanicTests
             foreach (var m in registry.SortedModels())
                 m.Execute(ctx);
         }
-        ctx.Tribes.RemoveAll(e => e.Dead);
+        ctx.Bands.RemoveAll(e => e.Dead);
         CivEngine.SettleDerived(ctx);   // 与 Run 结尾同式边界态重建
         return ctx;
     }
@@ -866,11 +873,11 @@ public class CivSimMechanicTests
         {
             var other = RunMiniEvolution(grid, s);
             diverged = baseline.TotalPopulation() != other.TotalPopulation()
-                || baseline.Tribes.Count != other.Tribes.Count
+                || baseline.Bands.Count != other.Bands.Count
                 || baseline.Fissions != other.Fissions
                 || baseline.Migrations != other.Migrations
-                || (baseline.Tribes.Count > 0 && other.Tribes.Count > 0
-                    && baseline.Tribes[0].Cell != other.Tribes[0].Cell);
+                || (baseline.Bands.Count > 0 && other.Bands.Count > 0
+                    && baseline.Bands[0].Cell != other.Bands[0].Cell);
         }
         Assert.True(diverged, "不同 seed 演化路径应分叉（起源格/随机序列由种子驱动）");
     }
@@ -879,22 +886,22 @@ public class CivSimMechanicTests
     private static void AssertSameFinalState(CivSimContext a, CivSimContext b)
     {
         Assert.AreEqual(a.Tick, b.Tick, "终止 tick 一致");
-        Assert.AreEqual(a.Tribes.Count, b.Tribes.Count, "实体数一致");
+        Assert.AreEqual(a.Bands.Count, b.Bands.Count, "实体数一致");
         Assert.AreEqual(a.TotalPopulation(), b.TotalPopulation(), 0.001f);
         Assert.AreEqual(a.Fissions, b.Fissions);
         Assert.AreEqual(a.Migrations, b.Migrations);
         Assert.AreEqual(a.Conflicts, b.Conflicts);
         Assert.AreEqual(a.TradeVolume, b.TradeVolume, 0.001f);
         Assert.AreEqual(a.TradeEvents, b.TradeEvents);
-        Assert.AreEqual(a.NextTribeId, b.NextTribeId);
+        Assert.AreEqual(a.NextBandId, b.NextBandId);
         Assert.AreEqual(a.NextSettlementId, b.NextSettlementId);
         Assert.AreEqual(a.CultureKeyCount, b.CultureKeyCount);
         Assert.AreEqual(a.ReligionKeyCount, b.ReligionKeyCount);
         Assert.AreEqual(a.Settlements.Count, b.Settlements.Count);
         Assert.AreEqual(a.Wars.Count, b.Wars.Count);
 
-        var ta = a.Tribes.OrderBy(t => t.Id).ToArray();
-        var tb = b.Tribes.OrderBy(t => t.Id).ToArray();
+        var ta = a.Bands.OrderBy(t => t.Id).ToArray();
+        var tb = b.Bands.OrderBy(t => t.Id).ToArray();
         for (int i = 0; i < ta.Length; i++)
         {
             Assert.AreEqual(ta[i].Id, tb[i].Id, "按 Id 对应");

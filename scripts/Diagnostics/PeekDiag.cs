@@ -1,6 +1,7 @@
 using Godot;
 using World.MapGen;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 /// <summary>MapArchive v6 段表格式往返验证（2026-08-23 段表化 P2）：

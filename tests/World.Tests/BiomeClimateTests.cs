@@ -2,6 +2,7 @@ using NUnit.Framework;
 using Godot;
 using World.Biome;
 
+using World.CivSim.Entities;
 namespace World.Tests;
 
 /// <summary>

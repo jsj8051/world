@@ -13,6 +13,8 @@ using World.Surface;
 using World.UI;
 using static World.MapView.MapLayerColors;
 
+using World.CivSim;
+using World.CivSim.Entities;
 namespace World.MapView;
 
 /// <summary>
@@ -183,11 +185,11 @@ public partial class MapViewer : Node3D
     private Button[] _layerButtons;
 
     /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
-    private static int PowerIdOf(World.CivSim.Tribe e)
+    private static int PowerIdOf(Band e)
     {
         if (e.ChiefdomId >= 0) return unchecked((int)0x80000000) | (e.ChiefdomId & 0x3FFFFFFF);
         if (e.TerritorySize >= 2) return unchecked((int)0x40000000) | (e.TerritoryId & 0x3FFFFFFF);
-        // ⚠️ 2026-08-18 修复：band 也进独立域（0x20000000）——实体 Id 从 0 分配（NextTribeId 起始 0），
+        // ⚠️ 2026-08-18 修复：band 也进独立域（0x20000000）——实体 Id 从 0 分配（NextBandId 起始 0），
         //   Id=0 的起源 band 若返回原值 0，与 _cache.TilePower==0 的"无势力"哨兵冲突 →
         //   独立势力/政体图层把它显示成灰色（无势力），人口图层却正常 → 两层冲突。
         //   域值非 0 保证与哨兵彻底隔离（部落 0x40000000 / 酋邦 0x80000000 之上再分一层）。
@@ -195,7 +197,7 @@ public partial class MapViewer : Node3D
     }
 
     /// <summary>实体 → 政体类型（0=独立 band 1=部落 2=酋邦 3=国家——2026-08-16 阶段4）。</summary>
-    private static byte PolityOf(World.CivSim.Tribe e)
+    private static byte PolityOf(Band e)
     {
         if (e.StateId >= 0) return 3;   // 国家（制度化酋邦——优先级最高）
         if (e.ChiefdomId >= 0) return 2;
@@ -272,7 +274,7 @@ public partial class MapViewer : Node3D
                 _civCtx = civResult.Context;
                 _mapLoaded = true;
                 LogService.Log("MapViewer", $"loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
-                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Tribes.Count})");
+                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Bands.Count})");
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -286,7 +288,7 @@ public partial class MapViewer : Node3D
                 _civCtx = map.Civilization?.Context;
                 _mapLoaded = true;
                 LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}] " +
-                         $"civ={(_civCtx != null ? $"yes(tribes={_civCtx.Tribes.Count} tick={map.Civilization.FinalTick})" : "no")}");
+                         $"civ={(_civCtx != null ? $"yes(bands={_civCtx.Bands.Count} tick={map.Civilization.FinalTick})" : "no")}");
             }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。
@@ -454,19 +456,19 @@ public partial class MapViewer : Node3D
         _cache.TileCulture = new int[n];
         _cache.TileCultureGroup = new byte[n];
         _cache.TileReligion = new int[n];
-        _cache.TileTribe = new int[n];
+        _cache.TileBand = new int[n];
         _cache.TilePower = new int[n];     // 独立势力 id（2026-08-17；0=无）
         _cache.TilePolity = new byte[n];   // 政体类型（2026-08-17；0=band 1=部落 2=酋邦）
         _cache.TileTechEpoch = new byte[n];
         _cache.TileTerritory = new int[n];
         _cache.TileSettlement = new byte[n];
-        System.Array.Fill(_cache.TileTribe, -1);
+        System.Array.Fill(_cache.TileBand, -1);
         bool hasCiv = _civCtx != null;
         // 2026-08-10 影响力场模型（v8）：band 实体只在驻扎点格，领地=归属格——文明图层改为
         // **归属格主导**（每格查 CellOwner → 该 band 的文化/宗教/部落/科技；人口=领地均摊，5 km² 量级）
-        var civIdMap = new System.Collections.Generic.Dictionary<int, World.CivSim.Tribe>();
+        var civIdMap = new System.Collections.Generic.Dictionary<int, Band>();
         if (hasCiv)
-            foreach (var ce in _civCtx.Tribes)
+            foreach (var ce in _civCtx.Bands)
                 if (!ce.Dead) civIdMap[ce.Id] = ce;
         bool hasTemp = map.Temp != null, hasPrecip = map.Precip != null, hasBiome = map.Biome != null;
         float range = map.MaxElev - map.MinElev;
@@ -543,14 +545,14 @@ public partial class MapViewer : Node3D
                 if (ownerId >= 0 && civIdMap.TryGetValue(ownerId, out var dom))
                 {
                     // ⚠️ 2026-08-17：人口图层不在这里写——领地格 = 采集格（无常住人口），
-                    //   人口只在驻扎格（Tribe.Cell）显示该 band 的 P（并行循环后实体表直写）。
+                    //   人口只在驻扎格（Band.Cell）显示该 band 的 P（并行循环后实体表直写）。
                     //   旧"领地均摊 P/领地格数"让每个归属格都有人口，与"大部分是采集格"矛盾（用户反馈）。
-                    _cache.TileCulture[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureShare));
-                    _cache.TileCultureGroup[i] = (byte)(World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
+                    _cache.TileCulture[i] = ShareField.KeyHash(ShareField.DomKey(dom.CultureShare));
+                    _cache.TileCultureGroup[i] = (byte)(ShareField.KeyHash(ShareField.DomKey(dom.CultureGroupShare)) & 0xFF);
                     // ⚠️ 2026-08-07 宗教图层改显示"具体派别"（relig_N，每摇篮/每次漂变独立）——
                     //    旧版显示 5 段发展带（万物有灵→一神教），石器时代全在段 0 → 全图一色（用户反馈）
-                    _cache.TileReligion[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.ReligionCultShare));
-                    _cache.TileTribe[i] = dom.Id;
+                    _cache.TileReligion[i] = ShareField.KeyHash(ShareField.DomKey(dom.ReligionCultShare));
+                    _cache.TileBand[i] = dom.Id;
                     _cache.TileTechEpoch[i] = (byte)dom.Epoch;   // 0=旧石器 1=新石器（反应性标签）
                     // 独立势力（2026-08-18 v4 回影响力场——用户确认：按影响力算难出飞地、
                     //   且不可能被中立隔离（中立只在圈外——同势力格都在圈内）。v3 的 BFS 2 跳
@@ -559,7 +561,7 @@ public partial class MapViewer : Node3D
                     _cache.TilePolity[i] = PolityOf(dom);
                     // 势力范围：主导 band 的语言群 key 完整 32 位哈希（同领地必同语言群 → 同领地同色；
                     //    与 byte 截断的 _cache.TileCultureGroup 区分，防 8 位撞色）
-                    _cache.TileTerritory[i] = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(dom.CultureGroupShare));
+                    _cache.TileTerritory[i] = ShareField.KeyHash(ShareField.DomKey(dom.CultureGroupShare));
                     // 聚落（2026-08-19 阶段3：Cell → 等级/废墟；1-4=新村~城市 5=废墟）
                     if (settlementByCell.TryGetValue(vid2, out byte slevel)) _cache.TileSettlement[i] = slevel;
                 }
@@ -604,9 +606,9 @@ public partial class MapViewer : Node3D
             // ⚠️ 2026-08-19 语义定案（用户"浅深区分有人无人不需要，直接补齐"）：人文图层**全部按归属者
             //   （区域）身份统一着色**——定居格不再做亮度强调（无 _tileSettled 分级）；定居位置由人口图层承担。
             //   归属者统一 → 身份差异恒 0，结构上不可能出飞地（08-19 飞地修复保留）。
-            for (int e = 0; e < _civCtx.Tribes.Count; e++)
+            for (int e = 0; e < _civCtx.Bands.Count; e++)
             {
-                var ce = _civCtx.Tribes[e];
+                var ce = _civCtx.Bands[e];
                 if (ce.Dead || ce.Cell < 0 || ce.Cell >= n) continue;
                 if (_civCtx.R != null && _civCtx.R[ce.Cell] <= 0f) continue;   // 逻辑陆地（与模拟一致）
                 _cache.TilePop[ce.Cell] += ce.P;   // 驻扎格实有人口（营地）——只有人的格显示人
@@ -812,7 +814,7 @@ public partial class MapViewer : Node3D
         int vid = _tileIndex != null ? _tileIndex.FaceToVertex(i) : i;   // ⚠️ 2026-08-18：显示格→逻辑格（顶点）映射（2026-08-19 收敛 TileIndex）
         float elevM2 = _map.Elev != null ? _map.Elev[vid] : (_cache.TileElev[i] - _cache.HSea) * (_map.MaxElev - _map.MinElev);   // 实际海拔（米）
         // 续行诊断：保持 GD.Print 直调（[CLICK] 主行的格式续行，非日志，ADR-0004 §决策5）
-        GD.Print($"  elev={_cache.TileElev[i]:F3} 海拔={elevM2:F0}m pop={_cache.TilePop[vid]:F1} power={_cache.TilePower[i]} polity={_cache.TilePolity[i]} tribe={_cache.TileTribe[i]} terr={_cache.TileTerritory[i]} culture={_cache.TileCulture[i]} religion={_cache.TileReligion[i]}");
+        GD.Print($"  elev={_cache.TileElev[i]:F3} 海拔={elevM2:F0}m pop={_cache.TilePop[vid]:F1} power={_cache.TilePower[i]} polity={_cache.TilePolity[i]} band={_cache.TileBand[i]} terr={_cache.TileTerritory[i]} culture={_cache.TileCulture[i]} religion={_cache.TileReligion[i]}");
         // ⚠️ 2026-08-18：势力统计——该格所属势力总格数/有人格数（当场判断"无人口势力" vs "采集格无人"）
         if (_cache.TilePower[i] != 0)
         {
@@ -824,13 +826,13 @@ public partial class MapViewer : Node3D
         if (_civCtx != null)
         {
             GD.Print($"  CellOwner={(_civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1)} R={(_civCtx.R != null ? _civCtx.R[vid] : -1f):F2} LockedUntil={(_civCtx.LockedUntil != null ? _civCtx.LockedUntil[vid] : 0)}");
-            foreach (var ce in _civCtx.Tribes)
+            foreach (var ce in _civCtx.Bands)
                 if (!ce.Dead && ce.Cell == vid)
                     GD.Print($"  驻扎实体={ce.Id} P={ce.P:F1} CarryMult={ce.CarryMult:F2} TSize={ce.TerritorySize} TerrId={ce.TerritoryId} ChiefdomId={ce.ChiefdomId} Prestige={ce.Prestige:F2}");
             // ⚠️ 2026-08-18：该格所属势力（CellOwner）的驻扎格 + 位置 + 可达距离（BFS 走逻辑陆地）
             int ownerId = _civCtx.CellOwner != null ? _civCtx.CellOwner[vid] : -1;
-            World.CivSim.Tribe owner = null;
-            foreach (var ce in _civCtx.Tribes)
+            Band owner = null;
+            foreach (var ce in _civCtx.Bands)
                 if (!ce.Dead && ce.Id == ownerId) { owner = ce; break; }
             if (owner != null && owner.Cell >= 0 && owner.Cell < _tiles.Count && _tiles != null)
             {

@@ -1,6 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 
+using World.CivSim.Entities;
 namespace World.MapView;
 
 /// <summary>每格图层值缓存（2026-08-21 策略模式重构 M1：原 MapViewer 的 _tile* 字段束独立成类）。
@@ -24,7 +25,7 @@ public sealed class TileDataCache
     public int[] TileCulture;       // 每格主导文化 key 的 FNV 哈希（0=无；完整 32 位 → 每文化独立色）
     public byte[] TileCultureGroup; // 每格主导文化群（0=无）
     public int[] TileReligion;      // 每格主导宗教派别 key 的 FNV 哈希（0=无；relig_N 每派别独立色）
-    public int[] TileTribe;         // 每格主导部落 id（-1=无）
+    public int[] TileBand;         // 每格主导部落 id（-1=无）
     public int[] TilePower;         // 每格主导势力 id（2026-08-17：最高聚合——酋邦>部落>band；高位域标记）
     public byte[] TilePolity;       // 每格主导势力政体类型（2026-08-17：0=独立band 1=部落 2=酋邦）
     public byte[] TileTechEpoch;    // 每格主导部落最高技术时代 0-4

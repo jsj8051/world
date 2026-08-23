@@ -4,6 +4,7 @@ using World.CivSim;
 using World.HexPlanet;
 using World.MapGen;
 
+using World.CivSim.Entities;
 namespace World.MapView;
 /// <summary>图层策略上下文（2026-08-21 策略模式重构 M1）：策略类访问数据的唯一通道——
 /// 不直接依赖 MapViewer 本体（颜色/图例/覆盖层方法经此取数）。M1 先收数据字段；回调 M3 接入。</summary>
@@ -39,12 +40,12 @@ public sealed class LayerContext
         if (Cache.CultGroup != null || CivCtx == null) return;
         Cache.CultGroup = new Dictionary<int, int>();
         Cache.SectGroup = new Dictionary<int, int>();
-        foreach (var e in CivCtx.Tribes)
+        foreach (var e in CivCtx.Bands)
         {
             if (e.Dead) continue;
-            int c = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.CultureShare));
-            int r = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.ReligionCultShare));
-            int g = World.CivSim.ShareField.KeyHash(World.CivSim.ShareField.DomKey(e.CultureGroupShare));
+            int c = ShareField.KeyHash(ShareField.DomKey(e.CultureShare));
+            int r = ShareField.KeyHash(ShareField.DomKey(e.ReligionCultShare));
+            int g = ShareField.KeyHash(ShareField.DomKey(e.CultureGroupShare));
             if (c != 0 && !Cache.CultGroup.ContainsKey(c)) Cache.CultGroup[c] = g;
             if (r != 0 && !Cache.SectGroup.ContainsKey(r)) Cache.SectGroup[r] = g;
         }

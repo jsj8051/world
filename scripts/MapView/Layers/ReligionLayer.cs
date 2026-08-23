@@ -15,8 +15,8 @@ public sealed class ReligionLayer : MapLayer
     public override Color ColorOf(LayerContext ctx, HexTile tile)
     {
         int id = tile.Id;
-        if (ctx.IsSea(id) && ctx.Cache.TileTribe[id] < 0) return SeaColor;
-        if (ctx.Cache.TileTribe[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
+        if (ctx.IsSea(id) && ctx.Cache.TileBand[id] < 0) return SeaColor;
+        if (ctx.Cache.TileBand[id] < 0) return new Color(0.25f, 0.25f, 0.28f);   // 无人
         int rel = ctx.Cache.TileReligion[id];
         if (rel == 0) return new Color(0.25f, 0.25f, 0.28f);
         int grp = ctx.Cache.TileTerritory != null && id < ctx.Cache.TileTerritory.Length ? ctx.Cache.TileTerritory[id] : 0;

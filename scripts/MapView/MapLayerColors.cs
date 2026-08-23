@@ -1,5 +1,6 @@
 using Godot;
 
+using World.CivSim.Entities;
 namespace World.MapView;
 
 /// <summary>地图图层共享取色工具（2026-08-21 策略模式重构 M2：从 MapViewer 搬出，

@@ -9,6 +9,7 @@ using World.LogicGrid;
 using World.MapGen;
 using World.Services;
 
+using World.CivSim.Entities;
 namespace World.Diagnostics;
 
 /// <summary>
@@ -186,7 +187,7 @@ public partial class CivSimDiag : DiagSceneBase
         if (Want("T43")) T43_BigManEmergence();
         if (Want("T44")) T44_ChiefInstitutionalize();
         if (Want("T45")) T45_ChiefdomCoalesce();
-        if (Want("T46")) T46_TribeIndependence();
+        if (Want("T46")) T46_BandIndependence();
         if (Want("T47")) T47_TributeReciprocity();
         if (Want("T48")) T48_EliteSupport();
         if (Want("T49")) T49_AllianceStrength();
@@ -241,9 +242,9 @@ public partial class CivSimDiag : DiagSceneBase
         // [临时调试] 文化空间分布（起源 key + 各文化实体数）
         var cultCount = new Dictionary<string, int>();
         var originCults = new System.Text.StringBuilder();
-        foreach (var e in r1.Context.Tribes)
+        foreach (var e in r1.Context.Bands)
         {
-            string ck = World.CivSim.ShareField.DomKey(e.CultureShare);
+            string ck = ShareField.DomKey(e.CultureShare);
             if (ck != null) cultCount[ck] = cultCount.TryGetValue(ck, out var v) ? v + 1 : 1;
             if (e.BornTick == 0) originCults.Append($"格{e.Cell}:{ck} ");
         }
@@ -255,19 +256,19 @@ public partial class CivSimDiag : DiagSceneBase
         LogService.Log("文化调试", $"起源={originCults} | 文化实体数: {cultStr}");
         // [调试] 起源格当前主导文化（是否被外文化吞并）——2026-08-17 审查修复：改动态起源格（旧硬编码 {7597,7106,58} 是特定 n128 图的残留）
         var originCells = new List<int>();
-        foreach (var e in r1.Context.Tribes) if (e.BornTick == 0 && !originCells.Contains(e.Cell)) originCells.Add(e.Cell);
+        foreach (var e in r1.Context.Bands) if (e.BornTick == 0 && !originCells.Contains(e.Cell)) originCells.Add(e.Cell);
         originCells.Sort();
         var ocStr = new System.Text.StringBuilder();
         foreach (int oc in originCells)
         {
-            if (oc < 0 || oc >= c.CellTribes.Length) continue;
-            var d0 = c.CellTribes[oc];   // 一格一实体：单部落或 null
+            if (oc < 0 || oc >= c.CellBands.Length) continue;
+            var d0 = c.CellBands[oc];   // 一格一实体：单部落或 null
             string domKey = "无";
             if (d0 != null && !d0.Dead)
             {
-                domKey = World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "null";
+                domKey = ShareField.DomKey(d0.CultureShare) ?? "null";
                 if (domKey == "null" || domKey == "无")
-                    LogService.Log("文化调试", $"null格{oc} 实体:{d0.Id}(P{d0.P:F0})[{(World.CivSim.ShareField.DomKey(d0.CultureShare) ?? "n")}:{d0.CultureShare[0].Frac},{World.CivSim.ShareField.SecKey(d0.CultureShare) ?? "n"}:{d0.CultureShare[1].Frac}] ");
+                    LogService.Log("文化调试", $"null格{oc} 实体:{d0.Id}(P{d0.P:F0})[{(ShareField.DomKey(d0.CultureShare) ?? "n")}:{d0.CultureShare[0].Frac},{ShareField.SecKey(d0.CultureShare) ?? "n"}:{d0.CultureShare[1].Frac}] ");
             }
             ocStr.Append($"格{oc}:{domKey}({(d0 != null && !d0.Dead ? 1 : 0)}实体) ");
         }
@@ -275,11 +276,11 @@ public partial class CivSimDiag : DiagSceneBase
         // [临时调试] 各文化格级覆盖（主导文化格数 + 平均实体人口）
         var cultGrid = new Dictionary<string, int>();
         var cultPop = new Dictionary<string, float>();
-        for (int gi = 0; gi < c.CellTribes.Length; gi++)
+        for (int gi = 0; gi < c.CellBands.Length; gi++)
         {
-            var d0 = c.CellTribes[gi];
+            var d0 = c.CellBands[gi];
             if (d0 == null || d0.Dead) continue;
-            string gk = World.CivSim.ShareField.DomKey(d0.CultureShare);
+            string gk = ShareField.DomKey(d0.CultureShare);
             if (gk == null) continue;
             cultGrid[gk] = cultGrid.TryGetValue(gk, out var gv) ? gv + 1 : 1;
             cultPop[gk] = cultPop.TryGetValue(gk, out var pv) ? pv + d0.P : d0.P;
@@ -293,15 +294,15 @@ public partial class CivSimDiag : DiagSceneBase
         // [临时调试] 文化群/宗教派别多样性（产生 vs 存活）
         var grpCount = new Dictionary<string, int>();
         var relCount = new Dictionary<string, int>();
-        foreach (var e in r1.Context.Tribes)
+        foreach (var e in r1.Context.Bands)
         {
-            string gk = World.CivSim.ShareField.DomKey(e.CultureGroupShare);
+            string gk = ShareField.DomKey(e.CultureGroupShare);
             if (gk != null) grpCount[gk] = grpCount.TryGetValue(gk, out var v) ? v + 1 : 1;
-            string rk = World.CivSim.ShareField.DomKey(e.ReligionCultShare);
+            string rk = ShareField.DomKey(e.ReligionCultShare);
             if (rk != null) relCount[rk] = relCount.TryGetValue(rk, out var v2) ? v2 + 1 : 1;
         }
         LogService.Log("文化调试", $"文化群存活={grpCount.Count} 宗教派别存活={relCount.Count} (CultureKeyCount={r1.Context.CultureKeyCount} ReligionKeyCount={r1.Context.ReligionKeyCount})");
-        LogService.Log("CivSimDiag", $"演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Tribes.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
+        LogService.Log("CivSimDiag", $"演化 {r1.FinalTick} tick（{r1.FinalTick * CivSimContext.TickYears} 年）| 实体 {r1.Context.Bands.Count} | 人口 {r1.Context.TotalPopulation():F0} | 首转农 tick {r1.Context.FirstFarmTick} | 耗时 {sw.ElapsedMilliseconds}ms" +
                  $" | 贸易 {r1.Context.TradeEvents} 次/{r1.Context.TradeVolume:F0} 量");
         return r1;
     }
@@ -309,7 +310,7 @@ public partial class CivSimDiag : DiagSceneBase
 
 // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 // Slices (2026-08-19 pure refactor: partial class, behavior unchanged):
-//   CivSimDiag.Builders.cs  - scenario construction helpers (MakeGrid/MakeCtx/AddTribe/AddSettlement/SetupStateChiefdom/WriteBad*)
+//   CivSimDiag.Builders.cs  - scenario construction helpers (MakeGrid/MakeCtx/AddBand/AddSettlement/SetupStateChiefdom/WriteBad*)
 //   CivSimDiag.Scenarios.cs - S1-S6 + construct-style T tests (T23-T67 series)
 //   CivSimDiag.MapTests.cs  - archive-driven map tests (T03/T04/T05/T09-T22/T52/T18 + helpers)
 //   CivSimDiag.Compare.cs   - round-trip equality helpers (EntitiesEqual/ShareStr/NaturalUnchanged/...)

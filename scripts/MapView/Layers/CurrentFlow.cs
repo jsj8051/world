@@ -5,6 +5,7 @@ using World.MapGen;
 using World.Services;
 using World.Utils;
 
+using World.CivSim.Entities;
 namespace World.MapView.Layers;
 
 /// <summary>

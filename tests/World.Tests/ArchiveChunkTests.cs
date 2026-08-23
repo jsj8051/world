@@ -3,6 +3,7 @@ using System.IO;
 using NUnit.Framework;
 using World.Utils;
 
+using World.CivSim.Entities;
 namespace World.Tests;
 
 /// <summary>
@@ -161,7 +162,7 @@ public class ArchiveChunkTests
     {
         var grid = MakeMinGrid();
         int n = grid.N;
-        var tribe = new World.CivSim.Tribe
+        var band = new Band
         {
             Id = 3,
             Cell = 1,
@@ -172,18 +173,18 @@ public class ArchiveChunkTests
         {
             Grid = grid,
             Seed = 7,
-            Tribes = new System.Collections.Generic.List<World.CivSim.Tribe> { tribe },
-            CellTribes = new World.CivSim.Tribe[n],
-            NextTribeId = 4,
+            Bands = new System.Collections.Generic.List<Band> { band },
+            CellBands = new Band[n],
+            NextBandId = 4,
             CultureKeyCount = 2,
             CultureGroupKeyCount = 1,
             ReligionKeyCount = 1,
             NextSettlementId = 9,
-            Settlements = new System.Collections.Generic.List<World.CivSim.Settlement>
+            Settlements = new System.Collections.Generic.List<Settlement>
             {
-                new World.CivSim.Settlement { Id = 8, Cell = 2, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
+                new Settlement { Id = 8, Cell = 2, BornTick = 5, Level = 1, LastLevelUpTick = 5, DwellFrom = 5, OccupantId = 3, RuinFrom = -1, Stocks = World.CivSim.CommodityTable.NewStocks() },
             },
-            Wars = new System.Collections.Generic.List<World.CivSim.War>(),
+            Wars = new System.Collections.Generic.List<War>(),
             CellOwner = new int[n],
             CellBestOwner = new int[n],
             CellBestInf = new float[n],
@@ -224,10 +225,10 @@ public class ArchiveChunkTests
         Assert.IsNotNull(back);
         Assert.AreEqual(100, back.FinalTick);
         Assert.AreEqual(7, back.Context.Seed);
-        Assert.AreEqual(1, back.Context.Tribes.Count);
-        Assert.AreEqual(3, back.Context.Tribes[0].Id);
-        Assert.AreEqual(42f, back.Context.Tribes[0].P);
-        Assert.AreEqual(4, back.Context.NextTribeId);
+        Assert.AreEqual(1, back.Context.Bands.Count);
+        Assert.AreEqual(3, back.Context.Bands[0].Id);
+        Assert.AreEqual(42f, back.Context.Bands[0].P);
+        Assert.AreEqual(4, back.Context.NextBandId);
         Assert.AreEqual(2, back.Context.CultureKeyCount);
         Assert.AreEqual(9, back.Context.NextSettlementId);
         Assert.AreEqual(1, back.Context.Settlements.Count);

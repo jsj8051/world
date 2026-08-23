@@ -2,6 +2,7 @@ using Godot;
 using World.HexPlanet;
 using static World.MapView.MapLayerColors;
 
+using World.CivSim.Entities;
 namespace World.MapView.Layers;
 
 /// <summary>图层 19 聚落（2026-08-19 阶段3 聚落设计）：新村→城市分级色 + 废墟灰；无聚落暗底。</summary>
