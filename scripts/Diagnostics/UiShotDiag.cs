@@ -84,14 +84,16 @@ public partial class UiShotDiag : Node
         }
         if (_frame == 4 && _showDeleteDialog)
         {
-            // 触发第一个存档行的删除确认（模拟点 🗑：找 _list 第一行的最后一个按钮）
-            var list = FindChild("_list", recursive: true, owned: false) as VBoxContainer;
+            // 触发第一个存档行的删除确认（模拟点 🗑）。行结构（2026-08-23 起）：
+            // row(Button) → HBox[icon, body, btns(HBox)] → btns[进入, 🗑]，🗑 在 btns 末位。
+            var list = FindChild("List", recursive: true, owned: false) as VBoxContainer;   // 节点名 List（%List），_list 是 C# 字段名
             if (list != null && list.GetChildCount() > 0)
             {
                 foreach (var child in list.GetChildren())
                 {
-                    if (child is Button row && row.GetChildCount() > 0 && row.GetChild(0) is HBoxContainer h && h.GetChildCount() > 1
-                        && h.GetChild(h.GetChildCount() - 1) is Button del)
+                    if (child is Button row && row.GetChild(0) is HBoxContainer h && h.GetChildCount() > 2
+                        && h.GetChild(h.GetChildCount() - 1) is HBoxContainer btns && btns.GetChildCount() > 1
+                        && btns.GetChild(btns.GetChildCount() - 1) is Button del)
                     {
                         del.EmitSignal(BaseButton.SignalName.Pressed);
                         break;

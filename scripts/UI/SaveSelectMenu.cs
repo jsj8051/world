@@ -21,7 +21,11 @@ public partial class SaveSelectMenu : Control
     private Label _statusDot;
     private Label _count;
     private VBoxContainer _list;
-    private ConfirmationDialog _confirm;
+    private CenterContainer _confirmBox;   // 删除确认模态框根（自定义样式，与主界面同风格）
+    private Label _confirmTitle;
+    private Label _confirmBody;
+    private Button _confirmCancel;
+    private Button _confirmDel;
     private ColorRect _dim;
     private PanelContainer _toast;
     private Label _toastText;
@@ -41,16 +45,19 @@ public partial class SaveSelectMenu : Control
         _statusDot = GetNode<Label>("%StatusDot");
         _count = GetNode<Label>("%Count");
         _list = GetNode<VBoxContainer>("%List");
-        _confirm = GetNode<ConfirmationDialog>("%Confirm");
+        _confirmBox = GetNode<CenterContainer>("%ConfirmBox");
+        _confirmTitle = GetNode<Label>("%ConfirmTitle");
+        _confirmBody = GetNode<Label>("%ConfirmBody");
+        _confirmCancel = GetNode<Button>("%CancelBtn");
+        _confirmDel = GetNode<Button>("%DelBtn");
         _dim = GetNode<ColorRect>("%Dim");
         _toast = GetNode<PanelContainer>("%Toast");
         _toastText = GetNode<Label>("%ToastText");
 
-        // 删除确认
-        _confirm.GetOkButton().AddThemeColorOverride("font_color", SaveRowStyle.Red);
-        _confirm.Confirmed += ConfirmDelete;
-        _confirm.Canceled += HideDim;
-        _confirm.CloseRequested += HideDim;
+        // 删除确认（自定义模态框：与主界面同风格，不用引擎默认 ConfirmationDialog）
+        _confirmCancel.Pressed += HideDim;
+        _confirmDel.Pressed += ConfirmDelete;
+        ApplyDanger(_confirmDel);   // 危险红 StyleBox 全套（场景已给红字）
 
         // 返回按钮
         GetNode<Button>("Win/V/FootPad/FootRow/BackBtn").Pressed +=
@@ -62,6 +69,16 @@ public partial class SaveSelectMenu : Control
         tween.TweenProperty(_statusDot, "modulate:a", 1f, 1.2f);
 
         RefreshList();
+    }
+
+    /// <summary>ESC 关闭删除确认框（旧 ConfirmationDialog 的 dialog_close_on_escape 行为）。</summary>
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        if (_confirmBox.Visible && @event.IsActionPressed("ui_cancel"))
+        {
+            HideDim();
+            GetViewport().SetInputAsHandled();
+        }
     }
 
     private void RefreshList()
@@ -273,13 +290,17 @@ public partial class SaveSelectMenu : Control
     private void RequestDelete(string path, string fileName, string kind)
     {
         _pendingDelete = path;
+        _confirmTitle.Text = $"🗑 删除{kind}";
+        _confirmBody.Text = $"确定删除{kind}「{fileName}」？\n此操作不可恢复。";
         _dim.Visible = true;
-        _confirm.Title = $"删除{kind}";
-        _confirm.DialogText = $"确定删除{kind}「{fileName}」？\n此操作不可恢复。";
-        _confirm.PopupCentered();
+        _confirmBox.Visible = true;
     }
 
-    private void HideDim() => _dim.Visible = false;
+    private void HideDim()
+    {
+        _dim.Visible = false;
+        _confirmBox.Visible = false;
+    }
 
     private void ConfirmDelete()
     {

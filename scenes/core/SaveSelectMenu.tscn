@@ -351,6 +351,74 @@ grow_vertical = 2
 mouse_filter = 1
 color = Color(0.0157, 0.0275, 0.051, 0.72)
 
+[node name="ConfirmBox" type="CenterContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="ConfirmBox"]
+custom_minimum_size = Vector2(420, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_dialog")
+
+[node name="Pad" type="MarginContainer" parent="ConfirmBox/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 26
+theme_override_constants/margin_top = 20
+theme_override_constants/margin_right = 26
+theme_override_constants/margin_bottom = 18
+
+[node name="V" type="VBoxContainer" parent="ConfirmBox/Panel/Pad"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="ConfirmTitle" type="Label" parent="ConfirmBox/Panel/Pad/V"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+text = "删除世界存档"
+
+[node name="ConfirmBody" type="Label" parent="ConfirmBox/Panel/Pad/V"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+text = "确定删除？"
+autowrap_mode = 3
+
+[node name="BtnRow" type="HBoxContainer" parent="ConfirmBox/Panel/Pad/V"]
+layout_mode = 2
+theme_override_constants/separation = 10
+alignment = 2
+
+[node name="CancelBtn" type="Button" parent="ConfirmBox/Panel/Pad/V/BtnRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(104, 38)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = SubResource("sb_ghost")
+theme_override_styles/hover = SubResource("sb_ghost_hover")
+theme_override_styles/pressed = SubResource("sb_ghost_hover")
+theme_override_styles/focus = SubResource("sb_ghost")
+theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+theme_override_colors/font_hover_color = Color(0.302, 0.639, 1, 1)
+text = "取消"
+
+[node name="DelBtn" type="Button" parent="ConfirmBox/Panel/Pad/V/BtnRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(104, 38)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(1, 0.365, 0.365, 1)
+text = "🗑 删除"
+
 [node name="Toast" type="PanelContainer" parent="."]
 unique_name_in_owner = true
 visible = false
@@ -373,11 +441,3 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
 text = ""
-
-[node name="Confirm" type="ConfirmationDialog" parent="."]
-unique_name_in_owner = true
-title = "删除存档"
-size = Vector2i(420, 160)
-theme_override_styles/panel = SubResource("sb_dialog")
-ok_button_text = "删除"
-cancel_button_text = "取消"
