@@ -102,6 +102,17 @@ public static class ConceptRegistry
             ("tribute_rate", CivSimContext.StateTributeRate),                      // 税制化 0.2（×2）
             ("elite_frac", CivSimContext.StateEliteFrac),                          // 官僚供养 0.25（×2.5）
             ("war_military_mult", 1f),                                             // 常备军倍率（现状 1——未来常备军参数在此）
+            // 战争结算 v2 开战动机门参数（2026-08-23：值 = CivSimContext 现状常量，行为不变——
+            //   未来新概念（如"和平主义村庄"）覆盖这些参数即改变其开战倾向，无需改机制）
+            ("war_aim_territory_ratio", CivSimContext.WarAimTerritoryRatio),       // 领土野心阈值
+            ("war_aim_power_ratio", CivSimContext.WarAimPowerRatio),               // 军事优势阈值
+            ("war_relation_culture_mult", CivSimContext.WarRelationCultureMult),   // 同文化群亲缘
+            ("war_relation_trade_mult", CivSimContext.WarRelationTradeMult),       // 贸易纽带
+            ("war_relation_grudge_mult", CivSimContext.WarRelationGrudgeMult),     // 仇恨记忆
+            ("war_power_gap_mult", CivSimContext.WarPowerGapMult),                 // 弱方不敢打
+            ("war_power_gap_ratio", CivSimContext.WarPowerGapRatio),               // 弱方触发线
+            ("war_morale_min", CivSimContext.WarMoraleMin),                        // 士气骰子下限
+            ("war_morale_max", CivSimContext.WarMoraleMax),                        // 士气骰子上限
         },
     };
 

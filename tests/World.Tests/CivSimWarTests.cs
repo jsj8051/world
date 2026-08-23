@@ -282,4 +282,257 @@ public class CivSimWarTests
         Assert.AreEqual(0, ctx.Wars.Count, "冷却期内不得宣战");
         Assert.AreEqual(0, ctx.WarsDeclared);
     }
+
+    // ═════════════════════════════════════════════════════════════════
+    // 7. 战争结算 v2 动机门纯函数（WarAims——确定性直接断言，无 Rng）
+    // ═════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void Aim_TerritorialAmbition_LargerNeighbor()
+    {
+        var ctx = WarCtx(StarGrid());
+        var a = AddPolity(ctx, 0, 0, 100f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        var b = AddPolity(ctx, 2, 2, 10f, 0f, chief: true);
+        AddPolity(ctx, 3, 3, 5f, 0f);
+        // B 邦扩到 3 成员（≥ A 2×1.2=2.4）——手动加实体进 B 邦成员表（不碰 ChiefdomCells[4]）
+        var m4 = new Polity { Id = 4, Cell = 1, P = 10f, Contributed = 0f, ChiefdomId = 2, StateId = -1, StateSize = 1, IsChief = false, LastWarTick = -1 };
+        ctx.Polities.Add(m4);
+        ctx.CellPolities[1] = m4;
+        ctx.ChiefdomCells[2].Add(4);
+
+        Assert.True(WarAims.HasTerritorialAim(ctx, a, b), "对方成员 3 ≥ 本国 2×1.2 → 领土野心");
+        Assert.False(WarAims.HasTerritorialAim(ctx, b, a), "本国 3 对对方 2：不构成野心（方向性）");
+    }
+
+    [Test]
+    public void Aim_ResourcePressure_HungryOrOverpopulated()
+    {
+        var ctx = WarCtx(StarGrid());
+        var a = AddPolity(ctx, 0, 0, 100f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        var b = AddPolity(ctx, 2, 2, 10f, 0f, chief: true);
+        AddPolity(ctx, 3, 3, 5f, 0f);
+        a.FLast = 0f;   // 饿（0 < 100×0.999）
+        Assert.True(WarAims.HasResourcePressure(ctx, a), "饥荒 → 生存战争动机");
+
+        a.FLast = 100f;   // 温饱
+        a.P = 30f;        // 超载（> SplitPop=25）
+        Assert.True(WarAims.HasResourcePressure(ctx, a), "人口超载 → 生存战争动机");
+
+        a.P = 10f;
+        Assert.False(WarAims.HasResourcePressure(ctx, a), "温饱且未超载 → 无压力");
+    }
+
+    [Test]
+    public void Aim_MilitaryAdvantage_PowerfulChallenger()
+    {
+        var ctx = WarCtx(StarGrid());
+        var a = AddPolity(ctx, 0, 0, 100f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        var b = AddPolity(ctx, 2, 2, 10f, 0f, chief: true);
+        AddPolity(ctx, 3, 3, 5f, 0f);
+        // A 军力 150 ≥ B 15×1.5=22.5
+        Assert.True(WarAims.HasMilitaryAdvantage(ctx, a, b), "军力 10 倍 → 机会主义动机");
+        Assert.False(WarAims.HasMilitaryAdvantage(ctx, b, a), "弱方无优势");
+    }
+
+    [Test]
+    public void Aim_Grudge_PreviouslyConquered()
+    {
+        var ctx = WarCtx(StarGrid());
+        var a = AddPolity(ctx, 0, 0, 100f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        var b = AddPolity(ctx, 2, 2, 10f, 0f, chief: true);
+        AddPolity(ctx, 3, 3, 5f, 0f);
+        a.ConqueredBy = b.Id;   // a 曾被 b 的国家征服（Annex 痕迹）
+        Assert.True(WarAims.HasGrudge(ctx, a, b), "被征服过 → 世仇动机");
+        Assert.False(WarAims.HasGrudge(ctx, b, a), "反向无仇");
+    }
+
+    [Test]
+    public void Aim_RelationMult_SameCultureGroupReduces()
+    {
+        var ctx = WarCtx(StarGrid());
+        var a = AddPolity(ctx, 0, 0, 100f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        var b = AddPolity(ctx, 2, 2, 10f, 0f, chief: true);
+        AddPolity(ctx, 3, 3, 5f, 0f);
+        // 无任何关系（文化群空、无贸易、无仇恨）→ 1
+        Assert.AreEqual(1f, WarAims.RelationMult(ctx, a, b), 1e-4f, "无关系 = 基准 1");
+        // 同文化群主导 → ×0.5（亲缘纽带）
+        a.CultureGroupShare = ShareField.NewCulture("g1");
+        b.CultureGroupShare = ShareField.NewCulture("g1");
+        Assert.AreEqual(CivSimContext.WarRelationCultureMult, WarAims.RelationMult(ctx, a, b), 1e-4f, "同文化群 → 战意减半");
+        // 再加仇恨 → 0.5×2=1（抵消亲缘）
+        a.ConqueredBy = b.Id;
+        Assert.AreEqual(CivSimContext.WarRelationCultureMult * CivSimContext.WarRelationGrudgeMult, WarAims.RelationMult(ctx, a, b), 1e-4f, "仇恨记忆 ×2");
+    }
+
+    [Test]
+    public void Aim_PowerGap_WeakChallengerDaresNot()
+    {
+        var ctx = WarCtx(StarGrid());
+        var a = AddPolity(ctx, 0, 0, 10f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 10f, 0f);
+        var b = AddPolity(ctx, 2, 2, 100f, 0f, chief: true);
+        AddPolity(ctx, 3, 3, 50f, 0f);
+        a.FLast = 10f;   // 温饱（不饿）
+        // A 20 < B 150×0.5=75 → 弱方 ×0.3
+        Assert.AreEqual(CivSimContext.WarPowerGapMult, WarAims.PowerGapMult(ctx, a, b), 1e-4f, "弱挑战方不敢打");
+        Assert.AreEqual(1f, WarAims.PowerGapMult(ctx, b, a), 1e-4f, "强方无门槛");
+
+        a.P = 30f;   // 超载 → 资源压力豁免
+        Assert.AreEqual(1f, WarAims.PowerGapMult(ctx, a, b), 1e-4f, "生存压力豁免实力门槛");
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // 8. 战争结算 v2 天气判定（WarWeather.Classify——纯函数直接断言）
+    // ═════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void Weather_Classify_ColdRainyDryNone()
+    {
+        // 严寒：最冷月 −10°C（高纬/高原）
+        var cold = WarWeather.Classify(-10f, 0.1f, 50f, 10f);
+        Assert.AreEqual(WarWeather.Kind.Cold, cold.Kind);
+        Assert.AreEqual(CivSimContext.WarColdAttackerMult, cold.AttackerMult, 1e-4f, "进攻方受阻");
+        Assert.AreEqual(CivSimContext.WarColdLoss, cold.ExtraLoss, 1e-4f, "双方冻伤损耗");
+        // 雨季：最大月降水比例 0.4（季风区）
+        var rainy = WarWeather.Classify(5f, 0.4f, 50f, 25f);
+        Assert.AreEqual(WarWeather.Kind.Rainy, rainy.Kind);
+        Assert.AreEqual(CivSimContext.WarRainyAttackerMult, rainy.AttackerMult, 1e-4f, "泥泞阻进攻");
+        Assert.AreEqual(0f, rainy.ExtraLoss);
+        // 干旱：最干月 10mm + 年均温 28°C（旱区缺水）
+        var dry = WarWeather.Classify(10f, 0.1f, 10f, 28f);
+        Assert.AreEqual(WarWeather.Kind.Dry, dry.Kind);
+        Assert.AreEqual(1f, dry.AttackerMult, 1e-4f);
+        Assert.AreEqual(CivSimContext.WarDryLoss, dry.ExtraLoss, 1e-4f, "缺水损耗");
+        // 温带宜居：全不满足 → 无天气
+        var none = WarWeather.Classify(10f, 0.1f, 50f, 15f);
+        Assert.AreEqual(WarWeather.Kind.None, none.Kind);
+        Assert.AreEqual(1f, none.AttackerMult, 1e-4f);
+        Assert.AreEqual(0f, none.ExtraLoss);
+        // 严寒优先于雨季（一型互斥）
+        var coldFirst = WarWeather.Classify(-10f, 0.4f, 50f, 10f);
+        Assert.AreEqual(WarWeather.Kind.Cold, coldFirst.Kind, "严寒 > 雨季优先级");
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // 9. 战争结算 v2 宣战动机门（经 Execute 间接验证——纯函数已直接断言；此处验证整条链路）
+    // ═════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void Declare_NoMotive_NoWar()
+    {
+        var grid = StarGrid();
+        var ctx = WarCtx(grid);
+        // 双方都温饱、势均力敌、成员数相同、无仇恨 → **双向都无动机**（v2 双向评估：
+        // 任一方向有动机即开战，此构造两方向都无 → aimMult=0 直接跳过，无 Rng 参与）
+        var a = AddPolity(ctx, 0, 0, 10f, 50f, chief: true);
+        AddPolity(ctx, 1, 1, 10f, 0f);
+        var b = AddPolity(ctx, 2, 2, 10f, 50f, chief: true);
+        AddPolity(ctx, 3, 3, 10f, 0f);
+        a.FLast = 10f; b.FLast = 10f;   // 双方温饱（不触发饥荒；P=10<SplitPop 不超载 → 无资源压力）
+        ctx.EnsureTerritory();
+        ctx.TerritoryOf(a).Add(a.Cell);
+        ctx.TerritoryOf(b).Add(2);
+        ctx.Tick = CivSimContext.WarCooldownTicks;   // 30：避开冷却门抢先（LastWarTick=-1 时 0−(−1)=1<30 直接拦截）
+
+        new WarModel().Execute(ctx);
+
+        Assert.AreEqual(0, ctx.Wars.Count, "双方无动机 → 不开战（aimMult=0 直接跳过，无 Rng 参与）");
+        Assert.AreEqual(0, ctx.WarsDeclared);
+    }
+
+    // ⚠️ 以下两个宣战正门测试依赖 DeterministicRandom(7) 固定序列（0.002/tick 概率累积到守卫上限内必然命中）。
+    //   种子脆弱：未来任何新增 Rng 消费点都会改变序列——若测试翻车先重验种子，勿直接调守卫上限。
+
+    [Test]
+    public void Declare_Motive_EventuallyWars()
+    {
+        var grid = StarGrid();
+        var ctx = WarCtx(grid);
+        // A 军事优势（150 ≥ 15×1.5）→ 有动机；池足、相邻
+        AddPolity(ctx, 0, 0, 100f, 50f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        AddPolity(ctx, 2, 2, 10f, 50f, chief: true);
+        AddPolity(ctx, 3, 3, 5f, 0f);
+        ctx.EnsureTerritory();
+        ctx.TerritoryOf(ctx.Polities[0]).Add(0);
+        ctx.TerritoryOf(ctx.Polities[2]).Add(2);
+
+        int guard = 0;
+        while (ctx.WarsDeclared == 0 && guard < 3000)
+        {
+            ctx.Tick = guard + 1;
+            new WarModel().Execute(ctx);
+            guard++;
+        }
+
+        Assert.Greater(ctx.WarsDeclared, 0, "有动机国家最终宣战（种子确定——0.002/tick 期望 6 场/3000 tick）");
+    }
+
+    [Test]
+    public void Declare_MultiplePairs_EventuallyMultipleWars()
+    {
+        var grid = StarGrid();
+        grid.OverrideNeighbors(new[] { new[] { 1, 3 }, new[] { 0, 2 }, new[] { 1, 3 }, new[] { 2, 0 } });   // 环状：0-1-2-3-0
+        var ctx = WarCtx(grid);
+        ctx.NextPolityId = 8;
+        ctx.ChiefdomCells = new List<int>[8];
+        for (int i = 0; i < 8; i++) ctx.ChiefdomCells[i] = new List<int>();
+        // 国 A{0,4} B{1,5}（强）C{2,6} D{3,7}（弱）——强方对弱方有军事优势动机；A-B/C-D 势均不宣
+        void Make(int id, int cell, float p, float pool, int chiefdom, bool chief)
+        {
+            var e = new Polity
+            {
+                Id = id, Cell = cell, P = p, Contributed = pool, ChiefdomId = chiefdom,
+                StateId = chief ? id : -1, StateSize = chief ? 2 : 1, IsChief = chief, LastWarTick = -1,
+            };
+            ctx.Polities.Add(e);
+            ctx.CellPolities[cell] = e;
+            ctx.ChiefdomCells[chiefdom].Add(id);
+        }
+        Make(0, 0, 100f, 50f, 0, true);  Make(4, 0, 50f, 0f, 0, false);
+        Make(1, 1, 100f, 50f, 1, true);  Make(5, 1, 50f, 0f, 1, false);
+        Make(2, 2, 10f, 50f, 2, true);   Make(6, 2, 5f, 0f, 2, false);
+        Make(3, 3, 10f, 50f, 3, true);   Make(7, 3, 5f, 0f, 3, false);
+        ctx.EnsureTerritory();
+        for (int i = 0; i < 4; i++) ctx.TerritoryOf(ctx.Polities[i]).Add(i);
+
+        int guard = 0;
+        while (ctx.WarsDeclared < 2 && guard < 4000)
+        {
+            ctx.Tick = guard + 1;
+            new WarModel().Execute(ctx);
+            guard++;
+        }
+
+        Assert.GreaterOrEqual(ctx.WarsDeclared, 2, "多对独立国家对各自宣战（去单 tick 限 1 场后多场战争可发生）");
+    }
+
+    // ═════════════════════════════════════════════════════════════════
+    // 10. 战争结算 v2 声望影响（吞并胜利者 Prestige↑ 败者↓——接 Sahlins 声望体系）
+    // ═════════════════════════════════════════════════════════════════
+
+    [Test]
+    public void Annex_WinnerGainsPrestige_LoserLoses()
+    {
+        var grid = StarGrid();
+        var ctx = WarCtx(grid);
+        var aChief = AddPolity(ctx, 0, 0, 100f, 0f, chief: true);
+        AddPolity(ctx, 1, 1, 50f, 0f);
+        var bChief = AddPolity(ctx, 2, 2, 0f, 10f, chief: true);
+        AddPolity(ctx, 3, 3, 0f, 5f);
+        AddWar(ctx, 0, 2, tick: 0, winsA: CivSimContext.WarAnnexWins, lastBattle: 0);
+        ctx.Tick = 0;
+        ctx.Wars[0].LastBattleTick = 0;   // 无新会战 → 直接结算（硬路径：军力比 ∞ ≥ 碾压线）
+
+        new WarModel().Execute(ctx);
+
+        // 净胜场差 3 → 胜者 Prestige +0.5×3=1.5；败者 clamp 0
+        Assert.AreEqual(CivSimContext.WarPrestigeGain * CivSimContext.WarAnnexWins, aChief.Prestige, 1e-4f, "吞并胜利者声望上升");
+        Assert.AreEqual(0f, bChief.Prestige, 1e-4f, "败者声望扣减 clamp 0");
+    }
 }

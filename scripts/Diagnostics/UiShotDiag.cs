@@ -16,6 +16,7 @@ public partial class UiShotDiag : Node
     private int _shotFrame = 8;       // 截图帧号（--shot-frame=N；生成完成态需等生成结束）
     private bool argsTryDumpUi;      // --dump-ui=1：截图前打印 HUD 节点 rect
     private int _tabIdx = -1;        // --tab=N：mapgen 模拟点第 N 个页签（-1=不模拟）
+    private int _viewerLayer = -1;   // --viewer-layer=N：viewer 场景截图前切到指定图层（-1=不切）
 
     public override void _Ready()
     {
@@ -27,6 +28,9 @@ public partial class UiShotDiag : Node
         _triggerStart = args.TryGetValue("start", out var st) && st == "1";
         if (args.TryGetValue("shot-frame", out var sf) && int.TryParse(sf, out int sfn)) _shotFrame = sfn;
         argsTryDumpUi = args.TryGetValue("dump-ui", out var du) && du == "1";
+        // --viewer-layer=N：viewer 场景截图前切到指定图层（人文图层验证用）
+        if (args.TryGetValue("viewer-layer", out var vl) && int.TryParse(vl, out int layerIdx))
+            _viewerLayer = layerIdx;
         // --tab=N：mapgen 场景模拟点第 N 个页签（截图前延迟一帧执行，等 _Ready 注入完成）
         if (args.TryGetValue("tab", out var tb) && int.TryParse(tb, out int tabIdx))
             _tabIdx = tabIdx;
@@ -60,6 +64,13 @@ public partial class UiShotDiag : Node
             var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
             var m = tabMenu.GetType().GetMethod("ShowCategory", flags);
             m?.Invoke(tabMenu, new object[] { _tabIdx });
+        }
+        // viewer 图层切换：截图前 30 帧切（MapViewer.Layer 公开属性；等加载/重建颜色完成）
+        if (_viewerLayer >= 0 && _frame == Mathf.Max(1, _shotFrame - 30) && GetChild(0) is Node3D viewerRoot)
+        {
+            var layerProp = viewerRoot.GetType().GetProperty("Layer");
+            layerProp?.SetValue(viewerRoot, _viewerLayer);
+            GD.Print($"UiShotDiag: 已切 viewer 图层 → {_viewerLayer}");
         }
         if (_frame == 5 && _triggerStart)
         {
