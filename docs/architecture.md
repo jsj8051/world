@@ -28,7 +28,7 @@ L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单�
     HexPlanet（GoldbergBuilder/HexTile/Icosahedron/SubdividedMesh）
     LogicGrid（GameGrid/ArchiveLayout/GameMapArchive）
     CivSim 纯模型（CivModels/DeterministicRandom/CommodityTable/TechTable/
-                   CapabilityTable/Settlement/Tribe）
+                   CapabilityTable/Habitation/Polity）
     MapGen/Model（ClimateFields/PipelineFields/ClimateLoops/ModelBase）
     Tectonics 纯数学（SphereGrid/FieldOps）
 ```

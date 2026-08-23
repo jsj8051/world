@@ -70,7 +70,7 @@ public sealed class CivSimContext
     public string[] KeyBuf;    // 科技遍历排序缓冲（SpreadTech 复用，无分配；2026-08-10 确定性）
     public int[] LockedUntil;  // 武力夺取格锁定到期 tick（-1=无锁定；2026-08-10 冲突机制——锁定内场不重算）
 
-    // ── 聚落实体（2026-08-19 阶段3 聚落设计，docs/阶段3设计-聚落实体.md）──
+    // ── 聚集地（2026-08-19 阶段3 聚落设计；2026-08-23 功能定性——docs/阶段3设计-聚集地.md）──
     public List<Habitation> Habitations = new();   // 全部聚落（存活 + 废墟；场所比人长寿）
     public int NextHabitationId;                   // 聚落 Id 分配器（确定性；读档恢复）
 
@@ -163,7 +163,7 @@ public sealed class CivSimContext
     public const float WarPowerRatio = 1.5f;       // 吞并力量比（军力对比——碾压才吞并）
     public const int WarTributeWins = 2;           // 朝贡线：胜场 ≥ 2（低于吞并线——险胜）
     public const float WarLoss = 0.03f;            // 会战败方损耗（成员人口 + 贡赋池 ×此值/场；3 场 ≈ 9%——消耗战可承受）
-    public const float WarCapitalBonus = 0.1f;     // 都城加成：军力 ×(1+0.1×都城Level)（权力中心集结——Childe）
+    public const float WarCapitalBonus = 0.1f;     // 都城加成：军力 ×(1+0.1×都城城镇级)（权力中心集结——Childe；2026-08-23 功能定性）
     public const float WarCityDefenseBonus = 0.1f; // 城墙加成（P6）：防御方（被宣战国）军力 ×(1+0.1×城市数)（城市=要塞）
     public const float WarTributeRate = 0.005f;    // 朝贡：每 tick 转移 战败国总人口×此值 入战胜国贡赋池（对比 TributeRate 0.1/tick——战败重负）
     public const int WarTributeTicks = 40;         // 朝贡持续 tick（4000 年——一代人的重负）

@@ -19,7 +19,7 @@ namespace World.CivSim;
 ///
 /// 布局（docs/存档段表格式设计.md §2/§3.2）：
 ///   [4B]  magic "CMP1"
-///   [2B]  skeletonVer = 16
+///   [2B]  skeletonVer = 17
 ///   [2B]  reserved
 ///   [..]  数据区：
 ///     HEAD —— seed / finalTick / years / rngState / cultKey / cultgKey / relKey / nextPolityId
