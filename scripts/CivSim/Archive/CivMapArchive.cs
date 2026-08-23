@@ -15,11 +15,11 @@ using World.CivSim.Entities;
 namespace World.CivSim;
 
 /// <summary>
-/// 游玩地图存档 .cmp v15（段表格式，2026-08-23 段表化）。
+/// 游玩地图存档 .cmp v16（段表格式；2026-08-23 段表化 v15，Phase 3 字段概念分组 → v16）。
 ///
 /// 布局（docs/存档段表格式设计.md §2/§3.2）：
 ///   [4B]  magic "CMP1"
-///   [2B]  skeletonVer = 15
+///   [2B]  skeletonVer = 16
 ///   [2B]  reserved
 ///   [..]  数据区：
 ///     HEAD —— seed / finalTick / years / rngState / cultKey / cultgKey / relKey / nextBandId
@@ -41,7 +41,7 @@ public enum ArchiveVersionStatus { Unknown = 0, Current, Older, Newer }
 public static class CivMapArchive
 {
     public const string Magic = "CMP1";
-    public const ushort Version = 15;   // v15：段表容器骨架（2026-08-23 存档段表化）
+    public const ushort Version = 16;   // v16：Band 字段按概念分组重排（2026-08-23 Phase 3——v15 档作废）
     private const int KeyMaxLen = 16;
 
     /// <summary>游戏版本号（project.godot application/config/version；仅供展示）。</summary>
@@ -49,7 +49,7 @@ public static class CivMapArchive
         ProjectSettings.GetSetting("application/config/version", "0.0.0").AsString();
 
     /// <summary>版本分类：Current 可读；Older/Newer/Unknown 拒绝（菜单据此区分文案）。
-    /// 2026-08-23 段表化：只有骨架版本 15 可读，其余一律拒绝（旧档全删）。</summary>
+    /// 2026-08-23 段表化：只有骨架版本 16 可读，其余一律拒绝（旧档全删——v15 字段顺序旧布局作废）。</summary>
     public static ArchiveVersionStatus ClassifyVersion(ushort ver)
     {
         if (ver == Version) return ArchiveVersionStatus.Current;
@@ -63,11 +63,11 @@ public static class CivMapArchive
             ? ProjectSettings.GlobalizePath(path)
             : path;
 
-    // ── 文明段编解码（2026-08-23 单存档化：.mpa v7 CIVI 段顺序编码——外层已 BeginSegment("CIVI")，
+    // ── 文明段编解码（2026-08-23 单存档化：.mpa v8 CIVI 段顺序编码——外层已 BeginSegment("CIVI")，
     //    内部不用子段表：.mpa 自然层已有 HEAD 段，文明内部再用子段会重名冲突；且 ChunkWriter 禁嵌套段）──
 
     /// <summary>文明存档中间数据（顺序流解码结果；自然层网格由调用方提供
-    /// ——.cmp 读档从 NATR 段、.mpa v7 读档用 GameGrid.FromMapData）。两种格式共用此包 → 共用 BuildResult 重建。</summary>
+    /// ——.cmp 读档从 NATR 段、.mpa v8 读档用 GameGrid.FromMapData）。两种格式共用此包 → 共用 BuildResult 重建。</summary>
     private sealed class CivRawRecord
     {
         public int Seed;
@@ -172,7 +172,7 @@ public static class CivMapArchive
         return rec;
     }
 
-    /// <summary>从 .mpa v7 CIVI 段读文明结果（顺序流：HEAD 固定字段 + TRIB/LAND/STTL/WARS；
+    /// <summary>从 .mpa v8 CIVI 段读文明结果（顺序流：HEAD 固定字段 + TRIB/LAND/STTL/WARS；
     /// 任何长度异常 → corrupted=true=该档文明段损坏）。grid 由 .mpa 读档侧用 GameGrid.FromMapData(natural)
     /// 提供（文明派生态重建需要真实自然层）。TechTable 须已 Load（调用方）。</summary>
     public static CivSimResult ReadCivilization(ChunkReader r, GameGrid grid, out bool corrupted)
@@ -245,7 +245,7 @@ public static class CivMapArchive
     }
 
     /// <summary>写文明顺序流到当前段（HEAD 固定字段 + TRIB/LAND/STTL/WARS 顺序编码；
-    /// 调用方已 BeginSegment——.cmp 顶层段 or .mpa v7 CIVI 段）。CivArchiveSchema 清单驱动防漏字段。log 由调用方打。</summary>
+    /// 调用方已 BeginSegment——.cmp 顶层段 or .mpa v8 CIVI 段）。CivArchiveSchema 清单驱动防漏字段。log 由调用方打。</summary>
     public static void WriteCivilization(ChunkWriter w, CivSimResult result)
     {
         // ⚠️ 清单自检（与 .cmp Write 同源）：字段改名/删除后清单过期 → 拒绝写，防静默漏字段
@@ -311,7 +311,7 @@ public static class CivMapArchive
         }
     }
 
-    /// <summary>写 .cmp（v15 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
+    /// <summary>写 .cmp（v16 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
     public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
     {
         // ⚠️ 2026-08-18 阶段3：清单自检（字段改名/删除后清单过期 → 写档拒绝，防静默漏字段）
@@ -521,7 +521,7 @@ public static class CivMapArchive
         return c;
     }
 
-    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v15 段表：HEAD/NATR/TRIB/LAND/STTL/WARS。
+    /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v16 段表：HEAD/NATR/TRIB/LAND/STTL/WARS。
     /// ⚠️ 2026-08-07：读档入口必须 TechTable.Load()——否则 _byKey 空 → 读档后 RefreshCellState/YFarm
     /// 里 Get(key) 全 null → NRE（CmpSelectMenu 只 Read 不 Run 的场景崩溃根因）。Load 幂等。</summary>
     public static bool Read(string path, out GameGrid grid, out CivSimResult result)
@@ -765,7 +765,7 @@ public static class CivMapArchive
     private static bool IsMagic(byte[] a, char c0, char c1, char c2, char c3) =>
         a.Length == 4 && a[0] == (byte)c0 && a[1] == (byte)c1 && a[2] == (byte)c2 && a[3] == (byte)c3;
 
-    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：v15 段表版——只读 HEAD 段（seed/tick）
+    /// <summary>轻量摘要读取（CmpSelectMenu 存档列表用）：v16 段表版——只读 HEAD 段（seed/tick）
     /// + SeekSegment("TRIB") 直达实体段统计人口/数量——**不再手算自然段长度**（段表随机访问的
     /// 核心红利；旧版需要 ArchiveLayout.BodyLength 计算自然段偏移，段一多就难维护）。
     /// 不加载自然数组、不重建 WildCrops/R/RefreshCellState——毫秒级。
@@ -800,9 +800,10 @@ public static class CivMapArchive
                 pop += r.GetFloat();        // P
                 r.Get8();                   // IsFarming
                 int keyCount = r.Get16();
-                // 段表格式固定布局（v15，无版本分支）：keys 后固定尾部。
-                // 183 = 份额×4 107 + Relig5 + Cell系列24 + Stocks24 + Prestige/Contributed/Succession 12
-                //       + SettledSince/PlaceId 8 + ConqueredBy/LastWarTick 8（全字段 v15 布局，单一常数）。
+                // 段表格式固定布局（v16，无版本分支）：keys 后固定尾部。
+                // 183 = 份额×4 107 + Relig5 + Cell系列24 + Stocks24 + SettledSince/PlaceId 8
+                //       + Prestige/Contributed/Succession 12 + ConqueredBy/LastWarTick 8
+                //       （v16 概念分组布局，单一常数——重排后总长不变，Peek 只跳过不解析）。
                 long skip = 16L * keyCount + 183L;
                 r.Seek(r.Position + skip);
             }

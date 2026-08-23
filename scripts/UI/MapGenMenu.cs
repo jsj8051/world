@@ -42,7 +42,7 @@ public partial class MapGenMenu : Control
     private SpinBox _erosionSpin;   // 侵蚀强度
     private SpinBox _mySpin;        // 模拟时长（滑动+输入）
 
-    // v7 单存档化：生成后自动文明演化（一条龙，无开关——用户拍板直接连）
+    // v8 单存档化：生成后自动文明演化（一条龙，无开关——用户拍板直接连）
     private SpinBox _evolveSeedSpin;    // 演化种子
     private SpinBox _evolveOriginsSpin; // 起源部落数
     private volatile bool _evolving;    // 演化阶段进行中（后台线程写进度）
@@ -52,7 +52,7 @@ public partial class MapGenMenu : Control
     private MapGenerator _gen;
     private volatile float _progress;   // 后台线程写、主线程 _Process 读
     private string _lastOutPath;
-    // v7 单存档化：演化回写暂存（CallDeferred 只能传 Variant，用字段桥接）
+    // v8 单存档化：演化回写暂存（CallDeferred 只能传 Variant，用字段桥接）
     private string _civOutPath;
     private MapData _civMap;
     private CivSimResult _civResult;
@@ -94,7 +94,7 @@ public partial class MapGenMenu : Control
         tween.TweenProperty(dot, "modulate:a", 1f, 1.2f);
 
         // ── 注入参数表单（场景 grid 是空容器，行动态生成）──
-        // 分类 4：文明演化（v7 单存档化：生成完自动演化，独立页签）
+        // 分类 4：文明演化（v8 单存档化：生成完自动演化，独立页签）
         _civGrid.AddChild(MakeSliderRow("演化种子", 0f, 999999f, 1f, 10f, 42f, out _evolveSeedSpin));
         _civGrid.AddChild(MakeSliderRow("起源部落数", 1f, 16f, 1f, 1f, 3f, out _evolveOriginsSpin));
         _civGrid.AddChild(MakeNote("生成完成后自动运行文明演化，结果与地图一并存入同一存档"));
@@ -132,7 +132,7 @@ public partial class MapGenMenu : Control
         if (_bar.Visible)
         {
             _bar.Value = _progress * 100f;
-            // v7 单存档化：演化阶段进度单独驱动（生成进度已 100 后复用同一条）
+            // v8 单存档化：演化阶段进度单独驱动（生成进度已 100 后复用同一条）
             if (_evolving)
                 _bar.Prefix = "（演化中…文明模拟阶段）";
         }
@@ -446,7 +446,7 @@ public partial class MapGenMenu : Control
 
         if (ok)
         {
-            // v7 单存档化：生成完成 → 自动接入文明演化（一条龙，无开关——用户拍板）
+            // v8 单存档化：生成完成 → 自动接入文明演化（一条龙，无开关——用户拍板）
             StartCivEvolution(path);
             return;   // 演化完成后 OnCivEvolutionDone 收尾
         }
@@ -460,7 +460,7 @@ public partial class MapGenMenu : Control
         }
     }
 
-    /// <summary>v7 单存档化：生成完成 → 自动读档演化文明 → 重写 .mpa（附 CIVI 段）。
+    /// <summary>v8 单存档化：生成完成 → 自动读档演化文明 → 重写 .mpa（附 CIVI 段）。
     /// 读档在主线程（FileAccess/地图数据非线程安全），演化在后台线程（CivEngine 纯 C#）。</summary>
     private void StartCivEvolution(string path)
     {

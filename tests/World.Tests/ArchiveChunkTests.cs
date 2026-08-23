@@ -130,7 +130,7 @@ public class ArchiveChunkTests
         Assert.AreEqual("ELEV", ChunkTable.UintAscii(ChunkTable.AsciiUint("ELEV")));
     }
 
-    // ── 2026-08-23 单存档化：CIVI 文明段编解码往返（.mpa v7 / .cmp 共用路径）──
+    // ── 2026-08-23 单存档化：CIVI 文明段编解码往返（.mpa v8 / .cmp v16 共用路径；v8 起字段概念分组）──
 
     /// <summary>构造最小自然地图（n=5 星形顶点，仅满足 GameGrid.FromMapData 的最小字段）。</summary>
     private static World.LogicGrid.GameGrid MakeMinGrid() => MakeMinGridPublic();
@@ -202,8 +202,8 @@ public class ArchiveChunkTests
         var civ = MakeMinCiv();
 
         var ms = new MemoryStream();
-        var w = new ChunkWriter(ms, "MPA1", 7);
-        // 模拟 .mpa v7：自然段（最小）+ CIVI 段（顺序流含文明全量，无内部子段表）
+        var w = new ChunkWriter(ms, "MPA1", 8);
+        // 模拟 .mpa v8：自然段（最小）+ CIVI 段（顺序流含文明全量，无内部子段表）
         w.BeginSegment("HEAD", 1);
         w.Store32((uint)grid.Seed);
         w.StoreFloat(grid.RadiusKm);

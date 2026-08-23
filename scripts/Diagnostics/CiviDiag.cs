@@ -6,7 +6,7 @@ using World.Services;
 
 namespace World.Diagnostics;
 
-/// <summary>v7 单存档化链路验证（2026-08-23）：读自然 .mpa → Grid → CivEngine.Run → 写回带 CIVI →
+/// <summary>v8 单存档化链路验证（2026-08-23 Phase 3 后）：读自然 .mpa → Grid → CivEngine.Run → 写回带 CIVI →
 /// 再读 → 断言 Civilization 非 null 且部落数一致。headless 跑：--quit-after N res://scenes/diag/CiviDiag.tscn -- --map=user://maps/xxx.mpa</summary>
 public partial class CiviDiag : Node
 {
@@ -30,7 +30,7 @@ public partial class CiviDiag : Node
         GD.Print($"[CiviDiag] 演化完成: bands={result.Context.Bands.Count} tick={result.FinalTick}");
 
         bool wrote = MapArchive.WriteSpherical(outPath, map, result);
-        GD.Print($"[CiviDiag] 写 v7 带 CIVI: {wrote}");
+        GD.Print($"[CiviDiag] 写 v8 带 CIVI: {wrote}");
         if (!wrote)
         {
             GetTree().Quit(1);

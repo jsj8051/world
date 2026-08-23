@@ -11,18 +11,20 @@ using IOFileAccess = System.IO.FileAccess;
 namespace World.MapGen;
 
 /// <summary>
-/// 地图存档格式 .mpa（v7 段表格式，2026-08-23 单存档化）。
+/// 地图存档格式 .mpa（v8 段表格式；2026-08-23 单存档化 v7，Phase 3 CIVI 字段概念分组 → v8）。
 ///
 /// 布局（docs/存档段表格式设计.md §2/§3.1）：
 ///   [4B]  magic "MPA1"
-///   [2B]  skeletonVer = 7
+///   [2B]  skeletonVer = 8
 ///   [2B]  reserved
 ///   [..]  数据区（段：HEAD/VERT/ELEV/TEMP/PREC/BIOM/OCEN/RIVL/RIVF/RIVV/LAKE/MINE/SOIL/MONO/MPRC/MTMP + CIVI）
 ///   [12B×K] 段表 + [12B] 尾目录（ZIP 式；ChunkWriter/ChunkReader 容器）
 ///
+/// v8（2026-08-23 Phase 3）：CIVI 文明段 Band 字段按概念分组重排（Core/Chiefdom/State——v16 schema）。
 /// v7（2026-08-23 单存档化）：新增 CIVI 段 = 文明演化结果（HEAD/TRIB/LAND/STTL/WARS 五段正文，
 /// 复用 CivMapArchive 编解码；自然层 .mpa 已有无需 NATR）。无文明 = 无 CIVI 段 = 纯自然地图，
 /// 读档检测段存在即可识别「有文明的世界」。v6 旧档无 CIVI 段 → 仍可读（纯自然）。
+/// ⚠️ v8 起 CIVI 段字节序与 v7 不兼容（字段重排）——v7 世界档作废（用户拍板旧档全删）。
 ///
 /// 原则：一系统一段，段边界 = 系统边界；段缺失 = 现场重算兜底（不信任存档）。
 /// v1-v5 旧格式读取分支于 2026-08-23 删除（用户拍板：旧档全删，只支持段表格式）。
@@ -31,9 +33,9 @@ namespace World.MapGen;
 public static class MapArchive
 {
     public const string Magic = "MPA1";
-    public const ushort Version = 7;   // v7：CIVI 文明段（2026-08-23 单存档化）
+    public const ushort Version = 8;   // v8：CIVI 文明段字段概念分组（2026-08-23 Phase 3——v7 世界档作废）
 
-    /// <summary>便捷重载：从已读档的 MapData 原样写回（v7 单存档化：生成→演化→重写带 CIVI 用）。
+    /// <summary>便捷重载：从已读档的 MapData 原样写回（v8 单存档化：生成→演化→重写带 CIVI 用）。
     /// 所有自然场按 Read 装载的原字段回写；civResult 非 null → 附 CIVI 段。</summary>
     public static bool WriteSpherical(string path, MapData m, CivSimResult civResult = null, bool log = true)
     {
@@ -62,7 +64,7 @@ public static class MapArchive
             ? ProjectSettings.GlobalizePath(path)
             : path;
 
-    /// <summary>v6 段表球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。
+    /// <summary>v8 段表球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。
     /// 段存在即写入；null 段不写（读取端缺段 = null = 现场重算）。</summary>
     public static bool WriteSpherical(
         string path, int seed, Vector3[] verts,
@@ -163,7 +165,7 @@ public static class MapArchive
                 w.EndSegment();
             }
 
-            // ── CIVI：文明演化结果（v7 单存档化；null = 纯自然地图无此段）──
+            // ── CIVI：文明演化结果（v8 单存档化；null = 纯自然地图无此段）──
             if (civResult != null)
             {
                 w.BeginSegment("CIVI", 1);
@@ -184,7 +186,7 @@ public static class MapArchive
         return true;
     }
 
-    /// <summary>v6 段表读档。段缺失 → 对应字段 null（现场重算兜底）；VERT/HEAD 缺失 → 拒绝（必需段）。
+    /// <summary>v8 段表读档。段缺失 → 对应字段 null（现场重算兜底）；VERT/HEAD 缺失 → 拒绝（必需段）。
     /// ⚠️ 桶索引必须在主线程立即构建（惰性构建 + Parallel 采样 = 并发修改集合崩溃）。</summary>
     public static bool Read(string path, out MapData map)
     {
@@ -199,12 +201,14 @@ public static class MapArchive
                 LogService.LogErr("MapArchive", $"bad magic '{r.Magic}' in {path}");
                 return false;
             }
-            if (r.SkeletonVer < 6 || r.SkeletonVer > Version)
+            // ⚠️ 2026-08-23 Phase 3：仅接受 v8（v1-v7 全部作废——用户拍板旧档全删；v7 CIVI 字段顺序
+            //   与 v16 schema 不兼容，若放行会按新布局静默错读文明字段——183 不变式使长度守卫失效）
+            if (r.SkeletonVer != Version)
             {
-                LogService.LogErr("MapArchive", $"不支持的存档版本 {r.SkeletonVer}（支持 v6/v7；v1-v5 已于 2026-08-23 段表化移除，请重新生成）");
+                LogService.LogErr("MapArchive", $"不支持的存档版本 {r.SkeletonVer}（仅支持 v{Version}；v1-v7 已于 2026-08-23 起作废——旧档全删，请重新生成）");
                 return false;
             }
-            map.Version = r.SkeletonVer;   // v6 = 纯自然（无 CIVI 段）；v7 = 可能含文明
+            map.Version = r.SkeletonVer;   // v8 = 段表格式（含 CIVI 段 = 有文明；段缺失 = 纯自然）
 
             // ── HEAD：固定字段 ──
             if (!r.SeekSegment("HEAD"))
@@ -329,7 +333,7 @@ public static class MapArchive
                 }
             }
 
-            // ── CIVI：文明演化结果（v7 单存档化；无此段 = 纯自然地图）──
+            // ── CIVI：文明演化结果（v8 单存档化；无此段 = 纯自然地图）──
             // ⚠️ HasSegment 只检测不移位——必须先 SeekSegment 到 CIVI 起点再顺序读
             if (r.SeekSegment("CIVI"))
             {
@@ -369,7 +373,7 @@ public static class MapArchive
             using var fs = new FileStream(abs, FileMode.Open, IOFileAccess.Read);
             using var r = new ChunkReader(fs);
             if (r.Magic != Magic) return false;                 // 坏 magic
-            if (r.SkeletonVer < 6 || r.SkeletonVer > Version) return false;   // v6/v7 兼容；v1-v5 已移除
+            if (r.SkeletonVer != Version) return false;   // 仅 v8 可读（v1-v7 作废——旧档全删）
             version = r.SkeletonVer;
             if (!r.SeekSegment("HEAD")) return false;           // 缺必需段
             seed = (int)r.Get32();
@@ -377,7 +381,7 @@ public static class MapArchive
             vertexCount = (int)r.Get32();
             minElev = r.GetFloat();
             maxElev = r.GetFloat();
-            // v7：CIVI 段存在 = 含文明的 world（随机访问检测，不读数据）
+            // v8：CIVI 段存在 = 含文明的 world（随机访问检测，不读数据）
             hasCiv = r.HasSegment("CIVI");
             return true;
         }
@@ -432,7 +436,7 @@ public class MapData
     public float MinPrecip;
     public float MaxPrecip;
 
-    // v7 单存档化：文明演化结果（无 CIVI 段 = 纯自然地图 = null）
+    // v8 单存档化：文明演化结果（无 CIVI 段 = 纯自然地图 = null）
     public World.CivSim.CivSimResult Civilization;
 
     public bool IsSpherical => Version >= 3;
