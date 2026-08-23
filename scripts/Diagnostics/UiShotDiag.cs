@@ -41,10 +41,13 @@ public partial class UiShotDiag : Node
             "mapgen" => "res://scenes/core/MapGenMenu.tscn",
             "civ" => "res://scenes/core/CivEvolveMenu.tscn",
             "main" => "res://scenes/core/MainMenu.tscn",
+            "viewer" => "res://scenes/core/MapViewer.tscn",
             _ => "res://scenes/core/SaveSelectMenu.tscn",
         };
-        var menu = GD.Load<PackedScene>(scenePath).Instantiate<Control>();
-        AddChild(menu);
+        // MapViewer 是 Node3D 根（挂相机/灯光），其余是 Control 菜单
+        var packed = GD.Load<PackedScene>(scenePath);
+        var root = packed.Instantiate();
+        AddChild(root);
     }
 
     public override void _Process(double delta)

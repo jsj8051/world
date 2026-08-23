@@ -1,14 +1,262 @@
-[gd_scene format=3 uid="uid://cf4tl615kbc50"]
+[gd_scene load_steps=9 format=3 uid="uid://cf4tl615kbc50"]
 
 [ext_resource type="Script" uid="uid://dfhmbmy1cf0jg" path="res://scripts/MapView/MapViewer.cs" id="1_view"]
 [ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="2_cam"]
 
-[node name="MapViewer" type="Node3D" unique_id=1443163295]
+[sub_resource type="StyleBoxFlat" id="sb_hud_panel"]
+bg_color = Color(0.0353, 0.0549, 0.098, 0.88)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1725, 0.251, 0.4, 0.9)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn"]
+bg_color = Color(0.0667, 0.102, 0.1725, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1176, 0.1725, 0.2784, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn_hover"]
+bg_color = Color(0.086, 0.133, 0.227, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.1725, 0.251, 0.4, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn_pressed"]
+bg_color = Color(0.114, 0.227, 0.388, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.302, 0.639, 1, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+anti_aliasing = true
+
+[sub_resource type="ButtonGroup" id="btn_group_cat"]
+
+[node name="MapViewer" type="Node3D"]
 script = ExtResource("1_view")
 GridN = 256
 
-[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=910553809]
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.8660248, 0, -0.5000011, 0, 1, 0, 0.5000011, 0, 0.8660248, 0, 0, 0)
 
-[node name="OrbitalCamera" type="Node3D" parent="." unique_id=1598182135]
+[node name="OrbitalCamera" type="Node3D" parent="."]
 script = ExtResource("2_cam")
+
+[node name="UiLayer" type="CanvasLayer" parent="."]
+layer = 100
+
+[node name="ProgressPanel" type="PanelContainer" parent="UiLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -470.0
+offset_top = -90.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("sb_hud_panel")
+
+[node name="PBox" type="VBoxContainer" parent="UiLayer/ProgressPanel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="ProgressLabel" type="Label" parent="UiLayer/ProgressPanel/PBox"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+text = "生成星球中..."
+
+[node name="ProgressBar" type="ProgressBar" parent="UiLayer/ProgressPanel/PBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(420, 16)
+layout_mode = 2
+max_value = 100.0
+value = 0.0
+
+[node name="CatRow" type="HBoxContainer" parent="UiLayer"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -128.0
+offset_top = -44.0
+offset_right = 128.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 8
+
+[node name="CatGeo" type="Button" parent="UiLayer/CatRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+toggle_mode = true
+button_group = SubResource("btn_group_cat")
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
+text = "地理"
+
+[node name="CatClim" type="Button" parent="UiLayer/CatRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+toggle_mode = true
+button_group = SubResource("btn_group_cat")
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
+text = "气候"
+
+[node name="CatHum" type="Button" parent="UiLayer/CatRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+toggle_mode = true
+button_group = SubResource("btn_group_cat")
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
+text = "人文"
+
+[node name="LayerRow" type="HBoxContainer" parent="UiLayer"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -120.0
+offset_top = -84.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_constants/separation = 4
+
+[node name="MonthRow" type="HBoxContainer" parent="UiLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -44.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_constants/separation = 8
+
+[node name="MonthText" type="Label" parent="UiLayer/MonthRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "月份"
+vertical_alignment = 1
+
+[node name="MonthSlider" type="HSlider" parent="UiLayer/MonthRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(200, 34)
+layout_mode = 2
+max_value = 12.0
+step = 1.0
+value = 1.0
+
+[node name="MonthLabel" type="Label" parent="UiLayer/MonthRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(1, 0.9, 0.6, 1)
+text = "1 月"
+vertical_alignment = 1
+
+[node name="LegendPanel" type="PanelContainer" parent="UiLayer"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -560.0
+offset_top = -250.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("sb_hud_panel")
+
+[node name="LegendV" type="VBoxContainer" parent="UiLayer/LegendPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="LegendTitle" type="Label" parent="UiLayer/LegendPanel/LegendV"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.95, 0.95, 0.85, 1)
+text = "图层"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="LegendScroll" type="ScrollContainer" parent="UiLayer/LegendPanel/LegendV"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 40)
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="LegendBox" type="VBoxContainer" parent="UiLayer/LegendPanel/LegendV/LegendScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 3
+
+[node name="LegendFooter" type="VBoxContainer" parent="UiLayer/LegendPanel/LegendV"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
