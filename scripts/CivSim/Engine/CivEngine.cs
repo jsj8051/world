@@ -74,7 +74,7 @@ public static class CivEngine
                 swm.Stop();
                 modelMs[m.Name] = modelMs.TryGetValue(m.Name, out var prev) ? prev + swm.ElapsedMilliseconds : swm.ElapsedMilliseconds;
             }
-            onProgress?.Invoke(Mathf.Min((ctx.Tick + 1f) / maxTicks, 1f));
+            onProgress?.Invoke(ProgressOf(ctx));
 
             // 终止：首转农 +100 ticks；无农 500 ticks 兜底（天然灭绝星球）
             if (ctx.FirstFarmTick >= 0 && ctx.Tick - ctx.FirstFarmTick >= CivSimContext.TerminateAfterAgri)
@@ -101,6 +101,22 @@ public static class CivEngine
                 GD.Print($"[性能] CivSim 本次总={swRun.ElapsedMilliseconds}ms（历史均值 {hisAvg:F0}ms / {hisCnt} 次 → 正常）");
         }
         return new CivSimResult { Context = ctx, FinalTick = ctx.Tick };
+    }
+
+    /// <summary>
+    /// 演化进度（0..1，单调无跳变，结束 tick = 100%）。
+    /// 旧口径用 600（500 兜底 + 100 收尾）做分母，但正常世界首转农后 100 ticks 即终止
+    /// （约 tick 300~400 结束），进度停在 ~50-65% 就"完成"了（用户反馈"53% 就加载完成"）。
+    /// 新口径：转农前按无农兜底 500 tick 走 0→0.8；转农后实际终止边界已知（F+100），
+    /// 剩余 100 ticks 平滑走 当前值→1.0——完成瞬间正好 100%。
+    /// </summary>
+    private static float ProgressOf(CivSimContext ctx)
+    {
+        if (ctx.FirstFarmTick < 0)
+            return Mathf.Min((ctx.Tick + 1f) / CivSimContext.MaxTicksNoAgri, 1f) * 0.8f;
+        float pFarm = Mathf.Min((ctx.FirstFarmTick + 1f) / CivSimContext.MaxTicksNoAgri, 1f) * 0.8f;   // 转农瞬间的进度（与上一 tick 连续）
+        float t = Mathf.Clamp((ctx.Tick - ctx.FirstFarmTick) / (float)CivSimContext.TerminateAfterAgri, 0f, 1f);
+        return pFarm + (1f - pFarm) * t;
     }
 
     /// <summary>读档续跑：从已恢复的 ctx 继续 extraTicks（IsFarming 入档 → 无滞回分叉）。</summary>
