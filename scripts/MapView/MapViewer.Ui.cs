@@ -228,8 +228,8 @@ public partial class MapViewer
     {
         var s = new StyleBoxFlat
         {
-            BgColor = new Color(0.0667f, 0.102f, 0.1725f, 0.92f),
-            BorderColor = new Color(0.1176f, 0.1725f, 0.2784f, 0.9f),
+            BgColor = new Color(0.957f, 0.925f, 0.831f, 0.92f),
+            BorderColor = new Color(0.490f, 0.396f, 0.220f, 0.9f),
             AntiAliasing = true,
         };
         s.SetBorderWidthAll(1);
@@ -241,8 +241,8 @@ public partial class MapViewer
     {
         var s = new StyleBoxFlat
         {
-            BgColor = new Color(0.086f, 0.133f, 0.227f, 0.95f),
-            BorderColor = new Color(0.1725f, 0.251f, 0.4f, 1f),
+            BgColor = new Color(0.984f, 0.961f, 0.878f, 0.95f),
+            BorderColor = new Color(0.373f, 0.290f, 0.141f, 1f),
             AntiAliasing = true,
         };
         s.SetBorderWidthAll(1);
@@ -254,8 +254,8 @@ public partial class MapViewer
     {
         var s = new StyleBoxFlat
         {
-            BgColor = new Color(0.114f, 0.227f, 0.388f, 1f),
-            BorderColor = new Color(0.302f, 0.639f, 1f, 0.9f),
+            BgColor = new Color(0.722f, 0.525f, 0.043f, 1f),
+            BorderColor = new Color(0.373f, 0.290f, 0.141f, 0.9f),
             AntiAliasing = true,
         };
         s.SetBorderWidthAll(1);

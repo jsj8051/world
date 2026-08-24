@@ -335,13 +335,13 @@ public partial class MapGenMenu : Control
             _derivedLabel.Text = n < 4
                 ? "⚠️ 半径过小：细分下限 n≥4（≈8 km），请加大半径"
                 : $"⚠️ 半径过大：n={n}（顶点 {Icosahedron.VertexCountFor(n):N0}）超性能红线，请 ≤ 511 km（n=256）";
-            _derivedLabel.AddThemeColorOverride("font_color", new Color(1f, 0.6f, 0.5f));
+            _derivedLabel.AddThemeColorOverride("font_color", new Color(0.78f, 0.35f, 0.2f));
             return;
         }
         float r = GridNToRadius(n);
         long verts = Icosahedron.VertexCountFor(n);
         float cellArea = 4f * Mathf.Pi * r * r / verts;
-        _derivedLabel.AddThemeColorOverride("font_color", new Color(0.72f, 0.85f, 0.72f));
+        _derivedLabel.AddThemeColorOverride("font_color", new Color(0.33f, 0.48f, 0.28f));
         _derivedLabel.Text = $"→ 网格 n={n}（{verts:N0} 格）｜实际半径 {r:F1} km｜每格 ≈{cellArea:F2} km²｜{EstimateTime(n)}";
     }
 
@@ -394,7 +394,7 @@ public partial class MapGenMenu : Control
 
         _progress = 0f;
         _bar.Prefix = "（生成中…板块模拟阶段）";   // 阶段文字 + 自绘百分比一体显示
-        _bar.AddThemeColorOverride("font_color", new Color(0.7f, 0.75f, 0.85f));
+        _bar.AddThemeColorOverride("font_color", new Color(0.49f, 0.42f, 0.28f));
         GetNode<Control>("%ProgressWrap").Visible = true;
         _bar.Visible = true;
         _bar.Value = 0;
@@ -453,9 +453,9 @@ public partial class MapGenMenu : Control
         else
         {
             _bar.Prefix = "（生成失败）";
-            _bar.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            _bar.AddThemeColorOverride("font_color", new Color(0.72f, 0.25f, 0.2f));
             _status.Text = "❌ 生成失败，请查看控制台日志。";
-            _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            _status.AddThemeColorOverride("font_color", new Color(0.72f, 0.25f, 0.2f));
             _evolving = false;
         }
     }
@@ -473,7 +473,7 @@ public partial class MapGenMenu : Control
         {
             _evolving = false;
             _status.Text = "❌ 演化失败：无法读回刚生成的 .mpa";
-            _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            _status.AddThemeColorOverride("font_color", new Color(0.72f, 0.25f, 0.2f));
             return;
         }
         var grid = World.LogicGrid.GameGrid.FromMapData(map);
@@ -508,14 +508,14 @@ public partial class MapGenMenu : Control
         if (!ok)
         {
             _status.Text = "❌ 演化完成但写档失败，请查看日志。";
-            _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+            _status.AddThemeColorOverride("font_color", new Color(0.72f, 0.25f, 0.2f));
             return;
         }
         LogService.Log("MapGenMenu", $"生成+演化完成（含文明）: {_civOutPath} (polities={_civResult.Context.Polities.Count} tick={_civResult.FinalTick})");
         _status.Text = $"✅ 生成+演化完成！存档：{_civOutPath.GetFile()}（含文明，可返回主菜单进入世界）";
-        _status.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        _status.AddThemeColorOverride("font_color", new Color(0.3f, 0.5f, 0.25f));
         _bar.Prefix = "（生成+演化完成）";
-        _bar.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        _bar.AddThemeColorOverride("font_color", new Color(0.3f, 0.5f, 0.25f));
         _bar.Value = 100;
         // 可直接查看（含文明图层）
         var viewBtn = new Button { Text = "▶ 进入世界" };
@@ -531,9 +531,9 @@ public partial class MapGenMenu : Control
     {
         _evolving = false;
         _bar.Prefix = "（演化失败）";
-        _bar.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+        _bar.AddThemeColorOverride("font_color", new Color(0.72f, 0.25f, 0.2f));
         _status.Text = $"❌ 文明演化失败（{_civOutPath.GetFile()} 保持纯自然地图）。";
-        _status.AddThemeColorOverride("font_color", new Color(1f, 0.5f, 0.5f));
+        _status.AddThemeColorOverride("font_color", new Color(0.72f, 0.25f, 0.2f));
         LogService.LogErr("MapGenMenu", $"文明演化失败: {_civOutPath}");
     }
 
@@ -543,9 +543,9 @@ public partial class MapGenMenu : Control
         b.AddThemeStyleboxOverride("hover", SaveRowStyle.PrimaryHover());
         b.AddThemeStyleboxOverride("pressed", SaveRowStyle.PrimaryHover());
         b.AddThemeStyleboxOverride("focus", SaveRowStyle.PrimaryNormal());
-        b.AddThemeColorOverride("font_color", SaveRowStyle.Accent);
-        b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Bg2);
-        b.AddThemeColorOverride("font_pressed_color", SaveRowStyle.Bg2);
+        b.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+        b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Fg);
+        b.AddThemeColorOverride("font_pressed_color", SaveRowStyle.Fg);
     }
 
     private void EnterViewer(string path)

@@ -4,12 +4,12 @@
 [ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="2_cam"]
 
 [sub_resource type="StyleBoxFlat" id="sb_hud_panel"]
-bg_color = Color(0.0353, 0.0549, 0.098, 0.88)
+bg_color = Color(0.851, 0.776, 0.608, 0.92)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.1725, 0.251, 0.4, 0.9)
+border_color = Color(0.373, 0.290, 0.141, 0.9)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -17,12 +17,12 @@ corner_radius_bottom_left = 10
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_hud_btn"]
-bg_color = Color(0.0667, 0.102, 0.1725, 0.92)
+bg_color = Color(0.957, 0.925, 0.831, 0.92)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.1176, 0.1725, 0.2784, 0.9)
+border_color = Color(0.490, 0.396, 0.220, 0.9)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -30,12 +30,12 @@ corner_radius_bottom_left = 8
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_hud_btn_hover"]
-bg_color = Color(0.086, 0.133, 0.227, 0.95)
+bg_color = Color(0.984, 0.961, 0.878, 0.95)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.1725, 0.251, 0.4, 1)
+border_color = Color(0.373, 0.290, 0.141, 1)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -43,12 +43,12 @@ corner_radius_bottom_left = 8
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_hud_btn_pressed"]
-bg_color = Color(0.114, 0.227, 0.388, 1)
+bg_color = Color(0.557, 0.141, 0.141, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.302, 0.639, 1, 0.9)
+border_color = Color(0.722, 0.525, 0.043, 0.9)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
@@ -93,7 +93,7 @@ theme_override_constants/separation = 6
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 text = "生成星球中..."
 
 [node name="ProgressBar" type="ProgressBar" parent="UiLayer/ProgressPanel/PBox"]
@@ -129,8 +129,8 @@ theme_override_styles/normal = SubResource("sb_hud_btn")
 theme_override_styles/hover = SubResource("sb_hud_btn_hover")
 theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
 theme_override_styles/focus = SubResource("sb_hud_btn")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
 text = "地理"
 
 [node name="CatClim" type="Button" parent="UiLayer/CatRow"]
@@ -144,8 +144,8 @@ theme_override_styles/normal = SubResource("sb_hud_btn")
 theme_override_styles/hover = SubResource("sb_hud_btn_hover")
 theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
 theme_override_styles/focus = SubResource("sb_hud_btn")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
 text = "气候"
 
 [node name="CatHum" type="Button" parent="UiLayer/CatRow"]
@@ -159,8 +159,8 @@ theme_override_styles/normal = SubResource("sb_hud_btn")
 theme_override_styles/hover = SubResource("sb_hud_btn_hover")
 theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
 theme_override_styles/focus = SubResource("sb_hud_btn")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
 text = "人文"
 
 [node name="LayerRow" type="HBoxContainer" parent="UiLayer"]
@@ -210,7 +210,7 @@ value = 1.0
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(1, 0.9, 0.6, 1)
+theme_override_colors/font_color = Color(0.725, 0.541, 0.141, 1)
 text = "1 月"
 vertical_alignment = 1
 
@@ -239,7 +239,7 @@ unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 26)
 layout_mode = 2
 theme_override_font_sizes/font_size = 16
-theme_override_colors/font_color = Color(0.95, 0.95, 0.85, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 text = "图层"
 horizontal_alignment = 1
 vertical_alignment = 1

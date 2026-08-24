@@ -74,7 +74,7 @@ public sealed class LegendBuilder
         if (_footer == null) return;
         var lab = new Label { Text = text, AutowrapMode = TextServer.AutowrapMode.WordSmart };
         lab.AddThemeFontSizeOverride("font_size", 12);
-        lab.AddThemeColorOverride("font_color", new Color(0.75f, 0.78f, 0.85f));
+        lab.AddThemeColorOverride("font_color", new Color(0.353f, 0.290f, 0.180f));
         _footer.AddChild(lab);
     }
 

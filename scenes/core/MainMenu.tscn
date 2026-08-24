@@ -1,14 +1,16 @@
-[gd_scene load_steps=13 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/MainMenu.cs" id="1_mm"]
 
+[sub_resource type="SystemFont" id="sf_title_scene"]
+font_names = PackedStringArray("KaiTi", "楷体", "STKaiti", "SimSun", "宋体")
 [sub_resource type="StyleBoxFlat" id="sb_win"]
-bg_color = Color(0.0353, 0.0549, 0.098, 1)
+bg_color = Color(0.851, 0.776, 0.608, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.1725, 0.251, 0.4, 1)
+border_color = Color(0.373, 0.290, 0.141, 1)
 corner_radius_top_left = 16
 corner_radius_top_right = 16
 corner_radius_bottom_right = 16
@@ -19,12 +21,12 @@ shadow_offset = Vector2(0, 14)
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_logo"]
-bg_color = Color(0.114, 0.227, 0.388, 1)
+bg_color = Color(0.557, 0.141, 0.141, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.302, 0.639, 1, 0.4)
+border_color = Color(0.722, 0.525, 0.043, 0.5)
 corner_radius_top_left = 10
 corner_radius_top_right = 10
 corner_radius_bottom_right = 10
@@ -37,7 +39,7 @@ anti_aliasing = true
 
 [sub_resource type="Gradient" id="grad"]
 offsets = PackedFloat32Array(0, 1)
-colors = PackedColorArray(0.302, 0.639, 1, 0.1, 0.302, 0.639, 1, 0)
+colors = PackedColorArray(0.722, 0.525, 0.043, 0.16, 0.722, 0.525, 0.043, 0)
 
 [sub_resource type="GradientTexture2D" id="tex_glow"]
 gradient = SubResource("grad")
@@ -48,12 +50,12 @@ fill_from = Vector2(1, 0)
 fill_to = Vector2(0, 1)
 
 [sub_resource type="StyleBoxFlat" id="sb_card"]
-bg_color = Color(0.0667, 0.102, 0.1725, 1)
+bg_color = Color(0.957, 0.925, 0.831, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.1176, 0.1725, 0.2784, 1)
+border_color = Color(0.490, 0.396, 0.220, 1)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
@@ -65,12 +67,12 @@ content_margin_bottom = 14.0
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_card_hover"]
-bg_color = Color(0.086, 0.133, 0.227, 1)
+bg_color = Color(0.984, 0.961, 0.878, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.1725, 0.251, 0.4, 1)
+border_color = Color(0.373, 0.290, 0.141, 1)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
@@ -82,12 +84,12 @@ content_margin_bottom = 14.0
 anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_card_pressed"]
-bg_color = Color(0.047, 0.071, 0.125, 1)
+bg_color = Color(0.851, 0.776, 0.608, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.302, 0.639, 1, 0.6)
+border_color = Color(0.722, 0.525, 0.043, 0.8)
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
@@ -115,7 +117,7 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
-color = Color(0.0275, 0.0431, 0.0706, 1)
+color = Color(0.902, 0.843, 0.702, 1)
 
 [node name="Glow" type="TextureRect" parent="."]
 layout_mode = 1
@@ -182,7 +184,7 @@ vertical_alignment = 1
 [node name="SubTitle" type="Label" parent="Win/V"]
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-theme_override_colors/font_color = Color(0.4902, 0.5451, 0.6431, 1)
+theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
 text = "程序化行星 · 板块构造 → 气候 → 文明演化"
 horizontal_alignment = 1
 
@@ -210,9 +212,9 @@ theme_override_styles/normal = SubResource("sb_card")
 theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/pressed = SubResource("sb_card_pressed")
 theme_override_styles/focus = SubResource("sb_card")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_pressed_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_pressed_color = Color(0.227, 0.173, 0.102, 1)
 text = "🛠  创建世界"
 
 [node name="ViewBtn" type="Button" parent="Win/V/BodyPad/Body"]
@@ -225,9 +227,9 @@ theme_override_styles/normal = SubResource("sb_card")
 theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/pressed = SubResource("sb_card_pressed")
 theme_override_styles/focus = SubResource("sb_card")
-theme_override_colors/font_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_hover_color = Color(0.8588, 0.902, 0.9608, 1)
-theme_override_colors/font_pressed_color = Color(0.8588, 0.902, 0.9608, 1)
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_pressed_color = Color(0.227, 0.173, 0.102, 1)
 text = "🌍  进入世界"
 
 [node name="FootPad" type="MarginContainer" parent="Win/V"]
@@ -242,6 +244,6 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 13
-theme_override_colors/font_color = Color(0.318, 0.376, 0.49, 1)
+theme_override_colors/font_color = Color(0.604, 0.541, 0.388, 1)
 text = "板块构造模拟 v3 · 球面直通存档 · 2026-08-23"
 horizontal_alignment = 1

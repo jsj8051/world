@@ -363,9 +363,9 @@ public partial class SaveSelectMenu : Control
         b.AddThemeStyleboxOverride("hover", SaveRowStyle.PrimaryHover());
         b.AddThemeStyleboxOverride("pressed", SaveRowStyle.PrimaryHover());
         b.AddThemeStyleboxOverride("focus", SaveRowStyle.PrimaryNormal());
-        b.AddThemeColorOverride("font_color", SaveRowStyle.Accent);
-        b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Bg2);
-        b.AddThemeColorOverride("font_pressed_color", SaveRowStyle.Bg2);
+        b.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+        b.AddThemeColorOverride("font_hover_color", SaveRowStyle.Fg);
+        b.AddThemeColorOverride("font_pressed_color", SaveRowStyle.Fg);
     }
 
     private static void ApplyDanger(Button b)
