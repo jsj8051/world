@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>UX 重设计 · 三方案</title>
+<style>
+  :root{
+    --parchment:#e6d7b3; --gold:#b8860b; --ink:#3a2c1a; --vermilion:#8e2424;
+    --light-gold:#c9a24d; --deep-bg:#221a0e; --card:#3a2c1a; --line:#57431f; --moss:#7a9e6b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:radial-gradient(1400px 700px at 50% -10%, #3d2f1c 0%, transparent 60%), var(--deep-bg);
+    min-height:100vh; font-family:"Microsoft YaHei","微软雅黑",sans-serif;
+    color:var(--parchment); padding:40px 26px 70px;
+  }
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-family:KaiTi,"楷体",serif;font-weight:normal;font-size:28px;letter-spacing:8px;text-align:center;margin-bottom:6px}
+  .sub{color:#a08a5e;font-size:13px;letter-spacing:2px;text-align:center;margin-bottom:34px}
+  /* 方案切换 */
+  .tabs{display:flex;gap:12px;justify-content:center;margin-bottom:22px}
+  .tab{font-family:KaiTi,"楷体",serif;letter-spacing:3px;font-size:15px;color:#d8c8a0;
+       background:var(--card);border:1px solid var(--line);border-radius:10px;padding:9px 22px;cursor:pointer;
+       transition:all .18s}
+  .tab:hover{border-color:var(--gold)}
+  .tab.on{background:var(--gold);color:#fff8e7;border-color:var(--gold)}
+  .tab small{font-family:"Microsoft YaHei";letter-spacing:0;font-size:10px;opacity:.75;margin-left:6px}
+  /* 游戏窗口 mockup */
+  .stage{background:#0d0a05;border:1px solid var(--line);border-radius:16px 16px 6px 6px;overflow:hidden;
+         box-shadow:0 24px 60px rgba(0,0,0,.6); position:relative}
+  .stagebar{display:flex;align-items:center;gap:8px;background:#171207;border-bottom:1px solid var(--line);padding:7px 14px}
+  .stagebar .cap{width:10px;height:10px;border-radius:50%;background:#5a4420}
+  .stagebar .ttl{font-size:11px;color:#8a7448;letter-spacing:2px;flex:1;text-align:center}
+  .screen{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden}
+  /* 星球 */
+  .planet{position:absolute;left:50%;top:50%;width:52%;aspect-ratio:1;border-radius:50%;transform:translate(-50%,-54%);
+          background:radial-gradient(circle at 34% 30%, #4a88b8 0%, #2c5d88 38%, #1b3a5c 62%, #10263f 100%);
+          box-shadow:0 0 90px rgba(120,164,200,.28), inset -30px -24px 80px rgba(0,0,0,.55)}
+  .planet::after{content:"";position:absolute;inset:0;border-radius:50%;
+          background:radial-gradient(circle at 34% 30%, transparent 40%, rgba(0,0,0,.5) 95%)}
+  .land{position:absolute;background:radial-gradient(circle at 40% 35%, #a9bc7d 0%, #7d8f58 70%, #5a6a3e 100%);
+        border-radius:48% 52% 55% 45%/50% 45% 55% 50%;box-shadow:inset -6px -6px 18px rgba(0,0,0,.35)}
+  .land.snow{background:radial-gradient(circle at 40% 35%, #dfe6d8 0%, #b9c4ae 70%, #93a088 100%)}
+  .land.sand{background:radial-gradient(circle at 40% 35%, #d8c48a 0%, #b59d60 70%, #8f7a46 100%)}
+  /* 通用控件风格 */
+  .chipbtn{background:rgba(230,215,179,.08);border:1px solid rgba(201,162,77,.4);color:#d8c8a0;
+           border-radius:8px;font-size:11px;padding:3px 9px;letter-spacing:1px}
+  .chipbtn.on{background:var(--gold);color:#fff8e7}
+  /* ========= 方案 A 地图集 ========= */
+  .atlas-side{position:absolute;left:12px;top:12px;bottom:12px;width:216px;display:flex;flex-direction:column;gap:8px}
+  .atlas-book{background:rgba(58,44,26,.92);border:1px solid var(--line);border-radius:12px;padding:10px 12px;
+              box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .book-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .book-hd .t{font-family:KaiTi,"楷体",serif;font-size:14px;letter-spacing:3px;color:var(--gold)}
+  .book-hd .badge{margin-left:auto;font-size:9px;color:#8a7448;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+  .cat{display:flex;flex-direction:column;gap:2px}
+  .catrow{display:flex;align-items:center;gap:7px;font-size:11px;color:#cbb98f;padding:5px 8px;border-radius:7px;cursor:pointer}
+  .catrow:hover{background:rgba(201,162,77,.1)}
+  .catrow.open{background:rgba(201,162,77,.14);color:#f0e0b8}
+  .catrow .arr{font-size:8px;color:var(--gold)}
+  .catrow .cnt{margin-left:auto;font-size:9px;color:#8a7448}
+  .lyr{display:flex;gap:6px;align-items:center;font-size:10px;color:#a08a5e;padding:3px 8px 3px 22px;border-radius:6px}
+  .lyr.on{color:#ffe9b8}
+  .lyr .sw{width:9px;height:9px;border-radius:3px;display:inline-block;flex:0 0 auto}
+  .atlas-leg{position:absolute;left:12px;bottom:12px;width:216px}
+  .leg-row{display:flex;align-items:center;gap:8px;font-size:10px;color:#a08a5e;padding:2px 4px}
+  .leg-row .sw{width:11px;height:11px;border-radius:3px;flex:0 0 auto}
+  .atlas-panel{position:absolute;right:12px;top:12px;width:250px;bottom:12px;display:flex;flex-direction:column;
+               background:rgba(58,44,26,.92);border:1px solid var(--line);border-radius:12px;padding:10px 12px;gap:6px;
+               box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  .atlas-tabs{display:flex;gap:4px}
+  .atlas-tabs .t{flex:1;text-align:center;font-size:10.5px;padding:4px 0;border-radius:7px;color:#a08a5e;border:1px solid transparent}
+  .atlas-tabs .t.on{background:var(--gold);color:#fff8e7}
+  .atlas-hero{font-family:KaiTi,"楷体",serif;font-size:13px;letter-spacing:2px;color:#f0e0b8}
+  .atlas-rows{display:flex;flex-direction:column;gap:5px;overflow:hidden}
+  .arow{display:flex;align-items:center;gap:8px;background:rgba(230,215,179,.05);border:1px solid rgba(87,79,31,.6);
+        border-radius:8px;padding:6px 8px}
+  .abg{width:22px;height:18px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;flex:0 0 auto}
+  .abg.b{background:rgba(111,95,65,.4);color:#cbb98f}
+  .abg.t{background:rgba(122,158,107,.4);color:#c4e0b0}
+  .abg.c{background:rgba(201,162,77,.4);color:#ffe9b8}
+  .abg.s{background:rgba(142,36,36,.4);color:#f0b8b8}
+  .anm{font-size:11px;color:#d8c8a0;flex:1}
+  .apop{font-size:10px;color:#c9a24d}
+  .atlas-time{position:absolute;right:274px;bottom:12px;display:flex;flex-direction:column;gap:4px;align-items:flex-end}
+  .timechip{background:rgba(58,44,26,.9);border:1px solid var(--line);border-radius:8px;padding:5px 10px;font-size:10.5px;color:#cbb98f}
+  .timechip b{color:var(--gold)}
+  .atlas-top{position:absolute;left:242px;right:278px;top:12px;display:flex;align-items:center;gap:10px;
+             background:rgba(58,44,26,.85);border:1px solid var(--line);border-radius:10px;padding:7px 14px}
+  .atlas-top .name{font-family:KaiTi,"楷体",serif;font-size:13px;letter-spacing:2px;color:#f0e0b8}
+  .atlas-top .epoch{font-size:10px;color:#c9a24d}
+  .atlas-top .tick{flex:1;text-align:right;font-size:10px;color:#8a7448;letter-spacing:1px}
+  /* ========= 方案 B 归航 HUD ========= */
+  .hud-dock{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);display:flex;align-items:center;gap:4px;
+            background:rgba(58,44,26,.92);border:1px solid var(--line);border-radius:14px;padding:6px 10px;
+            box-shadow:0 8px 24px rgba(0,0,0,.5)}
+  .hud-sep{width:1px;height:22px;background:var(--line);margin:0 6px}
+  .hud-ico{width:32px;height:32px;border-radius:9px;display:flex;align-items:center;justify-content:center;
+           font-size:14px;cursor:pointer;border:1px solid transparent}
+  .hud-ico:hover{background:rgba(201,162,77,.15)}
+  .hud-ico.on{background:var(--gold)}
+  .hud-cats{display:flex;gap:2px}
+  .hud-cat{font-size:10.5px;color:#a08a5e;padding:5px 10px;border-radius:8px}
+  .hud-cat.on{background:var(--gold);color:#fff8e7}
+  .hud-float{position:absolute;right:14px;top:14px;width:236px;background:rgba(58,44,26,.92);border:1px solid var(--line);
+             border-radius:12px;padding:10px 12px;box-shadow:0 12px 34px rgba(0,0,0,.5)}
+  .hud-float .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .hud-float .hd .t{font-family:KaiTi,"楷体",serif;font-size:13px;letter-spacing:2px;color:var(--gold)}
+  .hud-float .hd .x{margin-left:auto;font-size:12px;color:#8a7448;cursor:pointer}
+  .hud-legend{position:absolute;right:14px;bottom:64px;width:180px;background:rgba(58,44,26,.9);border:1px solid var(--line);
+              border-radius:10px;padding:8px 10px;box-shadow:0 8px 20px rgba(0,0,0,.45)}
+  .hud-month{position:absolute;left:14px;bottom:14px;background:rgba(58,44,26,.9);border:1px solid var(--line);
+             border-radius:10px;padding:6px 12px;font-size:10.5px;color:#cbb98f}
+  .hud-month .bar{width:120px;height:4px;background:var(--line);border-radius:3px;margin-top:5px;position:relative}
+  .hud-month .fill{position:absolute;left:0;top:0;height:100%;width:45%;background:var(--gold);border-radius:3px}
+  /* ========= 方案 C 圣典 ========= */
+  .sage-top{position:absolute;top:0;left:0;right:0;height:46px;display:flex;align-items:center;gap:14px;
+            background:linear-gradient(180deg,#2b1f0e,#221708);border-bottom:2px solid var(--gold);padding:0 20px}
+  .sage-emblem{width:26px;height:26px;border:1.5px solid var(--gold);border-radius:50%;display:flex;align-items:center;
+               justify-content:center;font-size:12px;color:var(--gold)}
+  .sage-title{font-family:KaiTi,"楷体",serif;font-size:15px;letter-spacing:4px;color:#f0e0b8}
+  .sage-epoch{margin-left:auto;font-size:10px;color:#c9a24d;letter-spacing:2px}
+  .sage-page{position:absolute;top:58px;bottom:14px;width:238px;background:rgba(46,34,18,.94);border:1px solid var(--gold);
+             border-radius:4px 14px 14px 4px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:14px 16px}
+  .sage-page.left{left:14px}
+  .sage-page.right{right:14px;border-radius:14px 4px 4px 14px}
+  .sage-page .p-hd{font-family:KaiTi,"楷体",serif;font-size:13px;letter-spacing:3px;color:var(--gold);
+                   border-bottom:1px solid var(--line);padding-bottom:6px;margin-bottom:10px;display:flex;justify-content:space-between}
+  .sage-curl{position:absolute;top:-1px;right:-1px;width:16px;height:16px;background:linear-gradient(135deg,#57431f,#3a2c1a 70%);
+             border-radius:0 12px 0 12px}
+  .sage-epochbar{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);display:flex;align-items:center;gap:10px}
+  .sage-epochbar .mk{font-size:10px;color:#8a7448;letter-spacing:1px}
+  .sage-epochbar .core{font-family:KaiTi,"楷体",serif;font-size:13px;color:var(--gold);letter-spacing:2px}
+  /* ===== B定制版（用户拍板 2026-08-24）：观测左上 / 地图潜藏底部 / 图例右下 / 时间右上 ===== */
+  .cuk-left{position:absolute;left:14px;top:14px;width:244px;background:rgba(58,44,26,.94);border:1px solid var(--line);
+            border-radius:12px;padding:10px 12px;box-shadow:0 12px 34px rgba(0,0,0,.5);z-index:5}
+  .cuk-left .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+  .cuk-left .hd .t{font-family:KaiTi,"楷体",serif;font-size:13px;letter-spacing:2px;color:var(--gold)}
+  .cuk-right{position:absolute;right:14px;top:14px;display:flex;gap:6px;z-index:5}
+  .cuk-time{background:rgba(58,44,26,.9);border:1px solid var(--line);border-radius:9px;padding:5px 11px;font-size:10.5px;color:#cbb98f}
+  .cuk-time b{color:var(--gold)}
+  /* 潜藏地图栏：平时只露 7px 窄沿，hover 展开成完整工具栏（分类+图层行） */
+  .cuk-map{position:absolute;left:50%;bottom:0;transform:translateX(-50%);width:640px;z-index:8;
+           transition:all .22s ease-out}
+  .cuk-map .grip{height:9px;border-radius:9px 9px 0 0;background:linear-gradient(180deg,#57431f,#3a2c1a);
+                 border:1px solid var(--gold);border-bottom:none;display:flex;align-items:center;justify-content:center;
+                 cursor:pointer;color:#d8c8a0;font-size:8px;letter-spacing:3px}
+  .cuk-map .dock{background:rgba(58,44,26,.95);border:1px solid var(--line);border-top:none;border-radius:0 0 14px 14px;
+                 padding:8px 12px;display:flex;flex-direction:column;gap:7px;overflow:hidden;max-height:0;
+                 opacity:0;transition:all .22s ease-out}
+  .cuk-map:hover .dock,.cuk-map.hover .dock{max-height:120px;opacity:1}
+  .cuk-map:hover .grip,.cuk-map.hover .grip{color:var(--gold)}
+  .dock-cats{display:flex;gap:6px}
+  .dock-cats .c{font-size:10.5px;color:#a08a5e;padding:4px 12px;border-radius:8px;border:1px solid transparent}
+  .dock-cats .c.on{background:var(--gold);color:#fff8e7}
+  .dock-lyr{display:flex;gap:4px;flex-wrap:wrap}
+  .dock-lyr .l{width:34px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+               font-size:13px;background:rgba(230,215,179,.08);border:1px solid rgba(87,79,31,.7);color:#cbb98f}
+  .dock-lyr .l.on{background:var(--gold)}
+  .cuk-legend{position:absolute;right:14px;bottom:14px;width:190px;background:rgba(58,44,26,.92);border:1px solid var(--line);
+              border-radius:10px;padding:8px 11px;box-shadow:0 8px 20px rgba(0,0,0,.45);z-index:5}
+  .cuk-legend .hd{font-family:KaiTi,"楷体",serif;font-size:12px;letter-spacing:2px;color:var(--gold);margin-bottom:6px}
+  /* 说明样式 */
+  .spec{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .spec .item{background:rgba(201,162,77,.08);border:1px solid rgba(201,162,77,.3);border-radius:10px;padding:10px 14px;font-size:11.5px;color:#d8c8a0;line-height:1.8}
+  .spec .item b{color:var(--light-gold)}
+  .spec .item .k{font-family:KaiTi,"楷体",serif;color:#ffe9b8;letter-spacing:2px;margin-right:6px}
+    /* 说明卡 */
+  .cards{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-top:26px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px;
+        box-shadow:0 10px 26px rgba(0,0,0,.35)}
+  .card .no{font-family:KaiTi,"楷体",serif;font-size:15px;letter-spacing:2px;color:var(--gold);margin-bottom:8px}
+  .card h4{font-size:13px;letter-spacing:1px;margin-bottom:10px}
+  .card ul{list-style:none}
+  .card li{font-size:11.5px;color:#d8c8a0;line-height:2;padding-left:14px;position:relative}
+  .card li::before{content:"▸";position:absolute;left:0;color:var(--light-gold)}
+  .card li b{color:var(--light-gold)}
+  .pros{font-size:11px;color:#9fd0a8;margin-top:10px;line-height:1.8}
+  .cons{font-size:11px;color:#e8a2a2;margin-top:4px;line-height:1.8}
+  .panel{display:none}
+  .panel.on{display:block}
+  /* 交互流 */
+  .flow{margin-top:30px;background:linear-gradient(135deg,#3a2c1a,#46351d);border:1px solid var(--line);border-radius:14px;
+        padding:20px 24px}
+  .flow h3{font-size:14px;letter-spacing:2px;margin-bottom:14px;color:var(--light-gold)}
+  .steps{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .st{flex:1;min-width:130px;background:rgba(201,162,77,.1);border:1px solid rgba(201,162,77,.35);border-radius:10px;
+      padding:10px 12px;font-size:11px;line-height:1.7;color:#e6d7b3}
+  .st b{color:var(--light-gold);display:block;font-size:12px;margin-bottom:2px}
+  .ar{color:var(--gold);font-size:13px}
+  .rec{margin-top:26px;background:linear-gradient(135deg,#33280f,#45361a);border:1px solid var(--gold);border-radius:14px;
+       padding:18px 22px;font-size:12.5px;line-height:2;color:#e6d7b3}
+  .rec b{color:var(--light-gold)}
+  @media(max-width:900px){.cards{grid-template-columns:1fr}.screen{aspect-ratio:4/3}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>UX 重设计 · 三方案</h1>
+  <div class="sub">运行时界面布局 × 风格语汇 × 全流程信息架构 —— 中世纪主题的体系化表达</div>
+
+  <div class="tabs" id="tabs">
+    <div class="tab on" data-p="A">方案 A <small>· 地图集</small></div>
+    <div class="tab" data-p="B">方案 B <small>· 归航 HUD · 定制</small></div>
+    <div class="tab" data-p="C">方案 C <small>· 圣典</small></div>
+  </div>
+
+  <!-- ══════════ 方案 A：地图集 ══════════ -->
+  <div class="panel on" id="pA">
+    <div class="stage">
+      <div class="stagebar"><span class="cap"></span><span class="cap"></span><span class="cap"></span>
+        <span class="ttl">世界 · 地图集视图</span></div>
+      <div class="screen">
+        <div class="planet"><span class="land" style="width:24%;height:20%;left:16%;top:44%;transform:rotate(-14deg)"></span>
+          <span class="land snow" style="width:18%;height:15%;left:60%;top:12%;transform:rotate(20deg)"></span>
+          <span class="land sand" style="width:15%;height:12%;left:30%;top:66%;transform:rotate(8deg)"></span>
+          <span class="land" style="width:22%;height:17%;left:64%;top:52%;transform:rotate(-8deg)"></span>
+          <span class="land snow" style="width:10%;height:8%;left:46%;top:8%;transform:rotate(30deg)"></span></div>
+
+        <!-- 左书卷：图层 -->
+        <div class="atlas-side">
+          <div class="atlas-book">
+            <div class="book-hd"><span class="t">图层卷</span><span class="badge">17 层</span></div>
+            <div class="cat">
+              <div class="catrow open"><span class="arr">▼</span>自然 <span class="cnt">6</span></div>
+              <span class="lyr on"><span class="sw" style="background:#b8860b"></span>海拔</span>
+              <span class="lyr"><span class="sw" style="background:#5a8ab5"></span>温度</span>
+              <span class="lyr"><span class="sw" style="background:#7aa06a"></span>降水</span>
+              <div class="catrow"><span class="arr">▶</span>气候 <span class="cnt">5</span></div>
+              <div class="catrow"><span class="arr">▶</span>人文 <span class="cnt">6</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 顶部金条 -->
+        <div class="atlas-top">
+          <span class="epoch">◆ 旧石器</span>
+          <span class="name">世界 · 第 42 纪</span>
+          <span class="tick">演化 17,100 年 · tick 171</span>
+        </div>
+
+        <!-- 右观测卡 -->
+        <div class="atlas-panel">
+          <div class="atlas-tabs"><span class="t on">总览</span><span class="t">政权</span><span class="t">国家</span>
+            <span class="t">科技</span><span class="t">事件</span></div>
+          <div class="atlas-hero">世界概览</div>
+          <div class="atlas-rows">
+            <div class="arow"><span class="abg b">游</span><span class="anm">政权 111</span><span class="apop">5,298 人</span></div>
+            <div class="arow"><span class="abg c">酋</span><span class="anm">酋邦 123</span><span class="apop">9 中心</span></div>
+            <div class="arow"><span class="abg s">国</span><span class="anm">国家 4</span><span class="apop">⚔ 0</span></div>
+            <div class="arow"><span class="abg t">部</span><span class="anm">聚落 87</span><span class="apop">城 3</span></div>
+            <div class="arow"><span class="abg b">史</span><span class="anm">事件 128</span><span class="apop">→ 时间线</span></div>
+          </div>
+        </div>
+
+        <!-- 右下 时间 -->
+        <div class="atlas-time">
+          <div class="timechip">纪元 <b>旧石器</b></div>
+          <div class="timechip">月相 <b>3 月 · 季风</b></div>
+        </div>
+
+        <!-- 左下 图例（随图层） -->
+        <div class="atlas-leg atlas-book">
+          <div class="book-hd"><span class="t">图例 · 海拔</span></div>
+          <div class="leg-row"><span class="sw" style="background:#2c5d88"></span>深海 &lt;-200m</div>
+          <div class="leg-row"><span class="sw" style="background:#7aa06a"></span>平原 0~200m</div>
+          <div class="leg-row"><span class="sw" style="background:#b8860b"></span>高原 &gt;400m</div>
+          <div class="leg-row"><span class="sw" style="background:#dfe6d8"></span>雪原/冰盖</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="no">A · 地图集（Atlas）</div>
+      <h4>像翻开一本地图集那样看世界</h4>
+      <ul>
+        <li><b>左书卷侧栏常驻</b>：图层卷（自然/气候/人文三分类折叠树）+ 图例随图层联动——底部分散控件合并进侧栏；</li>
+        <li><b>顶部细金条</b>：世界名 · 纪元徽记 · 演化年/tick——全局状态一眼可读；</li>
+        <li><b>右观测卡</b>（现 CivPanel 强化）：总览/政权/国家/科技/事件五页签，可折叠；</li>
+        <li><b>右下迷你时间件</b>：月份/季风年月收纳为小胶囊；</li>
+        <li><b>星球最大化</b>：所有边缘控件收进左右两栏+上下细条，中央 16:9 全身。</li>
+      </ul>
+      <div class="pros">✓ 信息全收拢、层级清晰 · 星球最大 · 与中世纪"卷轴"气质合一 · 复用现 CivPanel 结构，改动可控</div>
+      <div class="cons">✗ 左栏常驻占宽（可折叠成飘页）· 小屏拥挤</div>
+    </div>
+  </div>
+
+  <!-- ══════════ 方案 B：归航 HUD（定制版） ══════════ -->
+  <div class="panel" id="pB">
+    <div class="stage">
+      <div class="stagebar"><span class="cap"></span><span class="cap"></span><span class="cap"></span>
+        <span class="ttl">世界 · 巡航视图（B 定制：把鼠标移到屏幕底部中间试试）</span></div>
+      <div class="screen">
+        <div class="planet"><span class="land" style="width:24%;height:20%;left:16%;top:44%;transform:rotate(-14deg)"></span>
+          <span class="land snow" style="width:18%;height:15%;left:60%;top:12%;transform:rotate(20deg)"></span>
+          <span class="land sand" style="width:15%;height:12%;left:30%;top:66%;transform:rotate(8deg)"></span>
+          <span class="land" style="width:22%;height:17%;left:64%;top:52%;transform:rotate(-8deg)"></span></div>
+
+        <!-- 左上：文明观测（可折叠） -->
+        <div class="cuk-left">
+          <div class="hd"><span class="t">文明观测</span><span class="x" style="margin-left:auto;font-size:12px;color:#8a7448;cursor:pointer">—</span></div>
+          <div class="atlas-tabs" style="margin-bottom:8px"><span class="t on">总览</span><span class="t">政权</span>
+            <span class="t">国家</span><span class="t">科技</span><span class="t">事件</span></div>
+          <div class="atlas-rows">
+            <div class="arow"><span class="abg b">游</span><span class="anm">政权 111</span><span class="apop">5,298 人</span></div>
+            <div class="arow"><span class="abg c">酋</span><span class="anm">酋邦 123</span><span class="apop">9 中心</span></div>
+            <div class="arow"><span class="abg s">国</span><span class="anm">国家 4</span><span class="apop">⚔ 0</span></div>
+            <div class="arow"><span class="abg t">史</span><span class="anm">事件 128</span><span class="apop">→ 时间线</span></div>
+          </div>
+        </div>
+
+        <!-- 右上：时间 -->
+        <div class="cuk-right">
+          <div class="cuk-time">纪元 <b>旧石器</b></div>
+          <div class="cuk-time">年 <b>17,100</b> · 月 <b>3 月</b></div>
+        </div>
+
+        <!-- 底部中间：潜藏地图栏（hover 展开＝以前的地图模式布局） -->
+        <div class="cuk-map">
+          <div class="grip">▲ 地 图 ▲</div>
+          <div class="dock">
+            <div class="dock-cats">
+              <span class="c">地理</span><span class="c on">气候</span><span class="c">人文</span>
+            </div>
+            <div class="dock-lyr">
+              <span class="l on">⛰</span><span class="l">🌡</span><span class="l">💧</span><span class="l">🌬</span>
+              <span class="l">🐟</span><span class="l">🗺</span><span class="l">🏞</span><span class="l">🌾</span>
+              <span class="l">👥</span><span class="l">⚔</span><span class="l">📜</span><span class="l">🕌</span>
+              <span class="l">🏛</span><span class="l">🔬</span><span class="l">🕰</span><span class="l">🏳</span><span class="l">🧭</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 右下：图例 -->
+        <div class="cuk-legend">
+          <div class="hd">图例 · 温度</div>
+          <div class="leg-row"><span class="sw" style="background:#8e2424"></span>酷热 &gt;32°</div>
+          <div class="leg-row"><span class="sw" style="background:#d8c48a"></span>温和 15~32°</div>
+          <div class="leg-row"><span class="sw" style="background:#5a8ab5"></span>严寒 &lt;-20°</div>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="no">B · 归航 HUD（定制版）</div>
+      <h4>星球主角 · 地图收纳 · 按需浮现</h4>
+      <div class="spec">
+        <div class="item"><span class="k">观测</span><b>左上角</b>常驻，五页签可折叠（收起后仅留页签条）</div>
+        <div class="item"><span class="k">地图</span><b>底部中间潜藏</b>——平时只露一条金边"抓手"，<b>鼠标移过去展开</b>成完整工具栏（分类行+图层图标行＝以前的地图模式布局），移开自动收回</div>
+        <div class="item"><span class="k">图例</span><b>右下角</b>常驻（随图层联动内容）</div>
+        <div class="item"><span class="k">时间</span><b>右上角</b>胶囊：纪元 · 演化年 · 月份（季风图层时展开滑块）</div>
+      </div>
+      <div class="pros">✓ 星球最大最沉浸 · 地图功能不消失只是收纳 · 四角分工明确（观察/时间/工具/图例）</div>
+      <div class="cons">✗ 地图栏需 hover 呼出（习惯后顺手）；观测卡压缩为页签式</div>
+    </div>
+  </div>
+
+<!-- ══════════ 方案 C：圣典 ══════════ -->
+  <div class="panel" id="pC">
+    <div class="stage">
+      <div class="stagebar"><span class="cap"></span><span class="cap"></span><span class="cap"></span>
+        <span class="ttl">世界 · 圣典视图</span></div>
+      <div class="screen">
+        <div class="planet" style="width:46%"><span class="land" style="width:24%;height:20%;left:16%;top:44%;transform:rotate(-14deg)"></span>
+          <span class="land snow" style="width:18%;height:15%;left:60%;top:12%;transform:rotate(20deg)"></span>
+          <span class="land sand" style="width:15%;height:12%;left:30%;top:66%;transform:rotate(8deg)"></span>
+          <span class="land" style="width:22%;height:17%;left:64%;top:52%;transform:rotate(-8deg)"></span></div>
+
+        <!-- 顶部纹章栏 -->
+        <div class="sage-top">
+          <span class="sage-emblem">⛨</span>
+          <span class="sage-title">世界圣典 · 第 42 纪</span>
+          <span class="sage-epoch">旧石器时代 · 第 171 刻</span>
+        </div>
+
+        <!-- 左书页：图层卷轴 -->
+        <div class="sage-page left">
+          <div class="p-hd"><span>卷 一 · 图层</span><span class="badge">17 层</span></div>
+          <div class="cat">
+            <div class="catrow open"><span class="arr">▼</span>自然卷 <span class="cnt">6</span></div>
+            <span class="lyr on"><span class="sw" style="background:#b8860b"></span>海拔 · 地势</span>
+            <span class="lyr"><span class="sw" style="background:#5a8ab5"></span>温度 · 气候带</span>
+            <span class="lyr"><span class="sw" style="background:#7aa06a"></span>降水 · 润泽</span>
+            <div class="catrow"><span class="arr">▶</span>气候卷 <span class="cnt">5</span></div>
+            <div class="catrow"><span class="arr">▶</span>人文卷 <span class="cnt">6</span></div>
+          </div>
+          <div class="p-hd" style="margin-top:14px"><span>图 例</span></div>
+          <div class="leg-row"><span class="sw" style="background:#2c5d88"></span>深海</div>
+          <div class="leg-row"><span class="sw" style="background:#7aa06a"></span>平原</div>
+          <div class="leg-row"><span class="sw" style="background:#b8860b"></span>高原</div>
+          <span class="sage-curl"></span>
+        </div>
+
+        <!-- 右书页：观测百科 -->
+        <div class="sage-page right">
+          <div class="p-hd"><span>卷 二 · 文明</span><span class="badge">5 目</span></div>
+          <div class="atlas-tabs" style="margin-bottom:8px"><span class="t on">总览</span><span class="t">政权</span>
+            <span class="t">国家</span><span class="t">科技</span><span class="t">史录</span></div>
+          <div class="atlas-rows">
+            <div class="arow"><span class="abg s">国</span><span class="anm">国家 4 邦</span><span class="apop">⚔ 0 役</span></div>
+            <div class="arow"><span class="abg c">酋</span><span class="anm">酋邦 123 邦</span><span class="apop">禁卫 9</span></div>
+            <div class="arow"><span class="abg b">游</span><span class="anm">政权 111 邦</span><span class="apop">5,298 丁</span></div>
+            <div class="arow"><span class="abg t">史</span><span class="anm">事件录 128 则</span><span class="apop">→ 阅</span></div>
+          </div>
+          <span class="sage-curl" style="left:-1px;right:auto;border-radius:12px 0 12px 0;transform:scaleX(-1)"></span>
+        </div>
+
+        <!-- 底部 纪元刻度 -->
+        <div class="sage-epochbar">
+          <span class="mk">◀ 旧石器</span>
+          <span class="core">◆ 演 17,100 年 ◆</span>
+          <span class="mk">新石器 ▶</span>
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="no">C · 圣典（Codex）</div>
+      <h4>把整个界面做成一本摊开的典籍</h4>
+      <ul>
+        <li><b>顶部纹章标题栏</b>：世界纹章 + 圣典名 + 纪元刻记；</li>
+        <li><b>左右书页</b>：左页=图层卷轴+图例（卷 一），右页=观测百科（卷 二·总览/政权/国家/科技/史录）；</li>
+        <li><b>页角卷曲</b>、书脊、羊皮纸质感——中世纪语汇做到位；</li>
+        <li><b>纪年命名</b>：tick→"刻"、年→"纪"、事件→"史录"、"读档→开卷"、按钮→"宣"——全套动作改词；</li>
+        <li><b>星球居中留最大呼吸空间</b>，两侧书页可合拢（翻页动画收纳）。</li>
+      </ul>
+      <div class="pros">✓ 风格最极致、独一无二（"游戏气质"最强）· 信息两侧对称</div>
+      <div class="cons">✗ 开发量最大（书页动画/卷曲细节/叙事词条系统）· 右侧百科信息密度受书页宽限制</div>
+    </div>
+  </div>
+
+  <!-- 交互流 -->
+  <div class="flow">
+    <h3>全流程信息架构（三方案共用主干，差异在运行视图）</h3>
+    <div class="steps">
+      <div class="st"><b>① 启卷（主菜单）</b>纹章标题 · 创建世界 / 进入世界</div>
+      <span class="ar">→</span>
+      <div class="st"><b>② 造世（生成）</b>星球参数 + 文明演化 分章表单，一步预览</div>
+      <span class="ar">→</span>
+      <div class="st"><b>③ 卷册（存档）</b>列表 = 卷册目录：含文明/纯自然/损坏 徽记</div>
+      <span class="ar">→</span>
+      <div class="st"><b>④ 观史（运行）</b>星球 + 图层 + 观测五页 + 事件时间线</div>
+      <span class="ar">→</span>
+      <div class="st"><b>⑤ 详读（点选）</b>点政权/国家/聚落 → 详情卡（边远信息）</div>
+    </div>
+  </div>
+
+  <div class="rec">
+    <b>我的推荐：A（地图集）为主干，吸收 C 的语汇。</b>理由：① 信息架构最完整——图层/图例/观测/时间各归其位，与现有 CivPanel 代码结构零冲突（右观测卡=现面板，左书卷=现有底部工具栏重排）；② 开发量可控（无书页动画/叙事词条系统）；③ 中世纪气质通过"卷/金条/徽记"完成而非重叙事词汇——避免给用户生造理解成本。C 的纹章/纪年命名可作 A 的装饰层逐步渗透。B 留作"极简偏好"备选。
+  </div>
+</div>
+
+<script>
+  const tabs = document.querySelectorAll('.tab');
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('on'));
+    t.classList.add('on');
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('on'));
+    document.getElementById('p' + t.dataset.p).classList.add('on');
+  }));
+</script>
+</body>
+</html>

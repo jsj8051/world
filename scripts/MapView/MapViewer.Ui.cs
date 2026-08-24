@@ -132,6 +132,7 @@ public partial class MapViewer
         };
 
         RebuildLegend();   // 初始图层图例
+        SetupCukHud();     // 归航 HUD：潜藏地图坞 + 右上时间（2026-08-24 UX 重设计）
     }
 
 
@@ -263,7 +264,122 @@ public partial class MapViewer
         return s;
     }
 
-    /// <summary>人口显示取整（2026-08-17 用户反馈小数）：<1 显示 "<1"（防与无人灰混淆），≥1 整数。</summary>
+// ── 归航 HUD：潜藏地图坞 + 右上时间（2026-08-24 UX 重设计 B 定制，docs/设计-UX归航HUD改造.md）──
+    private PanelContainer _cukDock;      // 地图坞内容（默认隐藏；hover/钉住时显示）
+    private Button _cukGrip;               // 底部抓手（"▲ 地 图 ▲" / 钉住时 "▾ 收 回 ▾"）
+    private Label _epochLabel;            // 右上纪元徽记（◆ 旧石器/新石器/自然世界）
+    private Label _yearLabel;             // 右上演化年
+    private HBoxContainer _epochRow;      // 时间行（场景 EpochBar 或代码重建）
+    private bool _cukPinned;              // 钉住态（点击抓手锁定常显——防 hover 误触）
+    private Godot.Timer _cukRetractTimer;  // 移开收回延迟（0.4s 防抖：跨行移动不误收）
+
+    /// <summary>潜藏坞初始化（EnsureUi 内调用一次）：绑定 hover/pin 信号 + 样式。
+    /// 场景结构在 MapViewer.tscn 已摆好（CukMapBar[Dock, Grip] + EpochPanel[EpochRow]）——这里只做
+    /// 样式与交互绑定（条件满足→效果），不做节点重建（场景缺节点即静默跳过，不炸不伪造）。</summary>
+    private void SetupCukHud()
+    {
+        if (_cukDock != null) return;   // 幂等
+        _cukDock = GetNodeOrNull<PanelContainer>("UiLayer/CukDock");
+        _cukGrip = GetNodeOrNull<Button>("UiLayer/CukGrip");
+        _epochLabel = GetNodeOrNull<Label>("UiLayer/EpochPanel/EpochRow/EpochLabel");
+        _yearLabel = GetNodeOrNull<Label>("UiLayer/EpochPanel/EpochRow/YearLabel");
+        _epochRow = GetNodeOrNull<HBoxContainer>("UiLayer/EpochPanel/EpochRow");
+        if (_cukDock == null || _cukGrip == null) return;   // 场景未初始化——静默
+
+        // 样式（羊皮纸色板——SaveRowStyle 同源）
+        _cukDock.AddThemeStyleboxOverride("panel", CukDockStyle());
+        _cukGrip.AddThemeStyleboxOverride("normal", CukGripStyle());
+        _cukGrip.AddThemeColorOverride("font_color", new Color(0.722f, 0.525f, 0.043f, 1f));
+        if (_epochLabel != null) _epochLabel.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+        if (_yearLabel != null) _yearLabel.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+
+        // 交互：hover 展开 / 移开 0.4s 收回（防抖）/ 点击钉住
+        _cukGrip.MouseEntered += () => { _cukRetractTimer?.Stop(); ShowCukDock(false); };
+        _cukGrip.MouseExited += OnCukLeft;
+        _cukDock.MouseEntered += () => _cukRetractTimer?.Stop();
+        _cukDock.MouseExited += OnCukLeft;
+        _cukGrip.GuiInput += OnCukGripClick;
+
+        _cukRetractTimer = new Godot.Timer { OneShot = true, WaitTime = 0.4f };
+        AddChild(_cukRetractTimer);
+        _cukRetractTimer.Timeout += () => { if (!_cukPinned) SetCukDockVisible(false); };
+    }
+
+    private void ShowCukDock(bool pin)
+    {
+        SetCukDockVisible(true);
+        if (pin) { _cukPinned = true; _cukGrip.Text = "▾ 收 回 ▾"; }
+    }
+
+    private void SetCukDockVisible(bool visible)
+    {
+        _cukDock.Visible = visible;
+        if (!visible && _cukPinned) { _cukPinned = false; _cukGrip.Text = "▲ 地 图 ▲"; }
+    }
+
+    /// <summary>鼠标离开坞/抓手：启动收回延迟（0.4s 内再进入则取消——防跨行误收）。</summary>
+    private void OnCukLeft() { if (!_cukPinned) _cukRetractTimer?.Start(); }
+
+    /// <summary>抓手点击：切换钉住态（锁定常显 / 解锁收回）。</summary>
+    private void OnCukGripClick(InputEvent ev)
+    {
+        if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+        {
+            _cukRetractTimer?.Stop();
+            if (!_cukPinned) ShowCukDock(true);
+            else SetCukDockVisible(false);
+        }
+    }
+
+    /// <summary>刷新右上时间（纪元 + 演化年——只读派生 _civCtx，不碰 CivSim）。</summary>
+    public void RefreshEpochBar()
+    {
+        EnsureUi();   // 读档路径不显示进度条——EnsureUi 未跑则现建（幂等）
+        if (_epochLabel == null || _yearLabel == null) return;
+        if (_civCtx == null)
+        {
+            _epochLabel.Text = "◆ 自然世界";
+            _yearLabel.Text = "";
+            return;
+        }
+        bool farm = false;
+        foreach (var e in _civCtx.Polities)
+            if (!e.Dead && e.IsFarming) { farm = true; break; }
+        _epochLabel.Text = farm ? "◆ 新石器" : "◆ 旧石器";
+        _yearLabel.Text = $"演化 {(_civCtx.Tick * 100L):N0} 年";
+    }
+
+    /// <summary>抓手样式（深底金描边细条——贴底半圆上沿）。</summary>
+    private static StyleBoxFlat CukGripStyle()
+    {
+        // 抓手：深墨底 + 金箔描边（SaveRowStyle 色板）——与面板金边同系
+        var s = new StyleBoxFlat
+        {
+            BgColor = new Color(SaveRowStyle.Fg, 0.95f),
+            BorderColor = new Color(SaveRowStyle.Accent, 1f),
+            AntiAliasing = true,
+        };
+        s.SetBorderWidthAll(1);
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight = 9;
+        return s;
+    }
+
+    /// <summary>坞面板样式（羊皮纸卡片——与 HUD 面板同系，金描边）。</summary>
+    private static StyleBoxFlat CukDockStyle()
+    {
+        // 与场景面板统一（金箔边框 + 羊皮纸 Bg2 @ 0.95 + 圆角 12）——风格统一 2026-08-24
+        var s = new StyleBoxFlat
+        {
+            BgColor = new Color(SaveRowStyle.Bg2, 0.95f),
+            BorderColor = new Color(SaveRowStyle.Accent, 0.9f),
+            AntiAliasing = true,
+        };
+        s.SetBorderWidthAll(1);
+        s.SetCornerRadiusAll(12);
+        return s;
+    }
+
+        /// <summary>显示人口取整（2026-08-17 用户反馈小数）：<1 显示 "<1"（防与无人灰混淆），≥1 整数。</summary>
     private static string FmtPop(float p) => p < 1f ? "<1" : $"{p:F0}";
 
 

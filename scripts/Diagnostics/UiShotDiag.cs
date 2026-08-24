@@ -17,6 +17,10 @@ public partial class UiShotDiag : Node
     private bool argsTryDumpUi;      // --dump-ui=1：截图前打印 HUD 节点 rect
     private int _tabIdx = -1;        // --tab=N：mapgen 模拟点第 N 个页签（-1=不模拟）
     private int _viewerLayer = -1;   // --viewer-layer=N：viewer 场景截图前切到指定图层（-1=不切）
+    private int _civTabIdx = -1;     // --civ-tab=N：viewer 截图前模拟点 CivPanel 第 N 个页签（-1=不模拟）
+    private int _civScroll = -1;     // --civ-scroll=N：截图前把 CivScroll 垂直滚动到 N 像素（-1=不动）
+    private bool _cukMap;            // --cuk-map=1：截图前展开潜藏地图坞（验证展开态）
+    private bool _diagRect;          // --diag-rect=1：截图前打印 CukGrip/CukDock/EpochPanel 的 rect/visible
 
     public override void _Ready()
     {
@@ -34,6 +38,14 @@ public partial class UiShotDiag : Node
         // --tab=N：mapgen 场景模拟点第 N 个页签（截图前延迟一帧执行，等 _Ready 注入完成）
         if (args.TryGetValue("tab", out var tb) && int.TryParse(tb, out int tabIdx))
             _tabIdx = tabIdx;
+        // --civ-tab=N：viewer 场景模拟点 CivPanel 页签（截图前 2 帧——等面板渲染完成）
+        if (args.TryGetValue("civ-tab", out var ct) && int.TryParse(ct, out int civTab))
+            _civTabIdx = civTab;
+        // --civ-scroll=N：截图前滚动 CivScroll（验证滚动可用性；配合 civ-tab 用）
+        if (args.TryGetValue("civ-scroll", out var csc) && int.TryParse(csc, out int civScrollPx))
+            _civScroll = civScrollPx;
+        _cukMap = args.TryGetValue("cuk-map", out var cm) && cm == "1";
+        _diagRect = args.TryGetValue("diag-rect", out var dr) && dr == "1";
 
         // 窗口尺寸：--w=1280 --h=720（不传则用命令行 --resolution 或项目默认）
         if (args.TryGetValue("w", out var w) && int.TryParse(w, out int ww))
@@ -71,6 +83,47 @@ public partial class UiShotDiag : Node
             var layerProp = viewerRoot.GetType().GetProperty("Layer");
             layerProp?.SetValue(viewerRoot, _viewerLayer);
             GD.Print($"UiShotDiag: 已切 viewer 图层 → {_viewerLayer}");
+        }
+        // CivPanel 页签模拟：截图前 2 帧点（面板渲染稳定后；按钮 Pressed 触发 RenderCurrent）
+        if (_civTabIdx >= 0 && _frame == Mathf.Max(1, _shotFrame - 2))
+        {
+            var tabs = FindChild("CivTabs", recursive: true, owned: false) as HBoxContainer;
+            if (tabs != null && _civTabIdx < tabs.GetChildCount() && tabs.GetChild(_civTabIdx) is Button tabBtn)
+            {
+                tabBtn.EmitSignal(BaseButton.SignalName.Pressed);
+                GD.Print($"UiShotDiag: 已模拟点 CivPanel 页签 → {_civTabIdx}");
+            }
+        }
+        // CivScroll 滚动模拟：截图前 1 帧设滚动位置（验证滚动机制；内容超长时可滚到后半段）
+        if (_civScroll >= 0 && _frame == Mathf.Max(1, _shotFrame - 1))
+        {
+            var scroll = FindChild("CivScroll", recursive: true, owned: false) as ScrollContainer;
+            if (scroll != null)
+            {
+                scroll.ScrollVertical = _civScroll;
+                GD.Print($"UiShotDiag: 已滚动 CivScroll → {_civScroll}（max={scroll.GetVScrollBar().MaxValue}）");
+            }
+        }
+        // 潜藏地图坞展开模拟：截图前 3 帧（等布局稳定；直接置 CukDock 可见 = hover 展开态）
+        if (_cukMap && _frame == Mathf.Max(1, _shotFrame - 3))
+        {
+            var dock = FindChild("CukDock", recursive: true, owned: false) as PanelContainer;
+            if (dock == null)
+                dock = FindChild("Dock", recursive: true, owned: false) as PanelContainer;
+            if (dock != null)
+            {
+                dock.Visible = true;
+                GD.Print("UiShotDiag: 已展开潜藏地图坞（--cuk-map）");
+            }
+        }
+        // 布局诊断：打印新 UI 节点在窗口里的实际 rect（截图前 1 帧）
+        if (_diagRect && _frame == Mathf.Max(1, _shotFrame - 1))
+        {
+            foreach (var nm in new[] { "CukGrip", "CukDock", "EpochPanel", "CivPanelBody" })
+            {
+                var n = FindChild(nm, recursive: true, owned: false) as Control;
+                GD.Print($"UiShotDiag: {nm} → {(n == null ? "NULL" : $"visible={n.Visible} rect={n.GetGlobalRect()}")}");
+            }
         }
         if (_frame == 5 && _triggerStart)
         {
