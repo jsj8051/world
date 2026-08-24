@@ -15,6 +15,7 @@ using World.CivSim.Entities;
 using World.CivSim.Policies;
 using World.CivSim.Mechanics.Society;
 using World.CivSim.Mechanics.Military;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Military;
 
 // ══════════════════════════════════════════════════════════════════
@@ -51,6 +52,7 @@ public sealed class WarModel : CivModelBase
                     if (w.WinsA > w.WinsB) ApplyPrestige(ctx, w.StateIdA, w.StateIdB, w.WinsA - w.WinsB, byId);
                     else ApplyPrestige(ctx, w.StateIdB, w.StateIdA, w.WinsB - w.WinsA, byId);
                 }
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.WarPeace, w.StateIdA, w.StateIdB));
                 ctx.Wars.RemoveAt(i);
                 continue;
             }   // 停战
@@ -326,6 +328,7 @@ public sealed class WarModel : CivModelBase
         w.TributeFrom = loser;
         w.TributesLeft = CivSimContext.WarTributeTicks;
         CedeCells(ctx, w, loser, byId);
+        ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.WarTribute, winner, loser));
     }
 
     /// <summary>吞并：战败国成员 ConqueredBy 强制效忠战胜国酋长（ChiefdomModel 下 tick 重建生效——
@@ -371,6 +374,7 @@ public sealed class WarModel : CivModelBase
             winnerChief.Contributed += pool * CivSimContext.WarPlunderRate;
         }
         ctx.WarsAnnexed++;
+        ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.WarAnnex, winner, loser));
     }
 
     /// <summary>朝贡割地：战败国边境格（与战胜国领地相邻）取前 WarCedeCells 格 → CellOwner 归战胜国酋长。
@@ -432,7 +436,11 @@ public sealed class WarModel : CivModelBase
             var winnerChief = w.TributeTo < byId.Length ? byId[w.TributeTo] : null;
             if (winnerChief != null && !winnerChief.Dead) winnerChief.Contributed += amount;
         }
-        if (--w.TributesLeft <= 0) ctx.Wars.Remove(w);
+        if (--w.TributesLeft <= 0)
+        {
+            ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.WarPeace, w.TributeTo, w.TributeFrom));
+            ctx.Wars.Remove(w);
+        }
     }
 
     // ──────────────────────────────────────────────
@@ -479,6 +487,7 @@ public sealed class WarModel : CivModelBase
                 });
                 ch.LastWarTick = df.LastWarTick = ctx.Tick;   // 参战冷却（双方）
                 ctx.WarsDeclared++;
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.WarDeclared, ch.Id, df.Id));
                 // ⚠️ 2026-08-23 v2：去掉"单 tick 至多 1 场"限制（用户拍板——动机门修对后
                 //   同 tick 多场是正常历史（大国多线开战）；总量由动机门 + 概率天然控制，无需护栏）
             }

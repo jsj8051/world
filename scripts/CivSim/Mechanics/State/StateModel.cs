@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using World.CivSim;
+using World.CivSim.Events;
 
 namespace World.CivSim.Mechanics.State;
 
@@ -23,6 +25,27 @@ public sealed class StateModel : CivModelBase
     public override string Name => "国家涌现";
     public override int Order => 49;
 
-    /// <summary>机制外壳：执行端 = StateAssign 规范积木（清空 + 三判定 AND + 写入）。</summary>
-    protected override void Apply(CivSimContext ctx) => StateAssign.Rebuild(ctx);
+    /// <summary>机制外壳：执行端 = StateAssign 规范积木（清空 + 三判定 AND + 写入）。
+    /// ⚠️ 事件旁路（2026-08-24 ⑪）：Rebuild 前后国家集 diff——只发事件，不改机制（StateAssign 纯函数不动）。</summary>
+    protected override void Apply(CivSimContext ctx)
+    {
+        var before = StateSet(ctx);
+        StateAssign.Rebuild(ctx);
+        var after = StateSet(ctx);
+        foreach (var id in after)
+            if (!before.Contains(id))
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.StateEmerge, id));
+        foreach (var id in before)
+            if (!after.Contains(id))
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.StateGone, id));
+    }
+
+    /// <summary>国家集合 = 至尊酋长且正式国家（WarPolicies.Of 同判据——单一事实源；O(P) 旁路快照）。</summary>
+    private static HashSet<int> StateSet(CivSimContext ctx)
+    {
+        var set = new HashSet<int>();
+        foreach (var e in ctx.Polities)
+            if (!e.Dead && e.IsChief && e.StateId == e.Id && e.StateSize >= 2) set.Add(e.Id);
+        return set;
+    }
 }

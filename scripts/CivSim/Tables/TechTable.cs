@@ -165,4 +165,14 @@ public static class TechTable
         _loaded = true;
         LogService.Log("TechTable", $"loaded {_techs.Length} techs: {string.Join(" / ", Array.ConvertAll(_techs, t => t.Key))}");
     }
+
+    /// <summary>内存注入（仅测试——World.Tests 经 InternalsVisibleTo 调用；无 res:// 时构造迷你表）。
+    /// ⚠️ 测试进程一次性：注入后其他用例共享此表（空表/迷你表对既有用例均安全——默认倍率 1/空遍历）。</summary>
+    internal static void LoadForTest(IReadOnlyList<TechDef> defs)
+    {
+        _techs = defs == null ? Array.Empty<TechDef>() : new List<TechDef>(defs).ToArray();
+        _byKey = new Dictionary<string, TechDef>();
+        foreach (var t in _techs) _byKey[t.Key] = t;
+        _loaded = true;
+    }
 }

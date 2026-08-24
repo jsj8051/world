@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>文明层完整度审计</title>
+<style>
+  :root{
+    --parchment:#e6d7b3; --gold:#b8860b; --ink:#3a2c1a; --vermilion:#8e2424;
+    --light-gold:#c9a24d; --deep-bg:#2b2113; --card:#3a2c1a; --line:#57431f; --moss:#7a9e6b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%, #3d2f1c 0%, transparent 60%), var(--deep-bg);
+    min-height:100vh; font-family:"Microsoft YaHei","微软雅黑",sans-serif;
+    color:var(--parchment); padding:44px 28px 72px;
+  }
+  .wrap{max-width:1060px;margin:0 auto}
+  h1{font-family:KaiTi,"楷体",serif;font-weight:normal;font-size:27px;letter-spacing:6px;text-align:center;margin-bottom:6px}
+  .sub{color:#a08a5e;font-size:13px;letter-spacing:2px;text-align:center;margin-bottom:34px}
+  .legend{display:flex;gap:26px;justify-content:center;margin-bottom:30px;font-size:12px;color:#d8c8a0}
+  .lg{display:flex;align-items:center;gap:8px}
+  .sw{width:16px;height:16px;border-radius:4px;display:inline-block}
+  .sw.done{background:var(--moss);opacity:.85}
+  .sw.half{background:var(--gold);opacity:.55}
+  .sw.miss{background:transparent;border:2px dashed var(--vermilion);border-radius:4px}
+  /* 层叠塔 */
+  .tower{display:flex;flex-direction:column;gap:10px}
+  .layer{display:flex;align-items:stretch;border-radius:12px;overflow:hidden;border:1px solid var(--line);
+         background:linear-gradient(135deg,#3a2c1a,#42331c);min-height:86px}
+  .layer .badge{flex:0 0 118px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;padding:8px}
+  .layer .bd{color:#fff8e7;font-family:KaiTi,"楷体",serif;letter-spacing:2px;font-size:16px}
+  .layer .bn{color:#e6d7b3;font-size:10.5px;letter-spacing:1px}
+  .layer.done .badge{background:rgba(122,158,107,.55)}
+  .layer.half .badge{background:rgba(184,134,11,.55)}
+  .layer.miss{background:linear-gradient(135deg,#3a2417,#422a16);border-color:rgba(142,36,36,.6)}
+  .layer.miss .badge{background:rgba(142,36,36,.22);border-right:1px dashed rgba(142,36,36,.6)}
+  .layer .body{flex:1;padding:12px 16px;display:flex;flex-direction:column;justify-content:center;gap:6px}
+  .layer .mechs{font-size:11.5px;color:#d8c8a0;line-height:1.8}
+  .layer .mechs b{color:var(--light-gold);font-weight:normal}
+  .layer .gap{font-size:11.5px;color:#e8a2a2;line-height:1.75}
+  .layer .gap b{color:#f0b8b8}
+  .layer .fix{font-size:11px;color:#9fd0a8;line-height:1.7;margin-top:1px}
+  .layer .fix b{color:#b8e6c0}
+  .layer .num{flex:0 0 26px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#8a7448;border-right:1px solid var(--line)}
+  /* 分隔带 */
+  .band{height:22px;display:flex;align-items:center;gap:10px;margin:4px 0}
+  .band .lab{font-size:11px;letter-spacing:3px;color:#a08a5e;flex:0 0 auto}
+  .band .ln{flex:1;height:1px;background:linear-gradient(90deg,transparent,var(--line),transparent)}
+  /* 顺序条 */
+  .order{background:linear-gradient(135deg,#3a2c1a,#46351d);border:1px solid var(--line);border-radius:14px;
+         padding:20px 24px;margin-top:38px}
+  .order h3{font-size:15px;letter-spacing:2px;margin-bottom:14px;color:var(--light-gold)}
+  .flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .fl{flex:1;min-width:120px;background:rgba(201,162,77,.1);border:1px solid rgba(201,162,77,.35);border-radius:10px;
+      padding:10px 12px;font-size:11.5px;line-height:1.7;color:#e6d7b3}
+  .fl b{color:var(--light-gold);font-size:12px;display:block;margin-bottom:2px}
+  .fl.wait{opacity:.55}
+  .arr{color:var(--gold);font-size:14px;flex:0 0 auto}
+  .tailnote{font-size:12px;color:#a08a5e;margin-top:14px;line-height:1.9}
+  @media(max-width:860px){.layer .badge{flex-basis:96px}.flow{flex-direction:column}.arr{transform:rotate(90deg)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>文明层完整度审计</h1>
+  <div class="sub">CivSim 从地理地基到观测呈现 · 每一层现在的样子 · 缺什么 · 最小可行补法</div>
+
+  <div class="legend">
+    <span class="lg"><span class="sw done"></span>已建完整</span>
+    <span class="lg"><span class="sw half"></span>半成品（结算在，但悬空/不可见）</span>
+    <span class="lg"><span class="sw miss"></span>缺失（空槽）</span>
+  </div>
+
+  <div class="tower">
+
+    <div class="layer miss">
+      <div class="num">13</div>
+      <div class="badge"><span class="bd">玩家介入</span><span class="bn">player agency</span></div>
+      <div class="body">
+        <div class="gap"><b>缺：</b>纯观史模拟器——玩家只能生成世界、看演化结果，无任何介入手段（控制国家/指引发展/干预决策）。</div>
+        <div class="fix"><b>最小可行：</b>远期方向。先不碰——主体层就位后，玩家=替一个政体做意图层决策，是同一接口的两种输入端。</div>
+      </div>
+    </div>
+
+    <div class="layer half">
+      <div class="num">12</div>
+      <div class="badge"><span class="bd">观测呈现</span><span class="bn">observability</span></div>
+      <div class="body">
+        <div class="mechs"><b>已有：</b>地图渲染（图层切换/HUD 状态条/演化进度）、中世纪主题、5 枚国家图标素材（力量/财富/金融/合作/社群）。</div>
+        <div class="gap"><b>缺：</b>国家面板（点开看政体/领土/军事/声望）、科技面板（谁发明了什么）、<b>事件面板</b>——涌现出来的东西玩家看不见。</div>
+        <div class="fix"><b>最小可行：</b>国家详情面板 + 事件列表（见第 11 层）——图标素材现成。</div>
+      </div>
+    </div>
+
+    <div class="layer miss">
+      <div class="num">11</div>
+      <div class="badge"><span class="bd">文明记录</span><span class="bn">chronicle</span></div>
+      <div class="body">
+        <div class="gap"><b>缺：</b>零事件/编年史系统（搜索 0 匹配）——战争发生了、国家吞并了、科技发明了，<b>没有任何历史记录</b>，观史无从观起。</div>
+        <div class="fix"><b>最小可行：</b>事件日志（tick / 政体 / 类型 / 参数），写入日志段或读档重建——第 12 层面板的原料，也是"历史叙事"的原料。</div>
+      </div>
+    </div>
+
+    <div class="layer half">
+      <div class="num">10</div>
+      <div class="badge"><span class="bd">战争</span><span class="bn">war</span></div>
+      <div class="body">
+        <div class="mechs"><b>已有：</b>结算 v2 全套（动机门/天气/士气骰子/概率分档/吞并/朝贡/瘟疫）——精细，且测试覆盖。</div>
+        <div class="gap"><b>缺：</b><b>悬挂在真空上</b>——国家间无关系层（第 8/9 层空），宣战只是孤立概率事件；实测从未触发。战争是世界之巅，底下全是空的。</div>
+        <div class="fix"><b>最小可行：</b>一层不动，等 7→8→9 就位后把宣战挂到"关系破裂"上——已备好的结算自然落地。</div>
+      </div>
+    </div>
+
+    <div class="layer miss">
+      <div class="num">9</div>
+      <div class="badge"><span class="bd">外交梯度</span><span class="bn">diplomacy</span></div>
+      <div class="body">
+        <div class="gap"><b>缺：</b>和平↔战争之间是空的——没有友好/中立/紧张/敌对/从属的中间态。克劳塞维茨的"战争=政治通过另一手段继续"无从谈起，因为"政治"不存在。</div>
+        <div class="fix"><b>最小可行：</b>关系值（第 8 层产物）投影外交态；战争=关系跌破阈值+动机门通过的极端结果，而非独立事件。</div>
+      </div>
+    </div>
+
+    <div class="layer miss">
+      <div class="num">8</div>
+      <div class="badge"><span class="bd">国际关系</span><span class="bn">relations</span></div>
+      <div class="body">
+        <div class="gap"><b>缺：</b>国家间除 0/1 战争和格级械斗外无任何互动通道——无关系值、无贸易协定、无联盟、无互动记录。</div>
+        <div class="fix"><b>最小可行：</b>关系值 = <b>已有数据源的派生组合</b>（文化亲缘×贸易纽带×征服记忆×边境摩擦）——全部数据源已在（CultureGroupShare / 商路节点 / ConqueredBy），只差合成；不新增实体，关系入档单段。</div>
+      </div>
+    </div>
+
+    <div class="layer miss">
+      <div class="num">7</div>
+      <div class="badge"><span class="bd">主体意图</span><span class="bn">agency</span></div>
+      <div class="body">
+        <div class="gap"><b>缺：这是根。</b>Polity 是贫血实体（零决策字段）——没有"国家想要什么"：无目标、无性格、无轻重缓急、无有限学习。一切行为=公式+概率（粒子物理，不是文明）。</div>
+        <div class="fix"><b>最小可行：</b>意图层 = 目标权重向量（生存/增长/声望/扩张，环境+历史塑形）+ 决策循环（局面评估→机制路径选择→结果反馈）。复用已有芽：WarAims 动机门 / 策略族查表 / ModeModel 生产方式切换 / 声望贡赋池。Schelling 式轻量主体——不是完整 BDI。</div>
+      </div>
+    </div>
+
+    <div class="band"><span class="lab">── 文明核心 ──</span><div class="ln"></div></div>
+
+    <div class="layer half">
+      <div class="num">6</div>
+      <div class="badge"><span class="bd">国家制度</span><span class="bn">state</span></div>
+      <div class="body">
+        <div class="mechs"><b>已有：</b>国家三条件涌现（都城 IsCity+贡赋池+存续 20tick）、税制 ×2、官僚供养 ×2.5、内部秩序 ×0.25、吞并效忠、王朝继承。——<b>国家内部完备</b>。</div>
+        <div class="gap"><b>缺：</b>外部真空——国家没有"对外关系"器官，因为没有意图层（7）和关系层（8）。</div>
+        <div class="fix"><b>最小可行：</b>内部不再补；等 7/8 就位后自然接上。</div>
+      </div>
+    </div>
+
+    <div class="layer done">
+      <div class="num">5</div>
+      <div class="badge"><span class="bd">政体组织</span><span class="bn">polity</span></div>
+      <div class="body">
+        <div class="mechs"><b>完整：</b>概念配方表（band→tribe→chiefdom→state 四级机制叠加）、酋邦凝聚（庇护 BFS）、吞并吸收、内部冲突整合（×0.5/×0.25）、继承窗口。</div>
+      </div>
+    </div>
+
+    <div class="layer done">
+      <div class="num">4</div>
+      <div class="badge"><span class="bd">聚落城乡</span><span class="bn">habitation</span></div>
+      <div class="body">
+        <div class="mechs"><b>完整：</b>Habitation 实体（camp/settlement 形态涌现）、功能定性（村庄=HasAdmin 酋邦中心 / 集镇=HasMarket 商路 / 城市=IsCity 都城）、TownTier 系数。</div>
+      </div>
+    </div>
+
+    <div class="layer done">
+      <div class="num">3</div>
+      <div class="badge"><span class="bd">科技文化</span><span class="bn">tech·culture</span></div>
+      <div class="body">
+        <div class="mechs"><b>完整：</b>科技五类效果全接入（carry 生产/milit 军事/火皮毛开路/独木舟跨海/农业种子）、发明+传播模型、文化份额互动、宗教演进。</div>
+      </div>
+    </div>
+
+    <div class="layer done">
+      <div class="num">2</div>
+      <div class="badge"><span class="bd">生态生计</span><span class="bn">subsistence</span></div>
+      <div class="body">
+        <div class="mechs"><b>完整：</b>采集狩猎/能量核算/人口增长/分裂迁徙/领地凝聚/生产方式滞回——涌现飞轮已验证（n64：442→4677 人，0→3 国）。</div>
+      </div>
+    </div>
+
+    <div class="layer done">
+      <div class="num">1</div>
+      <div class="badge"><span class="bd">地理物理</span><span class="bn">geophysics</span></div>
+      <div class="body">
+        <div class="mechs"><b>完整：</b>板块构造/气候/洋流/河流/地形成本梯度——已是世界的地基。</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="order">
+    <h3>缺失层的正确开发顺序（自下而上，每一层立在上一层之上）</h3>
+    <div class="flow">
+      <div class="fl"><b>⑦ 主体意图</b>目标权重+决策循环<br>（根——"国家想要什么"）</div>
+      <span class="arr">→</span>
+      <div class="fl"><b>⑧ 国际关系</b>关系值=派生组合<br>（意图的相互作用）</div>
+      <span class="arr">→</span>
+      <div class="fl"><b>⑨ 外交梯度</b>关系投影外交态<br>（和平↔战争中间态）</div>
+      <span class="arr">→</span>
+      <div class="fl wait"><b>⑩ 战争释放</b>挂到关系破裂上<br>（结算已备，触发即活）</div>
+      <span class="arr">→</span>
+      <div class="fl wait"><b>⑪ 文明记录</b>事件日志<br>（历史叙事原料）</div>
+      <span class="arr">→</span>
+      <div class="fl wait"><b>⑫ 观测面板</b>国家/科技/事件<br>（图标素材现成）</div>
+    </div>
+    <div class="tailnote">※ 第 12 层（观测面板）虽然排在最后，但它可以<b>独立提前做</b>——不依赖主体/关系层，却能让玩家立刻看到第 6 层以下已有的全部涌现。第 13 层（玩家介入）远期再议。</div>
+  </div>
+</div>
+</body>
+</html>

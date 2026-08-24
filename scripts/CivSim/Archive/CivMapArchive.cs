@@ -12,6 +12,7 @@ using World.Utils;
 using IOFileAccess = System.IO.FileAccess;
 
 using World.CivSim.Entities;
+using World.CivSim.Events;
 namespace World.CivSim;
 
 /// <summary>
@@ -57,6 +58,9 @@ public static class CivMapArchive
         return ver > Version ? ArchiveVersionStatus.Newer : ArchiveVersionStatus.Older;
     }
 
+    /// <summary>顺序流 EVNT 哨兵（"EVNT" ASCII；旧档 WARS 后无此哨兵 → 空历史，读端回退不破坏流）。</summary>
+    private const int EvntMagic = 0x45564E54;
+
     /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
     private static string ResolvePath(string path) =>
         path.StartsWith("user://", StringComparison.Ordinal)
@@ -82,6 +86,7 @@ public static class CivMapArchive
         public int[] LockedUntil;
         public List<Habitation> Habitations;
         public List<War> Wars;
+        public List<CivEventRecord> Events;   // 文明事件（哨兵块；旧档缺失 → 空历史）
     }
 
     /// <summary>用自然层网格 + 文明中间数据重建完整 CivSimContext（确定性派生态重建，
@@ -126,6 +131,7 @@ public static class CivMapArchive
             Habitations = rec.Habitations,
             NextHabitationId = rec.NextHabitationId,
             Wars = rec.Wars,
+            Events = rec.Events ?? new List<CivEventRecord>(),
             Cultivation = rec.Cultivation ?? new float[n],
             CellOwner = rec.CellOwner ?? EnumerableRepeat(-1, n),
             LockedUntil = rec.LockedUntil ?? EnumerableRepeat(0, n),
@@ -234,6 +240,22 @@ public static class CivMapArchive
             wars.Add(w);
         }
         rec.Wars = wars;
+        // ── EVNT（哨兵块；旧档 WARS 后无哨兵 → 回退，空历史不阻断）──
+        var events = new List<CivEventRecord>();
+        if (r.Length - r.Position >= 4)
+        {
+            long mark = r.Position;
+            if ((int)r.Get32() == EvntMagic)
+            {
+                int evCount = (int)r.Get32();
+                if (evCount < 0 || evCount > (r.Length - r.Position) / 16) { corrupted = true; return null; }
+                for (int k = 0; k < evCount; k++)
+                    events.Add(new CivEventRecord((int)r.Get32(), r.Get16(), (int)r.Get32(), (int)r.Get32(), r.GetFloat()));
+            }
+            else
+                r.Seek(mark);   // 旧档：非哨兵 → 回退到段尾（流结束语义）
+        }
+        rec.Events = events;
         // cellPolities 按 n 重映射（一格一实体）
         rec.CellPolities = new Polity[n];
         for (int i = 0; i < n; i++) rec.CellPolities[i] = null;
@@ -311,6 +333,19 @@ public static class CivMapArchive
             w.Store32((uint)war.TributeFrom);
             w.Store32((uint)war.TributesLeft);
         }
+        // ── EVNT（顺序流尾部哨兵块——2026-08-24 ⑪；旧档无哨兵 → 读端回退为空历史）──
+        w.Store32(EvntMagic);
+        var events = ctx.Events;
+        w.Store32((uint)(events?.Count ?? 0));
+        if (events != null)
+            foreach (var ev in events)
+            {
+                w.Store32((uint)ev.Tick);
+                w.Store16((ushort)ev.TypeIndex);
+                w.Store32((uint)ev.SubjectId);
+                w.Store32((uint)ev.TargetId);
+                w.StoreFloat(ev.Value);
+            }
     }
 
     /// <summary>写 .cmp（v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
@@ -405,6 +440,21 @@ public static class CivMapArchive
                 w.Store32((uint)war.TributeFrom);
                 w.Store32((uint)war.TributesLeft);
             }
+            w.EndSegment();
+
+            // ── EVNT：文明事件段（2026-08-24 ⑪——一系统一段；段缺失 = 无历史，读端兜底为空）──
+            w.BeginSegment("EVNT", 1);
+            var events = ctx.Events;
+            w.Store32((uint)(events?.Count ?? 0));
+            if (events != null)
+                foreach (var ev in events)
+                {
+                    w.Store32((uint)ev.Tick);
+                    w.Store16((ushort)ev.TypeIndex);   // 短整型——注册表序入档，不存字符串
+                    w.Store32((uint)ev.SubjectId);
+                    w.Store32((uint)ev.TargetId);
+                    w.StoreFloat(ev.Value);
+                }
             w.EndSegment();
 
             w.Finish();
@@ -689,6 +739,24 @@ public static class CivMapArchive
                 }
             }
 
+            // ── EVNT：文明事件段（段缺失 = 旧档无事件 → 空历史，不阻断——同 STTL/WARS 缺段惯例）──
+            var events = new List<CivEventRecord>();
+            if (r.SeekSegment("EVNT"))
+            {
+                int evCount = (int)r.Get32();
+                // 长度校验（同实体段：单记录 18B，用 16B 保守下界——防正文错位读爆）
+                long evRemaining = r.Length - r.Position;
+                if (evCount < 0 || evCount > evRemaining / 16)
+                {
+                    LogService.LogErr("CivMapArchive", $"{path} 事件段长度异常：count={evCount}——正文错位或损坏。");
+                    return false;
+                }
+                for (int k = 0; k < evCount; k++)
+                    events.Add(new CivEventRecord(
+                        (int)r.Get32(), r.Get16(),
+                        (int)r.Get32(), (int)r.Get32(), r.GetFloat()));
+            }
+
             // 文化 key 计数兜底：份额场推导（被同化掉的 key 可能使推导偏小，故取 max）
             int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
             for (int k = 0; k < entities.Count; k++)
@@ -727,6 +795,7 @@ public static class CivMapArchive
                 Habitations = habitations,    // 聚落段（段缺失 → 空列表）
                 NextHabitationId = nextHabitationId,
                 Wars = wars,                  // 战争段（段缺失 → 空列表——无战争起步）
+                Events = events,              // 文明事件段（段缺失 → 空历史——旁路记录，不阻断）
                 // 土地挂钩：Cultivation 从存档恢复；暂存/领地索引重建
                 Cultivation = cultivation ?? new float[n],
                 CellOwner = cellOwner ?? EnumerableRepeat(-1, n),

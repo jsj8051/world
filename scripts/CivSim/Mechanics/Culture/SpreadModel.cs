@@ -8,6 +8,7 @@ using World.LogicGrid;
 using World.CivSim;
 using World.CivSim.Entities;
 using World.CivSim.Mechanics.Culture;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Culture;
 
 
@@ -84,8 +85,18 @@ public sealed class SpreadModel : CivModelBase
             {
                 to.TechKeys.Add(t.Key);
                 TechTable.SyncAgriculture(to.TechKeys);
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.TechSpread, from.Id, to.Id, TechIndex(t)));
             }
         }
+    }
+
+    /// <summary>科技在 TechTable.All 的索引（事件 Value 编码——展示端查 All[i].Name；O(T)，T≈20 低频）。</summary>
+    private static int TechIndex(TechDef t)
+    {
+        var all = TechTable.All;
+        for (int i = 0; i < all.Count; i++)
+            if (all[i] == t) return i;
+        return -1;
     }
 
     private static bool HasAll(HashSet<string> keys, string[] req)

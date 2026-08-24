@@ -7,6 +7,7 @@ using World.LogicGrid;
 
 using World.CivSim;
 using World.CivSim.Mechanics.Culture;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Culture;
 
 
@@ -38,7 +39,10 @@ public sealed class InventionModel : CivModelBase
                 if (env <= 0f) continue;
                 float lambda = t.InvRate * (e.P / Mathf.Max(1f, t.PRef)) * (1f + TechTable.Knowledge(e.TechKeys) / 16f) * env;
                 if (ctx.Rng.NextDouble() < lambda)
+                {
                     e.TechKeys.Add(t.Key);
+                    ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.Invention, e.Id, value: TechIndex(t)));
+                }
             }
             // ── 种子（压力触发，Boserup 被逼出来的）──
             float pressure = ctx.CellF[e.Cell] > 0f ? ctx.CellPop[e.Cell] / ctx.CellF[e.Cell] : 0f;
@@ -53,11 +57,23 @@ public sealed class InventionModel : CivModelBase
                     if ((wild & (1 << s)) == 0) continue;          // WildCrops 位（隐含气候+土壤）
                     if (e.TechKeys.Contains(TechTable.SeedKeys[s])) continue;
                     if (ctx.Rng.NextDouble() < CivSimContext.SeedInvProb)
+                    {
                         e.TechKeys.Add(TechTable.SeedKeys[s]);
+                        ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.Invention, e.Id, value: TechIndex(TechTable.Get(TechTable.SeedKeys[s]))));
+                    }
                 }
             }
             TechTable.SyncAgriculture(e.TechKeys);
         }
+    }
+
+    /// <summary>科技在 TechTable.All 的索引（事件 Value 编码——展示端查 All[i].Name；O(T)，T≈20 低频）。</summary>
+    private static int TechIndex(TechDef t)
+    {
+        var all = TechTable.All;
+        for (int i = 0; i < all.Count; i++)
+            if (all[i] == t) return i;
+        return -1;
     }
 
     private static bool HasAll(HashSet<string> keys, string[] req)

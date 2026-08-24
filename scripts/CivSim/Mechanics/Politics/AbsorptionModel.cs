@@ -8,6 +8,7 @@ using World.LogicGrid;
 using World.CivSim;
 using World.CivSim.Entities;
 using World.CivSim.Mechanics.Politics;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Politics;
 
 
@@ -58,6 +59,7 @@ public sealed class AbsorptionModel : CivModelBase
                 overlord.P += e.P * 0.5f;
                 e.P = 0f;
                 e.Dead = true;
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.PolityDied, e.Id, overlord.Id));
             }
         }
     }

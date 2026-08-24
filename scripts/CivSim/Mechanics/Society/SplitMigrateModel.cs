@@ -8,6 +8,7 @@ using World.LogicGrid;
 using World.CivSim;
 using World.CivSim.Entities;
 using World.CivSim.Mechanics.Society;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Society;
 
 
@@ -106,7 +107,8 @@ public sealed class SplitMigrateModel : CivModelBase
             if (ctx.Rng.NextDouble() < CivSimContext.CultureDriftChance)
                 nt.ReligionCultShare[0] = new ShareEntry { Key = ctx.NextReligionKey(), Frac = nt.ReligionCultShare[0].Frac };
             ctx.Polities.Add(nt);
-            ctx.CellPolities[target] = nt;   // 一格一实体：子体占据继承地盘格
+            ctx.CellPolities[target] = nt;
+            ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.Split, t.Id, nt.Id));   // 一格一实体：子体占据继承地盘格
             // ⚠️ 2026-08-23 领地继承：把上面算好的远半格 CellOwner 转给子体——旧"母领地完全不动"
             //   = 子体殖民无主格 → 归属竞争必输 → 领地 0 → F=0 饿死。确定性：固定遍历序。
             if (idx != null && ctx.CellOwner != null)

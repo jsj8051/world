@@ -140,6 +140,7 @@ public partial class MapViewer : Node3D
     private TileIndex _tileIndex;   // ⚠️ 2026-08-19：显示格↔逻辑格映射收敛（原散落 _tileVerts 数组；63km 错位案根治）
     // 文明图层（.cmp 游玩地图；v2 部落模型：人口/文化/部落/科技）
     private World.CivSim.CivSimContext _civCtx;   // 文明演化上下文（null=纯自然地图）
+    private World.UI.CivPanel _civPanel;          // 文明观测面板（UiLayer/CivPanel 场景预置；懒取）
 
 
 
@@ -275,6 +276,7 @@ public partial class MapViewer : Node3D
                 _mapLoaded = true;
                 LogService.Log("MapViewer", $"loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
                          $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Polities.Count})");
+                RefreshCivPanel();
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -289,6 +291,7 @@ public partial class MapViewer : Node3D
                 _mapLoaded = true;
                 LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}] " +
                          $"civ={(_civCtx != null ? $"yes(polities={_civCtx.Polities.Count} tick={map.Civilization.FinalTick})" : "no")}");
+                RefreshCivPanel();
             }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。
@@ -862,6 +865,25 @@ public partial class MapViewer : Node3D
             else if (owner == null && ownerId >= 0)
                 GD.Print($"  CellOwner={ownerId} 无存活实体（残留）");
         }
+    }
+
+    // ── 文明观测面板（2026-08-24 步骤②，docs/设计-观测面板与文明记录.md）──
+
+    /// <summary>加载文明地图后刷新观测面板（_civCtx 非空才显示；纯自然地图保持隐藏）。</summary>
+    private void RefreshCivPanel()
+    {
+        if (_civCtx == null) return;
+        var panel = EnsureCivPanel();
+        panel.ShowSnapshot(World.CivSim.Observation.CivOverlay.Observe(_civCtx));
+        RefreshEpochBar();   // 右上时间（纪元/演化年——读档/演化完成路径共用）
+    }
+
+    /// <summary>懒取场景预置面板（UiLayer/CivPanel——MapViewer.tscn instance）。</summary>
+    private World.UI.CivPanel EnsureCivPanel()
+    {
+        if (_civPanel == null)
+            _civPanel = GetNode<World.UI.CivPanel>("UiLayer/CivPanel");
+        return _civPanel;
     }
 
     // ── 图例 ──

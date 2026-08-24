@@ -8,6 +8,7 @@ using World.LogicGrid;
 using World.CivSim;
 using World.CivSim.Entities;
 using World.CivSim.Mechanics.Society;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Society;
 
 
@@ -84,7 +85,12 @@ public sealed class GrowthModel : CivModelBase
                 // 稀释统计）。慢性饿死 ×StarveMult——被完全压制者持续减员，期间饥饿迁移（SplitMigrate
                 // Order 80）可找到立锥之地，找不到则灭绝释放格子供其他实体殖民。
                 e.P *= CivSimContext.StarveMult;
-                if (e.P < 1f) { e.P = 0f; e.Dead = true; }
+                if (e.P < 1f)
+                {
+                    e.P = 0f;
+                    e.Dead = true;
+                    ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.PolityDied, e.Id));
+                }
                 continue;
             }
             // ⚠️ 2026-08-17 定居生育跃迁（史实：定居 → 生育间隔缩短/婴儿存活率↑，人口密度 10-50× 游群）
@@ -99,7 +105,12 @@ public sealed class GrowthModel : CivModelBase
             if (factor < 1f && e.ChiefdomId >= 0 && e.Contributed > 0f)
                 factor = 1f + (factor - 1f) * CivSimContext.TributeRelief;
             e.P *= factor;
-            if (e.P < 1f) { e.P = 0f; e.Dead = true; }   // 饿死灭绝
+            if (e.P < 1f)
+            {
+                e.P = 0f;
+                e.Dead = true;
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.PolityDied, e.Id));   // 饿死灭绝
+            }
         }
     }
 

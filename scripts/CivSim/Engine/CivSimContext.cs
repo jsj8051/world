@@ -5,6 +5,7 @@ using World.Biome;
 using World.LogicGrid;
 
 using World.CivSim.Entities;
+using World.CivSim.Events;
 namespace World.CivSim;
 
 /// <summary>
@@ -80,6 +81,11 @@ public sealed class CivSimContext
     public int WarsDeclared;   // 演化统计：宣战场次（不入档——同 Conflicts 模式，诊断/日志）
     public int WarsAnnexed;    // 演化统计：吞并场次
     public int WarsPlagued;    // 演化统计：瘟疫爆发场次（战争结算 v2，2026-08-23）
+
+    // ── 文明记录（2026-08-24 ⑪，docs/设计-观测面板与文明记录.md）──
+    // 事件旁路：只 append、不参与模拟分支、不产生 Rng——同 seed 演化结果与无事件系统逐比特一致（T90）。
+    // 入档 EVNT 段（步骤④）；读档还原；段缺失 = 空历史（不阻断）。
+    public List<CivEventRecord> Events = new();
 
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
     public Habitation HabitationOf(Polity e)

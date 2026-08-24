@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>政体四阶段 · 战争双轨</title>
+<style>
+  :root{
+    --parchment:#e6d7b3; --gold:#b8860b; --ink:#3a2c1a; --vermilion:#8e2424;
+    --light-gold:#c9a24d; --deep-bg:#2b2113; --card:#3a2c1a; --line:#57431f; --moss:#7a9e6b;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%, #3d2f1c 0%, transparent 60%), var(--deep-bg);
+    min-height:100vh; font-family:"Microsoft YaHei","微软雅黑",sans-serif;
+    color:var(--parchment); padding:44px 28px 64px;
+  }
+  .wrap{max-width:1020px;margin:0 auto}
+  h1{font-family:KaiTi,"楷体",serif;font-weight:normal;font-size:27px;letter-spacing:6px;text-align:center;margin-bottom:6px}
+  .sub{color:#a08a5e;font-size:13px;letter-spacing:2px;text-align:center;margin-bottom:38px}
+  h2{font-family:KaiTi,"楷体",serif;font-weight:normal;font-size:19px;letter-spacing:3px;margin:46px 0 16px;
+     padding-left:12px;border-left:3px solid var(--gold)}
+  h2 .no{color:var(--light-gold);font-size:13px;vertical-align:2px;margin-right:8px;letter-spacing:1px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px 24px;
+        box-shadow:0 10px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,215,140,.08)}
+  .lead{font-size:14px;line-height:2.1;color:#e6d7b3;margin-bottom:10px}
+  .lead b{color:var(--light-gold)}
+  .note{font-size:12px;color:#a08a5e;line-height:1.9;margin-top:12px}
+  /* 阶梯图 */
+  .stair{display:flex;flex-direction:column;gap:0}
+  .step{display:flex;align-items:stretch;border-radius:10px;overflow:hidden;border:1px solid var(--line);
+        background:linear-gradient(135deg,#3a2c1a,#42331c)}
+  .step + .step{margin-top:14px}
+  .step .lv{flex:0 0 104px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:4px;
+        background:var(--gold);color:#fff8e7}
+  .step .lv .cn{font-family:KaiTi,"楷体",serif;font-size:17px;letter-spacing:2px}
+  .step .lv .en{font-size:11px;letter-spacing:1px;opacity:.85}
+  .step:nth-child(1) .lv{background:#7a6a44}
+  .step:nth-child(2) .lv{background:var(--gold)}
+  .step:nth-child(3) .lv{background:#9a6b1f}
+  .step:nth-child(4) .lv{background:#6e4b12}
+  .step .mech{flex:1;padding:14px 18px}
+  .step .mech .tagline{font-size:12px;color:#d8c8a0;margin-bottom:8px;letter-spacing:1px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:11px;background:rgba(201,162,77,.12);border:1px solid rgba(201,162,77,.35);color:var(--light-gold);
+        border-radius:8px;padding:2px 9px}
+  .chip.new{background:rgba(201,162,77,.25);border-color:var(--light-gold);color:#ffe9b8}
+  .step .lv .arrow{font-size:13px;margin-top:2px}
+  /* 双轨对比 */
+  .duo{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .track{border:1px solid var(--line);border-radius:14px;padding:18px 20px;background:linear-gradient(160deg,#3a2c1a,#362a17)}
+  .track .hd{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .track .dot{width:11px;height:11px;border-radius:50%}
+  .track.t1 .dot{background:var(--vermilion)}
+  .track.t2 .dot{background:var(--gold)}
+  .track h3{font-size:15px;letter-spacing:1px}
+  .track .whom{font-size:11.5px;color:#a08a5e;margin-bottom:12px}
+  .track ul{list-style:none}
+  .track li{font-size:12.5px;color:#d8c8a0;line-height:1.95;padding-left:16px;position:relative}
+  .track li::before{content:"▸";position:absolute;left:2px;color:var(--light-gold)}
+  .track li b{color:var(--light-gold)}
+  .track .foot{margin-top:12px;font-size:11.5px;color:#8a7448}
+  /* 场景图 */
+  .scene{width:100%;border-radius:12px;background:linear-gradient(180deg,#2f2413,#2a2010)}
+  .scene text{font-family:"Microsoft YaHei",sans-serif}
+  .summ{background:linear-gradient(135deg,#3a2c1a,#46351d);border:1px solid var(--line);border-radius:14px;
+     padding:20px 24px;margin-top:40px;font-size:13.5px;line-height:2.1;color:#e6d7b3}
+  .summ b{color:var(--light-gold)}
+  .tag{display:inline-block;background:var(--gold);color:#fff8e7;font-size:11px;letter-spacing:1px;
+       border-radius:10px;padding:2px 10px;margin-bottom:14px}
+  @media(max-width:860px){.duo{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>政体四阶段 · 战争双轨</h1>
+  <div class="sub">band / tribe / chiefdom / state —— 一个实体，四个发育阶段；战争，两条并行轨道</div>
+
+  <h2><span class="no">壹</span>它们是不是一个东西？—— 是同一个东西的四个成长阶段</h2>
+  <p class="lead">游戏里所有"人"都是同一个实体类型：<b>Polity（政治实体）</b>。band / 部落 / 酋邦 / 国家不是四种东西，
+  而是<b>同一个实体活到不同阶段的姿态</b>——每升一级，身上多叠一组机制（机制像图层一样往上盖，新层包含旧层）。</p>
+  <div class="card">
+    <div class="stair">
+      <div class="step">
+        <div class="lv"><span class="cn">游群</span><span class="en">band</span><span class="arrow">▲</span></div>
+        <div class="mech">
+          <div class="tagline">起点——旧石器狩猎采集，一人一格的游动小群</div>
+          <div class="chips">
+            <span class="chip">起源播种</span><span class="chip">采集狩猎</span><span class="chip">能量核算</span><span class="chip">人口增长</span>
+            <span class="chip">分裂迁徙</span><span class="chip">文化互动</span><span class="chip">宗教（万物有灵）</span><span class="chip">物物交换</span>
+            <span class="chip">边境冲突①</span><span class="chip">影响力场</span>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="lv"><span class="cn">部落</span><span class="en">tribe</span><span class="arrow">▲</span></div>
+        <div class="mech">
+          <div class="tagline">= band + 农业定居：开始种地、占地、发明</div>
+          <div class="chips">
+            <span class="chip new">农田开垦</span><span class="chip new">领地凝聚</span><span class="chip new">生产方式（猎↔农）</span>
+            <span class="chip new">科技发明</span><span class="chip new">科技传播</span><span class="chip new">聚落实体</span>
+            <span class="chip">…band 全部机制</span>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="lv"><span class="cn">酋邦</span><span class="en">chiefdom</span><span class="arrow">▲</span></div>
+        <div class="mech">
+          <div class="tagline">= tribe + 酋长整合：声望、贡赋、吞并小部落</div>
+          <div class="chips">
+            <span class="chip new">声望/贡赋/精英供养</span><span class="chip new">酋邦凝聚（庇护）</span><span class="chip new">吞并吸收</span>
+            <span class="chip new">内部冲突 ×0.5（酋长仲裁）</span>
+            <span class="chip">…tribe 全部机制</span>
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="lv"><span class="cn">国家</span><span class="en">state</span><span class="arrow">◆</span></div>
+        <div class="mech">
+          <div class="tagline">= chiefdom + 制度化：都城、税制、官僚——以及唯一的战争权</div>
+          <div class="chips">
+            <span class="chip new">国家涌现（都城+贡赋池+存续）</span><span class="chip new">税制化 ×2</span><span class="chip new">官僚供养 ×2.5</span>
+            <span class="chip new">国家战争②（仅国家可宣战）</span><span class="chip new">内部冲突 ×0.25（强制力垄断）</span>
+            <span class="chip">…chiefdom 全部机制</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="note">※ 概念 = 机制包（配方），实体 = 一个活着的 Polity（有格子、人口、科技树、文化）。概念轴与实体轴是两个轴，不要压扁。</div>
+  </div>
+
+  <h2><span class="no">贰</span>战争其实是两条轨——所以"国家对 band 用武"要分情况</h2>
+  <div class="duo">
+    <div class="track t1">
+      <div class="hd"><span class="dot"></span><h3>轨道① 边境冲突</h3></div>
+      <div class="whom">全层级都有的格级械斗 —— band 也会打架</div>
+      <ul>
+        <li>抢的是<b>格子控制权</b>（一格的归属），不是灭国</li>
+        <li>触发：僵持窗口 + <b>饿/人口超载</b>（生存压力才打）</li>
+        <li>胜率 = <b>人口 × 军事科技</b> 对比，弱方也可能爆冷</li>
+        <li>结果：损耗 + 掠夺格 + 败者被驱逐迁徙</li>
+        <li>酋邦内部 ×0.5、国家内部 ×0.25（有秩序）</li>
+      </ul>
+      <div class="foot">⚠ 国家对 band 用武，走的是这条轨</div>
+    </div>
+    <div class="track t2">
+      <div class="hd"><span class="dot"></span><h3>轨道② 国家战争</h3></div>
+      <div class="whom">国家专属的外交状态 —— band 不够格上牌桌</div>
+      <ul>
+        <li>宣战主体：<b>只有国家</b>（WarPolicies 查表，策略多态）</li>
+        <li>目标筛选：<b>只在国家两两之间配对</b>，band 不在集合里</li>
+        <li>动机门：领土野心 / 资源压力 / 军事优势 / 世仇</li>
+        <li>会战：军力 × 士气骰子 × 真实天气（严寒/雨季阻进攻）</li>
+        <li>结算：碾压→<b>吞并</b>（效忠+流放）／险胜→<b>朝贡</b>／超时→停战</li>
+      </ul>
+      <div class="foot">⚠ 永不宣战 band —— 宣战对象只能是国家</div>
+    </div>
+  </div>
+
+  <h2><span class="no">叁</span>"国家对 band 用武"的真实场景</h2>
+  <div class="card" style="padding:14px">
+  <svg class="scene" viewBox="0 0 860 330" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#c9a24d"/>
+      </marker>
+      <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0 0 L10 5 L0 10 z" fill="#8e2424"/>
+      </marker>
+    </defs>
+    <!-- 国家领土 -->
+    <rect x="30" y="60" width="330" height="200" rx="10" fill="#3a2c1a" stroke="#c9a24d" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text x="50" y="88" fill="#c9a24d" font-size="15" letter-spacing="2">国家 territory（CellOwner 格群）</text>
+    <g fill="#6e4b12" stroke="#8a7448" stroke-width="1">
+      <rect x="60" y="110" width="58" height="44" rx="6"/>
+      <rect x="135" y="110" width="58" height="44" rx="6"/>
+      <rect x="210" y="110" width="58" height="44" rx="6"/>
+      <rect x="60" y="170" width="58" height="44" rx="6"/>
+      <rect x="135" y="170" width="58" height="44" rx="6"/>
+      <rect x="210" y="170" width="58" height="44" rx="6"/>
+    </g>
+    <text x="330" y="130" fill="#d8c8a0" font-size="11.5">成员多：P 大</text>
+    <text x="330" y="148" fill="#d8c8a0" font-size="11.5">可能持青铜矛</text>
+    <text x="330" y="166" fill="#d8c8a0" font-size="11.5">MilitMult ×1.8~2.4</text>
+    <!-- band 孤格 -->
+    <rect x="520" y="120" width="86" height="64" rx="8" fill="#7a6a44" stroke="#e6d7b3" stroke-width="1.5"/>
+    <text x="563" y="152" fill="#fff8e7" font-size="13" text-anchor="middle" letter-spacing="1">band</text>
+    <text x="563" y="170" fill="#e6d7b3" font-size="10.5" text-anchor="middle">领地 = 1 格</text>
+    <text x="563" y="204" fill="#d8c8a0" font-size="11" text-anchor="middle">石斧  MilitMult ×1</text>
+    <!-- 国家战争线（指向国家，不指 band） -->
+    <rect x="30" y="32" width="330" height="14" rx="3" fill="#6e4b12"/>
+    <text x="50" y="42" fill="#a08a5e" font-size="10">另一国家</text>
+    <path d="M360 40 L560 40" stroke="#c9a24d" stroke-width="2" stroke-dasharray="8 5" fill="none" marker-end="url(#arr)"/>
+    <text x="428" y="30" fill="#c9a24d" font-size="11.5">轨道② 国家战争（只打国家）</text>
+    <!-- 边境冲突线 -->
+    <path d="M330 150 L510 150" stroke="#8e2424" stroke-width="2.5" fill="none" marker-end="url(#arrR)"/>
+    <text x="342" y="130" fill="#d8c8a0" font-size="11.5">轨道① 边境冲突（国家碾压）</text>
+    <text x="342" y="182" fill="#a08a5e" font-size="11">胜率 = P×Milit 对比 → band 几乎为零</text>
+    <!-- band 的命运 -->
+    <g font-size="11.5">
+      <text x="640" y="128" fill="#d8c8a0">↓ 结果：</text>
+      <text x="640" y="150" fill="#e6d7b3">1. 领地格被武力夺取</text>
+      <text x="640" y="170" fill="#e6d7b3">2. 挨饿 → 被驱逐迁走（逃命）</text>
+      <text x="640" y="190" fill="#e6d7b3">3. 或先被酋邦吸收、被征服</text>
+      <text x="640" y="222" fill="#a08a5e">想上战场对等复仇？</text>
+      <text x="640" y="242" fill="#c9a24d">只能发育：部落→酋邦→国家</text>
+      <text x="640" y="262" fill="#a08a5e">才进得了国家战争的牌桌</text>
+    </g>
+  </svg>
+  </div>
+
+  <div class="summ">
+    <b>一句话总结：</b>band / 部落 / 酋邦 / 国家是<b>同一个 Polity 实体的四个发育阶段</b>（机制逐层叠加）；
+    战争有两条轨——<b>格级边境冲突人人会打</b>（国家对 band 用武 = 边境清剿，单向碾压：夺格 → 饿 → 驱逐），
+    <b>国家战争是国家牌桌上的外交状态</b>（band 不够格被宣战）。国家出现的那一刻，band 就从"主角"变成了"被清剿的对象"——
+    这正是"国家时代"的开始。
+  </div>
+</div>
+</body>
+</html>

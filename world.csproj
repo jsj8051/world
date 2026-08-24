@@ -8,4 +8,8 @@
     <Compile Remove="tests/**/*.cs" />
     <None Remove="tests/**" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- 单测直测 internal 纯函数/测试钩子（2026-08-24 文明记录：TechTable.LoadForTest 等） -->
+    <InternalsVisibleTo Include="World.Tests" />
+  </ItemGroup>
 </Project>

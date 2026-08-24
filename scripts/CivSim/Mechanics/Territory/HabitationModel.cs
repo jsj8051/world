@@ -8,6 +8,7 @@ using World.LogicGrid;
 using World.CivSim;
 using World.CivSim.Entities;
 using World.CivSim.Mechanics.Territory;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Territory;
 
 
@@ -76,6 +77,7 @@ public sealed class HabitationModel : CivModelBase
                 };
                 ctx.Habitations.Add(s);
                 e.PlaceId = s.Id;
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.HabUpscale, e.Id, s.Id));
             }
         }
         // ⚠️ ③ 职能条件收集（2026-08-23 功能定性重设计：旧 Dwell×P 升阶移除——用户拍板 D3）。

@@ -7,6 +7,7 @@ using World.LogicGrid;
 
 using World.CivSim;
 using World.CivSim.Mechanics.Territory;
+using World.CivSim.Events;
 namespace World.CivSim.Mechanics.Territory;
 
 
@@ -40,7 +41,10 @@ public sealed class ModeModel : CivModelBase
             if (Mathf.Abs(diff) >= CivSimContext.Hysteresis)
                 e.IsFarming = eF > eH;
             if (e.IsFarming && ctx.FirstFarmTick < 0)
+            {
                 ctx.FirstFarmTick = ctx.Tick;   // 终止条件锚点
+                ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.FarmStart, e.Id));
+            }
         }
     }
 }
