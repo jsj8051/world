@@ -8,6 +8,7 @@ using World.CivSim.Entities;
 using World.CivSim.Mechanics.Territory;
 using World.CivSim.Mechanics.Politics;
 using World.CivSim.Mechanics.State;
+using World.Gameplay;
 namespace World.CivSim;
 
 /// <summary>
@@ -125,6 +126,9 @@ public static class CivEngine
         var registry = CivModelRegistry.StoneAge();
         for (int k = 0; k < extraTicks; k++, ctx.Tick++)
         {
+            // ⚠️ 2026-08-25 第二阶段"实际游玩"：玩家命令每 tick 开头注入（先于机制执行——
+            //   税率覆盖影响本 tick StateMechanism、提稳定/宣战即时生效）。无玩家 = no-op（纯自动行为不变）。
+            PlayerCommands.ApplyPending(ctx);
             RefreshCellState(ctx);
             registry.ExecuteAll(ctx);
             onProgress?.Invoke((k + 1f) / Mathf.Max(1, extraTicks));

@@ -15,7 +15,7 @@ namespace World.Tests;
 
 /// <summary>
 /// 概念配方表完整性测试（概念 = 机制组合 Phase 2，2026-08-23）。
-/// 约束：Union = StoneAge 注册全集（21 机制）；机制无重无漏；Includes 展开正确；参数表键完整。
+/// 约束：Union = StoneAge 注册全集（22 机制）；机制无重无漏；Includes 展开正确；参数表键完整。
 /// 这些断言保证"新机制挂配方表即自动纳入注册表"的架构不静默破坏演化行为。
 /// </summary>
 [TestFixture]

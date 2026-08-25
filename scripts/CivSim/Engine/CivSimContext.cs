@@ -92,6 +92,11 @@ public sealed class CivSimContext
     // 入档 STAT 段（段表制一系统一段，不 bump 版本）；段缺失 = 空 → 机制下 tick 自愈建档（国库从 0 起）。
     public List<StateEntity> States = new();
 
+    // ── 玩家会话（2026-08-25 第二阶段拍板"实际游玩"——EU4 式活世界：玩家绑定国家 + 命令注入）──
+    // null = 纯自动演化模式（既有确定性行为不变）；绑定后 = 玩家扮演该国的制度主管。
+    // 入档 PLAY 段；命令经 PlayerCommands.ApplyPending 每 tick 注入。
+    public World.Gameplay.PlayerSession Player;
+
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
     public Habitation HabitationOf(Polity e)
     {

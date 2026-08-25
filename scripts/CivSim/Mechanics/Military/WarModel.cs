@@ -494,6 +494,29 @@ public sealed class WarModel : CivModelBase
         }
     }
 
+    /// <summary>玩家宣战（2026-08-25 第二阶段——EU4：玩家意志直接执行，不排队不掷概率）。
+    /// 复用 CanDeclare 门槛（冷却/未交战/领地接触/池足——玩家也需条件，EU4 无理由宣战有外交代价），
+    /// 跳过动机门与概率（那是 AI 的制约；玩家 = 确定意志）。门槛通过 → 直接加入战争状态。</summary>
+    public static bool PlayerDeclareWar(CivSimContext ctx, Polity a, Polity b)
+    {
+        if (ctx == null || a == null || b == null || a.Id == b.Id) return false;
+        float reachKm = (2 * CivSimContext.InfluenceRadius + 1) * Mathf.Sqrt(ctx.Grid.CellAreaKm2);
+        if (!CanDeclare(ctx, a, b, reachKm)) return false;
+        if (IsAtWar(ctx, a.Id, b.Id)) return false;
+        ctx.Wars.Add(new War
+        {
+            StateIdA = a.Id,
+            StateIdB = b.Id,
+            Defender = b.Id,
+            StartTick = ctx.Tick,
+            LastBattleTick = ctx.Tick,
+        });
+        a.LastWarTick = b.LastWarTick = ctx.Tick;   // 参战冷却（同自动宣战）
+        ctx.WarsDeclared++;
+        ctx.Events.Add(new CivEventRecord(ctx.Tick, EventTypes.WarDeclared, a.Id, b.Id));   // 事件旁路（同自动宣战 L490——观测面板记玩家宣战）
+        return true;
+    }
+
     /// <summary>宣战条件判定（纯函数——T70 直接断言，免概率噪声）：
     /// 冷却过 + 未交战 + 领地相邻 + 宣战国贡赋池足（WarMinPoolPerCap——穷兵不打）。
     /// 概率门控（WarDeclareChance）在 DeclareWars 内部，不在本函数。</summary>

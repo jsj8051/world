@@ -34,8 +34,7 @@ public sealed class StateMechanism : CivModelBase
         {
             var e = ctx.Polities[i];
             if (e.Dead || !e.IsChief || e.StateId != e.Id || e.StateSize < 2) continue;
-            var st = FindOrCreate(ctx, e);   // 无档案 → 新建（BornTick=Tick）
-            if (st == null) continue;
+            var st = FindOrCreate(ctx, e);   // 无档案 → 新建（BornTick=Tick）；恒非 null（新建或现存）
             alive.Add(st);
             Update(ctx, st, e);
         }
@@ -87,8 +86,12 @@ public sealed class StateMechanism : CivModelBase
 
         // ── ④ 国库收支（现金税/费——与贡赋池 Contributed 实物税并行；贡赋池仍作涌现判据）──
         float pop = PopOf(ctx, members);
+        float rate = CivSimContext.StateTaxPerCap;
+        // ⚠️ 玩家税率覆盖（2026-08-25 第二阶段——EU4：君主定税）：玩家绑定该国且设过税率 → 用玩家值
+        if (ctx.Player != null && ctx.Player.StateId == st.Id && ctx.Player.TaxRateOverride >= 0f)
+            rate = ctx.Player.TaxRateOverride;
         float legitMult = 0.5f + st.Legitimacy / 200f;   // 合法 [0,100] → [0.5, 1.0]（低合法难征税，EU4）
-        float tax = pop * CivSimContext.StateTaxPerCap * legitMult;
+        float tax = pop * rate * legitMult;
         float cost = pop * CivSimContext.StateCostPerCap;
         st.Treasury += tax - cost;
 
@@ -96,8 +99,13 @@ public sealed class StateMechanism : CivModelBase
         bool crisis = InInheritanceCrisis(ctx, members) || st.Treasury < 0f;
         bool atWar = AtWar(ctx, st.Id);
         if (!crisis && !atWar)
-            st.Stability += st.Stability < 0f ? CivSimContext.StateStabilityRecover
-                           : st.Stability > 0f ? -CivSimContext.StateStabilityRecover : 0f;
+        {
+            // 向 0 收敛（|值| < 步长 → 归 0——避免 ±recover 极限环不收敛）
+            if (Math.Abs(st.Stability) < CivSimContext.StateStabilityRecover) st.Stability = 0f;
+            else st.Stability += st.Stability < 0f
+                ? CivSimContext.StateStabilityRecover          // 负 → 升向 0
+                : -CivSimContext.StateStabilityRecover;        // 正 → 降向 0（此处 |值|≥步长 故非 0）
+        }
         else
             st.Stability -= (crisis ? CivSimContext.StateStabilityCrisisDrop : 0f)
                           + (atWar ? CivSimContext.StateStabilityWarDrop : 0f);

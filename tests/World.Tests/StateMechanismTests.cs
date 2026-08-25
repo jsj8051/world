@@ -194,7 +194,7 @@ public class StateMechanismTests
         });
 
         var ms = new MemoryStream();
-        var w = new ChunkWriter(ms, "MPA1", 8);
+        var w = new ChunkWriter(ms, "MPA1", 9);   // 与 MapArchive.Version=9 对齐（v9：CIVI 功能定性）
         w.BeginSegment("CIVI", 1);
         CivMapArchive.WriteCivilization(w, civ);
         w.EndSegment();

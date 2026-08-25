@@ -61,6 +61,7 @@ public static class CivMapArchive
     /// <summary>顺序流 EVNT 哨兵（"EVNT" ASCII；旧档 WARS 后无此哨兵 → 空历史，读端回退不破坏流）。</summary>
     private const int EvntMagic = 0x45564E54;
     private const int StatMagic = 0x53544154;   // "STAT"——国家档案哨兵块（CIVI 顺序流尾部；旧档无 → 空档案）
+    private const int PlayMagic = 0x504C4159;   // "PLAY"——玩家会话哨兵块（STAT 后；旧档无 → 纯自动模式）
 
     /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
     private static string ResolvePath(string path) =>
@@ -89,6 +90,7 @@ public static class CivMapArchive
         public List<War> Wars;
         public List<CivEventRecord> Events;   // 文明事件（哨兵块；旧档缺失 → 空历史）
         public List<StateEntity> States;      // 国家档案（哨兵块；旧档缺失 → 空列表 → 自愈建档）
+        public World.Gameplay.PlayerSession Player;   // 玩家会话（哨兵块；旧档缺失 → null——纯自动模式）
     }
 
     /// <summary>用自然层网格 + 文明中间数据重建完整 CivSimContext（确定性派生态重建，
@@ -135,6 +137,7 @@ public static class CivMapArchive
             Wars = rec.Wars,
             Events = rec.Events ?? new List<CivEventRecord>(),
             States = rec.States ?? new List<StateEntity>(),
+            Player = rec.Player,
             Cultivation = rec.Cultivation ?? new float[n],
             CellOwner = rec.CellOwner ?? EnumerableRepeat(-1, n),
             LockedUntil = rec.LockedUntil ?? EnumerableRepeat(0, n),
@@ -284,6 +287,37 @@ public static class CivMapArchive
                 r.Seek(mark);   // 旧档：非哨兵 → 回退（流结束语义）
         }
         rec.States = states;
+        // ── PLAY（哨兵块；旧档无 → 纯自动模式——玩家绑定/命令保留仅对 .cmp 有意义的整体一致性）──
+        World.Gameplay.PlayerSession player = null;
+        if (r.Length - r.Position >= 4)
+        {
+            long mark = r.Position;
+            if ((int)r.Get32() == PlayMagic)
+            {
+                if (r.Get8() != 0)
+                {
+                    player = new World.Gameplay.PlayerSession
+                    {
+                        StateId = (int)r.Get32(),
+                        TaxRateOverride = r.GetFloat(),
+                    };
+                    int cmdCount = (int)r.Get32();
+                    if (cmdCount < 0 || cmdCount > (r.Length - r.Position) / 16) { corrupted = true; return null; }
+                    for (int q = 0; q < cmdCount; q++)
+                        player.Queue.Add(new World.Gameplay.PlayerCommand
+                        {
+                            Kind = (World.Gameplay.PlayerCommandKind)r.Get8(),
+                            TargetA = (int)r.Get32(),
+                            TargetB = (int)r.Get32(),
+                            Value = r.GetFloat(),
+                            IssuedTick = (int)r.Get32(),
+                        });
+                }
+            }
+            else
+                r.Seek(mark);   // 旧档：非哨兵 → 回退（流结束语义）
+        }
+        rec.Player = player;
         // cellPolities 按 n 重映射（一格一实体）
         rec.CellPolities = new Polity[n];
         for (int i = 0; i < n; i++) rec.CellPolities[i] = null;
@@ -389,6 +423,29 @@ public static class CivMapArchive
                 w.StoreFloat(st.Legitimacy);
                 w.Store32((uint)st.BornTick);
             }
+        // ── PLAY（哨兵块——同 STAT；旧档无哨兵 → 读端回退纯自动模式）──
+        w.Store32(PlayMagic);
+        var player = ctx.Player;
+        if (player == null || !player.IsBound)
+        {
+            w.Store8(0);
+        }
+        else
+        {
+            w.Store8(1);
+            w.Store32((uint)player.StateId);
+            w.StoreFloat(player.TaxRateOverride);
+            w.Store32((uint)player.Queue.Count);
+            for (int q = 0; q < player.Queue.Count; q++)
+            {
+                var cmd = player.Queue[q];
+                w.Store8((byte)cmd.Kind);
+                w.Store32((uint)cmd.TargetA);
+                w.Store32((uint)cmd.TargetB);
+                w.StoreFloat(cmd.Value);
+                w.Store32((uint)cmd.IssuedTick);
+            }
+        }
     }
 
     /// <summary>写 .cmp（v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
@@ -502,17 +559,45 @@ public static class CivMapArchive
 
             // ── STAT：国家档案段（2026-08-25 通用国家机制——EU4 式制度层持久状态；段缺失 = 空 → 自愈重建）──
             w.BeginSegment("STAT", 1);
-            w.Store32((uint)ctx.States.Count);
-            for (int k = 0; k < ctx.States.Count; k++)
+            w.Store32((uint)(ctx.States?.Count ?? 0));
+            var stList = ctx.States;
+            if (stList != null)
+                for (int k = 0; k < stList.Count; k++)
+                {
+                    var st = stList[k];
+                    w.Store32((uint)st.Id);
+                    w.Store32((uint)st.CapitalHabId);   // -1 → uint 全 1（读回 (int) 还原）
+                    w.Store32((uint)st.MonarchId);
+                    w.StoreFloat(st.Treasury);
+                    w.StoreFloat(st.Stability);
+                    w.StoreFloat(st.Legitimacy);
+                    w.Store32((uint)st.BornTick);
+                }
+            w.EndSegment();
+
+            // ── PLAY：玩家会话段（2026-08-25 第二阶段"实际游玩"——玩家绑定国家 + 待处理命令队列）──
+            // 0 = 无玩家（纯自动存档）；1 = 有玩家（StateId/税率覆盖/命令队列入档——读档续玩不丢）。
+            w.BeginSegment("PLAY", 1);
+            var player = ctx.Player;
+            if (player == null || !player.IsBound)
             {
-                var st = ctx.States[k];
-                w.Store32((uint)st.Id);
-                w.Store32((uint)st.CapitalHabId);   // -1 → uint 全 1（读回 (int) 还原）
-                w.Store32((uint)st.MonarchId);
-                w.StoreFloat(st.Treasury);
-                w.StoreFloat(st.Stability);
-                w.StoreFloat(st.Legitimacy);
-                w.Store32((uint)st.BornTick);
+                w.Store8(0);
+            }
+            else
+            {
+                w.Store8(1);
+                w.Store32((uint)player.StateId);
+                w.StoreFloat(player.TaxRateOverride);   // -1 = 未设置（默认税率）
+                w.Store32((uint)player.Queue.Count);
+                for (int q = 0; q < player.Queue.Count; q++)
+                {
+                    var cmd = player.Queue[q];
+                    w.Store8((byte)cmd.Kind);
+                    w.Store32((uint)cmd.TargetA);       // -1 → uint 全 1（读回 (int) 还原）
+                    w.Store32((uint)cmd.TargetB);
+                    w.StoreFloat(cmd.Value);
+                    w.Store32((uint)cmd.IssuedTick);
+                }
             }
             w.EndSegment();
 
@@ -844,6 +929,37 @@ public static class CivMapArchive
                 }
             }
 
+            // ── PLAY：玩家会话段（段缺失/无玩家 = 纯自动模式 → null）──
+            World.Gameplay.PlayerSession player = null;
+            if (r.SeekSegment("PLAY"))
+            {
+                if (r.Get8() != 0)
+                {
+                    player = new World.Gameplay.PlayerSession
+                    {
+                        StateId = (int)r.Get32(),
+                        TaxRateOverride = r.GetFloat(),
+                    };
+                    int cmdCount = (int)r.Get32();
+                    // 长度校验（单命令 17B：1×u8 + 3×u32 + 1×f32；用 16B 保守下界防错位读爆）
+                    long cmdRemaining = r.Length - r.Position;
+                    if (cmdCount < 0 || cmdCount > cmdRemaining / 16)
+                    {
+                        LogService.LogErr("CivMapArchive", $"{path} 玩家命令队列长度异常：count={cmdCount}——正文错位或损坏。");
+                        return false;
+                    }
+                    for (int q = 0; q < cmdCount; q++)
+                        player.Queue.Add(new World.Gameplay.PlayerCommand
+                        {
+                            Kind = (World.Gameplay.PlayerCommandKind)r.Get8(),
+                            TargetA = (int)r.Get32(),
+                            TargetB = (int)r.Get32(),
+                            Value = r.GetFloat(),
+                            IssuedTick = (int)r.Get32(),
+                        });
+                }
+            }
+
             // 文化 key 计数兜底：份额场推导（被同化掉的 key 可能使推导偏小，故取 max）
             int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
             for (int k = 0; k < entities.Count; k++)
@@ -884,6 +1000,7 @@ public static class CivMapArchive
                 Wars = wars,                  // 战争段（段缺失 → 空列表——无战争起步）
                 Events = events,              // 文明事件段（段缺失 → 空历史——旁路记录，不阻断）
                 States = states,              // 国家档案段（段缺失 → 空列表——机制下 tick 自愈建档）
+                Player = player,              // 玩家会话段（段缺失/无玩家 → null——纯自动模式）
                 // 土地挂钩：Cultivation 从存档恢复；暂存/领地索引重建
                 Cultivation = cultivation ?? new float[n],
                 CellOwner = cellOwner ?? EnumerableRepeat(-1, n),

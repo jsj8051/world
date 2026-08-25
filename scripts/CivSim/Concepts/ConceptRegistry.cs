@@ -17,7 +17,7 @@ namespace World.CivSim.Concepts;
 ///                Trade, Conflict, Influence }                        —— 游群地基（10 机制）
 ///   tribe    = band ∪ { Cultivate, Territory, Mode, Invention, Spread, Habitation }   —— 农业部落
 ///   chiefdom = tribe ∪ { Prestige, Chiefdom, Absorption, Conflict(参数 0.5) }        —— 酋邦
-///   state    = chiefdom ∪ { State, War, Conflict(参数 0.25) }                        —— 国家
+///   state    = chiefdom ∪ { State, StateMechanism, War, Conflict(参数 0.25) }        —— 国家（制度 + 战争）
 /// 设计要点：
 ///   ① 机制积木不绑定概念层——Conflict 被 band/chiefdom/state 三配方复用（差异在参数表/策略，
 ///      不在机制本身）；Union 按类型去重 → 运行时仍一份实例（StoneAge 推导）。
