@@ -271,6 +271,7 @@ public partial class MapViewer
     private Label _yearLabel;             // 右上演化年
     private HBoxContainer _epochRow;      // 时间行（场景 EpochBar 或代码重建）
     private bool _cukPinned;              // 钉住态（点击抓手锁定常显——防 hover 误触）
+    private ulong _cukSuppressUntil = 0; // 点击解锁后的展开抑制截止（ms）——防"收起又弹开"
     private Godot.Timer _cukRetractTimer;  // 移开收回延迟（0.4s 防抖：跨行移动不误收）
 
     /// <summary>潜藏坞初始化（EnsureUi 内调用一次）：绑定 hover/pin 信号 + 样式。
@@ -301,19 +302,37 @@ public partial class MapViewer
         if (_epochLabel != null) _epochLabel.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
         if (_yearLabel != null) _yearLabel.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
 
-        // 交互：hover 展开 / 移开 0.4s 收回（防抖）/ 点击钉住
-        // ⚠️ MouseEntered 不能无条件展开——会清掉钉住态（用户报"点击后鼠标一挪就收回"）：
-        //    pin 状态下 hover 只停防抖定时器，不触碰 pin。
-        _cukGrip.MouseEntered += () => { _cukRetractTimer?.Stop(); if (!_cukPinned) ShowCukDock(false); };
-        _cukGrip.MouseExited += OnCukLeft;
-        _cukDock.MouseEntered += () => _cukRetractTimer?.Stop();
-        _cukDock.MouseExited += OnCukLeft;
+        // 交互：鼠标位置每帧判定（ProcessCukHud）——HTML 同款语义：指针在抓手/坞区域内=展开，
+        //   离开 0.4s 后收回；点击抓手钉住。不用 hover 信号——子控件（坞内按钮）覆盖时
+        //   Dock 的 MouseEntered 不触发，防抖定时器没人停 → "在地图上停一会就收回"（用户报）。
         _cukGrip.GuiInput += OnCukGripClick;
 
         _cukRetractTimer = new Godot.Timer { OneShot = true, WaitTime = 0.4f };
         AddChild(_cukRetractTimer);
         _cukRetractTimer.Timeout += () => { if (!_cukPinned) SetCukDockVisible(false); };
         GD.Print($"[CukHud] 绑定完成 dock={(object)_cukDock != null} grip={(object)_cukGrip != null} epoch={(object)_epochRow != null}");
+    }
+
+    /// <summary>潜藏坞每帧状态（MapViewer._Process 调用）：
+    /// 指针在抓手/坞矩形内 → 停防抖并（必要时）展开；移出 → 启动 0.4s 收回。
+    /// 矩形判定跟随真实绘制区域（含坞内按钮），不依赖 hover 信号的子控件坑。</summary>
+    private void ProcessCukHud()
+    {
+        if (_cukDock == null || _cukGrip == null) return;
+        var mouse = GetViewport().GetMousePosition();
+        bool inGrip = _cukGrip.GetGlobalRect().HasPoint(mouse);
+        bool inDock = _cukDock.Visible && _cukDock.GetGlobalRect().HasPoint(mouse);
+        if (inGrip || inDock)
+        {
+            _cukRetractTimer?.Stop();
+            // 点击解锁后的短暂抑制（防"收起又弹开"）——抑制期不展开
+            if (!_cukDock.Visible && Time.GetTicksMsec() < _cukSuppressUntil) return;
+            if (!_cukDock.Visible) _cukDock.Visible = true;   // 指针进入抓手即展开（hover 语义）
+        }
+        else if (_cukDock.Visible && !_cukPinned && _cukRetractTimer != null && _cukRetractTimer.IsStopped())
+        {
+            _cukRetractTimer.Start();   // 离开坞/抓手 → 0.4s 后收回（移出防误触）
+        }
     }
 
     private void ShowCukDock(bool pin)
@@ -328,17 +347,23 @@ public partial class MapViewer
         if (!visible && _cukPinned) { _cukPinned = false; _cukGrip.Text = "▲ 地 图 ▲"; }
     }
 
-    /// <summary>鼠标离开坞/抓手：启动收回延迟（0.4s 内再进入则取消——防跨行误收）。</summary>
-    private void OnCukLeft() { if (!_cukPinned) _cukRetractTimer?.Start(); }
+    /// <summary>鼠标离开坞/抓手：启动收回延迟（0.4s 内再进入则取消——防跨行误收）。
+    /// ⚠️ 已由 ProcessCukHud 位置驱动取代（hover 信号在坞内按钮覆盖时不可靠）。</summary>
+    private void OnCukLeft() { }   // 保留占位（历史引用清理后可删）
 
-    /// <summary>抓手点击：切换钉住态（锁定常显 / 解锁收回）。</summary>
+    /// <summary>抓手点击：切换钉住态（锁定常显 / 解锁收回）。
+    /// 解锁后 0.5s 抑制位置驱动展开——防"点一下收起又立刻弹开"（鼠标尚在抓手上）。</summary>
     private void OnCukGripClick(InputEvent ev)
     {
         if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
         {
             _cukRetractTimer?.Stop();
             if (!_cukPinned) ShowCukDock(true);
-            else SetCukDockVisible(false);
+            else
+            {
+                SetCukDockVisible(false);
+                _cukSuppressUntil = Time.GetTicksMsec() + 500;
+            }
         }
     }
 

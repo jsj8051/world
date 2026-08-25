@@ -248,6 +248,7 @@ public partial class MapViewer : Node3D
             _bar.Value = _progress * 100f;
             _label.Text = $"{_phase}  {_progress * 100f:F0}%";
         }
+        ProcessCukHud();   // 潜藏坞：鼠标位置驱动（指针在区域内=展开，离开=0.4s 收回）
     }
 
     private void Generate()
