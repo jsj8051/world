@@ -49,6 +49,9 @@ public partial class MapViewer : Node3D
     }
     private string _mapPath = "user://maps/map1.mpa";
 
+    // ⚠️ 2026-08-25 第二阶段「正式游玩」：游玩形态标记（选国家/活世界驱动为后续刀；本刀仅标记）
+    private bool _playMode;
+
     // 地图存档缓存：运行期间不变，只读一次；重建（切图层/改 GridN）复用
     private MapData _map;
     private bool _mapLoaded;
@@ -235,6 +238,11 @@ public partial class MapViewer : Node3D
             _mapPath = pending;
             LogService.Log("MapViewer", $"pending path: {_mapPath}");
         }
+        // ⚠️ 2026-08-25 第二阶段「正式游玩」：MapViewer 进入游玩形态（选国家/活世界驱动为后续刀；
+        //   本刀先标记形态——读档路径/图层行为不变，后续在此接状态）
+        _playMode = EventBus.ConsumeGameplayMap();
+        if (_playMode)
+            LogService.Log("MapViewer", $"gameplay mode: {_mapPath}");
         Generate();
     }
 

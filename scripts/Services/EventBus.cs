@@ -15,11 +15,54 @@ public static class EventBus
     /// <summary>请求进入文明演化（携带要预选的 .mpa 路径；缺失则让演化页自己列全部）。</summary>
     public static event Action<string> CivEvolveRequested;
 
+    /// <summary>请求进入"正式游玩"选图（主菜单游玩按钮 → SaveSelectMenu 游玩模式）。</summary>
+    public static event Action GameplaySelectRequested;
+
+    /// <summary>本次地图请求标记为"正式游玩"（MapViewer 消费——浏览/游玩形态切换）。</summary>
+    public static event Action GameplayMapRequested;
+
     /// <summary>生成进度（0..1）。</summary>
     public static event Action<float> GenerationProgress;
 
     /// <summary>生成完成（是否成功, 存档路径）。</summary>
     public static event Action<bool, string> GenerationFinished;
+
+    // ── 第二阶段"正式游玩"模式标记（2026-08-25：主菜单双入口——查看地图 / 正式游玩）──
+    // 待消费布尔（场景切换时序：发布时新场景尚未实例化，事件会错过——同 _pendingMapViewPath 模式）：
+    //   RequestGameplaySelect → SaveSelectMenu._Ready 决定列表模式（.cmp 游戏档）
+    //   MarkGameplayMap → MapViewer._Ready 决定浏览/游玩形态（选国家/活世界驱动为下一刀）
+    private static bool _pendingPlaySelect;
+    private static bool _pendingMapPlay;
+
+    /// <summary>请求进入"正式游玩"选图（主菜单游玩按钮 → SaveSelectMenu 游玩模式）。</summary>
+    public static void RequestGameplaySelect()
+    {
+        _pendingPlaySelect = true;
+        GameplaySelectRequested?.Invoke();
+    }
+
+    /// <summary>SaveSelectMenu._Ready 消费游玩选图标记（取后清空；false = 浏览模式）。</summary>
+    public static bool ConsumeGameplaySelect()
+    {
+        var v = _pendingPlaySelect;
+        _pendingPlaySelect = false;
+        return v;
+    }
+
+    /// <summary>标记本次地图请求为"正式游玩"（MapViewer 消费；路径仍走 RequestMapView）。</summary>
+    public static void MarkGameplayMap()
+    {
+        _pendingMapPlay = true;
+        GameplayMapRequested?.Invoke();
+    }
+
+    /// <summary>MapViewer._Ready 消费游玩标记（取后清空）。</summary>
+    public static bool ConsumeGameplayMap()
+    {
+        var v = _pendingMapPlay;
+        _pendingMapPlay = false;
+        return v;
+    }
 
     // 场景切换时序：发布时新场景尚未实例化，事件会错过——
     // 保留"待消费值"（语义同旧 ViewerLauncher.PendingPath），MapViewer._Ready 消费。

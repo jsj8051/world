@@ -12,10 +12,14 @@ namespace World.UI;
 /// 不再区分自然/文明两类存档。静态骨架（背景/窗口框/标题/列表容器/返回/确认框/遮罩/Toast）
 /// 在 SaveSelectMenu.tscn 场景中定义；脚本只做动态部分：存档行生成、删除确认、Toast。
 /// 每行标记 🌍 含文明（CIVI 段）或 🗺 纯自然；点击统一进 MapViewer（读档自动启用文明图层）。
+/// ⚠️ 2026-08-25 第二阶段双模式：浏览模式（默认，列 .mpa → MapViewer 查看）/
+///    游玩模式（EventBus.RequestGameplaySelect 触发，列 .cmp 游戏档 → 进游玩——EU4 式）。
 /// </summary>
 public partial class SaveSelectMenu : Control
 {
     private const string ExtMap = ".mpa";
+    private const string ExtGame = ".cmp";
+    private bool _playMode;      // 游玩模式（主菜单「正式游玩」进入——列 .cmp 游戏档）
     private Label _title;
     private Label _status;
     private Label _statusDot;
@@ -63,6 +67,9 @@ public partial class SaveSelectMenu : Control
         GetNode<Button>("Win/V/FootPad/FootRow/BackBtn").Pressed +=
             () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
 
+        // ⚠️ 2026-08-25 游玩模式（主菜单「正式游玩」→ RequestGameplaySelect → 列 .cmp 游戏档）
+        _playMode = EventBus.ConsumeGameplaySelect();
+
         // 状态点呼吸动画
         var tween = CreateTween().SetLoops();
         tween.TweenProperty(_statusDot, "modulate:a", 0.35f, 1.2f);
@@ -86,13 +93,17 @@ public partial class SaveSelectMenu : Control
         foreach (Node c in _list.GetChildren())
             c.QueueFree();
 
-        _title.Text = "🌍  世界存档";
+        string ext = _playMode ? ExtGame : ExtMap;
+        _title.Text = _playMode ? "⚔  正式游玩" : "🌍  世界存档";
+        string emptyHint = _playMode
+            ? "请先到主菜单「创建世界」生成并演化出国家（.cmp 游戏档）"
+            : "请先到主菜单「创建世界」生成";
 
         var files = new List<string>();
         using var dir = DirAccess.Open("user://maps");
         if (dir == null)
         {
-            ShowEmpty("还没有世界存档", "请先到主菜单「创建世界」生成", "🌍");
+            ShowEmpty(_playMode ? "还没有游戏存档" : "还没有世界存档", emptyHint, _playMode ? "⚔" : "🌍");
             return;
         }
         dir.ListDirBegin();
@@ -100,7 +111,7 @@ public partial class SaveSelectMenu : Control
         {
             string f = dir.GetNext();
             if (f == "") break;
-            if (!dir.CurrentIsDir() && f.EndsWith(ExtMap))
+            if (!dir.CurrentIsDir() && f.EndsWith(ext))
                 files.Add(f);
         }
         dir.ListDirEnd();
@@ -108,7 +119,7 @@ public partial class SaveSelectMenu : Control
 
         if (files.Count == 0)
         {
-            ShowEmpty("还没有世界存档", "请先到主菜单「创建世界」生成", "🌍");
+            ShowEmpty(_playMode ? "还没有游戏存档" : "还没有世界存档", emptyHint, _playMode ? "⚔" : "🌍");
             return;
         }
 
@@ -219,7 +230,7 @@ public partial class SaveSelectMenu : Control
             var delBtn = new Button { Text = "🗑", CustomMinimumSize = new Vector2(48, 40) };
             delBtn.AddThemeFontSizeOverride("font_size", 15);
             ApplyDanger(delBtn);
-            delBtn.Pressed += () => RequestDelete(captured, f, "世界存档");
+            delBtn.Pressed += () => RequestDelete(captured, f, _playMode ? "游戏档" : "世界存档");
             btns.AddChild(delBtn);
 
             _list.AddChild(row);
@@ -227,7 +238,9 @@ public partial class SaveSelectMenu : Control
 
         int bad = _broken.Count, lck = _locked.Count;
         if (bad + lck > 0)
-            SetStatus($"找到 {files.Count} 个世界存档（{bad} 损坏 + {lck} 版本不符，无法进入；可删除清理）", SaveRowStyle.Yellow);
+            SetStatus($"找到 {files.Count} 个{( _playMode ? "游戏档" : "世界存档")}（{bad} 损坏 + {lck} 版本不符，无法进入；可删除清理）", SaveRowStyle.Yellow);
+        else if (_playMode)
+            SetStatus($"找到 {files.Count} 个游戏档（.cmp——含国家与文明），点击进入游玩，或点 🗑 删除", SaveRowStyle.Accent);
         else
             SetStatus($"找到 {files.Count} 个世界存档：🌍=含文明 🗺=纯自然，点击进入，或点 🗑 删除", SaveRowStyle.Accent);
     }
@@ -271,20 +284,31 @@ public partial class SaveSelectMenu : Control
         _statusDot.AddThemeColorOverride("font_color", dotColor);
     }
 
-    /// <summary>读取 .mpa 头部信息（seed/顶点数/海拔范围 + 文明段标记）。
+    /// <summary>读取存档头部信息（浏览模式：.mpa 经 MapArchive.Peek；游玩模式：.cmp 经 CivMapArchive.Peek）。
     /// 返回 (info, broken, locked)：broken=Peek 失败（损坏），locked=版本不支持。</summary>
     private (string info, bool broken, bool locked) DescribeMap(string path, out bool hasCiv)
     {
         hasCiv = false;
-        if (!MapArchive.Peek(path, out int seed, out int vertexCount, out int height,
-                             out float minElev, out float maxElev, out ushort ver, out hasCiv))
+        if (_playMode)
+        {
+            // .cmp 游戏档：seed/tick/人口/实体（段表直达 HEAD+TRIB，毫秒级）
+            if (!CivMapArchive.Peek(path, out int seed, out int tick, out float pop,
+                    out int entities, out ushort ver, out var status))
+                return status == ArchiveVersionStatus.Current
+                    ? (null, true, false)                     // status=Current 仍失败 → 损坏
+                    : ($"不支持版本 v{ver}（当前 v{CivMapArchive.Version}，请重新演化生成）", false, true);
+            hasCiv = true;   // .cmp 恒含文明（游戏档）
+            return ($"🌍 seed={seed} · tick {tick} · 人口 {pop:F0} · 势力 {entities}", false, false);
+        }
+        if (!MapArchive.Peek(path, out int seed2, out int vertexCount, out int height,
+                             out float minElev, out float maxElev, out ushort ver2, out hasCiv))
             return (null, true, false);   // 打不开/损坏
-        if (ver < 6 || ver > MapArchive.Version)
-            return ($"不支持版本 v{ver}（当前 v{MapArchive.Version}，请重新生成）", false, true);
+        if (ver2 < 6 || ver2 > MapArchive.Version)
+            return ($"不支持版本 v{ver2}（当前 v{MapArchive.Version}，请重新生成）", false, true);
         string civ = hasCiv ? "🌍 含文明" : "";
-        return ver >= 3
-            ? ($"{civ} seed={seed} · {vertexCount} 顶点 · elev[{minElev:F0},{maxElev:F0}]m", false, false)
-            : ($"{civ} seed={seed} · {vertexCount}×{height} · elev[{minElev:F0},{maxElev:F0}]m", false, false);
+        return ver2 >= 3
+            ? ($"{civ} seed={seed2} · {vertexCount} 顶点 · elev[{minElev:F0},{maxElev:F0}]m", false, false)
+            : ($"{civ} seed={seed2} · {vertexCount}×{height} · elev[{minElev:F0},{maxElev:F0}]m", false, false);
     }
 
     private void RequestDelete(string path, string fileName, string kind)
@@ -352,6 +376,7 @@ public partial class SaveSelectMenu : Control
             return;
         }
         EventBus.RequestMapView(path);
+        if (_playMode) EventBus.MarkGameplayMap();   // 游玩模式标记（MapViewer 消费——浏览/游玩形态）
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 

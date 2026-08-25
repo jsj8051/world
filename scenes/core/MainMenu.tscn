@@ -230,7 +230,22 @@ theme_override_styles/focus = SubResource("sb_card")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_pressed_color = Color(0.227, 0.173, 0.102, 1)
-text = "🌍  进入世界"
+text = "🗺  查看地图"
+
+[node name="PlayBtn" type="Button" parent="Win/V/BodyPad/Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 88)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 24
+theme_override_styles/normal = SubResource("sb_card")
+theme_override_styles/hover = SubResource("sb_card_hover")
+theme_override_styles/pressed = SubResource("sb_card_pressed")
+theme_override_styles/focus = SubResource("sb_card")
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_pressed_color = Color(0.227, 0.173, 0.102, 1)
+text = "⚔  正式游玩"
 
 [node name="FootPad" type="MarginContainer" parent="Win/V"]
 layout_mode = 2
