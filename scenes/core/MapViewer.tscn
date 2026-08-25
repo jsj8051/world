@@ -175,12 +175,12 @@ anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -180.0
-offset_top = -26.0
-offset_right = 180.0
+offset_left = -330.0
+offset_top = -46.0
+offset_right = 330.0
 grow_horizontal = 2
 grow_vertical = 0
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 15
 theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
 text = "▲ 地 图 ▲"
 horizontal_alignment = 1
@@ -195,9 +195,9 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -330.0
-offset_top = -118.0
+offset_top = -138.0
 offset_right = 330.0
-offset_bottom = -26.0
+offset_bottom = -46.0
 grow_horizontal = 2
 grow_vertical = 0
 
@@ -208,11 +208,13 @@ theme_override_constants/separation = 6
 [node name="CatRow" type="HBoxContainer" parent="UiLayer/CukDock/DockBox"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_horizontal = 4
 theme_override_constants/separation = 8
 
 [node name="LayerRow" type="HBoxContainer" parent="UiLayer/CukDock/DockBox"]
 unique_name_in_owner = true
 layout_mode = 2
+size_flags_horizontal = 4
 theme_override_constants/separation = 4
 
 [node name="EpochPanel" type="PanelContainer" parent="UiLayer"]

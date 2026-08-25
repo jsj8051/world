@@ -287,14 +287,24 @@ public partial class MapViewer
         if (_cukDock == null || _cukGrip == null) return;   // 场景未初始化——静默
 
         // 样式（羊皮纸色板——SaveRowStyle 同源）
+        // ⚠️ 抓手必须给齐 normal/hover/pressed/focus——缺 pressed 会跳默认主题灰底+padding 变化
+        //    （用户报"点击后按钮错位"——按下时样式跳变）。hover 保持同款，按下微亮。
         _cukDock.AddThemeStyleboxOverride("panel", CukDockStyle());
         _cukGrip.AddThemeStyleboxOverride("normal", CukGripStyle());
-        _cukGrip.AddThemeColorOverride("font_color", new Color(0.722f, 0.525f, 0.043f, 1f));
+        _cukGrip.AddThemeStyleboxOverride("hover", CukGripStyle());
+        _cukGrip.AddThemeStyleboxOverride("pressed", CukGripPressStyle());
+        _cukGrip.AddThemeStyleboxOverride("focus", CukGripStyle());
+        _cukGrip.AddThemeColorOverride("font_color", new Color(0.984f, 0.961f, 0.878f, 1f));
+        _cukGrip.AddThemeColorOverride("font_hover_color", new Color(0.984f, 0.961f, 0.878f, 1f));
+        _cukGrip.AddThemeColorOverride("font_pressed_color", new Color(0.984f, 0.961f, 0.878f, 1f));
+        _cukGrip.AddThemeColorOverride("font_focus_color", new Color(0.984f, 0.961f, 0.878f, 1f));
         if (_epochLabel != null) _epochLabel.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
         if (_yearLabel != null) _yearLabel.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
 
         // 交互：hover 展开 / 移开 0.4s 收回（防抖）/ 点击钉住
-        _cukGrip.MouseEntered += () => { _cukRetractTimer?.Stop(); ShowCukDock(false); };
+        // ⚠️ MouseEntered 不能无条件展开——会清掉钉住态（用户报"点击后鼠标一挪就收回"）：
+        //    pin 状态下 hover 只停防抖定时器，不触碰 pin。
+        _cukGrip.MouseEntered += () => { _cukRetractTimer?.Stop(); if (!_cukPinned) ShowCukDock(false); };
         _cukGrip.MouseExited += OnCukLeft;
         _cukDock.MouseEntered += () => _cukRetractTimer?.Stop();
         _cukDock.MouseExited += OnCukLeft;
@@ -303,6 +313,7 @@ public partial class MapViewer
         _cukRetractTimer = new Godot.Timer { OneShot = true, WaitTime = 0.4f };
         AddChild(_cukRetractTimer);
         _cukRetractTimer.Timeout += () => { if (!_cukPinned) SetCukDockVisible(false); };
+        GD.Print($"[CukHud] 绑定完成 dock={(object)_cukDock != null} grip={(object)_cukGrip != null} epoch={(object)_epochRow != null}");
     }
 
     private void ShowCukDock(bool pin)
@@ -357,6 +368,20 @@ public partial class MapViewer
         {
             BgColor = new Color(SaveRowStyle.Fg, 0.95f),
             BorderColor = new Color(SaveRowStyle.Accent, 1f),
+            AntiAliasing = true,
+        };
+        s.SetBorderWidthAll(1);
+        s.CornerRadiusTopLeft = s.CornerRadiusTopRight = 9;
+        return s;
+    }
+
+    /// <summary>抓手按下态（微亮深墨 + 亮金边——点击有反馈且不跳样式）。</summary>
+    private static StyleBoxFlat CukGripPressStyle()
+    {
+        var s = new StyleBoxFlat
+        {
+            BgColor = new Color(0.31f, 0.24f, 0.14f, 0.98f),
+            BorderColor = new Color(0.788f, 0.6f, 0.12f, 1f),
             AntiAliasing = true,
         };
         s.SetBorderWidthAll(1);
