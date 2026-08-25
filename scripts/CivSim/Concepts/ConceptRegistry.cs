@@ -93,6 +93,7 @@ public static class ConceptRegistry
         Mechanisms = new (Type, Func<CivModelBase>)[]
         {
             (typeof(StateModel), () => new StateModel()),             // 国家涌现外壳（5 规范积木 AND → Assign）
+            (typeof(StateMechanism), () => new StateMechanism()),     // 国家制度（EU4 式通用：国库/稳定度/合法性/君主更替）
             (typeof(WarModel), () => new WarModel()),                 // 战争外交（仅国家宣战——IWarPolicy）
             (typeof(ConflictModel), () => new ConflictModel()),       // 复用：同国家 ×0.25 + 王朝豁免
         },

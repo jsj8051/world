@@ -60,6 +60,7 @@ public static class CivMapArchive
 
     /// <summary>顺序流 EVNT 哨兵（"EVNT" ASCII；旧档 WARS 后无此哨兵 → 空历史，读端回退不破坏流）。</summary>
     private const int EvntMagic = 0x45564E54;
+    private const int StatMagic = 0x53544154;   // "STAT"——国家档案哨兵块（CIVI 顺序流尾部；旧档无 → 空档案）
 
     /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
     private static string ResolvePath(string path) =>
@@ -87,6 +88,7 @@ public static class CivMapArchive
         public List<Habitation> Habitations;
         public List<War> Wars;
         public List<CivEventRecord> Events;   // 文明事件（哨兵块；旧档缺失 → 空历史）
+        public List<StateEntity> States;      // 国家档案（哨兵块；旧档缺失 → 空列表 → 自愈建档）
     }
 
     /// <summary>用自然层网格 + 文明中间数据重建完整 CivSimContext（确定性派生态重建，
@@ -132,6 +134,7 @@ public static class CivMapArchive
             NextHabitationId = rec.NextHabitationId,
             Wars = rec.Wars,
             Events = rec.Events ?? new List<CivEventRecord>(),
+            States = rec.States ?? new List<StateEntity>(),
             Cultivation = rec.Cultivation ?? new float[n],
             CellOwner = rec.CellOwner ?? EnumerableRepeat(-1, n),
             LockedUntil = rec.LockedUntil ?? EnumerableRepeat(0, n),
@@ -256,6 +259,31 @@ public static class CivMapArchive
                 r.Seek(mark);   // 旧档：非哨兵 → 回退到段尾（流结束语义）
         }
         rec.Events = events;
+        // ── STAT（哨兵块；旧档无 → 空档案，机制下 tick 自愈建档——国库从 0 起）──
+        var states = new List<StateEntity>();
+        if (r.Length - r.Position >= 4)
+        {
+            long mark = r.Position;
+            if ((int)r.Get32() == StatMagic)
+            {
+                int stCount = (int)r.Get32();
+                if (stCount < 0 || stCount > (r.Length - r.Position) / 24) { corrupted = true; return null; }
+                for (int k = 0; k < stCount; k++)
+                    states.Add(new StateEntity
+                    {
+                        Id = (int)r.Get32(),
+                        CapitalHabId = (int)r.Get32(),
+                        MonarchId = (int)r.Get32(),
+                        Treasury = r.GetFloat(),
+                        Stability = r.GetFloat(),
+                        Legitimacy = r.GetFloat(),
+                        BornTick = (int)r.Get32(),
+                    });
+            }
+            else
+                r.Seek(mark);   // 旧档：非哨兵 → 回退（流结束语义）
+        }
+        rec.States = states;
         // cellPolities 按 n 重映射（一格一实体）
         rec.CellPolities = new Polity[n];
         for (int i = 0; i < n; i++) rec.CellPolities[i] = null;
@@ -345,6 +373,21 @@ public static class CivMapArchive
                 w.Store32((uint)ev.SubjectId);
                 w.Store32((uint)ev.TargetId);
                 w.StoreFloat(ev.Value);
+            }
+        // ── STAT（哨兵块——同 EVNT；旧档无哨兵 → 读端回退空档案，自愈建档）──
+        w.Store32(StatMagic);
+        var states = ctx.States;
+        w.Store32((uint)(states?.Count ?? 0));
+        if (states != null)
+            foreach (var st in states)
+            {
+                w.Store32((uint)st.Id);
+                w.Store32((uint)st.CapitalHabId);   // -1 → uint 全 1
+                w.Store32((uint)st.MonarchId);
+                w.StoreFloat(st.Treasury);
+                w.StoreFloat(st.Stability);
+                w.StoreFloat(st.Legitimacy);
+                w.Store32((uint)st.BornTick);
             }
     }
 
@@ -455,6 +498,22 @@ public static class CivMapArchive
                     w.Store32((uint)ev.TargetId);
                     w.StoreFloat(ev.Value);
                 }
+            w.EndSegment();
+
+            // ── STAT：国家档案段（2026-08-25 通用国家机制——EU4 式制度层持久状态；段缺失 = 空 → 自愈重建）──
+            w.BeginSegment("STAT", 1);
+            w.Store32((uint)ctx.States.Count);
+            for (int k = 0; k < ctx.States.Count; k++)
+            {
+                var st = ctx.States[k];
+                w.Store32((uint)st.Id);
+                w.Store32((uint)st.CapitalHabId);   // -1 → uint 全 1（读回 (int) 还原）
+                w.Store32((uint)st.MonarchId);
+                w.StoreFloat(st.Treasury);
+                w.StoreFloat(st.Stability);
+                w.StoreFloat(st.Legitimacy);
+                w.Store32((uint)st.BornTick);
+            }
             w.EndSegment();
 
             w.Finish();
@@ -757,6 +816,34 @@ public static class CivMapArchive
                         (int)r.Get32(), (int)r.Get32(), r.GetFloat()));
             }
 
+            // ── STAT：国家档案段（段缺失 = 旧档无国家档案 → 空列表，机制下 tick 自愈建档）──
+            var states = new List<StateEntity>();
+            if (r.SeekSegment("STAT"))
+            {
+                int stCount = (int)r.Get32();
+                // 长度校验（单记录 28B：4×u32 + 3×f32；用 24B 保守下界防错位读爆）
+                long stRemaining = r.Length - r.Position;
+                if (stCount < 0 || stCount > stRemaining / 24)
+                {
+                    LogService.LogErr("CivMapArchive", $"{path} 国家档案段长度异常：count={stCount}——正文错位或损坏。");
+                    return false;
+                }
+                for (int k = 0; k < stCount; k++)
+                {
+                    var st = new StateEntity
+                    {
+                        Id = (int)r.Get32(),
+                        CapitalHabId = (int)r.Get32(),
+                        MonarchId = (int)r.Get32(),
+                        Treasury = r.GetFloat(),
+                        Stability = r.GetFloat(),
+                        Legitimacy = r.GetFloat(),
+                        BornTick = (int)r.Get32(),
+                    };
+                    states.Add(st);
+                }
+            }
+
             // 文化 key 计数兜底：份额场推导（被同化掉的 key 可能使推导偏小，故取 max）
             int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
             for (int k = 0; k < entities.Count; k++)
@@ -796,6 +883,7 @@ public static class CivMapArchive
                 NextHabitationId = nextHabitationId,
                 Wars = wars,                  // 战争段（段缺失 → 空列表——无战争起步）
                 Events = events,              // 文明事件段（段缺失 → 空历史——旁路记录，不阻断）
+                States = states,              // 国家档案段（段缺失 → 空列表——机制下 tick 自愈建档）
                 // 土地挂钩：Cultivation 从存档恢复；暂存/领地索引重建
                 Cultivation = cultivation ?? new float[n],
                 CellOwner = cellOwner ?? EnumerableRepeat(-1, n),

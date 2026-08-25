@@ -24,12 +24,12 @@ public class ConceptRegistryTests
     [Test]
     public void Union_Matches_StoneAge_RegisteredSet()
     {
-        // 概念表 Union 的类型集合 ≡ StoneAge 注册的机制集合（21 个——行为基准）
+        // 概念表 Union 的类型集合 ≡ StoneAge 注册的机制集合（22 个——行为基准，2026-08-25 +国家制度）
         var union = ConceptRegistry.AllMechanismsUnion().Select(m => m.Type).ToHashSet();
         var stoneAge = CivModelRegistry.StoneAge().SortedModels().Select(m => m.GetType()).ToHashSet();
         Assert.That(union.SetEquals(stoneAge), Is.True,
             $"Union 与 StoneAge 不一致：仅 Union={string.Join(",", union.Except(stoneAge))}；仅 StoneAge={string.Join(",", stoneAge.Except(union))}");
-        Assert.That(union.Count, Is.EqualTo(21), "机制全集应为 21（现状演化模型数）");
+        Assert.That(union.Count, Is.EqualTo(22), "机制全集应为 22（现状演化模型数）");
     }
 
     [Test]
@@ -40,7 +40,7 @@ public class ConceptRegistryTests
         var union = ConceptRegistry.AllMechanismsUnion();
         var types = union.Select(m => m.Type).ToList();
         Assert.That(types.Count, Is.EqualTo(types.Distinct().Count()), "Union 应无重复机制类型");
-        Assert.That(types.Count, Is.EqualTo(21), "Union 去重后 = 21（现状演化模型数）");
+        Assert.That(types.Count, Is.EqualTo(22), "Union 去重后 = 22（现状演化模型数）");
         // 直接声明允许复用：band 与 chiefdom 都直接声明 Conflict——Union 只保留一份
         var bandDirect = ConceptRegistry.Of("band").Mechanisms.Select(m => m.Type).ToHashSet();
         var chiefDirect = ConceptRegistry.Of("chiefdom").Mechanisms.Select(m => m.Type).ToHashSet();
@@ -63,13 +63,13 @@ public class ConceptRegistryTests
     [Test]
     public void Chiefdom_State_Expand_Transitively()
     {
-        // 传递展开：state.AllMechanisms 应含 band 全部 + 全链新增（10+6+3+2 = 21）
+        // 传递展开：state.AllMechanisms 应含 band 全部 + 全链新增（10+6+3+3 = 22——2026-08-25 +国家制度）
         var state = ConceptRegistry.Of("state");
         var types = state.AllMechanisms().Select(m => m.Type).ToHashSet();
         Assert.That(types.Contains(typeof(OriginModel)), Is.True, "state 经子配方引用应含 band 的 Origin");
         Assert.That(types.Contains(typeof(StateModel)), Is.True);
         Assert.That(types.Contains(typeof(WarModel)), Is.True);
-        Assert.That(types.Count, Is.EqualTo(21), "state 全链 = band(10)+tribe(6)+chiefdom(3)+state(2 新增) = 21");
+        Assert.That(types.Count, Is.EqualTo(22), "state 全链 = band(10)+tribe(6)+chiefdom(3)+state(3 新增) = 22");
     }
 
     [Test]

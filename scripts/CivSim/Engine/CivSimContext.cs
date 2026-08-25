@@ -87,6 +87,11 @@ public sealed class CivSimContext
     // 入档 EVNT 段（步骤④）；读档还原；段缺失 = 空历史（不阻断）。
     public List<CivEventRecord> Events = new();
 
+    // ── 国家档案（2026-08-25 用户拍板"通用国家机制"——EU4 式制度层持久状态）──
+    // 国家实体性嫁接聚落网络（都城 = 制度载体）；本列表 = 制度档案（国库/稳定度/合法性/君主）。
+    // 入档 STAT 段（段表制一系统一段，不 bump 版本）；段缺失 = 空 → 机制下 tick 自愈建档（国库从 0 起）。
+    public List<StateEntity> States = new();
+
     /// <summary>部落占据的聚落（PlaceId → 实体；无/废墟 = null）。O(S)——S=聚落数（农业定居，规模小）。</summary>
     public Habitation HabitationOf(Polity e)
     {
@@ -162,6 +167,21 @@ public sealed class CivSimContext
                                                        //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
                                                        //   0.1 线下全图 0 国家；0.01 线匹配"少数国家涌现"（史实：早期国家稀少）
     public const int StateDwellTicks = 20;             // 都城实体存续时长（制度化需要时间；对应城市阈值 Dwell 20 tick 量级；★ 待校准）
+
+    // ── 国家档案机制参数（2026-08-25 通用国家机制——EU4 式制度层：国库/稳定度/合法性/君主更替）──
+    // 全部硬编码（用户拍板"快速推进、通用、不搞科技门槛"）；确定性无 Rng。
+    public const float StateTaxPerCap = 0.02f;         // 国库税收：每 tick 人均税率（现金税——与贡赋池 Contributed 实物税并行：
+                                                       //   贡赋池是"剩余集中"的涌现判据，国库是国家自身的财政积累）
+    public const float StateCostPerCap = 0.015f;       // 国库支出：每 tick 人均官僚/军队维持费（制度要钱养）
+                                                       //   （税率 0.02 − 维持 0.015 → 稳态微盈余 0.005/人/tick——健康财政缓慢积累）
+    public const float StateStabilityCrisisDrop = 0.1f; // 危机压稳定：继承窗口/国库赤字 每 tick −0.1（EU4：内乱拖垮稳定）
+    public const float StateStabilityWarDrop = 0.05f;   // 战争拖累：交战期间每 tick −0.05（EU4：战争降低稳定度）
+    public const float StateStabilityRecover = 0.03f;   // 和平盈余：无危机时向 0 回归速度（EU4：稳定度自然回升）
+    public const float StateCollapseStability = -2f;    // 崩盘线：稳定度 ≤ −2 → 都城陷落（制度载体毁 → 三条件断 → 国家消亡）
+    public const float StateLegitimacyBase = 50f;       // 建档合法性基准（0-100 中位——新国不左不右）
+    public const float StateLegitimacyNewMonarch = 30f; // 新君初立合法性（继位震动——EU4 继承合法性低于在位君主）
+    public const float StateLegitimacyRegen = 0.02f;    // 合法性回归速率（向 50 温和收敛——合法性随治绩恢复）
+    public const float StateMonarchDeathStabilityDrop = 1f;  // 君主更替稳定度惩罚（继位混乱——P9 制度化推举代价）
     // ── 军事征服参数（2026-08-19 阶段5，docs/阶段5设计-军事征服.md；用户拍板 P1-P6）──
     public const int WarBattleInterval = 5;        // 会战节奏（每 N tick 一场；5 tick = 500 年）
     public const float WarMinPoolPerCap = 0.02f;   // 宣战门槛：贡赋池 ≥ 总人口×此值（防穷兵黩武；比国家维持线 0.01 高——战争是余力行为）
