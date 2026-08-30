@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>扁平小图标 · 怎么制作的</title>
+<style>
+  :root{
+    --parchment:#e6d7b3; --gold:#b8860b; --ink:#3a2c1a; --vermilion:#8e2424;
+    --light-gold:#c9a24d; --deep-bg:#2b2113; --card:#3a2c1a; --line:#57431f;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:radial-gradient(1200px 600px at 50% -10%, #3d2f1c 0%, transparent 60%), var(--deep-bg);
+    min-height:100vh; font-family:"Microsoft YaHei","微软雅黑",sans-serif;
+    color:var(--parchment); padding:44px 28px 64px;
+  }
+  .wrap{max-width:1060px;margin:0 auto}
+  h1{font-family:KaiTi,"楷体",serif;font-weight:normal;font-size:26px;letter-spacing:6px;text-align:center;margin-bottom:6px}
+  .sub{color:#a08a5e;font-size:13px;letter-spacing:2px;text-align:center;margin-bottom:40px}
+  h2{font-family:KaiTi,"楷体",serif;font-weight:normal;font-size:19px;letter-spacing:3px;margin:44px 0 16px;
+     padding-left:12px;border-left:3px solid var(--gold)}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px 18px;
+        box-shadow:0 10px 26px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,215,140,.1)}
+  .card .tag{display:inline-block;background:var(--gold);color:#fff8e7;font-size:11px;letter-spacing:1px;
+             border-radius:10px;padding:2px 10px;margin-bottom:12px}
+  .card h3{font-size:15px;letter-spacing:1px;margin-bottom:8px}
+  .card p{font-size:12.5px;color:#d8c8a0;line-height:1.9}
+  .card .ex{font-size:11.5px;color:#8a7448;margin-top:10px}
+  .cmp{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;align-items:stretch}
+  .cmp .card{text-align:center}
+  .cmp svg{width:120px;height:120px;margin:6px auto;display:block}
+  .cmp .bad{outline:2px solid var(--vermilion)}
+  .cmp .good{outline:2px solid #7a9e6b}
+  .cmp .note{font-size:12px;color:#d8c8a0;margin-top:8px;line-height:1.8}
+  .cmp .note b{color:var(--light-gold)}
+  .steps{counter-reset:st;display:grid;grid-template-columns:repeat(5,1fr);gap:14px}
+  .step{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 14px;position:relative}
+  .step::before{counter-increment:st;content:counter(st);position:absolute;top:-9px;left:14px;
+     background:var(--gold);color:#fff8e7;font-size:12px;border-radius:9px;padding:1px 8px}
+  .step h4{font-size:13px;letter-spacing:1px;margin-bottom:6px}
+  .step p{font-size:11.5px;color:#d8c8a0;line-height:1.8}
+  .verdict{background:linear-gradient(135deg,#3a2c1a,#46351d);border:1px solid var(--line);border-radius:14px;
+     padding:20px 24px;margin-top:40px;font-size:13.5px;line-height:2;color:#e6d7b3}
+  .verdict b{color:var(--light-gold)}
+  .legend{display:flex;gap:20px;justify-content:center;font-size:12px;color:#a08a5e;margin-top:10px}
+  .grid-bg{fill:none;stroke:#57431f;stroke-width:0.5;stroke-dasharray:3 4}
+  .anchor{fill:none;stroke:#8e2424;stroke-width:2;stroke-dasharray:4 3}
+  @media(max-width:900px){.grid3,.cmp,.steps{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>扁平小图标是怎么制作的</h1>
+  <div class="sub">三种主流做法 · 一条决定"像不像"的原理 · 专业流程五步</div>
+
+  <h2>一、主流就三条路</h2>
+  <div class="grid3">
+    <div class="card">
+      <span class="tag">做法 A · 矢量软件手绘</span>
+      <h3>Figma / Illustrator / Inkscape</h3>
+      <p>钢笔工具画贝塞尔曲线，用布尔运算（并集/挖空）拼出形体，调圆角与间距，最后导出 SVG。所有专业图标库都是这么产出的：<b>统一网格 → 逐图标精画 → 社区审查</b>。优势是任意定制，代价是手绘功夫。</p>
+      <div class="ex">适合：品牌定制、需要独特语义的图标</div>
+    </div>
+    <div class="card">
+      <span class="tag">做法 B · 开源库换色即用</span>
+      <h3>Phosphor / Lucide / FontAwesome</h3>
+      <p>MIT 开源图标库（可商用）。一条命令拿到高质量 SVG 路径：<code style="color:var(--light-gold)">api.iconify.design/ph/fist-fill.svg?color=%23c9a24d</code>。质量由社区几千人打磨过，比手快，比手稳。</p>
+      <div class="ex">适合：通用语义（拳头/握手/金币/人群）</div>
+    </div>
+    <div class="card">
+      <span class="tag">做法 C · 代码手写 path</span>
+      <h3>SVG path / 程序化几何</h3>
+      <p>直接写坐标：矩形=4点，圆=1圆+半径。几何规整的符号（建筑/货币/星）很轻松；但有生命感的形体（手/动物）极难——<b>轮廓差一点，语义就翻车</b>。</p>
+      <div class="ex">适合：几何符号、需要代码可控的场景</div>
+    </div>
+  </div>
+
+  <h2>二、核心原理：扁平图标 = 轮廓即语义</h2>
+  <p style="font-size:13px;color:#d8c8a0;line-height:2;margin-bottom:14px">
+    扁平图标去掉了体积和光影，<b style="color:var(--light-gold)">轮廓是唯一的信息通道</b>。人眼识别不是"整体比对"，而是抓 <b style="color:var(--vermilion)">2~3 个特征点</b>——只要你把特征点画对，几笔就认得出；特征点画错，画得再精细也没用。
+  </p>
+  <div class="cmp">
+    <div class="card">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="62" height="62" class="grid-bg"/>
+        <g fill="#c9a24d">
+          <rect x="13" y="19" width="30" height="7" rx="3"/>
+          <rect x="20" y="14" width="16" height="9" rx="3"/>
+        </g>
+      </svg>
+      <div class="note">我第一版画的"拳头"：<br>宽横块 + 竖直柄<br><b>特征点 = 锤头 + 柄 → 人眼判定"锤子"</b></div>
+    </div>
+    <div class="card">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="62" height="62" class="grid-bg"/>
+        <rect x="13" y="16" width="30" height="14" rx="4" fill="#b8860b" opacity="0.45"/>
+        <rect x="28" y="30" width="8" height="22" rx="3" fill="#b8860b" opacity="0.45"/>
+        <path class="anchor" d="M13 23 L48 23 M32 23 L32 52"/>
+      </svg>
+      <div class="note">同一底座，什么都不是——<br>直到你加上特征点<br><b style="color:#8e2424">轮廓本身没有语义</b></div>
+    </div>
+    <div class="card">
+      <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="62" height="62" class="grid-bg"/>
+        <g fill="#c9a24d">
+          <rect x="13" y="24" width="30" height="14" rx="6"/>
+          <circle cx="20" cy="20" r="5.5"/>
+          <circle cx="28" cy="19" r="6"/>
+          <circle cx="36" cy="19" r="6"/>
+          <circle cx="44" cy="20" r="5.5"/>
+          <rect x="10" y="23" width="16" height="6" rx="3" transform="rotate(-8 18 26)"/>
+          <rect x="26" y="38" width="12" height="16" rx="3.5"/>
+        </g>
+        <path class="anchor" d="M20 9 L20 20 M28 8 L28 19 M36 8 L36 19 M44 9 L44 20 M18 12 L5 12 M18 29 L5 29 M6 40 L26 52"/>
+      </svg>
+      <div class="note">同样底座 + 3 个特征点：<br><b>四个指节圆 · 横搭拇指 · 短手腕</b><br>语义就从"锤"翻转为"拳"</div>
+    </div>
+  </div>
+  <div class="legend">虚线网格 = 8px 设计网格；红线 = 特征点所在位置</div>
+
+  <h2>三、专业流程五步（图标库都这么走）</h2>
+  <div class="steps">
+    <div class="step"><h4>定语义</h4><p>一个词说清它代表什么。"力量"还是"主权"？词不同，特征点就不同。</p></div>
+    <div class="step"><h4>列特征点</h4><p>解剖对象：拳头 → 指节/拇指/腕；银行 → 山墙/立柱/台阶。列不出来就先别画。</p></div>
+    <div class="step"><h4>上网格</h4><p>4px 或 8px 网格对齐，全组统一圆角、统一线宽或填充风格。</p></div>
+    <div class="step"><h4>光学补偿</h4><p>同尺寸下圆和方的"视觉面积"不同，要微调；整套图视觉重量一致。</p></div>
+    <div class="step"><h4>导出复核</h4><p>64px 下缩小到 16px 看辨识度，换底色看对比，同组并排看风格。</p></div>
+  </div>
+
+  <div class="verdict">
+    <b>落到本项目：</b>金币、银行、人群这类"几何符号"——特征点简单，代码手写稳（你已验证 OK）；<b>拳头、握手这类"人体语义"——特征点藏在生物结构里，手写成本高、容错低，正确姿势是拉 Phosphor/Lucide 的填充版换色</b>。刚才拉取失败只是网络证书问题（CRYPT_E_REVOCATION_OFFLINE），换网络或加 <code style="color:var(--light-gold)">curl -k</code> 即可，一条命令换全套，风格和原图高度一致。
+  </div>
+</div>
+</body>
+</html>

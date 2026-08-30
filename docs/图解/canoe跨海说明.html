@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; background: #f5efe2; color: #3a2c1a; margin: 0; padding: 24px; }
+  .card { max-width: 900px; margin: 0 auto; background: #fffaf0; border: 1px solid #d9c49a; border-radius: 10px; padding: 24px 28px; box-shadow: 0 2px 10px rgba(58,44,26,.08); }
+  h1 { font-size: 20px; margin: 0 0 4px; color: #5c3d1a; }
+  .sub { font-size: 13px; color: #8a6f3f; margin-bottom: 18px; }
+  h2 { font-size: 15px; color: #8e2424; margin: 20px 0 8px; border-left: 4px solid #b8860b; padding-left: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 8px 0; }
+  th, td { border: 1px solid #d9c49a; padding: 6px 10px; text-align: left; }
+  th { background: #f0e2c4; }
+  code { background: #f0e2c4; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  .grid { display: flex; gap: 24px; flex-wrap: wrap; margin: 12px 0; }
+  .panel { flex: 1; min-width: 320px; border: 1px solid #d9c49a; border-radius: 8px; padding: 12px; background: #fffdf6; }
+  .panel h3 { margin: 0 0 8px; font-size: 14px; }
+  svg text { font-family: "Microsoft YaHei", sans-serif; }
+  .note { font-size: 12px; color: #6b5640; background: #f6ecd2; border-radius: 6px; padding: 8px 12px; margin: 8px 0; }
+  li { margin: 4px 0; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>独木舟（canoe）科技的「跨海」效果</h1>
+  <div class="sub">数据行：<code>canoe,独木舟,coast,0.01,100,0.02,fire,unlock_sea:1</code> —— 沿海发明（coast），依赖火（烧凿成舟），效果 <code>unlock_sea:1</code> → <code>TechDef.UnlockSea</code></div>
+
+  <h2>本质：把「海」从一堵墙，变成一条低成本的路</h2>
+  <p>全模拟里地形障碍不是「二值墙」而是<b>成本梯度</b>（<code>TerrainCost</code>，0 = 不可穿；火/皮毛解锁冰原、独木舟解锁海洋）。海洋格：</p>
+  <table>
+    <tr><th>状态</th><th>TerrainCost(海)</th><th>含义</th></tr>
+    <tr><td>无独木舟</td><td><code>0</code></td><td>海 = 绝对墙：<code>BorderCost=0</code>，一切跨格流动在此切断</td></tr>
+    <tr><td>有独木舟</td><td><code>0.3</code></td><td>海可穿，成本与沙漠同级（0.3），代价随跳数相乘衰减</td></tr>
+  </table>
+
+  <div class="grid">
+    <div class="panel">
+      <h3>🚫 无独木舟——海是墙</h3>
+      <svg width="360" height="150" viewBox="0 0 360 150">
+        <rect x="0" y="0" width="360" height="150" fill="#fffdf6"/>
+        <g transform="translate(10,30)">
+          <rect x="0" y="0" width="80" height="80" fill="#a8c38f" stroke="#6b8f4e"/>
+          <rect x="100" y="0" width="80" height="80" fill="#7fb2d9" stroke="#4a7fae"/>
+          <rect x="200" y="0" width="80" height="80" fill="#a8c38f" stroke="#6b8f4e"/>
+          <text x="40" y="45" text-anchor="middle" font-size="13">🛖 部落</text>
+          <text x="140" y="45" text-anchor="middle" font-size="13" fill="#1d4e79">🌊 海 cost=0</text>
+          <text x="240" y="45" text-anchor="middle" font-size="13">肥地</text>
+          <line x1="84" y1="40" x2="96" y2="40" stroke="#c0392b" stroke-width="3"/>
+          <line x1="98" y1="36" x2="84" y2="44" stroke="#c0392b" stroke-width="3"/>
+          <line x1="98" y1="44" x2="84" y2="36" stroke="#c0392b" stroke-width="3"/>
+          <text x="90" y="70" text-anchor="middle" font-size="11" fill="#c0392b">BFS 过不去</text>
+          <text x="140" y="110" text-anchor="middle" font-size="11" fill="#4a7fae">对岸再肥也到不了 —— 大陆被海锁死</text>
+        </g>
+      </svg>
+    </div>
+    <div class="panel">
+      <h3>✅ 有独木舟——海是「0.3 的低成本路」</h3>
+      <svg width="360" height="150" viewBox="0 0 360 150">
+        <g transform="translate(10,30)">
+          <rect x="0" y="0" width="80" height="80" fill="#a8c38f" stroke="#6b8f4e"/>
+          <rect x="100" y="0" width="80" height="80" fill="#9ec6e8" stroke="#4a7fae"/>
+          <rect x="200" y="0" width="80" height="80" fill="#a8c38f" stroke="#6b8f4e"/>
+          <text x="40" y="45" text-anchor="middle" font-size="13">🛖 部落</text>
+          <text x="140" y="33" text-anchor="middle" font-size="12" fill="#1d4e79">🌊 ×0.3</text>
+          <text x="240" y="45" text-anchor="middle" font-size="13">🏝️ 殖民!</text>
+          <path d="M 80 40 C 100 28, 120 28, 140 34" stroke="#b8860b" stroke-width="2" fill="none" stroke-dasharray="4 3"/>
+          <path d="M 160 34 C 180 28, 200 28, 216 38" stroke="#b8860b" stroke-width="2" fill="none" stroke-dasharray="4 3"/>
+          <path d="M 82 50 C 96 62, 104 70, 118 76" stroke="#8a6f3f" stroke-width="1.5" fill="none" stroke-dasharray="3 3"/>
+          <path d="M 162 50 C 176 62, 184 70, 198 76" stroke="#8a6f3f" stroke-width="1.5" fill="none" stroke-dasharray="3 3"/>
+          <text x="140" y="110" text-anchor="middle" font-size="11" fill="#4a7fae">1 跳海 = 0.3；连跳相乘衰减：2 跳 0.09、3 跳 0.027</text>
+        </g>
+      </svg>
+    </div>
+  </div>
+
+  <h2>「跨海」生效在哪四条机制上（全部走 BorderCost）</h2>
+  <table>
+    <tr><th>机制</th><th>代码</th><th>有 canoe 后的变化</th></tr>
+    <tr><td>迁徙 / 殖民</td><td>SplitMigrateModel.PickMigrateTarget</td><td>BFS 能跳岛殖民对岸（T76 测试：canoe 渡海 vs 无 canoe 阻挡）</td></tr>
+    <tr><td>科技传播</td><td>SpreadModel</td><td>文化知识能跨海峡传向邻岛（波利尼西亚式逐岛扩散）</td></tr>
+    <tr><td>文化转移</td><td>CultureModel</td><td>主导文化能跨海同化对岸</td></tr>
+    <tr><td>宗教传播</td><td>ReligionModel</td><td>信仰能渡海传教</td></tr>
+  </table>
+
+  <h2>边界语义（跨海 ≠ 远洋）</h2>
+  <ul>
+    <li><b>海只是「经过」，不是「定居」</b>：BFS 目标要求 R&gt;0（可居格）——海格/冰盖永远不会成为殖民地。</li>
+    <li><b>航程有限</b>：BFS 限 <code>ColonizeRadius = 6 跳</code>；且每过一海格成本相乘（0.3 → 0.09 → 0.027），距离越远得分越低 → 涌现出<b>沿岸 / 岛链跳跃</b>（史实：波利尼西亚逐岛、大洋洲殖民需 canoe），不会出现横渡大洋。</li>
+    <li><b>与后世 sail 是两层</b>：canoe = 石器时代人口迁徙/扩散的跨海通行权；古典时代的 sail 解锁的是「商路通道 / 跨海贸易」（阶段6设计）——流动的是货物与商路，不是人。</li>
+  </ul>
+  <div class="note">设计出处：2026-08-19 用户拍板「波前推进 + 跨海合理」——跨海只做通行权放开，殖民仍受 6 跳航程与肥度偏好约束；无 canoe 时海 cost=0 不可穿，保证大陆板块的文化独立演化。</div>
+</div>
+</body>
+</html>

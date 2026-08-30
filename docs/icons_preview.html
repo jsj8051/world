@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>中世纪金系图标 · 预览</title>
+<style>
+  :root{
+    --parchment:#e6d7b3; --gold:#b8860b; --ink:#3a2c1a; --vermilion:#8e2424;
+    --light-gold:#c9a24d; --deep-bg:#2b2113;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{
+    background:
+      radial-gradient(1200px 600px at 50% -10%, #3d2f1c 0%, transparent 60%),
+      var(--deep-bg);
+    min-height:100vh; display:flex; flex-direction:column; align-items:center;
+    font-family:"Microsoft YaHei","微软雅黑",sans-serif; padding:48px 24px;
+  }
+  h1{
+    color:var(--parchment); font-family:KaiTi,"楷体",serif;
+    font-weight:normal; font-size:26px; letter-spacing:6px; margin-bottom:8px;
+  }
+  .sub{
+    color:#a08a5e; font-size:13px; margin-bottom:36px; letter-spacing:2px;
+  }
+  .row{
+    display:flex; gap:26px; flex-wrap:wrap; justify-content:center;
+    max-width:980px;
+  }
+  .card{
+    width:150px; background:#3a2c1a; border-radius:14px; padding:26px 18px 16px;
+    border:1px solid #57431f;
+    box-shadow:0 10px 30px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,215,140,.12);
+    text-align:center; transition:transform .15s ease;
+  }
+  .card:hover{transform:translateY(-4px)}
+  .card img{width:72px;height:72px;display:block;margin:0 auto 14px}
+  .card .name{color:var(--parchment);font-size:15px;letter-spacing:2px;margin-bottom:3px}
+  .card .en{color:#8a7448;font-size:11px;letter-spacing:1px}
+  .foot{
+    margin-top:40px; color:#8a7448; font-size:12px; letter-spacing:1px; text-align:center; line-height:2;
+  }
+  .chip{display:inline-block;background:#3a2c1a;border:1px solid #57431f;border-radius:20px;
+    padding:3px 12px;margin:0 4px;color:var(--parchment)}
+</style>
+</head>
+<body>
+  <h1>中世纪 · 金系图标</h1>
+  <div class="sub">羊皮纸主题 · 哑光浅金 #c9a24d × 深棕底 #3a2c1a</div>
+
+  <div class="row">
+    <div class="card">
+      <img src="../assets/icons/icon_fist.svg" alt="力量">
+      <div class="name">力量</div><div class="en">主权 · 博弈</div>
+    </div>
+    <div class="card">
+      <img src="../assets/icons/icon_coins.svg" alt="财富">
+      <div class="name">财富</div><div class="en">贡赋 · 金库</div>
+    </div>
+    <div class="card">
+      <img src="../assets/icons/icon_bank.svg" alt="金融">
+      <div class="name">金融</div><div class="en">商路 · 市场</div>
+    </div>
+    <div class="card">
+      <img src="../assets/icons/icon_handshake.svg" alt="合作">
+      <div class="name">合作</div><div class="en">缔约 · 联盟</div>
+    </div>
+    <div class="card">
+      <img src="../assets/icons/icon_people.svg" alt="社群">
+      <div class="name">社群</div><div class="en">人口 · 聚落</div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span class="chip">图标金 #c9a24d</span>
+    <span class="chip">厚边亮金 #d9b45b</span>
+    <span class="chip">镂空深棕 #3a2c1a</span>
+    <br>如需与主题金箔 #b8860b 严格统一，可直接批量替换填充色
+  </div>
+</body>
+</html>

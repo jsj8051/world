@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 金融机构：圆顶+三角山墙+四柱+两级基座 -->
+  <g fill="#c9a24d">
+    <!-- 圆顶 -->
+    <circle cx="32" cy="8" r="4"/>
+    <!-- 山墙 -->
+    <path d="M12 28 L52 28 L32 13 Z"/>
+    <!-- 檐口 -->
+    <rect x="9" y="28" width="46" height="5" rx="1"/>
+    <!-- 四柱 -->
+    <rect x="14" y="33" width="5" height="16" rx="1"/>
+    <rect x="23" y="33" width="5" height="16" rx="1"/>
+    <rect x="36" y="33" width="5" height="16" rx="1"/>
+    <rect x="45" y="33" width="5" height="16" rx="1"/>
+    <!-- 基座 -->
+    <rect x="6" y="49" width="52" height="5" rx="1"/>
+    <rect x="2" y="54" width="60" height="5" rx="1.5"/>
+  </g>
+</svg>

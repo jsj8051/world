@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 财富：三枚堆叠硬币，下大上小，各带中心纹+底部厚度弧 -->
+  <g fill="#c9a24d">
+    <!-- 底币 -->
+    <circle cx="32" cy="46" r="16"/>
+    <!-- 中币 -->
+    <circle cx="32" cy="32" r="12"/>
+    <!-- 顶币 -->
+    <circle cx="32" cy="18" r="8"/>
+  </g>
+  <!-- 厚度弧(下缘微鼓, 亮一档金) -->
+  <g fill="#d9b45b">
+    <path d="M16 46 a16 6 0 0 0 32 0 z"/>
+    <path d="M20 32 a12 5 0 0 0 24 0 z"/>
+    <path d="M24 18 a8 4 0 0 0 16 0 z"/>
+  </g>
+  <!-- 中心纹(镂空深棕环) -->
+  <g fill="none" stroke="#3a2c1a" stroke-width="2">
+    <circle cx="32" cy="46" r="8"/>
+    <circle cx="32" cy="32" r="6"/>
+    <circle cx="32" cy="18" r="4"/>
+  </g>
+</svg>

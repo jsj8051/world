@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>地图与存档分层</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #efe6d5;
+    color: #3a2c1a;
+    padding: 32px;
+  }
+  h1 { font-size: 26px; margin-bottom: 6px; color: #3a2c1a; }
+  .sub { color: #8a743f; margin-bottom: 26px; font-size: 14px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 28px; }
+  .card {
+    background: #faf4e6; border: 1px solid #b8860b; border-radius: 14px;
+    padding: 20px 22px; box-shadow: 0 4px 14px rgba(0,0,0,.08);
+  }
+  .card h2 { font-size: 18px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+  .card.map h2 { color: #5a7a3a; }
+  .card.sav h2 { color: #8e2424; }
+  .tag { font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: normal; }
+  .tag.ro { background: #e4ecd8; color: #5a7a3a; }
+  .tag.rw { background: #f3ddd9; color: #8e2424; }
+  .row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; margin: 6px 0; background: #fffdf6; border: 1px solid #e8dcc0; font-size: 13.5px; }
+  .row .ex { font-family: Consolas, monospace; color: #6a5a2f; font-size: 12px; flex: 1; }
+  .row .desc { color: #6b6353; }
+  .arrow { text-align: center; font-size: 26px; color: #b8860b; margin: 6px 0; }
+  .flow { display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap; margin-top: 6px; font-size: 13.5px; }
+  .step { background: #fffdf6; border: 1px solid #e8dcc0; border-radius: 10px; padding: 8px 14px; }
+  .step b { color: #8e2424; }
+  .fname { font-family: Consolas, monospace; font-size: 12px; color: #6a5a2f; background: #f4ecd8; padding: 1px 6px; border-radius: 4px; }
+  h3 { font-size: 15px; margin: 22px 0 10px; color: #3a2c1a; }
+  .note { background: #f4ecd8; border-left: 4px solid #b8860b; padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 13px; color: #5a4f2e; margin-bottom: 8px; }
+  .btn { display: inline-block; background: #b8860b; color: #fff; border-radius: 8px; padding: 2px 10px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>🗺️ 地图 ≠ 💾 存档 —— 两层分家</h1>
+<div class="sub">2026-08-25 用户拍板：演化跑出来的是<b>地图</b>；只有游玩产生的才叫<b>存档</b>。开新档可选不同地图。</div>
+
+<div class="two">
+  <div class="card map">
+    <h2>🗺️ 地图 <span class="tag ro">只读素材</span></h2>
+    <div class="row"><span>自然地图</span><span class="ex">user://maps/*.mpa</span><span class="desc">板块/气候/河流——世界本体</span></div>
+    <div class="row"><span>演化产物</span><span class="ex">user://maps/*.cmp</span><span class="desc">文明/国家演化完成的世界</span></div>
+    <div class="note">🎯 创建世界 = 产出地图。地图是<b>素材池</b>——每次开新存档都能挑一张不同的。</div>
+  </div>
+  <div class="card sav">
+    <h2>💾 存档 <span class="tag rw">可读写进程</span></h2>
+    <div class="row"><span>游戏存档</span><span class="ex">user://saves/*.sav</span><span class="desc">选定的地图 + 游玩进程</span></div>
+    <div class="row"><span>内容</span><span class="ex">世界快照 + 玩家状态 + 来源地图引用</span><span class="desc">国库/稳定度/君主/命令…</span></div>
+    <div class="note">🎯 存档 = 你<b>选定一张地图后开始的那局游戏</b>。保存 → 可以接着玩；加载 → 恢复那局。</div>
+  </div>
+</div>
+
+<h3>三种流程</h3>
+<div class="flow"><span class="step">📂 正式游玩（开新档）<br><b>选地图</b>（maps/ 任一张）→ 进图选国家 → 开始</span><span class="arrow">→</span><span class="step">💾 保存<br>写 <span class="fname">saves/*.sav</span></span><span class="arrow">→</span><span class="step">🕹️ 继续玩<br>随时再保存</span></div>
+<div class="flow" style="margin-top:12px;"><span class="step">📂 加载存档（接续）<br><b>选 .sav</b> → 恢复到上次保存的 tick → 继续</span></div>
+<div class="flow" style="margin-top:12px;"><span class="step">🗺️ 查看地图<br>只浏览 maps/，<b>不产生存档</b>（纯观赏/观察层）</span></div>
+
+<h3>主界面四个入口</h3>
+<div class="flow" style="justify-content:flex-start; gap:8px;">
+  <span class="step">🛠 创建世界</span>
+  <span class="step">🗺 查看地图</span>
+  <span class="step">⚔ 正式游玩 <span style="font-size:11px;color:#8a743f;">（新档：选地图）</span></span>
+  <span class="step" style="border-color:#8e2424;">📂 加载存档 <span style="font-size:11px;color:#8e2424;">（选 .sav 接续）</span></span>
+</div>
+
+<div class="note" style="margin-top:22px;">🔧 实现要点：.sav 复用现有段表容器（magic SAV1）——世界快照段与 .cmp 同布局 + <b>REFS 段</b>记录来源地图（路径/seed/开始 tick）。读档 = 恢复到保存时的世界（无需重放）。</div>
+
+</body>
+</html>
