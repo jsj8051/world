@@ -21,6 +21,9 @@ public static class EventBus
     /// <summary>本次地图请求标记为"正式游玩"（MapViewer 消费——浏览/游玩形态切换）。</summary>
     public static event Action GameplayMapRequested;
 
+    /// <summary>请求进入"加载存档"列表（主菜单加载按钮 → SaveSelectMenu 存档模式）。</summary>
+    public static event Action LoadSelectRequested;
+
     /// <summary>生成进度（0..1）。</summary>
     public static event Action<float> GenerationProgress;
 
@@ -33,6 +36,7 @@ public static class EventBus
     //   MarkGameplayMap → MapViewer._Ready 决定浏览/游玩形态（选国家/活世界驱动为下一刀）
     private static bool _pendingPlaySelect;
     private static bool _pendingMapPlay;
+    private static bool _pendingLoadSelect;
 
     /// <summary>请求进入"正式游玩"选图（主菜单游玩按钮 → SaveSelectMenu 游玩模式）。</summary>
     public static void RequestGameplaySelect()
@@ -61,6 +65,21 @@ public static class EventBus
     {
         var v = _pendingMapPlay;
         _pendingMapPlay = false;
+        return v;
+    }
+
+    /// <summary>请求进入"加载存档"（主菜单加载按钮 → SaveSelectMenu 存档模式 .sav 列表）。</summary>
+    public static void RequestLoadSelect()
+    {
+        _pendingLoadSelect = true;
+        LoadSelectRequested?.Invoke();
+    }
+
+    /// <summary>SaveSelectMenu._Ready 消费加载存档标记（取后清空；false = 浏览/游玩模式）。</summary>
+    public static bool ConsumeLoadSelect()
+    {
+        var v = _pendingLoadSelect;
+        _pendingLoadSelect = false;
         return v;
     }
 

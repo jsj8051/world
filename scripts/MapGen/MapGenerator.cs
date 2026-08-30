@@ -454,7 +454,7 @@ public partial class MapGenerator : Node
                 img.SetPixel(x, y, PlanetColors.ElevationToColor(e1));
             }
         }
-        img.SavePng("user://maps/elev_preview.png");
+        img.SavePng(UserPaths.Resolve("user://maps/elev_preview.png"));   // 2026-08-25 不落 C 盘
         // ⚠️ 后台线程禁止 GD.Print——日志由调用方（主线程）打
     }
 }

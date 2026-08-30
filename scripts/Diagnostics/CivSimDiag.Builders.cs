@@ -8,6 +8,7 @@ using World.Biome;
 using World.CivSim;
 using World.LogicGrid;
 using World.MapGen;
+using World.Services;
 
 using World.CivSim.Entities;
 namespace World.Diagnostics;
@@ -216,18 +217,23 @@ public partial class CivSimDiag
     /// <summary>写一个坏版本档（ver=5 → 应拒绝）。</summary>
     private static void WriteBadVersion(string path, ushort ver)
     {
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
+        using var f = FileAccess.Open(Abs(path), FileAccess.ModeFlags.Write);
         if (f == null) return;
         f.Store8((byte)'C'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
         f.Store16(ver);
         f.Store32(42); f.Store32(0); f.Store32(0);
     }
 
+    /// <summary>Godot FileAccess 只认正斜杠绝对路径——user:// 语义已迁 UserPaths（2026-08-25 不落 C 盘），
+    /// 写端必须与读端（CivMapArchive.ResolvePath）同目录，否则 T19 假阳性（文件不存在也算"拒绝"）。</summary>
+    private static string Abs(string path) =>
+        UserPaths.Resolve(path).Replace('\\', '/');
+
 
     /// <summary>写一个含化石 biome 4 的档 → 应拒绝（最小自然段，与 GameMapArchive.ReadBody 严格对应）。</summary>
     private static void WriteBadBiome(string path, GameGrid src)
     {
-        using var f = FileAccess.Open(path, FileAccess.ModeFlags.Write);
+        using var f = FileAccess.Open(Abs(path), FileAccess.ModeFlags.Write);
         if (f == null) return;
         f.Store8((byte)'C'); f.Store8((byte)'M'); f.Store8((byte)'P'); f.Store8((byte)'1');
         f.Store16(4);

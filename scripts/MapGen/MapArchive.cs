@@ -58,11 +58,9 @@ public static class MapArchive
     /// GameGrid.DefaultRadiusKm = 此值（LogicGrid 便捷别名）。</summary>
     public const float DefaultRadiusKm = 6371f;
 
-    /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
-    private static string ResolvePath(string path) =>
-        path.StartsWith("user://", StringComparison.Ordinal)
-            ? ProjectSettings.GlobalizePath(path)
-            : path;
+    /// <summary>user:// 路径 → 游戏目录旁绝对路径（2026-08-25 用户拍板不落 C 盘——统一经 UserPaths）。
+    /// 非 user:// 原样返回（诊断可传任意绝对路径）。</summary>
+    private static string ResolvePath(string path) => UserPaths.Resolve(path);
 
     /// <summary>v8 段表球面存档写入。log：false = 后台线程调用（禁止 GD.Print）。
     /// 段存在即写入；null 段不写（读取端缺段 = null = 现场重算）。</summary>

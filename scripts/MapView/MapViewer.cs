@@ -15,6 +15,7 @@ using static World.MapView.MapLayerColors;
 
 using World.CivSim;
 using World.CivSim.Entities;
+using World.LogicGrid;
 namespace World.MapView;
 
 /// <summary>
@@ -211,7 +212,11 @@ public partial class MapViewer : Node3D
     private static readonly string[] CatNames = { "地理", "气候", "人文" };
     private LayerCategory _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
     private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
-    private HBoxContainer _layerRow; // 图层按钮行容器（分类切换时重算居中）
+
+    // ── 游玩形态保存（2026-08-25 地图≠存档分层：.sav = 世界快照 + 玩家状态 + REFS 来源地图）──
+    private GameGrid _gameGrid;          // 读回的完整逻辑网格（ToMapData 不复制 Psi 且丢 grid——保存必须持原件）
+    private CivSimResult _civResult;     // 演化结果快照（含 FinalTick/Player——保存写回的唯一来源）
+    private string _mapRefPath;          // 本局来源地图（.sav 的 REFS 段；.cmp 无 REFS → null = 直开档）
 
     // ── 图例面板（月份滑块左侧，固定大小，内容超出滚动；2026-08-08）──
     private PanelContainer _legendPanel;
@@ -272,20 +277,28 @@ public partial class MapViewer : Node3D
         // 已缓存（_mapLoaded）则跳过——切图层/改 GridN 不重复读 8MB 文件。
         if (!_mapLoaded)
         {
-            if (_mapPath.EndsWith(".cmp", System.StringComparison.OrdinalIgnoreCase))
+            // .cmp = 文明游戏档、.sav = 游玩存档（同 .cmp 段表布局 + REFS）——统一走 CivMapArchive 读
+            if (_mapPath.EndsWith(".cmp", System.StringComparison.OrdinalIgnoreCase)
+                || _mapPath.EndsWith(".sav", System.StringComparison.OrdinalIgnoreCase))
             {
-                // 文明游玩地图：读 GameGrid + 文明演化结果 → 转 MapData 供自然图层，文明图层直读 ctx
-                if (!World.CivSim.CivMapArchive.Read(_mapPath, out var grid, out var civResult))
+                // ⚠️ 2026-08-25 读带回 REFS 重载：.sav 携带来源地图引用（保存 .sav 时必须写回）；
+                //    GameGrid/CivSimResult 原件必须持有（ToMapData 是单向快照——保存写档的唯一数据源）
+                if (!World.CivSim.CivMapArchive.Read(_mapPath, out var grid, out var civResult, out var mapRefPath))
                 {
                     LogService.LogErr("MapViewer", $"failed to load civ map {_mapPath}");
                     return;
                 }
+                _gameGrid = grid;
+                _civResult = civResult;
+                _mapRefPath = mapRefPath;
                 _map = grid.ToMapData();
                 _civCtx = civResult.Context;
                 _mapLoaded = true;
                 LogService.Log("MapViewer", $"loaded civ map {_mapPath} (gridN={grid.GridN} tiles={grid.N} " +
-                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Polities.Count})");
+                         $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Polities.Count}" +
+                         (mapRefPath != null ? $" ref={mapRefPath}" : ""));
                 RefreshCivPanel();
+                RefreshSaveButton();   // 读档完成 → 游玩形态可保存
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -298,9 +311,18 @@ public partial class MapViewer : Node3D
                 // v8 单存档化：.mpa 带 CIVI 段 = 含文明的 world（MapArchive.Read 已还原）；纯自然 = null
                 _civCtx = map.Civilization?.Context;
                 _mapLoaded = true;
+                // ⚠️ 2026-08-25 游玩保存：.mpa（含文明）开局同样要持有网格与结果原件（保存 .sav 的数据源），
+                //   来源地图引用 = 本档自身（"从这张地图开的这局"）
+                if (map.Civilization != null)
+                {
+                    _gameGrid = World.LogicGrid.GameGrid.FromMapData(map);
+                    _civResult = map.Civilization;
+                    _mapRefPath = _mapPath;
+                }
                 LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}] " +
                          $"civ={(_civCtx != null ? $"yes(polities={_civCtx.Polities.Count} tick={map.Civilization.FinalTick})" : "no")}");
                 RefreshCivPanel();
+                RefreshSaveButton();
             }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。

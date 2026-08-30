@@ -2,10 +2,12 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using World.Biome;
 using World.Camera;
+using World.Gameplay;
 using World.HexPlanet;
 using World.MapGen;
 using World.PlanetLOD;
@@ -62,9 +64,8 @@ public partial class MapViewer
             };
         }
 
-        // ── 图层按钮行（行容器在场景 %LayerRow；17 个按钮按 LayerRegistry 动态生成）──
+        // ── 图层按钮行（行容器在场景 %LayerRow——CukDock/DockBox 内；17 个按钮按 LayerRegistry 动态生成）──
         var hbox = GetNode<HBoxContainer>("%LayerRow");
-        _layerRow = hbox;
         var group = new ButtonGroup();
         _layerButtons = new Button[LayerRegistry.All.Count];
         for (int i = 0; i < LayerRegistry.All.Count; i++)
@@ -133,6 +134,7 @@ public partial class MapViewer
 
         RebuildLegend();   // 初始图层图例
         SetupCukHud();     // 归航 HUD：潜藏地图坞 + 右上时间（2026-08-24 UX 重设计）
+        SetupSaveButton(); // 游玩保存按钮（右上时间行；仅在游玩形态显示）
     }
 
 
@@ -152,33 +154,22 @@ public partial class MapViewer
     }
 
 
-    /// <summary>按当前分类刷新图层按钮可见性 + 分类按钮按下态 + 行居中（不改 _layer）。</summary>
+    /// <summary>按当前分类刷新图层按钮可见性 + 分类按钮按下态（不改 _layer；位置由 DockBox 容器管）。</summary>
     private void ShowCategoryButtons()
     {
         if (_layerButtons == null)
             return;
-        int visible = 0;
         for (int i = 0; i < _layerButtons.Length; i++)
-        {
-            bool show = LayerRegistry.All[i].Category == _category;
-            _layerButtons[i].Visible = show;
-            if (show) visible++;
-        }
+            _layerButtons[i].Visible = LayerRegistry.All[i].Category == _category;
         for (int i = 0; i < _catButtons.Length; i++)
             _catButtons[i].ButtonPressed = (int)_category == i;
-        // 42px/按钮 + 4px separation 居中；可见按钮数变化时重算。
-        // ⚠️ 必须用 Offset（相对 anchor 的原始偏移）而非 Position——Position setter 会用
-        //   父尺寸反推 offset（offset = pos - anchor×parentSize），AddChild 后调用会把
-        //   rect 起点推到屏幕外（实测 global=(-113,-84)，2026-08-08）。
-        // 2026-08-23 场景化修复：OffsetRight 必须对称设置（只设 Left 时右边界=0 → 行宽被
-        //   min size 撑成非对称矩形，盖到下方分类行）。OffsetTop 上移 90px（原 84，避开
-        //   分类行 -44 处）；行高收敛到内容（不设 OffsetBottom，由内容 min 高 40± 决定）。
-        float halfW = 21f * visible + 2f * (visible - 1);
-        _layerRow.OffsetLeft = -halfW;
-        _layerRow.OffsetRight = halfW;
-        _layerRow.OffsetTop = -90;
-        // 行高收敛到按钮高（40）；不设则被 bottom=0 撑到 90 → 高矩形遮挡下方分类行
-        _layerRow.OffsetBottom = -50;
+        // ⚠️ 2026-08-25 修复：此处不再手动定位 LayerRow（旧 OffsetLeft/Right/Top/Bottom 已删）。
+        //   旧实现是屏幕底部锚定行（LayerRow 为 UiLayer 直接子节点）时水平居中的手段；
+        //   归航 HUD 重设计把 LayerRow 移入 CukDock/DockBox 容器后，残留 offset 会把整行图标
+        //   甩出坞面板（anchors=0 → 相对 DockBox 左上角 ±halfW / -90~-50 的空中）——点击图层
+        //   图标/分类按钮触发本方法即"所有图标飞出来"（用户报）。同分类切换时按钮 Visible
+        //   不变 → 容器不重新布局 → 飞出成持久态。位置与居中已由 DockBox 接管（场景
+        //   CatRow/LayerRow 均设 size_flags_horizontal=4 ShrinkCenter），此处只切可见性。
     }
 
 
@@ -435,5 +426,195 @@ public partial class MapViewer
 
     /// <summary>文化/宗教派别 → 语言群 映射（2026-08-21 M2：实现迁移至 LayerContext.EnsureIdentityCaches）。</summary>
     private void BuildIdentityCaches() => _ctx?.EnsureIdentityCaches();
+
+    // ── 游玩保存（2026-08-25 地图≠存档分层：.sav 写链——游玩中保存 → 「加载存档」列表）──
+    private Button _saveBtn;          // 右上时间行「💾 保存」按钮（仅游玩形态显示）
+    private ColorRect _saveDim;       // 槽名输入模态框遮罩（全屏拦截点击）
+    private PanelContainer _saveBox;  // 槽名输入面板（遮罩内居中）
+    private LineEdit _saveInput;      // 槽名输入框（Enter 即保存）
+    private PanelContainer _saveToast; // 保存结果 Toast（底部中央，自动淡出）
+
+    /// <summary>保存按钮初始化（EnsureUi 末尾调用一次）：挂右上时间行末尾，游玩形态才显示。</summary>
+    private void SetupSaveButton()
+    {
+        if (_saveBtn != null) return;
+        var epochRow = GetNodeOrNull<HBoxContainer>("UiLayer/EpochPanel/EpochRow");
+        if (epochRow == null) return;   // 场景缺节点 → 静默（同 CukHud 韧性约定）
+        _saveBtn = new Button
+        {
+            Name = "SaveBtn",   // 诊断脚本定位用（UiShotDiag --save-diag）
+            Text = "💾 保存",
+            CustomMinimumSize = new Vector2(84, 36),
+            SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+        };
+        _saveBtn.AddThemeFontSizeOverride("font_size", 14);
+        _saveBtn.AddThemeStyleboxOverride("normal", HudBtnStyle());
+        _saveBtn.AddThemeStyleboxOverride("hover", HudBtnHoverStyle());
+        _saveBtn.AddThemeStyleboxOverride("pressed", HudBtnPressedStyle());
+        _saveBtn.AddThemeStyleboxOverride("focus", HudBtnStyle());
+        _saveBtn.Pressed += ShowSaveDialog;
+        epochRow.AddChild(_saveBtn);   // EpochRow = [纪元, 年份, MonthRow, ✅保存]
+        RefreshSaveButton();
+    }
+
+    /// <summary>刷新保存按钮可用态（游玩形态 + 文明档已载入才可保存；读档/生成完成路径调用）。</summary>
+    private void RefreshSaveButton()
+    {
+        if (_saveBtn == null) return;
+        _saveBtn.Visible = _playMode;   // 浏览形态不显示（只有游玩中才产生存档）
+        _saveBtn.Disabled = !(_mapLoaded && _gameGrid != null && _civResult != null);
+    }
+
+    /// <summary>默认槽名：纪元 + 演化年（如「旧石器 演化 1,200 年」）；无文明 → 时间戳。</summary>
+    private string DefaultSlotName()
+    {
+        if (_civCtx != null)
+        {
+            string ep = _epochLabel?.Text?.TrimStart('◆', ' ') ?? "世界";
+            string yr = _yearLabel?.Text?.Trim() ?? "";
+            return yr.Length == 0 ? $"{ep} 存档" : $"{ep} {yr}";
+        }
+        return $"世界 {DateTime.Now:MMdd-HHmm}";
+    }
+
+    private void ShowSaveDialog()
+    {
+        EnsureSaveDialog();
+        _saveInput.Text = DefaultSlotName();
+        _saveDim.Visible = true;
+        _saveBox.Visible = true;
+        _saveInput.GrabFocus();
+        _saveInput.SelectAll();
+    }
+
+    private void HideSaveDialog()
+    {
+        if (_saveDim != null) _saveDim.Visible = false;
+        if (_saveBox != null) _saveBox.Visible = false;
+    }
+
+    /// <summary>懒建槽名输入模态框（遮罩 + 居中面板 + 输入框 + 取消/保存）。样式复用 SaveRowStyle 羊皮纸色板。</summary>
+    private void EnsureSaveDialog()
+    {
+        if (_saveBox != null) return;
+        var ui = GetNode<CanvasLayer>("UiLayer");
+
+        _saveDim = new ColorRect
+        {
+            Name = "SaveDim",
+            Color = new Color(0f, 0f, 0f, 0.45f),
+            MouseFilter = Control.MouseFilterEnum.Stop,
+        };
+        _saveDim.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        ui.AddChild(_saveDim);
+
+        var center = new CenterContainer { Name = "SaveCenter", MouseFilter = Control.MouseFilterEnum.Ignore };
+        center.SetAnchorsPreset(Control.LayoutPreset.FullRect);
+        _saveDim.AddChild(center);
+
+        _saveBox = new PanelContainer { Name = "SaveBox", CustomMinimumSize = new Vector2(430, 0) };
+        _saveBox.AddThemeStyleboxOverride("panel", SaveRowStyle.CardStyle());
+        center.AddChild(_saveBox);
+
+        var v = new VBoxContainer();
+        v.AddThemeConstantOverride("separation", 12);
+        _saveBox.AddChild(v);
+
+        var title = new Label { Text = "💾 保存游戏" };
+        title.AddThemeFontSizeOverride("font_size", 19);
+        title.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+        v.AddChild(title);
+
+        var hint = new Label
+        {
+            Text = "存入「加载存档」列表（.sav——世界快照 + 玩家状态 + 来源地图一并保存）",
+            AutowrapMode = TextServer.AutowrapMode.WordSmart,
+        };
+        hint.AddThemeFontSizeOverride("font_size", 12);
+        hint.AddThemeColorOverride("font_color", SaveRowStyle.Muted);
+        v.AddChild(hint);
+
+        _saveInput = new LineEdit
+        {
+            Name = "SaveInput",
+            PlaceholderText = "存档名称（同名将覆盖旧存档）",
+            CustomMinimumSize = new Vector2(0, 42),
+        };
+        _saveInput.TextSubmitted += _ => DoSave();   // Enter 即保存
+        v.AddChild(_saveInput);
+
+        var btns = new HBoxContainer();
+        btns.AddThemeConstantOverride("separation", 10);
+        btns.Alignment = BoxContainer.AlignmentMode.End;
+        v.AddChild(btns);
+
+        var cancel = new Button { Name = "SaveCancel", Text = "取消", CustomMinimumSize = new Vector2(96, 40) };
+        cancel.AddThemeFontSizeOverride("font_size", 14);
+        cancel.AddThemeStyleboxOverride("normal", SaveRowStyle.GhostNormal());
+        cancel.AddThemeStyleboxOverride("hover", SaveRowStyle.GhostHover());
+        cancel.Pressed += HideSaveDialog;
+        btns.AddChild(cancel);
+
+        var ok = new Button { Name = "SaveOk", Text = "保存", CustomMinimumSize = new Vector2(96, 40) };
+        ok.AddThemeFontSizeOverride("font_size", 14);
+        ok.AddThemeStyleboxOverride("normal", SaveRowStyle.PrimaryNormal());
+        ok.AddThemeStyleboxOverride("hover", SaveRowStyle.PrimaryHover());
+        ok.Pressed += DoSave;
+        btns.AddChild(ok);
+
+        HideSaveDialog();
+    }
+
+    /// <summary>执行保存：槽名清洗（Windows 非法文件名字符 → _）→ SaveArchive.Write → Toast。</summary>
+    private void DoSave()
+    {
+        string name = _saveInput.Text.Trim();
+        if (name.Length == 0) name = DefaultSlotName();
+        var bad = Path.GetInvalidFileNameChars();
+        var sb = new System.Text.StringBuilder(name.Length);
+        foreach (char c in name) sb.Append(Array.IndexOf(bad, c) >= 0 ? '_' : c);
+        name = sb.ToString();
+
+        bool ok = false;
+        try
+        {
+            ok = SaveArchive.Write(name, _gameGrid, _civResult, _mapRefPath);
+        }
+        catch (Exception ex)
+        {
+            LogService.LogErr("MapViewer", $"保存失败 {name}: {ex}");
+        }
+        HideSaveDialog();
+        if (ok) LogService.Log("MapViewer", $"saved slot={name} ref={_mapRefPath ?? "(无)"}");
+        ShowSaveToast(ok ? $"💾 已保存：{name}" : "⚠️ 保存失败（详情见日志）");
+    }
+
+    /// <summary>保存结果 Toast（底部中央，淡入 → 停留 → 淡出）。懒建一次复用。</summary>
+    private void ShowSaveToast(string text)
+    {
+        if (_saveToast == null)
+        {
+            _saveToast = new PanelContainer();
+            _saveToast.AddThemeStyleboxOverride("panel", SaveRowStyle.ToastStyle());
+            _saveToast.SetAnchorsPreset(Control.LayoutPreset.CenterBottom);
+            _saveToast.Position = new Vector2(-140, -90);   // 居中：宽约 280 → 左移一半，贴底偏上
+            GetNode<CanvasLayer>("UiLayer").AddChild(_saveToast);
+            var lbl = new Label { Text = "", HorizontalAlignment = HorizontalAlignment.Center };
+            lbl.AddThemeFontSizeOverride("font_size", 15);
+            lbl.AddThemeColorOverride("font_color", SaveRowStyle.Fg);
+            lbl.CustomMinimumSize = new Vector2(280, 40);
+            _saveToast.AddChild(lbl);
+            _saveToast.SetMeta("lbl", lbl);
+        }
+        var label = _saveToast.GetMeta("lbl").As<Label>();
+        label.Text = text;
+        _saveToast.Modulate = new Color(1f, 1f, 1f, 0f);
+        _saveToast.Visible = true;
+        var tw = _saveToast.CreateTween();
+        tw.TweenProperty(_saveToast, "modulate:a", 1f, 0.18f);
+        tw.TweenInterval(1.6f);
+        tw.TweenProperty(_saveToast, "modulate:a", 0f, 0.4f);
+        tw.TweenCallback(Callable.From(() => _saveToast.Visible = false));
+    }
 
 }

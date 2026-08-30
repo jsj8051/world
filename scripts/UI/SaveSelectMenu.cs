@@ -11,15 +11,17 @@ namespace World.UI;
 /// 存档选择界面（2026-08-23 单存档化）：只列 .mpa（自然或含文明——CIVI 段标记），
 /// 不再区分自然/文明两类存档。静态骨架（背景/窗口框/标题/列表容器/返回/确认框/遮罩/Toast）
 /// 在 SaveSelectMenu.tscn 场景中定义；脚本只做动态部分：存档行生成、删除确认、Toast。
-/// 每行标记 🌍 含文明（CIVI 段）或 🗺 纯自然；点击统一进 MapViewer（读档自动启用文明图层）。
-/// ⚠️ 2026-08-25 第二阶段双模式：浏览模式（默认，列 .mpa → MapViewer 查看）/
-///    游玩模式（EventBus.RequestGameplaySelect 触发，列 .cmp 游戏档 → 进游玩——EU4 式）。
+/// ⚠️ 2026-08-25 第二阶段三模式（EventBus 标记进入，互斥）：
+///   浏览（默认，列 .mpa → MapViewer 查看）/ 游玩（列 .cmp 游戏档 → 进游玩）/
+///   加载存档（列 .sav 游玩存档 → 恢复游玩——地图≠存档分层）。
 /// </summary>
 public partial class SaveSelectMenu : Control
 {
     private const string ExtMap = ".mpa";
     private const string ExtGame = ".cmp";
+    private const string ExtSave = ".sav";
     private bool _playMode;      // 游玩模式（主菜单「正式游玩」进入——列 .cmp 游戏档）
+    private bool _loadMode;      // 加载存档模式（主菜单「加载存档」进入——列 .sav 游玩存档）
     private Label _title;
     private Label _status;
     private Label _statusDot;
@@ -67,8 +69,9 @@ public partial class SaveSelectMenu : Control
         GetNode<Button>("Win/V/FootPad/FootRow/BackBtn").Pressed +=
             () => GetTree().ChangeSceneToFile("res://scenes/core/MainMenu.tscn");
 
-        // ⚠️ 2026-08-25 游玩模式（主菜单「正式游玩」→ RequestGameplaySelect → 列 .cmp 游戏档）
+        // ⚠️ 2026-08-25 第二阶段模式标记（主菜单进入——互斥）：游玩模式列 .cmp、加载存档列 .sav
         _playMode = EventBus.ConsumeGameplaySelect();
+        _loadMode = EventBus.ConsumeLoadSelect();
 
         // 状态点呼吸动画
         var tween = CreateTween().SetLoops();
@@ -93,17 +96,28 @@ public partial class SaveSelectMenu : Control
         foreach (Node c in _list.GetChildren())
             c.QueueFree();
 
-        string ext = _playMode ? ExtGame : ExtMap;
-        _title.Text = _playMode ? "⚔  正式游玩" : "🌍  世界存档";
-        string emptyHint = _playMode
-            ? "请先到主菜单「创建世界」生成并演化出国家（.cmp 游戏档）"
-            : "请先到主菜单「创建世界」生成";
+        _title.Text = _loadMode ? "📂  加载存档" : _playMode ? "⚔  正式游玩" : "🌍  世界存档";
+        string emptyHint = _loadMode
+            ? "请先「正式游玩」开一局（游玩中保存即产生 .sav 存档）"
+            : _playMode
+                ? "请先到主菜单「创建世界」生成并演化出国家（含文明的存档即可开局）"
+                : "请先到主菜单「创建世界」生成";
+        string emptyIcon = _loadMode ? "📂" : _playMode ? "⚔" : "🌍";
+        string emptyTitle = _loadMode ? "还没有游戏存档" : _playMode ? "还没有游戏存档" : "还没有世界存档";
+
+        // 扩展名过滤（2026-08-25）：浏览=仅 .mpa；游玩=.mpa+.cmp（含文明的素材池——创建世界产出 .mpa）；
+        //   加载存档=仅 .sav。.cmp 为历史游戏档格式兼容（恒含文明）。
+        bool MatchesExt(string f) =>
+            _loadMode ? f.EndsWith(ExtSave, StringComparison.OrdinalIgnoreCase)
+            : _playMode ? (f.EndsWith(ExtMap, StringComparison.OrdinalIgnoreCase)
+                           || f.EndsWith(ExtGame, StringComparison.OrdinalIgnoreCase))
+            : f.EndsWith(ExtMap, StringComparison.OrdinalIgnoreCase);
 
         var files = new List<string>();
-        using var dir = DirAccess.Open("user://maps");
+        using var dir = DirAccess.Open(UserPaths.Resolve(_loadMode ? "user://saves" : "user://maps"));   // 加载=存档目录，其余=地图目录
         if (dir == null)
         {
-            ShowEmpty(_playMode ? "还没有游戏存档" : "还没有世界存档", emptyHint, _playMode ? "⚔" : "🌍");
+            ShowEmpty(emptyTitle, emptyHint, emptyIcon);
             return;
         }
         dir.ListDirBegin();
@@ -111,7 +125,7 @@ public partial class SaveSelectMenu : Control
         {
             string f = dir.GetNext();
             if (f == "") break;
-            if (!dir.CurrentIsDir() && f.EndsWith(ext))
+            if (!dir.CurrentIsDir() && MatchesExt(f))
                 files.Add(f);
         }
         dir.ListDirEnd();
@@ -119,7 +133,7 @@ public partial class SaveSelectMenu : Control
 
         if (files.Count == 0)
         {
-            ShowEmpty(_playMode ? "还没有游戏存档" : "还没有世界存档", emptyHint, _playMode ? "⚔" : "🌍");
+            ShowEmpty(emptyTitle, emptyHint, emptyIcon);
             return;
         }
 
@@ -129,9 +143,12 @@ public partial class SaveSelectMenu : Control
 
         foreach (var f in files)
         {
-            string path = "user://maps/" + f;
+            // ⚠️ 2026-08-25 修复：路径按模式拼目录（原写死 user://maps/——加载存档模式下列 .sav 全判损坏）
+            string path = (_loadMode ? "user://saves/" : "user://maps/") + f;
             bool hasCiv = false;
             var (info, broken, locked) = DescribeMap(path, out hasCiv);
+            if (_playMode && !broken && !locked && !hasCiv)
+                continue;   // 游玩模式只列含文明的档（纯自然 .mpa 不能开局）
             if (broken) _broken.Add(path);
             else if (locked) _locked.Add(path);
 
@@ -230,17 +247,20 @@ public partial class SaveSelectMenu : Control
             var delBtn = new Button { Text = "🗑", CustomMinimumSize = new Vector2(48, 40) };
             delBtn.AddThemeFontSizeOverride("font_size", 15);
             ApplyDanger(delBtn);
-            delBtn.Pressed += () => RequestDelete(captured, f, _playMode ? "游戏档" : "世界存档");
+            delBtn.Pressed += () => RequestDelete(captured, f, _loadMode ? "存档" : _playMode ? "游戏档" : "世界存档");
             btns.AddChild(delBtn);
 
             _list.AddChild(row);
         }
 
         int bad = _broken.Count, lck = _locked.Count;
+        string kind = _loadMode ? "存档" : _playMode ? "游戏档" : "世界存档";
         if (bad + lck > 0)
-            SetStatus($"找到 {files.Count} 个{( _playMode ? "游戏档" : "世界存档")}（{bad} 损坏 + {lck} 版本不符，无法进入；可删除清理）", SaveRowStyle.Yellow);
+            SetStatus($"找到 {files.Count} 个{kind}（{bad} 损坏 + {lck} 版本不符，无法进入；可删除清理）", SaveRowStyle.Yellow);
+        else if (_loadMode)
+            SetStatus($"找到 {files.Count} 个游戏存档（.sav——恢复到保存时继续游玩），点击进入，或点 🗑 删除", SaveRowStyle.Accent);
         else if (_playMode)
-            SetStatus($"找到 {files.Count} 个游戏档（.cmp——含国家与文明），点击进入游玩，或点 🗑 删除", SaveRowStyle.Accent);
+            SetStatus($"找到 {files.Count} 个可游玩存档（含文明的 .mpa/.cmp——创建世界产出），点击进入游玩，或点 🗑 删除", SaveRowStyle.Accent);
         else
             SetStatus($"找到 {files.Count} 个世界存档：🌍=含文明 🗺=纯自然，点击进入，或点 🗑 删除", SaveRowStyle.Accent);
     }
@@ -284,20 +304,22 @@ public partial class SaveSelectMenu : Control
         _statusDot.AddThemeColorOverride("font_color", dotColor);
     }
 
-    /// <summary>读取存档头部信息（浏览模式：.mpa 经 MapArchive.Peek；游玩模式：.cmp 经 CivMapArchive.Peek）。
+    /// <summary>读取存档头部信息（.mpa 经 MapArchive.Peek——含 CIVI 段判定；.cmp/.sav 经 CivMapArchive.Peek）。
     /// 返回 (info, broken, locked)：broken=Peek 失败（损坏），locked=版本不支持。</summary>
     private (string info, bool broken, bool locked) DescribeMap(string path, out bool hasCiv)
     {
         hasCiv = false;
-        if (_playMode)
+        bool isCivExt = path.EndsWith(".cmp", StringComparison.OrdinalIgnoreCase)
+                     || path.EndsWith(".sav", StringComparison.OrdinalIgnoreCase);
+        if (isCivExt)
         {
-            // .cmp 游戏档：seed/tick/人口/实体（段表直达 HEAD+TRIB，毫秒级）
+            // .cmp/.sav：seed/tick/人口/势力（段表直达 HEAD+TRIB，毫秒级）
             if (!CivMapArchive.Peek(path, out int seed, out int tick, out float pop,
                     out int entities, out ushort ver, out var status))
                 return status == ArchiveVersionStatus.Current
                     ? (null, true, false)                     // status=Current 仍失败 → 损坏
                     : ($"不支持版本 v{ver}（当前 v{CivMapArchive.Version}，请重新演化生成）", false, true);
-            hasCiv = true;   // .cmp 恒含文明（游戏档）
+            hasCiv = true;   // .cmp/.sav 恒含文明
             return ($"🌍 seed={seed} · tick {tick} · 人口 {pop:F0} · 势力 {entities}", false, false);
         }
         if (!MapArchive.Peek(path, out int seed2, out int vertexCount, out int height,
@@ -376,7 +398,7 @@ public partial class SaveSelectMenu : Control
             return;
         }
         EventBus.RequestMapView(path);
-        if (_playMode) EventBus.MarkGameplayMap();   // 游玩模式标记（MapViewer 消费——浏览/游玩形态）
+        if (_playMode || _loadMode) EventBus.MarkGameplayMap();   // 游玩/读档均进游玩形态（MapViewer 消费）
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 

@@ -17,6 +17,9 @@ public partial class MainMenu : Control
         // 根 Control 强制全屏（防场景根未自动拉伸）
         SetAnchorsPreset(LayoutPreset.FullRect);
 
+        // ⚠️ 2026-08-25 路径改制：一次性迁移旧 C 盘数据到游戏目录旁（不落 C 盘——用户拍板）
+        UserPaths.MigrateLegacyData();
+
         // 创建世界（生成 + 文明演化 一条龙：生成页内勾选演化开关，一步产出含文明的 .mpa）
         GetNode<Button>("%GenBtn").Pressed += () => GetTree().ChangeSceneToFile("res://scenes/core/MapGenMenu.tscn");
 
@@ -27,6 +30,13 @@ public partial class MainMenu : Control
         GetNode<Button>("%PlayBtn").Pressed += () =>
         {
             EventBus.RequestGameplaySelect();   // SaveSelectMenu 消费 → 游玩模式（列 .cmp）
+            GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
+        };
+
+        // 加载存档（2026-08-25 地图≠存档分层：.sav 游玩进程——恢复到保存时 tick 继续玩）
+        GetNode<Button>("%LoadBtn").Pressed += () =>
+        {
+            EventBus.RequestLoadSelect();   // SaveSelectMenu 消费 → 存档模式（列 .sav）
             GetTree().ChangeSceneToFile("res://scenes/core/SaveSelectMenu.tscn");
         };
 

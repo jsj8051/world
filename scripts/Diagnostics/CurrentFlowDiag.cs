@@ -104,7 +104,7 @@ public partial class CurrentFlowDiag : DiagSceneBase
                 }
         }
 
-        img.SavePng("user://maps/current_flow_diag.png");
+        img.SavePng(UserPaths.Resolve("user://maps/current_flow_diag.png").Replace('\\', '/'));   // 2026-08-25 不落 C 盘
         LogService.Log("CurrentFlowDiag", "saved user://maps/current_flow_diag.png");
     }
 

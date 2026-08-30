@@ -1,4 +1,6 @@
 using Godot;
+using System.Linq;
+using World.Services;
 
 namespace World.Diagnostics;
 
@@ -21,6 +23,12 @@ public partial class UiShotDiag : Node
     private int _civScroll = -1;     // --civ-scroll=N：截图前把 CivScroll 垂直滚动到 N 像素（-1=不动）
     private bool _cukMap;            // --cuk-map=1：截图前展开潜藏地图坞（验证展开态）
     private bool _diagRect;          // --diag-rect=1：截图前打印 CukGrip/CukDock/EpochPanel 的 rect/visible
+    private bool _cukWarp;            // --cuk-warp=1：截图前把鼠标 warp 到抓手中心（触发 ProcessCukHud 展开流程）
+    private bool _cukClickIcon;       // --cuk-click-icon=1：warp 到坞内首个图层图标并模拟点击（验证点击后坞不收回）
+    private bool _playFlag;           // --play=1：viewer 实例化前标记游玩形态（保存按钮可见的前提）
+    private bool _saveDiag;           // --save-diag=1：模拟保存流程（点保存→填槽名→确定，产真实 .sav）
+    private bool _loadFlag;           // --load=1：save 场景实例化前标记加载存档模式（列 .sav）
+    private bool _gameplayFlag;       // --gameplay=1：save 场景实例化前标记正式游玩模式（列含文明 .mpa/.cmp）
 
     public override void _Ready()
     {
@@ -46,6 +54,12 @@ public partial class UiShotDiag : Node
             _civScroll = civScrollPx;
         _cukMap = args.TryGetValue("cuk-map", out var cm) && cm == "1";
         _diagRect = args.TryGetValue("diag-rect", out var dr) && dr == "1";
+        _cukWarp = args.TryGetValue("cuk-warp", out var cw) && cw == "1";
+        _cukClickIcon = args.TryGetValue("cuk-click-icon", out var cci) && cci == "1";
+        _playFlag = args.TryGetValue("play", out var pf) && pf == "1";               // viewer 进入游玩形态（保存按钮可见）
+        _saveDiag = args.TryGetValue("save-diag", out var sd) && sd == "1";          // 端到端保存：点保存→填槽名→确定（产真实 .sav）
+        _loadFlag = args.TryGetValue("load", out var lf) && lf == "1";               // save 场景进入「加载存档」模式（列 .sav）
+        _gameplayFlag = args.TryGetValue("gameplay", out var gf) && gf == "1";     // save 场景进入「正式游玩」模式（列含文明 .mpa/.cmp）
 
         // 窗口尺寸：--w=1280 --h=720（不传则用命令行 --resolution 或项目默认）
         if (args.TryGetValue("w", out var w) && int.TryParse(w, out int ww))
@@ -64,6 +78,12 @@ public partial class UiShotDiag : Node
         // MapViewer 是 Node3D 根（挂相机/灯光），其余是 Control 菜单
         var packed = GD.Load<PackedScene>(scenePath);
         var root = packed.Instantiate();
+        if (scene == "viewer" && _playFlag)
+            EventBus.MarkGameplayMap();   // 实例化前标记（MapViewer._Ready 消费——游玩形态）
+        else if (scene == "save" && _loadFlag)
+            EventBus.RequestLoadSelect();  // 加载存档模式（SaveSelectMenu._Ready 消费——列 .sav）
+        else if (scene == "save" && _gameplayFlag)
+            EventBus.RequestGameplaySelect();   // 正式游玩模式（列含文明 .mpa/.cmp）
         AddChild(root);
     }
 
@@ -119,10 +139,58 @@ public partial class UiShotDiag : Node
         // 布局诊断：打印新 UI 节点在窗口里的实际 rect（截图前 1 帧）
         if (_diagRect && _frame == Mathf.Max(1, _shotFrame - 1))
         {
+            var vp = GetViewport();
+            GD.Print($"UiShotDiag: viewport={vp.GetVisibleRect().Size} mouse={vp.GetMousePosition()} (物理窗口 {GetWindow().Size})");
             foreach (var nm in new[] { "CukGrip", "CukDock", "EpochPanel", "CivPanelBody" })
             {
                 var n = FindChild(nm, recursive: true, owned: false) as Control;
                 GD.Print($"UiShotDiag: {nm} → {(n == null ? "NULL" : $"visible={n.Visible} rect={n.GetGlobalRect()}")}");
+            }
+        }
+        // ── 潜藏坞 hover 展开端到端验证：warp 鼠标到抓手中心 → ProcessCukHud 应自动展开 ──
+        if (_cukWarp && _frame == Mathf.Max(1, _shotFrame - 12))
+        {
+            var grip = FindChild("CukGrip", recursive: true, owned: false) as Control;
+            if (grip != null)
+            {
+                var vp = GetViewport();
+                Vector2 c = grip.GetGlobalRect().GetCenter();
+                vp.WarpMouse(c);
+                GD.Print($"UiShotDiag: 鼠标 warp → {c}（ProcessCukHud 应展开坞）");
+            }
+        }
+        if (_cukWarp && _frame == Mathf.Max(1, _shotFrame - 8))
+        {
+            var dock = FindChild("CukDock", recursive: true, owned: false) as Control;
+            GD.Print($"UiShotDiag: warp 后 Dock visible={dock?.Visible}");
+            if (dock != null && !dock.Visible)
+                GD.Print("UiShotDiag: ⚠️ ProcessCukHud 未自动展开——问题复现");
+        }
+        // ── 点击坞内首个图层图标（验证点击后坞不收回）──
+        if (_cukClickIcon && _frame == Mathf.Max(1, _shotFrame - 4))
+        {
+            var dock = FindChild("CukDock", recursive: true, owned: false) as Control;
+            var btn = dock?.FindChildren("*", recursive: true, owned: false)
+                .OfType<Button>().FirstOrDefault(b => b.ToggleMode && b.GetParent() is HBoxContainer);
+            if (btn != null)
+            {
+                var vp = GetViewport();
+                vp.WarpMouse(btn.GetGlobalRect().GetCenter());
+                var press = new InputEventMouseButton
+                {
+                    ButtonIndex = MouseButton.Left,
+                    Pressed = true,
+                    Position = btn.GetGlobalRect().GetCenter(),
+                };
+                Input.ParseInputEvent(press);
+                var release = new InputEventMouseButton
+                {
+                    ButtonIndex = MouseButton.Left,
+                    Pressed = false,
+                    Position = btn.GetGlobalRect().GetCenter(),
+                };
+                Input.ParseInputEvent(release);
+                GD.Print($"UiShotDiag: 模拟点击图层图标 {btn.Name} @{btn.GetGlobalRect().GetCenter()}");
             }
         }
         if (_frame == 5 && _triggerStart)
@@ -165,6 +233,21 @@ public partial class UiShotDiag : Node
                 }
             }
         }
+        // ── 保存流程端到端：点「💾 保存」→ 弹槽名模态框 → 填名 → 确定（产真实 .sav 到 userdata/saves/）──
+        if (_saveDiag && _frame == Mathf.Max(1, _shotFrame - 8))
+        {
+            var btn = FindChild("SaveBtn", recursive: true, owned: false) as Button;
+            btn?.EmitSignal(BaseButton.SignalName.Pressed);
+            GD.Print($"UiShotDiag: 点击保存按钮（{(btn != null ? "找到" : "未找到 SaveBtn")}）");
+        }
+        if (_saveDiag && _frame == Mathf.Max(1, _shotFrame - 5))
+        {
+            var input = FindChild("SaveInput", recursive: true, owned: false) as LineEdit;
+            if (input != null) input.Text = "诊断存档";
+            var ok = FindChild("SaveOk", recursive: true, owned: false) as Button;
+            ok?.EmitSignal(BaseButton.SignalName.Pressed);
+            GD.Print($"UiShotDiag: 确认保存「诊断存档」（{ok != null}）");
+        }
         if (_frame == _shotFrame)   // 渲染稳定后截图
         {
             // --dump-ui=1：截图前打印 viewer HUD 各节点运行时 rect（排查错位）
@@ -177,7 +260,8 @@ public partial class UiShotDiag : Node
                             GD.Print($"[UiShotDiag] HUD {c.Name}: pos={cc.Position} size={cc.Size} visible={cc.Visible}");
             }
             var img = GetViewport().GetTexture().GetImage();
-            img.SavePng(_outPath);
+            // ⚠️ 2026-08-25：Godot SavePng 用 user:// 语义（C 盘 app_userdata）——统一转 UserPaths（游戏目录旁）
+            img.SavePng(UserPaths.Resolve(_outPath).Replace('\\', '/'));
             GD.Print($"UiShotDiag: 已截图 → {_outPath} ({img.GetWidth()}x{img.GetHeight()})");
             GetTree().Quit(0);
         }

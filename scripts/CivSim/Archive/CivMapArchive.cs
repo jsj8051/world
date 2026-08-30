@@ -63,11 +63,9 @@ public static class CivMapArchive
     private const int StatMagic = 0x53544154;   // "STAT"——国家档案哨兵块（CIVI 顺序流尾部；旧档无 → 空档案）
     private const int PlayMagic = 0x504C4159;   // "PLAY"——玩家会话哨兵块（STAT 后；旧档无 → 纯自动模式）
 
-    /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
-    private static string ResolvePath(string path) =>
-        path.StartsWith("user://", StringComparison.Ordinal)
-            ? ProjectSettings.GlobalizePath(path)
-            : path;
+    /// <summary>user:// 路径 → 游戏目录旁绝对路径（2026-08-25 用户拍板不落 C 盘——统一经 UserPaths）。
+    /// 非 user:// 原样返回（诊断可传任意绝对路径）。</summary>
+    private static string ResolvePath(string path) => UserPaths.Resolve(path);
 
     // ── 文明段编解码（2026-08-23 单存档化：.mpa v8 CIVI 段顺序编码——外层已 BeginSegment("CIVI")，
     //    内部不用子段表：.mpa 自然层已有 HEAD 段，文明内部再用子段会重名冲突；且 ChunkWriter 禁嵌套段）──
@@ -448,8 +446,11 @@ public static class CivMapArchive
         }
     }
 
-    /// <summary>写 .cmp（v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS 六段）。log=false：后台线程（禁 GD.Print）。</summary>
-    public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true)
+    /// <summary>写 .cmp/.sav（v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS/EVNT/STAT/PLAY + REFS——共 10 段）。
+    /// log=false：后台线程（禁 GD.Print）。
+    /// mapRefPath：来源地图引用（非 null → 写 REFS 段——游戏存档 .sav 语义："从哪张地图开的这局"；
+    /// 普通 .cmp 地图文件传 null → 不写该段，读端缺段 = 无引用）。</summary>
+    public static bool Write(string path, GameGrid grid, CivSimResult result, bool log = true, string mapRefPath = null)
     {
         // ⚠️ 2026-08-18 阶段3：清单自检（字段改名/删除后清单过期 → 写档拒绝，防静默漏字段）
         if (!CivArchiveSchema.Validate()) return false;
@@ -601,6 +602,25 @@ public static class CivMapArchive
             }
             w.EndSegment();
 
+            // ── REFS：来源地图引用段（2026-08-25 地图≠存档分层：.sav 记录"从哪张地图开的这局"）──
+            // 布局：1B 有无 + u16 路径长度 + 路径 ASCII + u32 地图 seed + u32 起始 tick（存档 = 地图 seed 演化到 tick 起点）
+            // .cmp 正常地图文件不写此段（mapRefPath null）→ 读端缺段 = 无引用（兼容普通 .cmp）。
+            w.BeginSegment("REFS", 1);
+            if (string.IsNullOrEmpty(mapRefPath))
+            {
+                w.Store8(0);
+            }
+            else
+            {
+                w.Store8(1);
+                var refBytes = System.Text.Encoding.ASCII.GetBytes(mapRefPath);
+                w.Store16((ushort)Math.Min(refBytes.Length, 512));
+                for (int i = 0; i < refBytes.Length && i < 512; i++) w.Store8(refBytes[i]);
+                w.Store32((uint)ctx.Seed);
+                w.Store32((uint)result.FinalTick);
+            }
+            w.EndSegment();
+
             w.Finish();
         }
         catch (Exception ex)
@@ -721,11 +741,21 @@ public static class CivMapArchive
     /// <summary>读 .cmp → （自然层 GameGrid + 文明结果）。v17 段表：HEAD/NATR/TRIB/LAND/STTL/WARS。
     /// ⚠️ 2026-08-07：读档入口必须 TechTable.Load()——否则 _byKey 空 → 读档后 RefreshCellState/YFarm
     /// 里 Get(key) 全 null → NRE（CmpSelectMenu 只 Read 不 Run 的场景崩溃根因）。Load 幂等。</summary>
-    public static bool Read(string path, out GameGrid grid, out CivSimResult result)
+    /// <summary>读 .cmp/.sav（段表：HEAD/NATR/TRIB/LAND/STTL/WARS/EVNT/STAT/PLAY/REFS）。REFS 段（.sav 来源地图）
+    /// 经带 refs 重载取用。</summary>
+    public static bool Read(string path, out GameGrid grid, out CivSimResult result) =>
+        ReadCore(path, out grid, out result, out _);
+
+    /// <summary>读 .cmp/.sav 并取来源地图引用（REFS 段；普通 .cmp 无此段 → null）。</summary>
+    public static bool Read(string path, out GameGrid grid, out CivSimResult result, out string mapRefPath) =>
+        ReadCore(path, out grid, out result, out mapRefPath);
+
+    private static bool ReadCore(string path, out GameGrid grid, out CivSimResult result, out string mapRefPath)
     {
         TechTable.Load();
         grid = null;
         result = null;
+        mapRefPath = null;
         try
         {
             string abs = ResolvePath(path);
@@ -960,6 +990,18 @@ public static class CivMapArchive
                 }
             }
 
+            // ── REFS：来源地图引用段（段缺失 = 普通 .cmp 无引用 → null；.sav 才有）──
+            string refPath = null;
+            if (r.SeekSegment("REFS") && r.Get8() != 0)
+            {
+                int refLen = r.Get16();
+                var refBuf = new byte[refLen];
+                for (int i = 0; i < refLen; i++) refBuf[i] = r.Get8();
+                refPath = System.Text.Encoding.ASCII.GetString(refBuf);
+                r.Get32();   // 地图 seed（存档引用元信息——读端暂不消费，保留布局）
+                r.Get32();   // 起始 tick
+            }
+
             // 文化 key 计数兜底：份额场推导（被同化掉的 key 可能使推导偏小，故取 max）
             int maxCultId = 0, maxGroupId = 0, maxReligId = 0;
             for (int k = 0; k < entities.Count; k++)
@@ -1015,6 +1057,7 @@ public static class CivMapArchive
             CivEngine.SettleDerived(ctx);
 
             result = new CivSimResult { Context = ctx, FinalTick = finalTick };
+            mapRefPath = refPath;   // REFS 段（.sav 来源地图；普通 .cmp → null）
             grid = g;
             LogService.Log("CivMapArchive", $"read v{Version} {path} (ticks={finalTick} years={years} entities={count})");
             return true;

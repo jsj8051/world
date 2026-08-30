@@ -2,6 +2,12 @@
 .godot/
 /android/
 
+# 用户数据（2026-08-25 地图≠存档分层：游戏目录旁 userdata/——maps 素材池 + saves 存档，绝不入库）
+userdata/
+
+# 数据编辑器自动备份（data/techs.csv.bak 等——每次保存前的快照，不入库）
+*.bak
+
 # C# build artifacts
 *.lscache
 *.old

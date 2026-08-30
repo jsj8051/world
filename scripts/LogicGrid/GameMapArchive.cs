@@ -32,11 +32,9 @@ public static class GameMapArchive
     public const string Magic = "GMP1";
     public const ushort Version = 3;   // v3：段表容器骨架（2026-08-23）；BODY 内部布局仍为 v2（psi 有）
 
-    /// <summary>user:// 路径 → 绝对路径（System.IO 需要）。非 user:// 原样返回。</summary>
-    private static string ResolvePath(string path) =>
-        path.StartsWith("user://", StringComparison.Ordinal)
-            ? ProjectSettings.GlobalizePath(path)
-            : path;
+    /// <summary>user:// 路径 → 游戏目录旁绝对路径（2026-08-25 用户拍板不落 C 盘——统一经 UserPaths）。
+    /// 非 user:// 原样返回（诊断可传任意绝对路径）。</summary>
+    private static string ResolvePath(string path) => UserPaths.Resolve(path);
 
     /// <summary>写 .gmp（v3 段表：单一 BODY 段）。log=false：后台线程调用（禁止 GD.Print）。</summary>
     public static bool Write(string path, GameGrid g, bool log = true)
@@ -155,10 +153,11 @@ public static class GameMapArchive
         long startPos = f.Position;
         grid.GridN = (int)f.Get32();
         grid.N = (int)f.Get32();
-        // ⚠️ 2026-08-07：任何分配前先验结构不变量（球面 Goldberg：顶点数 ≡ 10n²+2，n∈[8,512]）。
+        // ⚠️ 2026-08-07：任何分配前先验结构不变量（球面 Goldberg：顶点数 ≡ 10n²+2）。
         //   错位档 N 读到 11.7 亿 → new Vector3[N] = 14GB 卡死。用 long 防 10×n² 溢出回绕。
+        // ⚠️ 2026-08-25：下限 8 → 4（生成端 MapGenMenu 允许 n≥4、半径 ≥8km——12km 小图 n=6 读回被拒 = 自己生成的档打不开）
         long expectN = Icosahedron.VertexCountForLong(grid.GridN);
-        if (grid.GridN < 8 || grid.GridN > 512 || (long)grid.N != expectN)
+        if (grid.GridN < 4 || grid.GridN > 512 || (long)grid.N != expectN)
         {
             LogService.LogErr("GameMapArchive", $"结构校验失败：GridN={grid.GridN} N={grid.N}（期望 10n²+2={expectN}）。" +
                         $"存档正文错位或损坏，请重新生成（旧中间态 v4 档同样拒绝）。");
