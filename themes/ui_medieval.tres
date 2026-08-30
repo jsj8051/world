@@ -1,32 +1,29 @@
-[gd_resource type="Theme" load_steps=10 format=3]
+[gd_resource type="Theme" format=3 uid="uid://12865461wlr3"]
 
-[sub_resource type="SystemFont" id="sf_title"]
-font_names = PackedStringArray("KaiTi", "楷体", "STKaiti", "SimSun", "宋体")
-antialiasing = 1
+[sub_resource type="StyleBoxFlat" id="sb_grabber"]
+bg_color = Color(0.722, 0.525, 0.043, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
-[sub_resource type="SystemFont" id="sf_body"]
-font_names = PackedStringArray("Microsoft YaHei", "微软雅黑", "SimSun", "宋体", "Noto Sans CJK SC")
-antialiasing = 1
-
-[sub_resource type="SystemFont" id="sf_mono"]
-font_names = PackedStringArray("Cascadia Mono", "Cascadia Code", "Consolas", "Courier New")
-
-[sub_resource type="StyleBoxFlat" id="sb_le_normal"]
-bg_color = Color(0.909, 0.862, 0.729, 1)
+[sub_resource type="StyleBoxFlat" id="sb_slider"]
+content_margin_top = 4.0
+content_margin_bottom = 4.0
+bg_color = Color(0.851, 0.776, 0.608, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
 border_color = Color(0.541, 0.427, 0.227, 1)
-corner_radius_top_left = 6
-corner_radius_top_right = 6
-corner_radius_bottom_right = 6
-corner_radius_bottom_left = 6
-content_margin_left = 8.0
-content_margin_right = 8.0
-anti_aliasing = true
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
 
 [sub_resource type="StyleBoxFlat" id="sb_le_focus"]
+content_margin_left = 8.0
+content_margin_right = 8.0
 bg_color = Color(0.984, 0.961, 0.878, 1)
 border_width_left = 2
 border_width_top = 2
@@ -37,9 +34,20 @@ corner_radius_top_left = 6
 corner_radius_top_right = 6
 corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="sb_le_normal"]
 content_margin_left = 8.0
 content_margin_right = 8.0
-anti_aliasing = true
+bg_color = Color(0.909, 0.862, 0.729, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.541, 0.427, 0.227, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
 
 [sub_resource type="StyleBoxFlat" id="sb_pb_bg"]
 bg_color = Color(0.851, 0.776, 0.608, 1)
@@ -60,49 +68,31 @@ corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
 
-[sub_resource type="StyleBoxFlat" id="sb_slider"]
-bg_color = Color(0.851, 0.776, 0.608, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.541, 0.427, 0.227, 1)
-corner_radius_top_left = 4
-corner_radius_top_right = 4
-corner_radius_bottom_right = 4
-corner_radius_bottom_left = 4
-content_margin_top = 4.0
-content_margin_bottom = 4.0
-
-[sub_resource type="StyleBoxFlat" id="sb_grabber"]
-bg_color = Color(0.722, 0.525, 0.043, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
+[sub_resource type="SystemFont" id="sf_body"]
+font_names = PackedStringArray("Microsoft YaHei", "微软雅黑", "SimSun", "宋体", "Noto Sans CJK SC")
 
 [resource]
 default_font = SubResource("sf_body")
 default_font_size = 16
-Label/colors/font_color = Color(0.227, 0.173, 0.102, 1)
-Label/colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
 Button/colors/font_color = Color(0.227, 0.173, 0.102, 1)
+Button/colors/font_focus_color = Color(0.227, 0.173, 0.102, 1)
 Button/colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
 Button/colors/font_pressed_color = Color(0.227, 0.173, 0.102, 1)
-Button/colors/font_focus_color = Color(0.227, 0.173, 0.102, 1)
+CheckBox/colors/font_color = Color(0.227, 0.173, 0.102, 1)
+HSlider/styles/grabber = SubResource("sb_grabber")
+HSlider/styles/grabber_area = SubResource("sb_slider")
+HSlider/styles/grabber_area_highlight = SubResource("sb_slider")
+HSlider/styles/grabber_highlight = SubResource("sb_grabber")
+HSlider/styles/slider = SubResource("sb_slider")
+Label/colors/font_color = Color(0.227, 0.173, 0.102, 1)
+Label/colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+LineEdit/colors/caret_color = Color(0.541, 0.427, 0.227, 1)
 LineEdit/colors/font_color = Color(0.227, 0.173, 0.102, 1)
 LineEdit/colors/font_placeholder_color = Color(0.478, 0.416, 0.29, 1)
-LineEdit/colors/caret_color = Color(0.541, 0.427, 0.227, 1)
 LineEdit/colors/selection_color = Color(0.722, 0.525, 0.043, 0.3)
-LineEdit/styles/normal = SubResource("sb_le_normal")
 LineEdit/styles/focus = SubResource("sb_le_focus")
+LineEdit/styles/normal = SubResource("sb_le_normal")
+OptionButton/colors/font_color = Color(0.227, 0.173, 0.102, 1)
 ProgressBar/colors/font_color = Color(0.227, 0.173, 0.102, 1)
 ProgressBar/styles/background = SubResource("sb_pb_bg")
 ProgressBar/styles/fill = SubResource("sb_pb_fill")
-HSlider/styles/slider = SubResource("sb_slider")
-HSlider/styles/grabber_area = SubResource("sb_slider")
-HSlider/styles/grabber_area_highlight = SubResource("sb_slider")
-HSlider/styles/grabber = SubResource("sb_grabber")
-HSlider/styles/grabber_highlight = SubResource("sb_grabber")
-CheckBox/colors/font_color = Color(0.227, 0.173, 0.102, 1)
-OptionButton/colors/font_color = Color(0.227, 0.173, 0.102, 1)
