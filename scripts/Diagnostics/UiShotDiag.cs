@@ -21,9 +21,9 @@ public partial class UiShotDiag : Node
     private int _viewerLayer = -1;   // --viewer-layer=N：viewer 场景截图前切到指定图层（-1=不切）
     private int _civTabIdx = -1;     // --civ-tab=N：viewer 截图前模拟点 CivPanel 第 N 个页签（-1=不模拟）
     private int _civScroll = -1;     // --civ-scroll=N：截图前把 CivScroll 垂直滚动到 N 像素（-1=不动）
-    private bool _cukMap;            // --cuk-map=1：截图前展开潜藏地图坞（验证展开态）
-    private bool _diagRect;          // --diag-rect=1：截图前打印 CukGrip/CukDock/EpochPanel 的 rect/visible
-    private bool _cukWarp;            // --cuk-warp=1：截图前把鼠标 warp 到抓手中心（触发 ProcessCukHud 展开流程）
+    private bool _cukMap;            // --cuk-map=1：截图前展开地图坞（平移到展开态，验证展开态）
+    private bool _diagRect;          // --diag-rect=1：截图前打印 CukDock/EpochPanel/CivPanelBody 的 rect/visible
+    private bool _cukWarp;            // --cuk-warp=1：截图前把鼠标 warp 到标题条中心（触发 ProcessCukHud 滑出流程）
     private bool _cukClickIcon;       // --cuk-click-icon=1：warp 到坞内首个图层图标并模拟点击（验证点击后坞不收回）
     private bool _playFlag;           // --play=1：viewer 实例化前标记游玩形态（保存按钮可见的前提）
     private bool _saveDiag;           // --save-diag=1：模拟保存流程（点保存→填槽名→确定，产真实 .sav）
@@ -124,7 +124,7 @@ public partial class UiShotDiag : Node
                 GD.Print($"UiShotDiag: 已滚动 CivScroll → {_civScroll}（max={scroll.GetVScrollBar().MaxValue}）");
             }
         }
-        // 潜藏地图坞展开模拟：截图前 3 帧（等布局稳定；直接置 CukDock 可见 = hover 展开态）
+        // 地图坞展开模拟：截图前 3 帧（等布局稳定；直接平移到展开态 = offset_top=-高 全露）
         if (_cukMap && _frame == Mathf.Max(1, _shotFrame - 3))
         {
             var dock = FindChild("CukDock", recursive: true, owned: false) as PanelContainer;
@@ -132,8 +132,10 @@ public partial class UiShotDiag : Node
                 dock = FindChild("Dock", recursive: true, owned: false) as PanelContainer;
             if (dock != null)
             {
-                dock.Visible = true;
-                GD.Print("UiShotDiag: 已展开潜藏地图坞（--cuk-map）");
+                float h = dock.Size.Y > 1f ? dock.Size.Y : dock.GetCombinedMinimumSize().Y;
+                dock.OffsetTop = -h;
+                dock.OffsetBottom = 0f;
+                GD.Print($"UiShotDiag: 已展开地图坞（--cuk-map, h={h:F0}）");
             }
         }
         // 布局诊断：打印新 UI 节点在窗口里的实际 rect（截图前 1 帧）
@@ -141,35 +143,45 @@ public partial class UiShotDiag : Node
         {
             var vp = GetViewport();
             GD.Print($"UiShotDiag: viewport={vp.GetVisibleRect().Size} mouse={vp.GetMousePosition()} (物理窗口 {GetWindow().Size})");
-            foreach (var nm in new[] { "CukGrip", "CukDock", "EpochPanel", "CivPanelBody" })
+            foreach (var nm in new[] { "CukDock", "EpochPanel", "CivPanelBody" })
             {
                 var n = FindChild(nm, recursive: true, owned: false) as Control;
                 GD.Print($"UiShotDiag: {nm} → {(n == null ? "NULL" : $"visible={n.Visible} rect={n.GetGlobalRect()}")}");
             }
         }
-        // ── 潜藏坞 hover 展开端到端验证：warp 鼠标到抓手中心 → ProcessCukHud 应自动展开 ──
-        if (_cukWarp && _frame == Mathf.Max(1, _shotFrame - 12))
-        {
-            var grip = FindChild("CukGrip", recursive: true, owned: false) as Control;
-            if (grip != null)
-            {
-                var vp = GetViewport();
-                Vector2 c = grip.GetGlobalRect().GetCenter();
-                vp.WarpMouse(c);
-                GD.Print($"UiShotDiag: 鼠标 warp → {c}（ProcessCukHud 应展开坞）");
-            }
-        }
-        if (_cukWarp && _frame == Mathf.Max(1, _shotFrame - 8))
+        // ── 地图坞 hover 滑出端到端验证：warp 鼠标到标题条中心 → ProcessCukHud 应自动滑出 ──
+        if (_cukWarp && _frame == Mathf.Max(1, _shotFrame - 18))   // 动画 CukSlideDur=0.25s → 提前 18 帧 warp
         {
             var dock = FindChild("CukDock", recursive: true, owned: false) as Control;
-            GD.Print($"UiShotDiag: warp 后 Dock visible={dock?.Visible}");
-            if (dock != null && !dock.Visible)
+            if (dock != null)
+            {
+                var vp = GetViewport();
+                var r = dock.GetGlobalRect();
+                Vector2 c = new Vector2(r.GetCenter().X, r.Position.Y + 15f);   // 标题条中心（收起态顶行 30px 露头）
+                vp.WarpMouse(c);
+                GD.Print($"UiShotDiag: 鼠标 warp → {c}（ProcessCukHud 应滑出坞）");
+            }
+        }
+        if (_cukWarp && _frame == Mathf.Max(1, _shotFrame - 2))
+        {
+            var dock = FindChild("CukDock", recursive: true, owned: false) as Control;
+            // 展开判定：offset_top 已明显上移（标题条 30px 帽 +10 容差；动画 CukSlideDur=0.25s 在判定前应基本到位）
+            bool expanding = dock != null && dock.OffsetTop < -40f;
+            GD.Print($"UiShotDiag: warp 后 Dock 展开={expanding}（offset_top={dock?.OffsetTop:F1}）");
+            if (!expanding)
                 GD.Print("UiShotDiag: ⚠️ ProcessCukHud 未自动展开——问题复现");
         }
         // ── 点击坞内首个图层图标（验证点击后坞不收回）──
         if (_cukClickIcon && _frame == Mathf.Max(1, _shotFrame - 4))
         {
             var dock = FindChild("CukDock", recursive: true, owned: false) as Control;
+            if (dock != null)
+            {
+                // 先平移到展开态（点击前提：图标在屏幕内；展开态鼠标在其中不会触发收回）
+                float h = dock.Size.Y > 1f ? dock.Size.Y : dock.GetCombinedMinimumSize().Y;
+                dock.OffsetTop = -h;
+                dock.OffsetBottom = 0f;
+            }
             var btn = dock?.FindChildren("*", recursive: true, owned: false)
                 .OfType<Button>().FirstOrDefault(b => b.ToggleMode && b.GetParent() is HBoxContainer);
             if (btn != null)

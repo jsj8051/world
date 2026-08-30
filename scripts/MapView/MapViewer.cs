@@ -97,8 +97,10 @@ public partial class MapViewer : Node3D
                 _layer = value;
                 if (IsInsideTree()) RebuildColors();
             }
-            SyncLayerButtons();
-            RebuildLegend();   // 图例跟随图层（null 保护在方法内）
+            // SyncLayerButtons 已迁入 CukHud 组件（SetLayer 下行）——外部改 Layer 时组件按钮态跟随
+            _cukHud?.SetLayer(value);
+            // RebuildLegend 已迁入 LegendPanel 组件（Rebuild 下行，null 保护在组件内）
+            _legendPanel?.Rebuild(LayerRegistry.Of(value));
             // 2026-08-21 M3 策略化：覆盖层节点由策略自持（OverlayNode）——已建则切 Visible；
             //   未建且当前层 HasOverlay → 懒建（EnsureOverlayFor 内部幂等/异步就绪判断）
             foreach (var l in LayerRegistry.All)
@@ -106,9 +108,8 @@ public partial class MapViewer : Node3D
                     l.OverlayNode.Visible = (l.Id == _layer);
             if (LayerRegistry.Of(value).HasOverlay)
                 EnsureOverlayFor(value);
-            // 月份滑块可见性 = 策略 UsesMonth（原硬编码 4/10/11）
-            if (_monthSlider != null)
-                _monthSlider.Visible = LayerRegistry.Of(value).UsesMonth;
+            // 月份滑块可见性 = 策略 UsesMonth（原硬编码 4/10/11）——已迁入 EpochBar 组件
+            _epochBar?.SetMonthVisible(LayerRegistry.Of(value).UsesMonth);
         }
     }
     private int _layer;
@@ -169,10 +170,7 @@ public partial class MapViewer : Node3D
     // 季风月风场（现场重算，不存档；箭头图数据源）
     private Vector3[][] _monthWind;  // [12][n] 顶点级月风（切向量，长度=强度；0=无风）
     private int _month = 6;          // 当前月份 0-11（默认 7 月）
-
-    // 月份滑块（图层 4/10/11 显示；1-12 月）——可见性由策略 UsesMonth 决定（2026-08-21 M3）
-    private HSlider _monthSlider;
-    private Label _monthLabel;
+    // ⚠️ 2026-08-31 拆分：月份滑块已迁入 EpochBar 组件（MonthChanged 信号上行，OnMonthChanged 处理）
 
     // ── 异步生成状态 ──
     private Task<MeshData> _buildTask;
@@ -182,12 +180,12 @@ public partial class MapViewer : Node3D
     private int _buildVersion;           // 递增；过期任务的 FinishGenerate 直接丢弃
     private string _buildDiag = "";      // BuildAll 阶段计时（后台线程写，FinishGenerate 打印）
 
-    // ── 进度条 UI ──
-    private CanvasLayer _uiLayer;
-    private PanelContainer _panel;
-    private ProgressBar _bar;
-    private Label _label;
-    private Button[] _layerButtons;
+    // ── UI 组件引用（2026-08-31 拆分：HUD 独立组件挂场景节点，MapViewer 只做导演接线）──
+    private World.UI.ProgressPanel _progressPanel;   // 进度条（UiLayer/ProgressPanel）
+    private World.UI.LegendPanel _legendPanel;       // 图例（UiLayer/LegendPanel；Rebuild 下行注入）
+    private World.UI.CukHud _cukHud;                 // 地图坞（UiLayer/CukDock；LayerSelected 上行信号）
+    private World.UI.EpochBar _epochBar;             // 右上时间行（UiLayer/EpochPanel；MonthChanged 上行信号）
+    private World.UI.SaveDialog _saveDialog;         // 游玩保存链（UiLayer/EpochPanel/EpochRow/SaveBtn）
 
     /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
     private static int PowerIdOf(Polity e)
@@ -209,21 +207,10 @@ public partial class MapViewer : Node3D
         if (e.TerritorySize >= 2) return 1;
         return 0;
     }
-    private static readonly string[] CatNames = { "地理", "气候", "人文" };
-    private LayerCategory _category;      // 当前分类（默认 Geo=0=地理，用户拍板）
-    private Button[] _catButtons;    // 3 个分类按钮（最底下一排）
-
     // ── 游玩形态保存（2026-08-25 地图≠存档分层：.sav = 世界快照 + 玩家状态 + REFS 来源地图）──
     private GameGrid _gameGrid;          // 读回的完整逻辑网格（ToMapData 不复制 Psi 且丢 grid——保存必须持原件）
     private CivSimResult _civResult;     // 演化结果快照（含 FinalTick/Player——保存写回的唯一来源）
     private string _mapRefPath;          // 本局来源地图（.sav 的 REFS 段；.cmp 无 REFS → null = 直开档）
-
-    // ── 图例面板（月份滑块左侧，固定大小，内容超出滚动；2026-08-08）──
-    private PanelContainer _legendPanel;
-    private Label _legendTitle;      // 图例标题（图层名）
-    private VBoxContainer _legendBox; // 图例条目容器（ScrollContainer 内）
-    private VBoxContainer _legendFooter; // 图例说明文字区（滚动区外，常驻面板底部——2026-08-17 用户拍板）
-
 
     public override void _Ready()
     {
@@ -248,20 +235,55 @@ public partial class MapViewer : Node3D
         _playMode = EventBus.ConsumeGameplayMap();
         if (_playMode)
             LogService.Log("MapViewer", $"gameplay mode: {_mapPath}");
+        _mapPath ??= "";   // ⚠️ 无路径（调试直接开场景/主菜单外启动）→ 空串：Generate 读档失败静默返回，不 NRE
+        BindUiComponents();   // 2026-08-31 拆分：UI 组件引用 + 信号接线（挂场景节点，_Ready 自动建）
         Generate();
+    }
+
+    /// <summary>2026-08-31 拆分：取场景预置 UI 组件引用 + 订阅上行信号。
+    /// 组件脚本挂在 MapViewer.tscn 对应节点（ProgressPanel/LegendPanel/CukDock/EpochPanel/SaveBtn），
+    /// 本方法只做接线（四层模型：MapViewer=导演/数据源，组件=逻辑层，信号=上行，方法=下行）。
+    /// ⚠️ 缺组件（场景未初始化/纯诊断场景）→ 静默跳过，不炸不伪造（同 CukHud 韧性约定）。</summary>
+    private void BindUiComponents()
+    {
+        _progressPanel = GetNodeOrNull<World.UI.ProgressPanel>("UiLayer/ProgressPanel");
+        _legendPanel = GetNodeOrNull<World.UI.LegendPanel>("UiLayer/LegendPanel");
+        _cukHud = GetNodeOrNull<World.UI.CukHud>("UiLayer/CukDock");
+        _epochBar = GetNodeOrNull<World.UI.EpochBar>("UiLayer/EpochPanel");
+        _saveDialog = GetNodeOrNull<World.UI.SaveDialog>("UiLayer/EpochPanel/EpochRow/SaveBtn");
+
+        // 上行信号接线：图层按钮 → Layer setter；月份滑块 → 上下文/策略回调
+        if (_cukHud != null) _cukHud.LayerSelected += id => Layer = id;
+        if (_epochBar != null) _epochBar.MonthChanged += OnMonthChanged;
+
+        // 初始同步（组件 _Ready 早于本方法；默认值需对齐）
+        _cukHud?.SetLayer(_layer);
+        _epochBar?.SetMonthVisible(LayerRegistry.Of(_layer).UsesMonth);
+        _saveDialog?.SetSaveState(_playMode, _mapLoaded && _gameGrid != null && _civResult != null,
+            _gameGrid, _civResult, _mapRefPath);
+    }
+
+    /// <summary>月份变更回调（EpochBar 滑块上行）：更新上下文月份 + 当前层策略的月回调（风场/月降水/月温度）。</summary>
+    private void OnMonthChanged(int m)
+    {
+        if (m == _month) return;
+        _month = m;
+        if (_ctx != null)
+        {
+            _ctx.Month = m;   // 上下文快照同步（策略 BuildOverlay/刷新方法读 ctx.Month）
+            var strat = LayerRegistry.Of(_layer);
+            if (strat.UsesMonth)
+                strat.OnMonthChanged(_ctx, m);
+        }
     }
 
     /// <summary>图层名（2026-08-21 M3：查策略注册表——单一事实来源）。</summary>
     private static string LayerName(int l) => LayerRegistry.Of(l).Name;
     public override void _Process(double delta)
     {
-        // 生成中：每帧把后台进度同步到进度条
-        if (_panel != null && _panel.Visible)
-        {
-            _bar.Value = _progress * 100f;
-            _label.Text = $"{_phase}  {_progress * 100f:F0}%";
-        }
-        ProcessCukHud();   // 潜藏坞：鼠标位置驱动（指针在区域内=展开，离开=0.4s 收回）
+        // 生成中：每帧把后台进度同步到进度条组件（SetProgress 内判 Visible——同旧语义）
+        _progressPanel?.SetProgress(_progress, _phase);
+        // ⚠️ 2026-08-31 拆分：地图坞滑出滑入已迁入 CukHud 组件自己的 _Process（不再占用导演 _Process）
     }
 
     private void Generate()
@@ -298,7 +320,7 @@ public partial class MapViewer : Node3D
                          $"epoch=石器时代 ticks={civResult.FinalTick} pop={civResult.Context.TotalPopulation():F0} entities={civResult.Context.Polities.Count}" +
                          (mapRefPath != null ? $" ref={mapRefPath}" : ""));
                 RefreshCivPanel();
-                RefreshSaveButton();   // 读档完成 → 游玩形态可保存
+                _saveDialog?.SetSaveState(_playMode, true, _gameGrid, _civResult, _mapRefPath);   // 读档完成 → 游玩形态可保存
             }
             else if (!MapArchive.Read(_mapPath, out var map))
             {
@@ -322,7 +344,7 @@ public partial class MapViewer : Node3D
                 LogService.Log("MapViewer", $"loaded seed={map.Seed} {map.Width}x{map.Height} elev[{map.MinElev:F3},{map.MaxElev:F3}] " +
                          $"civ={(_civCtx != null ? $"yes(polities={_civCtx.Polities.Count} tick={map.Civilization.FinalTick})" : "no")}");
                 RefreshCivPanel();
-                RefreshSaveButton();
+                _saveDialog?.SetSaveState(_playMode, true, _gameGrid, _civResult, _mapRefPath);
             }
 
             // ⚠️ 2026-08-02：GridN 对齐生成时的模拟 n（用户要求"游戏看的格子数=生成用的格子数"）。
@@ -372,7 +394,7 @@ public partial class MapViewer : Node3D
         var token = _cts.Token;
         _progress = 0f;
         _phase = "准备生成";
-        ShowProgress();
+        _progressPanel?.Show();   // 2026-08-31 拆分：进度条显示迁入 ProgressPanel 组件
 
         _buildTask = Task.Run(() => BuildAll(_map, version, token, _layer), token);   // _layer 主线程读（快照）
         _buildTask.ContinueWith(t =>
@@ -745,7 +767,12 @@ public partial class MapViewer : Node3D
             _progress = 1f;
             _phase = "完成";
             // 图例动态条目（文化/宗教）在 BuildAll 后才就绪 → 生成完成补刷一次
-            RebuildLegend();
+            // ⚠️ 2026-08-31 拆分：图例迁入 LegendPanel 组件——构建完成后注入上下文再重建
+            if (_legendPanel != null)
+            {
+                _legendPanel.SetContext(_ctx);
+                _legendPanel.Rebuild(LayerRegistry.Of(_layer));
+            }
             // ⚠️ 2026-08-03：headless 验证构建完成即退（原 BuildRivers 尾部；M3 策略化后统一收尾退出）
             if (OS.HasFeature("headless"))
                 GetTree().Quit();
@@ -763,7 +790,7 @@ public partial class MapViewer : Node3D
         }
         finally
         {
-            HideProgress();
+            _progressPanel?.Hide();   // 2026-08-31 拆分：进度条隐藏迁入 ProgressPanel 组件
         }
     }
 
@@ -906,7 +933,7 @@ public partial class MapViewer : Node3D
         if (_civCtx == null) return;
         var panel = EnsureCivPanel();
         panel.ShowSnapshot(World.CivSim.Observation.CivOverlay.Observe(_civCtx));
-        RefreshEpochBar();   // 右上时间（纪元/演化年——读档/演化完成路径共用）
+        _epochBar?.Refresh(_civCtx);   // 右上时间（纪元/演化年——读档/演化完成路径共用；迁入 EpochBar 组件）
     }
 
     /// <summary>懒取场景预置面板（UiLayer/CivPanel——MapViewer.tscn instance）。</summary>
@@ -921,9 +948,11 @@ public partial class MapViewer : Node3D
 
 }
 
-// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// ═══════════════════════════════════════════════════════════════════════════
 // Slices (2026-08-19 pure refactor: partial class, behavior unchanged):
-//   MapViewer.Colors.cs   - coloring (MakeColorFn/RebuildColors/BuildColorsTask/PowerColor/FamilyColor/MakeLayerIcon)
+//   MapViewer.Colors.cs   - coloring (MakeColorFn/RebuildColors/BuildColorsTask/PowerColor/FamilyColor)
 //   MapViewer.Visuals.cs  - overlay geometry (monsoon/current arrows, rings, rivers, month refreshes, IsDisplaySea)
-//   MapViewer.Ui.cs       - UI/legend (progress, EnsureUi, layer buttons, legend rows, BuildIdentityCaches, FmtPop)
-// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// ⚠️ 2026-08-31 拆分：MapViewer.Ui.cs 已删除——HUD 全部迁入 scripts/UI/ 独立组件
+//   （ProgressPanel/LegendPanel/CukHud/EpochBar/SaveDialog，挂 MapViewer.tscn 对应节点；
+//    四层模型：MapViewer=导演/数据源，组件=逻辑层，信号=上行，方法=下行）。
+// ═══════════════════════════════════════════════════════════════════════════

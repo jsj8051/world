@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>地图坞为什么浮在空中——offset 符号图解</title>
+<style>
+  :root { color-scheme: light; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    background: #efe6d5; color: #3a2c1a; padding: 28px 32px;
+  }
+  h1 { font-size: 24px; margin-bottom: 4px; }
+  .sub { color: #8a743f; font-size: 13.5px; margin-bottom: 24px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .card { background: #faf4e6; border: 1px solid #b8860b; border-radius: 14px; padding: 18px 20px; }
+  .card h2 { font-size: 16px; margin-bottom: 12px; }
+  .bad h2 { color: #8e2424; } .good h2 { color: #4a7a3a; }
+  .stage { position: relative; width: 100%; height: 300px; background: #e8dcc0;
+           border-radius: 10px; overflow: hidden; border: 1px solid #d8c9a0; }
+  .stage .screenline { position: absolute; left: 0; right: 0; top: 100%; height: 0; border-top: 2px dashed #3a2c1a; }
+  .stage .label-screen { position: absolute; right: 8px; top: 8px; font-size: 12px; color: #8a743f; background: #faf4e6; padding: 2px 8px; border-radius: 6px; }
+  .dock { position: absolute; left: 50%; transform: translateX(-50%); width: 300px; background: #d9c69b;
+          border: 2px solid #b8860b; border-radius: 10px; }
+  .dock .head { background: #3a2c1a; color: #fbf5e0; text-align: center; font-size: 13px; padding: 6px; border-radius: 7px 7px 0 0; }
+  .dock .row { font-size: 11px; color: #5a4f2e; text-align: center; padding: 5px; border-top: 1px solid #c9b487; }
+  .dock.good { top: calc(100% - 30px); height: 157px; }
+  .dock.bad { top: calc(100% - 118px); height: 88px; }
+  .eq { font-family: Consolas, monospace; background: #f4ecd8; border: 1px solid #e8dcc0; border-radius: 8px; padding: 10px 12px; margin-top: 12px; font-size: 12.5px; line-height: 1.8; }
+  .eq .err { color: #8e2424; font-weight: bold; } .eq .ok { color: #4a7a3a; font-weight: bold; }
+  .note { background: #f4ecd8; border-left: 4px solid #b8860b; padding: 10px 14px; border-radius: 0 8px 8px 0; font-size: 13px; color: #5a4f2e; margin-top: 20px; }
+  .arrow { text-align: center; font-size: 11px; color: #8a743f; margin-top: 8px; }
+  .formula { margin-top: 14px; font-size: 13px; }
+  .formula code { font-family: Consolas, monospace; background: #f4ecd8; padding: 1px 6px; border-radius: 4px; }
+</style>
+</head>
+<body>
+<h1>🧭 地图坞为什么"浮在空中"</h1>
+<div class="sub">2026-08-31 排查：CenterBottom 锚点下 offset_bottom 符号错了（设计文档公式抄错，代码照搬）</div>
+
+<div class="cols">
+  <div class="card bad">
+    <h2>❌ 修复前（你看到的）</h2>
+    <div class="stage">
+      <div class="label-screen">屏幕下部（视口 H）</div>
+      <div class="dock bad">
+        <div class="head">█ 地图</div>
+        <div class="row">分类按钮行</div>
+        <div class="row">图层按钮行</div>
+      </div>
+      <div class="screenline"></div>
+    </div>
+    <div class="arrow">面板完整露在屏幕内，悬在底部上方——"浮在空中"</div>
+    <div class="eq">
+      offset_top = <span class="err">-30</span>（面板顶在 H-30）<br>
+      offset_bottom = <span class="err">-(h-30) = -127</span>（面板底在 H-127）<br>
+      <span style="color:#8e2424">→ rect 高度为负，被最小尺寸撑开 → 面板浮起 88px</span>
+    </div>
+  </div>
+
+  <div class="card good">
+    <h2>✅ 修复后（埋进地里）</h2>
+    <div class="stage">
+      <div class="label-screen">屏幕下部（视口 H）</div>
+      <div class="dock good">
+        <div class="head">█ 地图</div>
+        <div class="row">分类按钮行</div>
+        <div class="row">图层按钮行</div>
+        <div class="row" style="border-top:1px solid #c9b487; color:#8a743f;">（屏幕外）</div>
+      </div>
+      <div class="screenline"></div>
+    </div>
+    <div class="arrow">面板主体沉到屏幕外，只露 30px 标题条「地图」</div>
+    <div class="eq">
+      offset_top = <span class="ok">-30</span>（面板顶在 H-30，贴底）<br>
+      offset_bottom = <span class="ok">+(h-30) = +127</span>（面板底在 H+127，屏幕外）<br>
+      <span style="color:#4a7a3a">→ 屏幕内仅露标题条，hover 时向上滑出全貌</span>
+    </div>
+  </div>
+</div>
+
+<div class="formula">
+  原理：CenterBottom 锚（<code>anchor_top = anchor_bottom = 1.0</code>）下，<code>rect.top = 屏高 + offset_top</code>、<code>rect.bottom = 屏高 + offset_bottom</code>。
+  "埋进地里"= 面板底部要沉到<b>屏幕下方</b>（屏高之外）→ <code>offset_bottom</code> 必须是<b>正号</b>。旧公式写
+  <code>offset_bottom = -(高-30)</code>（负号），把面板底算到了屏高<b>上方</b>，rect 倒置 → 布局引擎按最小尺寸
+  把它撑成 88px 高的浮空条。
+</div>
+
+<div class="note">📌 已修两处：<b>scripts/MapView/MapViewer.Ui.cs</b>（符号改正，含注释勘误说明）+
+<b>docs/设计-UX归航HUD改造.md</b>（设计文档公式勘误，标注 2026-08-31）。展开态公式（offset_top=-高、offset_bottom=0）本来就正确，未动。</div>
+</body>
+</html>

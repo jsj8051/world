@@ -52,7 +52,7 @@ public partial class MapViewer
         var token = _cts.Token;
         _progress = 0f;
         _phase = "重算颜色";
-        ShowProgress();
+        _progressPanel?.Show();   // 2026-08-31 拆分：进度条显示迁入 ProgressPanel 组件
         LogService.Log("MapViewer", $"RebuildColors: v{version} Layer={layer} 启动后台着色");
         _buildTask = Task.Run(() => BuildColorsTask(_map, version, token, layer), token);
         _buildTask.ContinueWith(t =>
@@ -109,27 +109,5 @@ public partial class MapViewer
 
     /// <summary>独立势力/族系取色（2026-08-21 M2：实现已迁移至 MapLayerColors.PowerColor / FamilyColor，
     /// using static 后本文件内的调用自动解析到新位置；原实现历史注释见 MapLayerColors.cs）。</summary>
-
-    /// <summary>按钮图标（2026-08-21 M4：SVG 随策略走——IconSvg 属性；顺带修复聚落按钮越界）。</summary>
-    private static Texture2D MakeLayerIcon(int idx)
-    {
-        try
-        {
-            var bytes = System.Text.Encoding.UTF8.GetBytes(LayerRegistry.All[idx].IconSvg);
-            var img = new Image();   // LoadSvgFromBuffer 是实例方法（返回 Error）
-            if (img.LoadSvgFromBuffer(bytes) != Error.Ok)
-            {
-                LogService.LogErr("MapViewer", $"SVG icon {idx} load failed");
-                return null;
-            }
-            img.Resize(28, 28, Image.Interpolation.Bilinear);
-            return ImageTexture.CreateFromImage(img);
-        }
-        catch (System.Exception e)
-        {
-            LogService.LogErr("MapViewer", $"SVG icon {idx} failed: {e.Message}");
-            return null;
-        }
-    }
 
 }
