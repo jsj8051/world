@@ -1,0 +1,388 @@
+[gd_scene format=3 uid="uid://c5j6lj7a6su0c"]
+
+[ext_resource type="Script" uid="uid://1ot7k81mdqe5" path="res://scripts/UI/NationSelectMenu.cs" id="1_nsm"]
+[ext_resource type="PackedScene" path="res://scenes/core/PlanetCore.tscn" id="2_core"]
+[ext_resource type="PackedScene" path="res://scenes/ui/CukDock.tscn" id="4_cuk"]
+
+[sub_resource type="StyleBoxFlat" id="sb_hint"]
+content_margin_left = 18.0
+content_margin_top = 7.0
+content_margin_right = 18.0
+content_margin_bottom = 7.0
+bg_color = Color(0.851, 0.776, 0.608, 0.82)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.49, 0.396, 0.22, 0.9)
+corner_radius_top_left = 999
+corner_radius_top_right = 999
+corner_radius_bottom_right = 999
+corner_radius_bottom_left = 999
+
+[sub_resource type="StyleBoxFlat" id="sb_win"]
+bg_color = Color(0.851, 0.776, 0.608, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 40
+shadow_offset = Vector2(0, 14)
+
+[sub_resource type="StyleBoxFlat" id="sb_logo"]
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+bg_color = Color(0.557, 0.141, 0.141, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.5)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="SystemFont" id="sf_title"]
+font_names = PackedStringArray("KaiTi", "楷体", "STKaiti", "SimSun", "宋体")
+
+[sub_resource type="StyleBoxFlat" id="sb_count"]
+content_margin_left = 14.0
+content_margin_top = 4.0
+content_margin_right = 14.0
+content_margin_bottom = 4.0
+bg_color = Color(0.957, 0.925, 0.831, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.49, 0.396, 0.22, 1)
+corner_radius_top_left = 999
+corner_radius_top_right = 999
+corner_radius_bottom_right = 999
+corner_radius_bottom_left = 999
+
+[sub_resource type="StyleBoxFlat" id="sb_dialog"]
+bg_color = Color(0.851, 0.776, 0.608, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+
+[sub_resource type="StyleBoxFlat" id="sb_ghost"]
+bg_color = Color(0.851, 0.776, 0.608, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_ghost_hover"]
+bg_color = Color(0.851, 0.776, 0.608, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_primary"]
+bg_color = Color(0.722, 0.525, 0.043, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_primary_hover"]
+bg_color = Color(0.788, 0.6, 0.12, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_primary_dim"]
+bg_color = Color(0.722, 0.525, 0.043, 0.3)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.49, 0.396, 0.22, 0.8)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="NationSelect" type="Control" unique_id=1314997891]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_nsm")
+
+[node name="Map" parent="." unique_id=438384738 instance=ExtResource("2_core")]
+
+[node name="UiSelect" type="CanvasLayer" parent="." unique_id=1765030499]
+layer = 200
+
+[node name="Hint" type="MarginContainer" parent="UiSelect" unique_id=1476418196]
+anchors_preset = -1
+anchor_right = 0.855
+offset_top = 10.0
+offset_right = 1.1999512
+offset_bottom = 56.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/margin_left = 24
+theme_override_constants/margin_right = 24
+
+[node name="HintPanel" type="PanelContainer" parent="UiSelect/Hint" unique_id=1924223413]
+layout_mode = 2
+size_flags_horizontal = 4
+mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_hint")
+
+[node name="HintLabel" type="Label" parent="UiSelect/Hint/HintPanel" unique_id=871815603]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 14
+text = "🌍 拖拽旋转 · 滚轮缩放 · 点击地图上的政权来选择"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SidePanel" type="PanelContainer" parent="UiSelect" unique_id=19494084]
+custom_minimum_size = Vector2(350, 0)
+anchors_preset = 11
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -372.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = -10.0
+grow_horizontal = 0
+grow_vertical = 2
+theme_override_styles/panel = SubResource("sb_win")
+
+[node name="V" type="VBoxContainer" parent="UiSelect/SidePanel" unique_id=1719801925]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HeadPad" type="MarginContainer" parent="UiSelect/SidePanel/V" unique_id=582199891]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 2
+
+[node name="HeadRow" type="HBoxContainer" parent="UiSelect/SidePanel/V/HeadPad" unique_id=1651030439]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 12
+
+[node name="Logo" type="PanelContainer" parent="UiSelect/SidePanel/V/HeadPad/HeadRow" unique_id=1359529217]
+custom_minimum_size = Vector2(42, 42)
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_logo")
+
+[node name="LogoLabel" type="Label" parent="UiSelect/SidePanel/V/HeadPad/HeadRow/Logo" unique_id=489942971]
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "👑"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Title" type="Label" parent="UiSelect/SidePanel/V/HeadPad/HeadRow" unique_id=1034585837]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_fonts/font = SubResource("sf_title")
+theme_override_font_sizes/font_size = 24
+text = "选择国家"
+vertical_alignment = 1
+
+[node name="CountBadge" type="PanelContainer" parent="UiSelect/SidePanel/V/HeadPad/HeadRow" unique_id=1960292104]
+custom_minimum_size = Vector2(96, 30)
+layout_mode = 2
+size_flags_horizontal = 2
+size_flags_vertical = 4
+mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_count")
+
+[node name="CountRow" type="HBoxContainer" parent="UiSelect/SidePanel/V/HeadPad/HeadRow/CountBadge" unique_id=1442054797]
+layout_mode = 2
+theme_override_constants/separation = 5
+alignment = 1
+
+[node name="CountPre" type="Label" parent="UiSelect/SidePanel/V/HeadPad/HeadRow/CountBadge/CountRow" unique_id=1024318127]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
+theme_override_font_sizes/font_size = 12
+text = "政权"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="Count" type="Label" parent="UiSelect/SidePanel/V/HeadPad/HeadRow/CountBadge/CountRow" unique_id=551998482]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 14
+text = "0"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="StatusPad" type="MarginContainer" parent="UiSelect/SidePanel/V" unique_id=1574522469]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 2
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 2
+
+[node name="StatusRow" type="HBoxContainer" parent="UiSelect/SidePanel/V/StatusPad" unique_id=587455991]
+layout_mode = 2
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="StatusDot" type="Label" parent="UiSelect/SidePanel/V/StatusPad/StatusRow" unique_id=596655685]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 10
+text = "●"
+
+[node name="Status" type="Label" parent="UiSelect/SidePanel/V/StatusPad/StatusRow" unique_id=300582194]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
+theme_override_font_sizes/font_size = 13
+text = "正在载入文明…"
+autowrap_mode = 3
+
+[node name="Scroll" type="ScrollContainer" parent="UiSelect/SidePanel/V" unique_id=706456120]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="List" type="VBoxContainer" parent="UiSelect/SidePanel/V/Scroll" unique_id=1483654278]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="DetailCard" type="PanelContainer" parent="UiSelect/SidePanel/V" unique_id=121557872]
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_dialog")
+
+[node name="Pad" type="MarginContainer" parent="UiSelect/SidePanel/V/DetailCard" unique_id=765281668]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="DV" type="VBoxContainer" parent="UiSelect/SidePanel/V/DetailCard/Pad" unique_id=538645056]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="DetailTitle" type="Label" parent="UiSelect/SidePanel/V/DetailCard/Pad/DV" unique_id=922006341]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 16
+text = "未选择政权"
+
+[node name="DetailBody" type="Label" parent="UiSelect/SidePanel/V/DetailCard/Pad/DV" unique_id=1969025908]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.353, 0.29, 0.18, 1)
+theme_override_font_sizes/font_size = 13
+text = "点击地图或上方列表选择一个政权"
+autowrap_mode = 3
+
+[node name="FootPad" type="MarginContainer" parent="UiSelect/SidePanel/V" unique_id=1892257543]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 14
+
+[node name="FootRow" type="HBoxContainer" parent="UiSelect/SidePanel/V/FootPad" unique_id=214159651]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="BackBtn" type="Button" parent="UiSelect/SidePanel/V/FootPad/FootRow" unique_id=1929999789]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(120, 42)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("sb_ghost")
+theme_override_styles/pressed = SubResource("sb_ghost_hover")
+theme_override_styles/hover = SubResource("sb_ghost_hover")
+theme_override_styles/focus = SubResource("sb_ghost")
+text = "← 返回"
+
+[node name="StartBtn" type="Button" parent="UiSelect/SidePanel/V/FootPad/FootRow" unique_id=861775180]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_disabled_color = Color(0.49, 0.416, 0.282, 1)
+theme_override_font_sizes/font_size = 16
+theme_override_styles/normal = SubResource("sb_primary")
+theme_override_styles/pressed = SubResource("sb_primary_hover")
+theme_override_styles/hover = SubResource("sb_primary_hover")
+theme_override_styles/disabled = SubResource("sb_primary_dim")
+theme_override_styles/focus = SubResource("sb_primary")
+disabled = true
+text = "▶ 开始游玩"
+
+[node name="Dim" type="ColorRect" parent="UiSelect" unique_id=770317780]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 1
+color = Color(0.078, 0.059, 0.031, 0.62)
+
+[node name="CukDock" parent="UiSelect" unique_id=1355471399 instance=ExtResource("4_cuk")]

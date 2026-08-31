@@ -397,8 +397,15 @@ public partial class SaveSelectMenu : Control
             LogService.Log("SaveSelectMenu", $"拒绝进入版本不符存档 {path}");
             return;
         }
+        if (_playMode)
+        {
+            // 游玩模式：改走选国（NationSelect 消费路径/标记；不再走 MapViewer 链路）
+            EventBus.RequestNationSelect(path);
+            GetTree().ChangeSceneToFile("res://scenes/core/NationSelect.tscn");
+            return;
+        }
         EventBus.RequestMapView(path);
-        if (_playMode || _loadMode) EventBus.MarkGameplayMap();   // 游玩/读档均进游玩形态（MapViewer 消费）
+        if (_loadMode) EventBus.MarkGameplayMap();   // 读档进游玩形态（MapViewer 消费；游玩模式已提前返回）
         GetTree().ChangeSceneToFile("res://scenes/core/MapViewer.tscn");
     }
 

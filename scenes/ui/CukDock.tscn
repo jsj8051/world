@@ -1,0 +1,155 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" uid="uid://dej5fn031u31e" path="res://scripts/UI/CukHud.cs" id="1_cuk"]
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_panel"]
+bg_color = Color(0.851, 0.776, 0.608, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.9)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxFlat" id="sb_cuk_head"]
+bg_color = Color(0.227, 0.173, 0.102, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn"]
+bg_color = Color(0.957, 0.925, 0.831, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.49, 0.396, 0.22, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn_pressed"]
+bg_color = Color(0.557, 0.141, 0.141, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn_hover"]
+bg_color = Color(0.984, 0.961, 0.878, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="ButtonGroup" id="btn_group_cat"]
+
+[node name="CukDock" type="PanelContainer"]
+script = ExtResource("1_cuk")
+unique_name_in_owner = true
+theme_override_styles/panel = SubResource("sb_hud_panel")
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -330.065
+offset_top = -30.0
+offset_right = 331.93506
+offset_bottom = 127.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="DockBox" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="HeadRow" type="PanelContainer" parent="DockBox"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+theme_override_styles/panel = SubResource("sb_cuk_head")
+
+[node name="HeadLabel" type="Label" parent="DockBox/HeadRow"]
+custom_minimum_size = Vector2(660, 30)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
+theme_override_font_sizes/font_size = 15
+text = "地图"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CatRow" type="HBoxContainer" parent="DockBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 8
+
+[node name="CatGeo" type="Button" parent="DockBox/CatRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+toggle_mode = true
+button_group = SubResource("btn_group_cat")
+text = "地理"
+
+[node name="CatClim" type="Button" parent="DockBox/CatRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+toggle_mode = true
+button_group = SubResource("btn_group_cat")
+text = "气候"
+
+[node name="CatHum" type="Button" parent="DockBox/CatRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(80, 32)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+toggle_mode = true
+button_group = SubResource("btn_group_cat")
+text = "人文"
+
+[node name="LayerRow" type="HBoxContainer" parent="DockBox"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 4

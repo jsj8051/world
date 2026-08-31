@@ -18,6 +18,9 @@ public sealed class LayerContext
     public float RadiusKm;           // 星球半径（存档口径）
     public int Month;                // 当前月份 0-11
 
+    /// <summary>选国形态选中政权 Id（-1=未选中；政体图层压暗/选国高亮用；NationSelectMenu 写、策略读）。</summary>
+    public int SelectionId = -1;
+
     /// <summary>季风月风场 [12][n]（异步重算；就绪前 null——MapViewer.ApplyMonthWind 后同步本引用）。</summary>
     public Vector3[][] MonthWind;
 

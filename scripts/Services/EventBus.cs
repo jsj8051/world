@@ -120,6 +120,51 @@ public static class EventBus
         return p;
     }
 
+    // ── 选国场景衔接（2026-08-31：SaveSelectMenu 游玩模式 → NationSelect）──
+    // 待消费对（场景切换时序：发布时新场景尚未实例化，事件会错过——同 _pendingMapViewPath 模式）：
+    //   RequestNationSelect → NationSelect._Ready 消费路径+标记
+    //   RequestPlayerBind → 策略层消费玩家绑定政权（-1=无）
+    private static string _pendingNationSelectPath;
+    private static bool _pendingNationSelectFlag;
+    private static int _pendingPlayerBind = -1;
+
+    /// <summary>请求选国（SaveSelectMenu 游玩模式进入选国）：记录待消费路径与标记。</summary>
+    public static void RequestNationSelect(string path)
+    {
+        _pendingNationSelectPath = path;
+        _pendingNationSelectFlag = true;
+    }
+
+    /// <summary>NationSelect._Ready 消费待选国路径（取后清空）。</summary>
+    public static string ConsumeNationSelectPath()
+    {
+        var p = _pendingNationSelectPath;
+        _pendingNationSelectPath = null;
+        return p;
+    }
+
+    /// <summary>NationSelect._Ready 消费选国标记（取后清空；false = 非选国进入）。</summary>
+    public static bool ConsumeNationSelectFlag()
+    {
+        var v = _pendingNationSelectFlag;
+        _pendingNationSelectFlag = false;
+        return v;
+    }
+
+    /// <summary>请求把当前形态绑定到某政权（选国选中后写；策略层读——-1=未绑定）。</summary>
+    public static void RequestPlayerBind(int stateId)
+    {
+        _pendingPlayerBind = stateId;
+    }
+
+    /// <summary>消费玩家绑定政权 Id（取后复位 -1）。</summary>
+    public static int ConsumePlayerBind()
+    {
+        var v = _pendingPlayerBind;
+        _pendingPlayerBind = -1;
+        return v;
+    }
+
     public static void PublishProgress(float value) => GenerationProgress?.Invoke(value);
 
     public static void PublishFinished(bool ok, string path) => GenerationFinished?.Invoke(ok, path);

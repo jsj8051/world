@@ -1,0 +1,135 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" uid="uid://c6vo3wpfjwvsc" path="res://scripts/UI/EpochBar.cs" id="1_epoch"]
+[ext_resource type="Script" uid="uid://fxje6v478hjc" path="res://scripts/UI/SaveDialog.cs" id="2_save"]
+
+[sub_resource type="StyleBoxFlat" id="sb_epoch_cap"]
+content_margin_left = 14.0
+content_margin_top = 5.0
+content_margin_right = 14.0
+content_margin_bottom = 5.0
+bg_color = Color(0.851, 0.776, 0.608, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.9)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn"]
+bg_color = Color(0.957, 0.925, 0.831, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.49, 0.396, 0.22, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn_pressed"]
+bg_color = Color(0.557, 0.141, 0.141, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_btn_hover"]
+bg_color = Color(0.984, 0.961, 0.878, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="EpochPanel" type="PanelContainer"]
+script = ExtResource("1_epoch")
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -420.0
+offset_top = 14.0
+offset_right = -16.0
+grow_horizontal = 0
+theme_override_styles/panel = SubResource("sb_epoch_cap")
+
+[node name="EpochRow" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="EpochLabel" type="Label" parent="EpochRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 16
+text = "◆ 旧石器"
+
+[node name="YearLabel" type="Label" parent="EpochRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 16
+text = "演化 17,100 年"
+
+[node name="MonthRow" type="HBoxContainer" parent="EpochRow"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="MonthText" type="Label" parent="EpochRow/MonthRow"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "月份"
+vertical_alignment = 1
+
+[node name="MonthSlider" type="HSlider" parent="EpochRow/MonthRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 30)
+layout_mode = 2
+max_value = 12.0
+value = 1.0
+
+[node name="MonthLabel" type="Label" parent="EpochRow/MonthRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.725, 0.541, 0.141, 1)
+theme_override_font_sizes/font_size = 13
+text = "1 月"
+vertical_alignment = 1
+
+[node name="PlayerBadge" type="Label" parent="EpochRow"]
+visible = false
+layout_mode = 2
+size_flags_horizontal = 8
+theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 13
+text = ""
+vertical_alignment = 1
+
+[node name="SaveBtn" type="Button" parent="EpochRow"]
+script = ExtResource("2_save")
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(84, 36)
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = SubResource("sb_hud_btn")
+theme_override_styles/pressed = SubResource("sb_hud_btn_pressed")
+theme_override_styles/hover = SubResource("sb_hud_btn_hover")
+theme_override_styles/focus = SubResource("sb_hud_btn")
+text = "💾 保存"

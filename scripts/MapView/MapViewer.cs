@@ -15,6 +15,7 @@ using static World.MapView.MapLayerColors;
 
 using World.CivSim;
 using World.CivSim.Entities;
+using World.CivSim.Observation;
 using World.LogicGrid;
 namespace World.MapView;
 
@@ -52,6 +53,13 @@ public partial class MapViewer : Node3D
 
     // ⚠️ 2026-08-25 第二阶段「正式游玩」：游玩形态标记（选国家/活世界驱动为后续刀；本刀仅标记）
     private bool _playMode;
+
+    // ── 选国形态（2026-08-31：NationSelect 实例化本场景选国；信号上行侧栏，拣选/阻挡下行反馈）──
+    [Signal] public delegate void NationMapReadyEventHandler();   // 读档完成（无参——Godot 信号不支持自定义类参数 GD0202；快照经 GetNationSnapshot 取）
+    [Signal] public delegate void TilePickedEventHandler(int polityId);               // 点击拣选命中（可点选图层、存活政权）
+    [Signal] public delegate void PickBlockedEventHandler();                          // 点击被拦（浏览图层无拣选语义）
+    private bool _nationSelect;   // 选国形态标记（EventBus 消费；真=进入选国专用交互路径）
+    private int _pendingPlayerBind = -1;   // EventBus 消费的玩家绑定（选国确认传入；读档完成后 ApplyPlayerBind 应用）
 
     // 地图存档缓存：运行期间不变，只读一次；重建（切图层/改 GridN）复用
     private MapData _map;
@@ -235,9 +243,26 @@ public partial class MapViewer : Node3D
         _playMode = EventBus.ConsumeGameplayMap();
         if (_playMode)
             LogService.Log("MapViewer", $"gameplay mode: {_mapPath}");
+        // ⚠️ 2026-08-31 选国形态：NationSelect 场景实例化本场景（SaveSelectMenu 不再 MarkGameplayMap，
+        //   游玩形态必为 false——选国只读浏览，确认后才经 MarkGameplayMap 进正式游玩）
+        _nationSelect = EventBus.ConsumeNationSelectFlag();
+        // headless 冒烟：直接开 NationSelect.tscn 时无 EventBus 标记——--nationPath= 参数等价进入选国形态
+        if (!_nationSelect)
+            foreach (string arg in OS.GetCmdlineUserArgs())
+                if (arg.StartsWith("--nationPath=", StringComparison.Ordinal)) { _nationSelect = true; break; }
+        if (_nationSelect)
+        {
+            _playMode = false;
+            LogService.Log("MapViewer", "nation-select mode（选国形态：点击拣选/选中叠加/相机转向）");
+        }
+        _pendingPlayerBind = EventBus.ConsumePlayerBind();   // 玩家绑定政权 Id（-1=无绑定；确认进正式游玩时 RequestPlayerBind 写入）
+        if (_pendingPlayerBind >= 0)
+            LogService.Log("MapViewer", $"pending player bind: #{_pendingPlayerBind}");
+        if (_nationSelect) _mapPath = "";   // ⚠️ 选国形态：清默认路径——path 由 NationSelectMenu 稍后设置（防空读 map1.mpa 误报）
         _mapPath ??= "";   // ⚠️ 无路径（调试直接开场景/主菜单外启动）→ 空串：Generate 读档失败静默返回，不 NRE
         BindUiComponents();   // 2026-08-31 拆分：UI 组件引用 + 信号接线（挂场景节点，_Ready 自动建）
-        Generate();
+        if (_mapPath.Length > 0 || !_nationSelect)
+            Generate();   // ⚠️ 选国形态：path 由 NationSelectMenu 稍后设置（此刻空串——跳过读档避免空路径报错日志）
     }
 
     /// <summary>2026-08-31 拆分：取场景预置 UI 组件引用 + 订阅上行信号。
@@ -394,7 +419,7 @@ public partial class MapViewer : Node3D
         var token = _cts.Token;
         _progress = 0f;
         _phase = "准备生成";
-        _progressPanel?.Show();   // 2026-08-31 拆分：进度条显示迁入 ProgressPanel 组件
+        if (!_nationSelect) _progressPanel?.Show();   // 2026-08-31 拆分：进度条显示迁入 ProgressPanel 组件；选国形态进度由侧栏状态行显示
 
         _buildTask = Task.Run(() => BuildAll(_map, version, token, _layer), token);   // _layer 主线程读（快照）
         _buildTask.ContinueWith(t =>
@@ -766,6 +791,8 @@ public partial class MapViewer : Node3D
             }
             _progress = 1f;
             _phase = "完成";
+            // 玩家绑定应用（选国确认 / .sav 读档）：写 PlayerSession + HUD 徽章——读档完成节点（.sav 直进正式游玩含绑定）
+            ApplyPlayerBind();
             // 图例动态条目（文化/宗教）在 BuildAll 后才就绪 → 生成完成补刷一次
             // ⚠️ 2026-08-31 拆分：图例迁入 LegendPanel 组件——构建完成后注入上下文再重建
             if (_legendPanel != null)
@@ -773,8 +800,12 @@ public partial class MapViewer : Node3D
                 _legendPanel.SetContext(_ctx);
                 _legendPanel.Rebuild(LayerRegistry.Of(_layer));
             }
+            // ⚠️ 2026-08-31 选国形态：读档完成 → 通知侧栏（快照经 GetNationSnapshot 取——信号无参，GD0202）
+            if (_nationSelect && _civCtx != null)
+                EmitSignal(SignalName.NationMapReady);
             // ⚠️ 2026-08-03：headless 验证构建完成即退（原 BuildRivers 尾部；M3 策略化后统一收尾退出）
-            if (OS.HasFeature("headless"))
+            //   选国形态不退——NationSelect 场景需要继续交互（headless 验证由 NationSelect 侧驱动）
+            if (OS.HasFeature("headless") && !_nationSelect)
                 GetTree().Quit();
         }
         catch (Exception e)
@@ -837,6 +868,13 @@ public partial class MapViewer : Node3D
     /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
     public override void _UnhandledInput(InputEvent e)
     {
+        // ⚠️ 2026-08-31 选国形态：完全走"按下记位/释放判点击"专用路径（不执行原按下即诊断）——
+        //   拖动旋转不拣选（位移≥8px 或时长≥300ms 视为拖动）；白名单图层外点击发 PickBlocked 提示
+        if (_nationSelect)
+        {
+            HandleSelectClick(e);
+            return;
+        }
         if (e is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left
             && _map != null && _tiles != null)
         {
@@ -864,6 +902,127 @@ public partial class MapViewer : Node3D
                 if (d < bestD) { bestD = d; best = i; }
             }
             if (best >= 0) ClickDebug(best);
+        }
+    }
+
+    // ═══════════════════════ 选国形态交互（2026-08-31；NationSelect 实例化本场景）═══════════════════════
+
+    // 选国点击判定：按下记位，释放时位移 <8px 且时长 <300ms 视为点击（拖动旋转不拣选）
+    private Vector2 _selectPressPos;      // 按下位置（屏幕坐标）
+    private ulong _selectPressTime;       // 按下时刻（ms）
+    private bool _selectPressArmed;       // 已按下未松开（等待释放判定）
+
+    /// <summary>选国点击路由：仅取左键按下/释放对——按下记位，释放按"位移+时长"阈值判点击→拣选。</summary>
+    private void HandleSelectClick(InputEvent e)
+    {
+        if (e is not InputEventMouseButton mb || mb.ButtonIndex != MouseButton.Left) return;
+        if (_map == null || _tiles == null || _civCtx == null) return;   // 选国必含文明（读档完成前不响应）
+        if (mb.Pressed)
+        {
+            _selectPressPos = mb.Position;
+            _selectPressTime = Time.GetTicksMsec();
+            _selectPressArmed = true;
+        }
+        else if (_selectPressArmed)
+        {
+            _selectPressArmed = false;   // 无论是否点击都复位（下一次按下重新记位）
+            if (mb.Position.DistanceTo(_selectPressPos) < 8f && Time.GetTicksMsec() - _selectPressTime < 300)
+                SelectPickAt(mb.Position);
+        }
+    }
+
+    /// <summary>选国拣选（射线-球面求交同既有点击诊断；白名单图层→存活政权→TilePicked；否则 PickBlocked）。</summary>
+    private void SelectPickAt(Vector2 screenPos)
+    {
+        var cam = GetNode<OrbitalCamera>("OrbitalCamera")?.Cam;
+        if (cam == null || _tileIndex == null || _civCtx?.CellOwner == null) return;
+        var from = cam.ProjectRayOrigin(screenPos);
+        var dir = cam.ProjectRayNormal(screenPos);
+        // 射线-球面求交（球心=原点）——与 _UnhandledInput 同款
+        float r = RadiusKm;
+        float a = dir.Dot(dir);
+        float b = 2f * from.Dot(dir);
+        float c = from.Dot(from) - r * r;
+        float disc = b * b - 4f * a * c;
+        if (disc < 0f) return;
+        float t = (-b - Mathf.Sqrt(disc)) / (2f * a);
+        if (t < 0f) t = (-b + Mathf.Sqrt(disc)) / (2f * a);
+        if (t < 0f) return;
+        var hit = from + dir * t;
+        // 最近格中心（O(n) 一次点击——同点击诊断）
+        int best = -1;
+        float bestD = float.MaxValue;
+        for (int i = 0; i < _tiles.Count; i++)
+        {
+            float d = (_tiles[i].Center - hit).LengthSquared();
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        if (best < 0) return;
+        // ⚠️ 2026-08-31 可点选图层白名单（P7 拍板：政体18/独立势力14/势力范围17/人口12——均有"格→政权"归属语义）
+        int layer = _layer;
+        bool pickable = layer == 12 || layer == 14 || layer == 17 || layer == 18;
+        if (!pickable)
+        {
+            LogService.Log("MapViewer", $"选国点击被拦：图层 {LayerName(layer)} 为浏览模式（政体/独立势力/势力范围/人口 可点选）");
+            EmitSignal(SignalName.PickBlocked);
+            return;
+        }
+        int vid = _tileIndex.FaceToVertex(best);
+        int ownerId = _civCtx.CellOwner[vid];
+        // 校验存活：CellOwner 可能残留死实体 → 只对活政权发 TilePicked（海洋/无主/残留静默）
+        foreach (var pe in _civCtx.Polities)
+            if (!pe.Dead && pe.Id == ownerId)
+            {
+                EmitSignal(SignalName.TilePicked, ownerId);
+                return;
+            }
+    }
+
+    /// <summary>读取选国文明快照（读档完成信号无参后调用——GD0202 限制；null=无文明）。</summary>
+    public CivSnapshot GetNationSnapshot() => _civCtx != null ? CivOverlay.Observe(_civCtx) : null;
+
+    /// <summary>选国选中/取消（-1=清空，政体 Id）：更新 SelectionId → 重建金网格叠加 + 政体层压暗重着色 → 相机转向（政权 Cell）。</summary>
+    public void SetSelection(int polityId)
+    {
+        if (_ctx == null) return;
+        // ⚠️ SelectionId 存"势力域 Id"（与 TilePower/PolityLayer 同空间——PowerIdOf 高位域遮罩）；
+        //   传入的是政体实体 Id（CellOwner/TilePicked 同源），转换后才能命中 TilePower 比对
+        int sel = -1;
+        if (polityId >= 0 && _civCtx != null)
+            foreach (var e in _civCtx.Polities)
+                if (!e.Dead && e.Id == polityId) { sel = PowerIdOf(e); break; }
+        _ctx.SelectionId = sel;
+        RebuildSelectionOverlay();
+        _ctx.RequestRecolor?.Invoke();
+        if (polityId >= 0)
+        {
+            var cam = GetNodeOrNull<World.Camera.OrbitalCamera>("OrbitalCamera");
+            if (cam != null && _civCtx?.Grid != null)
+                foreach (var e in _civCtx.Polities)
+                    if (!e.Dead && e.Id == polityId && e.Cell >= 0 && e.Cell < _civCtx.Grid.Verts.Length)
+                    { cam.LookAtPoint(_civCtx.Grid.Verts[e.Cell]); break; }   // 世界坐标单位向量（LookAtPoint 内部 Normalized）
+        }
+    }
+
+    /// <summary>应用玩家会话绑定（选国确认 / .sav 读档）：写 PlayerSession.StateId + CivSimContext.Player 挂载 + HUD 徽章。
+    /// 纯自动模式（无 Player）不动。⚠️ PLAY 段存档读写的是 CivSimContext.Player（CivSimResult 不持 Player——同引用）。</summary>
+    private void ApplyPlayerBind()
+    {
+        if (_civResult == null || _civCtx == null || !_playMode) return;
+        if (_pendingPlayerBind >= 0)
+        {
+            _civCtx.Player ??= new World.Gameplay.PlayerSession();
+            _civCtx.Player.StateId = _pendingPlayerBind;   // 引擎/存档同一引用（CivSimContext.Player 普通字段；写档走它）
+            LogService.Log("MapViewer", $"玩家绑定政体 #{_pendingPlayerBind}");
+        }
+        if (_civCtx.Player != null && _civCtx.Player.IsBound)
+        {
+            int id = _civCtx.Player.StateId;
+            string label = "政权";
+            foreach (var e in _civCtx.Polities)
+                if (!e.Dead && e.Id == id)
+                { if (e.StateId == e.Id && e.StateSize >= 2) label = "国家"; break; }
+            _epochBar?.SetPlayerBadge($"👑 {label} #{id}");
         }
     }
 
@@ -927,20 +1086,21 @@ public partial class MapViewer : Node3D
 
     // ── 文明观测面板（2026-08-24 步骤②，docs/设计-观测面板与文明记录.md）──
 
-    /// <summary>加载文明地图后刷新观测面板（_civCtx 非空才显示；纯自然地图保持隐藏）。</summary>
+    /// <summary>加载文明地图后刷新观测面板（_civCtx 非空才显示；纯自然地图保持隐藏；选国形态无面板 → 跳过）。</summary>
     private void RefreshCivPanel()
     {
         if (_civCtx == null) return;
         var panel = EnsureCivPanel();
-        panel.ShowSnapshot(World.CivSim.Observation.CivOverlay.Observe(_civCtx));
+        if (panel != null)
+            panel.ShowSnapshot(World.CivSim.Observation.CivOverlay.Observe(_civCtx));
         _epochBar?.Refresh(_civCtx);   // 右上时间（纪元/演化年——读档/演化完成路径共用；迁入 EpochBar 组件）
     }
 
-    /// <summary>懒取场景预置面板（UiLayer/CivPanel——MapViewer.tscn instance）。</summary>
+    /// <summary>懒取场景预置面板（UiLayer/CivPanel——MapViewer.tscn 挂载；选国形态不挂 → null=跳过）。</summary>
     private World.UI.CivPanel EnsureCivPanel()
     {
         if (_civPanel == null)
-            _civPanel = GetNode<World.UI.CivPanel>("UiLayer/CivPanel");
+            _civPanel = GetNodeOrNull<World.UI.CivPanel>("UiLayer/CivPanel");
         return _civPanel;
     }
 

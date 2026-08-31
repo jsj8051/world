@@ -1,112 +1,8 @@
-[gd_scene load_steps=19 format=3]
+[gd_scene format=3 uid="uid://db8atslbncvhn"]
 
-[ext_resource type="Script" path="res://scripts/UI/SaveSelectMenu.cs" id="1_ssm"]
-
-[sub_resource type="SystemFont" id="sf_title_scene"]
-font_names = PackedStringArray("KaiTi", "楷体", "STKaiti", "SimSun", "宋体")
-[sub_resource type="StyleBoxFlat" id="sb_win"]
-bg_color = Color(0.851, 0.776, 0.608, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 1)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_right = 16
-corner_radius_bottom_left = 16
-shadow_color = Color(0, 0, 0, 0.5)
-shadow_size = 40
-shadow_offset = Vector2(0, 14)
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_tab_active"]
-bg_color = Color(0.851, 0.776, 0.608, 1)
-border_width_left = 1
-border_width_top = 2
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.722, 0.525, 0.043, 0.8)
-corner_radius_top_left = 10
-corner_radius_top_right = 10
-corner_radius_bottom_right = 10
-corner_radius_bottom_left = 10
-content_margin_left = 16.0
-content_margin_top = 8.0
-content_margin_right = 16.0
-content_margin_bottom = 8.0
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_tab_inactive"]
-bg_color = Color(0, 0, 0, 0)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.490, 0.396, 0.220, 0.6)
-corner_radius_top_left = 10
-corner_radius_top_right = 10
-corner_radius_bottom_right = 10
-corner_radius_bottom_left = 10
-content_margin_left = 16.0
-content_margin_top = 8.0
-content_margin_right = 16.0
-content_margin_bottom = 8.0
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_tab_inactive_hover"]
-bg_color = Color(0.957, 0.925, 0.831, 0.6)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 0.8)
-corner_radius_top_left = 10
-corner_radius_top_right = 10
-corner_radius_bottom_right = 10
-corner_radius_bottom_left = 10
-content_margin_left = 16.0
-content_margin_top = 8.0
-content_margin_right = 16.0
-content_margin_bottom = 8.0
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_logo"]
-bg_color = Color(0.557, 0.141, 0.141, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.722, 0.525, 0.043, 0.5)
-corner_radius_top_left = 10
-corner_radius_top_right = 10
-corner_radius_bottom_right = 10
-corner_radius_bottom_left = 10
-content_margin_left = 6.0
-content_margin_top = 6.0
-content_margin_right = 6.0
-content_margin_bottom = 6.0
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_count"]
-bg_color = Color(0.957, 0.925, 0.831, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.490, 0.396, 0.220, 1)
-corner_radius_top_left = 999
-corner_radius_top_right = 999
-corner_radius_bottom_right = 999
-corner_radius_bottom_left = 999
-content_margin_left = 14.0
-content_margin_top = 4.0
-content_margin_right = 14.0
-content_margin_bottom = 4.0
-anti_aliasing = true
+[ext_resource type="Script" uid="uid://dymhheu46acgh" path="res://scripts/UI/SaveSelectMenu.cs" id="1_ssm"]
 
 [sub_resource type="Gradient" id="grad"]
-offsets = PackedFloat32Array(0, 1)
 colors = PackedColorArray(0.722, 0.525, 0.043, 0.16, 0.722, 0.525, 0.043, 0)
 
 [sub_resource type="GradientTexture2D" id="tex_glow"]
@@ -117,37 +13,52 @@ fill = 1
 fill_from = Vector2(1, 0)
 fill_to = Vector2(0, 1)
 
-[sub_resource type="StyleBoxFlat" id="sb_dialog"]
+[sub_resource type="StyleBoxFlat" id="sb_win"]
 bg_color = Color(0.851, 0.776, 0.608, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 1)
-corner_radius_top_left = 14
-corner_radius_top_right = 14
-corner_radius_bottom_right = 14
-corner_radius_bottom_left = 14
-anti_aliasing = true
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 16
+corner_radius_top_right = 16
+corner_radius_bottom_right = 16
+corner_radius_bottom_left = 16
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 40
+shadow_offset = Vector2(0, 14)
 
-[sub_resource type="StyleBoxFlat" id="sb_toast"]
+[sub_resource type="StyleBoxFlat" id="sb_logo"]
+content_margin_left = 6.0
+content_margin_top = 6.0
+content_margin_right = 6.0
+content_margin_bottom = 6.0
+bg_color = Color(0.557, 0.141, 0.141, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.5)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="sb_count"]
+content_margin_left = 14.0
+content_margin_top = 4.0
+content_margin_right = 14.0
+content_margin_bottom = 4.0
 bg_color = Color(0.957, 0.925, 0.831, 1)
 border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 1)
+border_color = Color(0.49, 0.396, 0.22, 1)
 corner_radius_top_left = 999
 corner_radius_top_right = 999
 corner_radius_bottom_right = 999
 corner_radius_bottom_left = 999
-content_margin_left = 22.0
-content_margin_top = 10.0
-content_margin_right = 22.0
-content_margin_bottom = 10.0
-shadow_color = Color(0, 0, 0, 0.45)
-shadow_size = 12
-anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_ghost"]
 bg_color = Color(0.851, 0.776, 0.608, 1)
@@ -155,12 +66,11 @@ border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 1)
+border_color = Color(0.373, 0.29, 0.141, 1)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
-anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_ghost_hover"]
 bg_color = Color(0.851, 0.776, 0.608, 1)
@@ -173,9 +83,38 @@ corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
-anti_aliasing = true
 
-[node name="SaveSelectMenu" type="Control"]
+[sub_resource type="StyleBoxFlat" id="sb_dialog"]
+bg_color = Color(0.851, 0.776, 0.608, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+
+[sub_resource type="StyleBoxFlat" id="sb_toast"]
+content_margin_left = 22.0
+content_margin_top = 10.0
+content_margin_right = 22.0
+content_margin_bottom = 10.0
+bg_color = Color(0.957, 0.925, 0.831, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 999
+corner_radius_top_right = 999
+corner_radius_bottom_right = 999
+corner_radius_bottom_left = 999
+shadow_color = Color(0, 0, 0, 0.45)
+shadow_size = 12
+
+[node name="SaveSelectMenu" type="Control" unique_id=232841121]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
@@ -184,7 +123,7 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_ssm")
 
-[node name="Bg" type="ColorRect" parent="."]
+[node name="Bg" type="ColorRect" parent="." unique_id=1608530621]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -194,7 +133,7 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.902, 0.843, 0.702, 1)
 
-[node name="Glow" type="TextureRect" parent="."]
+[node name="Glow" type="TextureRect" parent="." unique_id=2136109142]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -206,11 +145,11 @@ texture = SubResource("tex_glow")
 expand_mode = 2
 stretch_mode = 5
 
-[node name="Win" type="PanelContainer" parent="."]
+[node name="Win" type="PanelContainer" parent="." unique_id=2011713991]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(680, 480)
 layout_mode = 1
-anchors_preset = 15
+anchors_preset = -1
 anchor_left = 0.18
 anchor_top = 0.13
 anchor_right = 0.82
@@ -219,35 +158,35 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_styles/panel = SubResource("sb_win")
 
-[node name="V" type="VBoxContainer" parent="Win"]
+[node name="V" type="VBoxContainer" parent="Win" unique_id=1163000267]
 layout_mode = 2
 
-[node name="HeaderPad" type="MarginContainer" parent="Win/V"]
+[node name="HeaderPad" type="MarginContainer" parent="Win/V" unique_id=694774158]
 layout_mode = 2
 theme_override_constants/margin_left = 26
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 8
 
-[node name="TitleRow" type="HBoxContainer" parent="Win/V/HeaderPad"]
+[node name="TitleRow" type="HBoxContainer" parent="Win/V/HeaderPad" unique_id=110062017]
 layout_mode = 2
-theme_override_constants/separation = 14
 mouse_filter = 2
+theme_override_constants/separation = 14
 
-[node name="Logo" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow"]
+[node name="Logo" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow" unique_id=1484813181]
 custom_minimum_size = Vector2(44, 44)
 layout_mode = 2
-theme_override_styles/panel = SubResource("sb_logo")
 mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_logo")
 
-[node name="LogoLabel" type="Label" parent="Win/V/HeaderPad/TitleRow/Logo"]
+[node name="LogoLabel" type="Label" parent="Win/V/HeaderPad/TitleRow/Logo" unique_id=560632553]
 layout_mode = 2
 theme_override_font_sizes/font_size = 24
 text = "🪐"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="Title" type="Label" parent="Win/V/HeaderPad/TitleRow"]
+[node name="Title" type="Label" parent="Win/V/HeaderPad/TitleRow" unique_id=2842590]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -255,93 +194,93 @@ theme_override_font_sizes/font_size = 28
 text = "▶  选择地图"
 vertical_alignment = 1
 
-[node name="CountBadge" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow"]
+[node name="CountBadge" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow" unique_id=702002263]
 custom_minimum_size = Vector2(120, 30)
 layout_mode = 2
 size_flags_horizontal = 2
 size_flags_vertical = 4
-theme_override_styles/panel = SubResource("sb_count")
 mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_count")
 
-[node name="CountRow" type="HBoxContainer" parent="Win/V/HeaderPad/TitleRow/CountBadge"]
+[node name="CountRow" type="HBoxContainer" parent="Win/V/HeaderPad/TitleRow/CountBadge" unique_id=618083377]
 layout_mode = 2
 theme_override_constants/separation = 6
 alignment = 1
 
-[node name="CountPre" type="Label" parent="Win/V/HeaderPad/TitleRow/CountBadge/CountRow"]
+[node name="CountPre" type="Label" parent="Win/V/HeaderPad/TitleRow/CountBadge/CountRow" unique_id=1516756803]
 layout_mode = 2
-theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
+theme_override_font_sizes/font_size = 13
 text = "存档"
 horizontal_alignment = 2
 
-[node name="Count" type="Label" parent="Win/V/HeaderPad/TitleRow/CountBadge/CountRow"]
+[node name="Count" type="Label" parent="Win/V/HeaderPad/TitleRow/CountBadge/CountRow" unique_id=770372062]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 15
 theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 15
 text = "0"
 horizontal_alignment = 1
 
-[node name="StatusPad" type="MarginContainer" parent="Win/V"]
+[node name="StatusPad" type="MarginContainer" parent="Win/V" unique_id=1854677896]
 layout_mode = 2
 theme_override_constants/margin_left = 26
 theme_override_constants/margin_top = 4
 theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 2
 
-[node name="StatusRow" type="HBoxContainer" parent="Win/V/StatusPad"]
+[node name="StatusRow" type="HBoxContainer" parent="Win/V/StatusPad" unique_id=1898625262]
 layout_mode = 2
 mouse_filter = 2
 
-[node name="StatusDot" type="Label" parent="Win/V/StatusPad/StatusRow"]
+[node name="StatusDot" type="Label" parent="Win/V/StatusPad/StatusRow" unique_id=1694530158]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 10
 theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 10
 text = "●"
 
-[node name="Status" type="Label" parent="Win/V/StatusPad/StatusRow"]
+[node name="Status" type="Label" parent="Win/V/StatusPad/StatusRow" unique_id=1000316866]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
+theme_override_font_sizes/font_size = 14
 text = "正在扫描存档…"
 
-[node name="Scroll" type="ScrollContainer" parent="Win/V"]
+[node name="Scroll" type="ScrollContainer" parent="Win/V" unique_id=1693921521]
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 
-[node name="List" type="VBoxContainer" parent="Win/V/Scroll"]
+[node name="List" type="VBoxContainer" parent="Win/V/Scroll" unique_id=924625895]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
-[node name="FootPad" type="MarginContainer" parent="Win/V"]
+[node name="FootPad" type="MarginContainer" parent="Win/V" unique_id=433809517]
 layout_mode = 2
 theme_override_constants/margin_left = 26
 theme_override_constants/margin_top = 8
 theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 16
 
-[node name="FootRow" type="HBoxContainer" parent="Win/V/FootPad"]
+[node name="FootRow" type="HBoxContainer" parent="Win/V/FootPad" unique_id=1207325197]
 layout_mode = 2
 
-[node name="BackBtn" type="Button" parent="Win/V/FootPad/FootRow"]
+[node name="BackBtn" type="Button" parent="Win/V/FootPad/FootRow" unique_id=1547559654]
 custom_minimum_size = Vector2(150, 42)
 layout_mode = 2
-theme_override_font_sizes/font_size = 17
-theme_override_styles/normal = SubResource("sb_ghost")
-theme_override_styles/hover = SubResource("sb_ghost_hover")
-theme_override_styles/pressed = SubResource("sb_ghost_hover")
-theme_override_styles/focus = SubResource("sb_ghost")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_hover_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 17
+theme_override_styles/normal = SubResource("sb_ghost")
+theme_override_styles/pressed = SubResource("sb_ghost_hover")
+theme_override_styles/hover = SubResource("sb_ghost_hover")
+theme_override_styles/focus = SubResource("sb_ghost")
 text = "← 返回"
 
-[node name="Dim" type="ColorRect" parent="."]
+[node name="Dim" type="ColorRect" parent="." unique_id=473654290]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -353,7 +292,7 @@ grow_vertical = 2
 mouse_filter = 1
 color = Color(0.0157, 0.0275, 0.051, 0.72)
 
-[node name="ConfirmBox" type="CenterContainer" parent="."]
+[node name="ConfirmBox" type="CenterContainer" parent="." unique_id=1002291407]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -364,64 +303,64 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 
-[node name="Panel" type="PanelContainer" parent="ConfirmBox"]
+[node name="Panel" type="PanelContainer" parent="ConfirmBox" unique_id=757779767]
 custom_minimum_size = Vector2(420, 0)
 layout_mode = 2
 theme_override_styles/panel = SubResource("sb_dialog")
 
-[node name="Pad" type="MarginContainer" parent="ConfirmBox/Panel"]
+[node name="Pad" type="MarginContainer" parent="ConfirmBox/Panel" unique_id=1951293885]
 layout_mode = 2
 theme_override_constants/margin_left = 26
 theme_override_constants/margin_top = 20
 theme_override_constants/margin_right = 26
 theme_override_constants/margin_bottom = 18
 
-[node name="V" type="VBoxContainer" parent="ConfirmBox/Panel/Pad"]
+[node name="V" type="VBoxContainer" parent="ConfirmBox/Panel/Pad" unique_id=1178021935]
 layout_mode = 2
 theme_override_constants/separation = 14
 
-[node name="ConfirmTitle" type="Label" parent="ConfirmBox/Panel/Pad/V"]
+[node name="ConfirmTitle" type="Label" parent="ConfirmBox/Panel/Pad/V" unique_id=337207967]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 17
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 17
 text = "删除世界存档"
 
-[node name="ConfirmBody" type="Label" parent="ConfirmBox/Panel/Pad/V"]
+[node name="ConfirmBody" type="Label" parent="ConfirmBox/Panel/Pad/V" unique_id=1945901920]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
+theme_override_font_sizes/font_size = 14
 text = "确定删除？"
 autowrap_mode = 3
 
-[node name="BtnRow" type="HBoxContainer" parent="ConfirmBox/Panel/Pad/V"]
+[node name="BtnRow" type="HBoxContainer" parent="ConfirmBox/Panel/Pad/V" unique_id=885545391]
 layout_mode = 2
 theme_override_constants/separation = 10
 alignment = 2
 
-[node name="CancelBtn" type="Button" parent="ConfirmBox/Panel/Pad/V/BtnRow"]
+[node name="CancelBtn" type="Button" parent="ConfirmBox/Panel/Pad/V/BtnRow" unique_id=52341835]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(104, 38)
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
-theme_override_styles/normal = SubResource("sb_ghost")
-theme_override_styles/hover = SubResource("sb_ghost_hover")
-theme_override_styles/pressed = SubResource("sb_ghost_hover")
-theme_override_styles/focus = SubResource("sb_ghost")
 theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
 theme_override_colors/font_hover_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = SubResource("sb_ghost")
+theme_override_styles/pressed = SubResource("sb_ghost_hover")
+theme_override_styles/hover = SubResource("sb_ghost_hover")
+theme_override_styles/focus = SubResource("sb_ghost")
 text = "取消"
 
-[node name="DelBtn" type="Button" parent="ConfirmBox/Panel/Pad/V/BtnRow"]
+[node name="DelBtn" type="Button" parent="ConfirmBox/Panel/Pad/V/BtnRow" unique_id=1972409401]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(104, 38)
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(1, 0.365, 0.365, 1)
+theme_override_font_sizes/font_size = 14
 text = "🗑 删除"
 
-[node name="Toast" type="PanelContainer" parent="."]
+[node name="Toast" type="PanelContainer" parent="." unique_id=1128168208]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -437,9 +376,8 @@ grow_vertical = 0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("sb_toast")
 
-[node name="ToastText" type="Label" parent="Toast"]
+[node name="ToastText" type="Label" parent="Toast" unique_id=1392906821]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
-text = ""
+theme_override_font_sizes/font_size = 14

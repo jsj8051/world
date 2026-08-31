@@ -4,7 +4,7 @@ namespace World.UI;
 
 /// <summary>
 /// 生成进度条组件（2026-08-31 拆分：原 MapViewer.Ui.cs 进度条块独立成组件）。
-/// 四层模型：表现+容器在 MapViewer.tscn（UiLayer/ProgressPanel + sb_hud_panel），
+/// 四层模型：表现+容器在 scenes/ui/ProgressPanel.tscn（ProgressPanel/PBox + sb_hud_panel），
 /// 本组件只做逻辑层——显示/隐藏/数值同步。数据由 MapViewer 下行注入（_progress/_phase 后台线程写）。
 /// </summary>
 public partial class ProgressPanel : PanelContainer

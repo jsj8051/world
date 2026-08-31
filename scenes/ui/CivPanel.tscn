@@ -1,6 +1,30 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene format=3 uid="uid://bogw5f1ehi6y1"]
 
-[ext_resource type="Script" path="res://scripts/UI/CivPanel.cs" id="1_panel"]
+[ext_resource type="Script" uid="uid://dkln5vk28bvff" path="res://scripts/UI/CivPanel.cs" id="1_panel"]
+
+[sub_resource type="StyleBoxFlat" id="sb_tab_pressed"]
+bg_color = Color(0.722, 0.525, 0.043, 0.85)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="sb_tab_hover"]
+bg_color = Color(0.984, 0.961, 0.878, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
 
 [sub_resource type="StyleBoxFlat" id="sb_panel_body"]
 bg_color = Color(0.851, 0.776, 0.608, 0.95)
@@ -13,7 +37,6 @@ corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
 corner_radius_bottom_left = 12
-anti_aliasing = true
 
 [sub_resource type="StyleBoxFlat" id="sb_tab"]
 bg_color = Color(0.902, 0.843, 0.702, 0.5)
@@ -21,210 +44,175 @@ border_width_left = 1
 border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
-border_color = Color(0.490, 0.396, 0.220, 0.8)
+border_color = Color(0.49, 0.396, 0.22, 0.8)
 corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
-anti_aliasing = true
 
-[sub_resource type="StyleBoxFlat" id="sb_tab_hover"]
-bg_color = Color(0.984, 0.961, 0.878, 0.9)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 1)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-anti_aliasing = true
-
-[sub_resource type="StyleBoxFlat" id="sb_tab_pressed"]
-bg_color = Color(0.722, 0.525, 0.043, 0.85)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.373, 0.290, 0.141, 0.9)
-corner_radius_top_left = 8
-corner_radius_top_right = 8
-corner_radius_bottom_right = 8
-corner_radius_bottom_left = 8
-anti_aliasing = true
+[sub_resource type="ButtonGroup" id="btn_group_tabs"]
 
 [sub_resource type="StyleBoxFlat" id="sb_scroll_bg"]
 bg_color = Color(0, 0, 0, 0)
 
-[sub_resource type="ButtonGroup" id="btn_group_tabs"]
-
-[node name="CivPanel" type="Control"]
+[node name="CivPanel" type="Control" unique_id=343298688]
 layout_mode = 3
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
+anchor_right = 0.097
+anchor_bottom = 0.34
+offset_right = 6.6799927
+offset_bottom = 10.399994
 grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("1_panel")
 
-[node name="CivRestoreBtn" type="Button" parent="."]
+[node name="CivRestoreBtn" type="Button" parent="." unique_id=543244165]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
-anchors_preset = 0
-anchor_left = 0.0
-anchor_right = 0.0
 offset_left = 14.0
 offset_top = 14.0
 offset_right = 50.0
 offset_bottom = 46.0
-grow_horizontal = 1
-grow_vertical = 1
-theme_override_styles/normal = SubResource("sb_tab_pressed")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab_pressed")
 theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 14
+theme_override_styles/normal = SubResource("sb_tab_pressed")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab_pressed")
 text = "观"
 
-[node name="CivPanelBody" type="PanelContainer" parent="."]
+[node name="CivPanelBody" type="PanelContainer" parent="." unique_id=22803545]
 unique_name_in_owner = true
+clip_contents = true
 layout_mode = 1
-anchors_preset = 0
-anchor_left = 0.0
-anchor_right = 0.0
 offset_left = 14.0
 offset_top = 14.0
 offset_right = 258.0
 offset_bottom = 500.0
-grow_horizontal = 1
-clip_contents = true
-custom_minimum_size = Vector2(244, 480)
 theme_override_styles/panel = SubResource("sb_panel_body")
 
-[node name="PBox" type="VBoxContainer" parent="CivPanelBody"]
+[node name="PBox" type="VBoxContainer" parent="CivPanelBody" unique_id=1541441169]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="TitleBar" type="HBoxContainer" parent="CivPanelBody/PBox"]
+[node name="TitleBar" type="HBoxContainer" parent="CivPanelBody/PBox" unique_id=809858739]
 layout_mode = 2
+size_flags_horizontal = 0
 theme_override_constants/separation = 8
 
-[node name="CivTitle" type="Label" parent="CivPanelBody/PBox/TitleBar"]
+[node name="CivCollapseBtn" type="Button" parent="CivPanelBody/PBox/TitleBar" unique_id=32573752]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(30, 26)
 layout_mode = 2
-theme_override_font_sizes/font_size = 16
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
-text = "文明观测"
+theme_override_font_sizes/font_size = 12
+theme_override_styles/normal = SubResource("sb_tab")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab")
+text = "—"
 
-[node name="TitleSpacer" type="Control" parent="CivPanelBody/PBox/TitleBar"]
+[node name="TitleSpacer" type="Control" parent="CivPanelBody/PBox/TitleBar" unique_id=1507887153]
 layout_mode = 2
 size_flags_horizontal = 3
 mouse_filter = 2
 
-[node name="CivCollapseBtn" type="Button" parent="CivPanelBody/PBox/TitleBar"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(30, 26)
+[node name="CivTitle" type="Label" parent="CivPanelBody/PBox/TitleBar" unique_id=1748151610]
 layout_mode = 2
-theme_override_styles/normal = SubResource("sb_tab")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
-theme_override_font_sizes/font_size = 12
-text = "—"
+theme_override_font_sizes/font_size = 16
+text = "文明观测"
 
-[node name="CivTabs" type="HBoxContainer" parent="CivPanelBody/PBox"]
+[node name="CivTabs" type="HBoxContainer" parent="CivPanelBody/PBox" unique_id=604659263]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="TabOverview" type="Button" parent="CivPanelBody/PBox/CivTabs"]
+[node name="TabOverview" type="Button" parent="CivPanelBody/PBox/CivTabs" unique_id=992687077]
 custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 size_flags_horizontal = 3
-toggle_mode = true
-button_group = SubResource("btn_group_tabs")
-button_pressed = true
-theme_override_styles/normal = SubResource("sb_tab")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_pressed_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("sb_tab")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab")
+toggle_mode = true
+button_pressed = true
+button_group = SubResource("btn_group_tabs")
 text = "总览"
 
-[node name="TabPolities" type="Button" parent="CivPanelBody/PBox/CivTabs"]
+[node name="TabPolities" type="Button" parent="CivPanelBody/PBox/CivTabs" unique_id=1678203510]
 custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 size_flags_horizontal = 3
-toggle_mode = true
-button_group = SubResource("btn_group_tabs")
-theme_override_styles/normal = SubResource("sb_tab")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_pressed_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("sb_tab")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab")
+toggle_mode = true
+button_group = SubResource("btn_group_tabs")
 text = "政权"
 
-[node name="TabStates" type="Button" parent="CivPanelBody/PBox/CivTabs"]
+[node name="TabStates" type="Button" parent="CivPanelBody/PBox/CivTabs" unique_id=1178204339]
 custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 size_flags_horizontal = 3
-toggle_mode = true
-button_group = SubResource("btn_group_tabs")
-theme_override_styles/normal = SubResource("sb_tab")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_pressed_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("sb_tab")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab")
+toggle_mode = true
+button_group = SubResource("btn_group_tabs")
 text = "国家"
 
-[node name="TabTechs" type="Button" parent="CivPanelBody/PBox/CivTabs"]
+[node name="TabTechs" type="Button" parent="CivPanelBody/PBox/CivTabs" unique_id=751397772]
 custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 size_flags_horizontal = 3
-toggle_mode = true
-button_group = SubResource("btn_group_tabs")
-theme_override_styles/normal = SubResource("sb_tab")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_pressed_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("sb_tab")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab")
+toggle_mode = true
+button_group = SubResource("btn_group_tabs")
 text = "科技"
 
-[node name="TabEvents" type="Button" parent="CivPanelBody/PBox/CivTabs"]
+[node name="TabEvents" type="Button" parent="CivPanelBody/PBox/CivTabs" unique_id=274196387]
 custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 size_flags_horizontal = 3
-toggle_mode = true
-button_group = SubResource("btn_group_tabs")
-theme_override_styles/normal = SubResource("sb_tab")
-theme_override_styles/hover = SubResource("sb_tab_hover")
-theme_override_styles/pressed = SubResource("sb_tab_pressed")
-theme_override_styles/focus = SubResource("sb_tab")
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_pressed_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("sb_tab")
+theme_override_styles/pressed = SubResource("sb_tab_pressed")
+theme_override_styles/hover = SubResource("sb_tab_hover")
+theme_override_styles/focus = SubResource("sb_tab")
+toggle_mode = true
+button_group = SubResource("btn_group_tabs")
 text = "事件"
 
-[node name="CivScroll" type="ScrollContainer" parent="CivPanelBody/PBox"]
+[node name="CivScroll" type="ScrollContainer" parent="CivPanelBody/PBox" unique_id=760809296]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_styles/panel = SubResource("sb_scroll_bg")
 horizontal_scroll_mode = 0
 vertical_scroll_mode = 2
 
-[node name="CivList" type="VBoxContainer" parent="CivPanelBody/PBox/CivScroll"]
+[node name="CivList" type="VBoxContainer" parent="CivPanelBody/PBox/CivScroll" unique_id=832157709]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3

@@ -11,7 +11,7 @@ namespace World.UI;
 
 /// <summary>
 /// 游玩保存链组件（2026-08-31 拆分：原 MapViewer.Ui.cs 的保存按钮/槽名模态框/Toast 独立成组件）。
-/// 四层模型：表现+容器——保存按钮场景预置（EpochRow/SaveBtn，样式 sb_hud_btn 单一来源=场景）；
+/// 四层模型：表现+容器——保存按钮场景预置（scenes/ui/EpochPanel.tscn EpochRow/SaveBtn，样式 sb_hud_btn 单一来源=场景）；
 /// 模态框/Toast 懒建挂 UiLayer（数据驱动/懒加载，ui-architecture 合理偏离 #3 可接受）。
 /// 逻辑层：本组件——槽名默认值（读 EpochBar 标签文本只读派生）/输入校验/保存执行/Toast。
 /// 数据：游玩形态与保存原件（_gameGrid/_civResult/_mapRefPath）经 SetSaveState 下行注入——

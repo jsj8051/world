@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" uid="uid://dfhmbmy1cf0jg" path="res://scripts/MapView/MapViewer.cs" id="1_view"]
+[ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="2_cam"]
+
+[node name="PlanetCore" type="Node3D"]
+script = ExtResource("1_view")
+GridN = 256
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8660248, 0, -0.5000011, 0, 1, 0, 0.5000011, 0, 0.8660248, 0, 0, 0)
+
+[node name="OrbitalCamera" type="Node3D" parent="."]
+script = ExtResource("2_cam")
+
+[node name="UiLayer" type="CanvasLayer" parent="."]
+layer = 100

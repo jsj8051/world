@@ -1,0 +1,64 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" uid="uid://bfcc55sq1vs0k" path="res://scripts/UI/LegendPanel.cs" id="1_legend"]
+
+[sub_resource type="StyleBoxFlat" id="sb_hud_panel"]
+bg_color = Color(0.851, 0.776, 0.608, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.9)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[node name="LegendPanel" type="PanelContainer"]
+script = ExtResource("1_legend")
+unique_name_in_owner = true
+custom_minimum_size = Vector2(236, 250)
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -252.0
+offset_top = -250.0
+offset_right = -16.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_styles/panel = SubResource("sb_hud_panel")
+
+[node name="LegendV" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="LegendTitle" type="Label" parent="LegendV"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 16
+text = "图层"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="LegendScroll" type="ScrollContainer" parent="LegendV"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(220, 40)
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="LegendBox" type="VBoxContainer" parent="LegendV/LegendScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 3
+
+[node name="LegendFooter" type="VBoxContainer" parent="LegendV"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2

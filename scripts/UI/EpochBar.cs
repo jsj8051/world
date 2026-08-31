@@ -7,7 +7,7 @@ namespace World.UI;
 
 /// <summary>
 /// 右上时间行组件（2026-08-31 拆分：原 MapViewer.Ui.cs 的 RefreshEpochBar + 月份滑块逻辑独立成组件）。
-/// 四层模型：表现+容器在 MapViewer.tscn（EpochPanel/EpochRow/EpochLabel/YearLabel/MonthRow + sb_epoch_cap），
+/// 四层模型：表现+容器在 scenes/ui/EpochPanel.tscn（EpochPanel/EpochRow/EpochLabel/YearLabel/MonthRow + sb_epoch_cap），
 /// 本组件只做逻辑层——纪元/演化年文本刷新 + 月份滑块交互。
 /// 数据：纪元 = _civCtx 只读派生（**永不写 CivSim**）；月份变更经 MonthChanged 信号上行，
 /// MapViewer 订阅后更新 _ctx.Month 并调策略 OnMonthChanged（数据层归属 MapViewer，本组件不持有 _ctx）。
@@ -72,5 +72,14 @@ public partial class EpochBar : PanelContainer
     public void SetMonthVisible(bool visible)
     {
         if (_monthSlider != null) _monthSlider.Visible = visible;
+    }
+
+    /// <summary>下行：玩家政权徽章（EpochRow/PlayerBadge 场景节点；null/空串=隐藏）。</summary>
+    public void SetPlayerBadge(string text)
+    {
+        var badge = GetNodeOrNull<Label>("EpochRow/PlayerBadge");
+        if (badge == null) return;
+        badge.Visible = !string.IsNullOrEmpty(text);
+        if (badge.Visible) badge.Text = text;
     }
 }

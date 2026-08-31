@@ -76,6 +76,8 @@ UiLayer
   （= 场景所见即运行时收起样：只露标题条，坞主体埋在视口下方）。运行时代码仍会按真实内容高度精确对齐
   （SetupCukHud instant 收起 + CukOffsetAligned 补正）——场景值是初始近似，内容高度变化时自动修正，
   无需手动改场景。编辑器里想看坞全貌：临时把 offset_top 改回 -157（展开）查看，改完收回来。
+  ⚠️ **2026-08-31 显式状态重构后**：旧 `SetupCukHud/ProcessCukHud/CukOffsetAligned` 已拆入 `scripts/UI/CukHud.cs`
+  并改名为 `ApplyCukDockTo/At/AnimateTo`（_Ready 初始 instant 收起；_Process 统一状态机处理补正）。
 
 ---
 
@@ -87,17 +89,17 @@ UiLayer
 [兜底态] 面板沉底，只露标题条「地图」（30px）
    │ 鼠标移入面板矩形（GetGlobalRect().HasPoint）
    ▼
-[展开] CukSlideDur=0.25s 平滑滑出（offset tween，Quad Out，Physics 节拍）——分类三按钮 + 17 图层按钮全见
+[展开] CukSlideDur=0.25s 平滑滑出（offset tween，Linear 匀速，Physics 节拍）——分类三按钮 + 17 图层按钮全见
    │ 鼠标移出面板矩形
    ▼
 [收回] 0.25s 平滑滑回（立即触发，无防抖延迟——2026-08-31 用户拍板）
 ```
 
 - **收回无延迟**（2026-08-31 修订）：原 0.4s 防抖 Timer（跨行移动不误收）已删——用户拍板"鼠标移出立即收回"。
-- **动画平滑**（2026-08-31 修订）：0.15s Cubic Out → **0.25s Quad Out + `TweenProcessMode.Physics`（60Hz 物理帧节拍插值）**——原 Idle 模式按渲染帧采样，渲染帧率 ~30fps 时仅 4-5 个采样点且 Cubic 起步陡，每帧大跳成肉眼可见的"三段式收起"（用户报）；Quad 起步缓 + Physics 节拍后任意渲染帧率下位移曲线平滑递减。
+- **动画平滑**（2026-08-31 修订）：0.15s Cubic Out → 0.25s `TweenProcessMode.Physics`（60Hz 物理帧节拍插值）——原 Idle 模式按渲染帧采样，渲染帧率 ~30fps 时仅 4-5 个采样点且 Cubic 起步陡，每帧大跳成肉眼可见的"三段式收起"（用户报）；**同日用户追加拍板"固定时间固定距离"：缓动 Quad Out → Linear 匀速**——Quad 半程走 75% 观感"先快后慢"，Linear + Physics 下每帧位移均匀（60Hz 恒 6.7%，30fps 渲染恒 13.3%）。
 - **收起态判定说明**：面板大部分在屏幕外（视口裁剪不绘制），`GetGlobalRect()` 虽含屏幕外部分，但鼠标坐标只在窗口内 → 等效"只露标题条"，鼠标无法触及屏幕外区域。
 - **无钉住态**（2026-08-30 拍板：单面板抽屉里钉住没有意义，删除 `_cukPinned`/`_cukSuppressUntil`/抓手点击整套）。
-- **补正去抖**（2026-08-31 修订）：补正前先 `CukOffsetAligned` 判定（offset 差 <1px 即跳过 setter）——旧实现每帧 set offset 即使值相同也触发布局 dirty，收起后静止态持续重排造成卡顿（用户报）。anchor 固定 1.0 → 窗口 resize 时 rect 自动跟随，本就不需每帧补正。
+- **补正去抖**（2026-08-31 修订）：补正前先 `At` 对齐判定（offset 差 <1px 即跳过 setter）——旧实现每帧 set offset 即使值相同也触发布局 dirty，收起后静止态持续重排造成卡顿（用户报）。anchor 固定 1.0 → 窗口 resize 时 rect 自动跟随，本就不需每帧补正。同日显式状态重构后补正并入 `_Process` 统一状态机（静止未对齐且意图未变 → `ApplyCukDockTo(instant)`；意图变了→`AnimateTo`）。
 - 面板常驻 `Visible=true`——不再有"长出一个新窗口"的观感。
 
 ---
@@ -127,7 +129,7 @@ UiLayer
 |---|---|---|
 | 1 | `scenes/core/MapViewer.tscn` | 新增 CukDock/DockBox/HeadRow（标题条「地图」）节点 + sb_cuk_head 样式；CatRow/LayerRow reparent；**CukGrip 删除**；MonthRow 移入 EpochPanel 改锚；CivPanel anchor 改左上；load_steps 调整 |
 | 2 | `scenes/ui/CivPanel.tscn` | body/restore 锚点左移（独立子场景自持） |
-| 3 | `scripts/MapView/MapViewer.Ui.cs` | EnsureUi：SetupCukHud（样式/防抖 timer/初始收起）+ ProcessCukHud（位置驱动滑出滑入）+ ApplyCukDockPosition（offset tween 0.15s）+ EpochBar 数据填充；**删除抓手/钉住全套字段与函数** |
+| 3 | `scripts/MapView/MapViewer.Ui.cs` | EnsureUi：SetupCukHud（样式/防抖 timer/初始收起）+ ProcessCukHud（位置驱动滑出滑入）+ ApplyCukDockPosition（offset tween 0.15s）+ EpochBar 数据填充；**删除抓手/钉住全套字段与函数**~~【已过时：91d4f2d 拆删本文件，逻辑迁入 `scripts/UI/CukHud.cs`，2026-08-31 显式状态重构改名 `ApplyCukDockTo/At/AnimateTo`，tween 0.25s】~~ |
 | 4 | `scripts/MapView/MapViewer.cs` | 读档/演化完成处调 `RefreshEpochBar()`（与 RefreshCivPanel 同点，1 行） |
 | 5 | `scripts/Diagnostics/UiShotDiag.cs` | `--cuk-map=1`：平移到展开态（offset）；`--cuk-warp=1`：warp 到标题条中心 + offset 展开判定；`--cuk-click-icon`：点击前先展开；`--diag-rect`：名单去掉 CukGrip |
 

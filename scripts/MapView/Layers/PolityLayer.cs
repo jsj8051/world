@@ -21,6 +21,18 @@ public sealed class PolityLayer : MapLayer
         if (ctx.IsSea(id) && ctx.Cache.TilePower[id] == 0) return SeaColor;
         int powerId = ctx.Cache.TilePower[id];
         if (powerId == 0) return new Color(0.25f, 0.25f, 0.28f);
+        if (ctx.SelectionId >= 0)
+        {
+            // 选国形态：选中政权高亮，其余政体压暗（NationSelectMenu 写 SelectionId 后重绘）
+            if (powerId == ctx.SelectionId) return HslToRgb(0.12f, 0.65f, 0.62f);
+            return ColorOfBase(ctx, id, powerId) * 0.55f;
+        }
+        return ColorOfBase(ctx, id, powerId);
+    }
+
+    /// <summary>基础政体色（原 hue switch 四色逻辑；选国形态压暗时复用取色）。</summary>
+    private static Color ColorOfBase(LayerContext ctx, int id, int powerId)
+    {
         float hue = ctx.Cache.TilePolityKind[id] switch
         {
             3 => 0.12f,    // 国家：金（王权/官僚——制度化）

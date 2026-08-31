@@ -117,5 +117,14 @@ namespace World.Camera
             _camera.Position = new Vector3(x, y, z);
             _camera.LookAt(Vector3.Zero);
         }
+
+        /// <summary>指向球面上一点（选国相机转向，快照式无动画）：theta/phi 设为该方向球坐标。</summary>
+        public void LookAtPoint(Vector3 worldDir)
+        {
+            var d = worldDir.Normalized();
+            _phi = Mathf.Clamp(Mathf.Acos(Mathf.Clamp(d.Y, -1f, 1f)), 0.01f, Mathf.Pi - 0.01f);
+            _theta = Mathf.Atan2(d.Z, d.X);
+            UpdatePosition();
+        }
     }
 }

@@ -13,21 +13,6 @@ fill = 1
 fill_from = Vector2(1, 0)
 fill_to = Vector2(0, 1)
 
-[sub_resource type="StyleBoxFlat" id="sb_win"]
-bg_color = Color(0.851, 0.776, 0.608, 1)
-border_width_left = 1
-border_width_top = 1
-border_width_right = 1
-border_width_bottom = 1
-border_color = Color(0.373, 0.29, 0.141, 1)
-corner_radius_top_left = 16
-corner_radius_top_right = 16
-corner_radius_bottom_right = 16
-corner_radius_bottom_left = 16
-shadow_color = Color(0, 0, 0, 0.5)
-shadow_size = 40
-shadow_offset = Vector2(0, 14)
-
 [sub_resource type="StyleBoxFlat" id="sb_logo"]
 content_margin_left = 6.0
 content_margin_top = 6.0
@@ -123,49 +108,40 @@ texture = SubResource("tex_glow")
 expand_mode = 2
 stretch_mode = 5
 
-[node name="Win" type="PanelContainer" parent="." unique_id=643763953]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(680, 480)
-layout_mode = 1
-anchors_preset = -1
-anchor_left = 0.2
-anchor_top = 0.1
-anchor_right = 0.8
-anchor_bottom = 0.9
-grow_horizontal = 2
-grow_vertical = 2
-theme_override_styles/panel = SubResource("sb_win")
-
-[node name="V" type="VBoxContainer" parent="Win" unique_id=1275516664]
-layout_mode = 2
+[node name="V" type="VBoxContainer" parent="." unique_id=1275516664]
+layout_mode = 0
+offset_left = 204.0
+offset_top = 128.0
+offset_right = 783.0
+offset_bottom = 700.0
 theme_override_constants/separation = 14
 
-[node name="HeaderPad" type="MarginContainer" parent="Win/V" unique_id=1057200932]
+[node name="HeaderPad" type="MarginContainer" parent="V" unique_id=1057200932]
 layout_mode = 2
 theme_override_constants/margin_left = 30
 theme_override_constants/margin_top = 26
 theme_override_constants/margin_right = 30
 theme_override_constants/margin_bottom = 6
 
-[node name="TitleRow" type="HBoxContainer" parent="Win/V/HeaderPad" unique_id=271753390]
+[node name="TitleRow" type="HBoxContainer" parent="V/HeaderPad" unique_id=271753390]
 layout_mode = 2
 mouse_filter = 2
 theme_override_constants/separation = 14
 
-[node name="Logo" type="PanelContainer" parent="Win/V/HeaderPad/TitleRow" unique_id=537243519]
+[node name="Logo" type="PanelContainer" parent="V/HeaderPad/TitleRow" unique_id=537243519]
 custom_minimum_size = Vector2(56, 56)
 layout_mode = 2
 mouse_filter = 2
 theme_override_styles/panel = SubResource("sb_logo")
 
-[node name="LogoLabel" type="Label" parent="Win/V/HeaderPad/TitleRow/Logo" unique_id=781932401]
+[node name="LogoLabel" type="Label" parent="V/HeaderPad/TitleRow/Logo" unique_id=781932401]
 layout_mode = 2
 theme_override_font_sizes/font_size = 30
 text = "🌍"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="Title" type="Label" parent="Win/V/HeaderPad/TitleRow" unique_id=1257294387]
+[node name="Title" type="Label" parent="V/HeaderPad/TitleRow" unique_id=1257294387]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -173,14 +149,30 @@ theme_override_font_sizes/font_size = 40
 text = "世界生成器"
 vertical_alignment = 1
 
-[node name="SubTitle" type="Label" parent="Win/V" unique_id=284004840]
+[node name="SubTitle" type="Label" parent="V" unique_id=284004840]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.49, 0.416, 0.282, 1)
 theme_override_font_sizes/font_size = 14
 text = "程序化行星 · 板块构造 → 气候 → 文明演化"
 horizontal_alignment = 1
 
-[node name="BodyPad" type="MarginContainer" parent="Win/V" unique_id=304087247]
+[node name="FootPad" type="MarginContainer" parent="V" unique_id=186742609]
+layout_mode = 2
+theme_override_constants/margin_left = 30
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 30
+theme_override_constants/margin_bottom = 18
+
+[node name="Version" type="Label" parent="V/FootPad" unique_id=1981852166]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(0.604, 0.541, 0.388, 1)
+theme_override_font_sizes/font_size = 13
+text = "板块构造模拟 v3 · 球面直通存档 · 2026-08-23"
+horizontal_alignment = 1
+
+[node name="BodyPad" type="MarginContainer" parent="V" unique_id=304087247]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/margin_left = 46
@@ -188,13 +180,13 @@ theme_override_constants/margin_top = 10
 theme_override_constants/margin_right = 46
 theme_override_constants/margin_bottom = 6
 
-[node name="Body" type="VBoxContainer" parent="Win/V/BodyPad" unique_id=1474693297]
+[node name="Body" type="VBoxContainer" parent="V/BodyPad" unique_id=1474693297]
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 18
 alignment = 1
 
-[node name="PlayBtn" type="Button" parent="Win/V/BodyPad/Body" unique_id=1725430376]
+[node name="PlayBtn" type="Button" parent="V/BodyPad/Body" unique_id=1725430376]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
 layout_mode = 2
@@ -209,7 +201,7 @@ theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/focus = SubResource("sb_card")
 text = "⚔  正式游玩"
 
-[node name="LoadBtn" type="Button" parent="Win/V/BodyPad/Body" unique_id=418729376]
+[node name="LoadBtn" type="Button" parent="V/BodyPad/Body" unique_id=418729376]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
 layout_mode = 2
@@ -224,7 +216,7 @@ theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/focus = SubResource("sb_card")
 text = "📂  加载存档"
 
-[node name="GenBtn" type="Button" parent="Win/V/BodyPad/Body" unique_id=1545027162]
+[node name="GenBtn" type="Button" parent="V/BodyPad/Body" unique_id=1545027162]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
 layout_mode = 2
@@ -239,7 +231,7 @@ theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/focus = SubResource("sb_card")
 text = "🛠  创建世界"
 
-[node name="ViewBtn" type="Button" parent="Win/V/BodyPad/Body" unique_id=377304597]
+[node name="ViewBtn" type="Button" parent="V/BodyPad/Body" unique_id=377304597]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 72)
 layout_mode = 2
@@ -253,19 +245,3 @@ theme_override_styles/pressed = SubResource("sb_card_pressed")
 theme_override_styles/hover = SubResource("sb_card_hover")
 theme_override_styles/focus = SubResource("sb_card")
 text = "🗺  查看地图"
-
-[node name="FootPad" type="MarginContainer" parent="Win/V" unique_id=186742609]
-layout_mode = 2
-theme_override_constants/margin_left = 30
-theme_override_constants/margin_top = 6
-theme_override_constants/margin_right = 30
-theme_override_constants/margin_bottom = 18
-
-[node name="Version" type="Label" parent="Win/V/FootPad" unique_id=1981852166]
-unique_name_in_owner = true
-layout_mode = 2
-size_flags_horizontal = 4
-theme_override_colors/font_color = Color(0.604, 0.541, 0.388, 1)
-theme_override_font_sizes/font_size = 13
-text = "板块构造模拟 v3 · 球面直通存档 · 2026-08-23"
-horizontal_alignment = 1

@@ -6,7 +6,7 @@ namespace World.UI;
 
 /// <summary>
 /// 图例面板组件（2026-08-31 拆分：原 MapViewer.Ui.cs RebuildLegend 独立成组件）。
-/// 四层模型：表现+容器在 MapViewer.tscn（UiLayer/LegendPanel 外壳 + sb_hud_panel），
+/// 四层模型：表现+容器在 scenes/ui/LegendPanel.tscn（LegendPanel 外壳 + sb_hud_panel），
 /// 本组件只做逻辑层——条目重建（数据驱动，策略 BuildLegend）+ 高度自适应 + 滚轮独占。
 /// 数据：图例内容由当前图层策略 BuildLegend 提供（LandRegistry.Of(_layer) 驱动），
 /// 经 SetContext/Rebuild 下行注入，本组件不碰游戏状态。
