@@ -862,8 +862,6 @@ public partial class MapViewer : Node3D
     private bool _monthWindStarted;                 // 防重复启动
     private volatile Vector3[][] _monthWindPending; // 后台写、主线程 ApplyMonthWind 读
 
-    /// <summary>图层按钮 SVG 图标（纯直线 M/L/H/V/Z——thorvg 不支持 Q/T/A 曲线）。</summary>
-
     /// <summary>点击诊断（2026-08-17 用户要求）：左键点击地图格 → 日志打印位置/颜色/势力/人口等
     /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
     public override void _UnhandledInput(InputEvent e)

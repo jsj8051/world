@@ -20,6 +20,24 @@ corner_radius_top_right = 999
 corner_radius_bottom_right = 999
 corner_radius_bottom_left = 999
 
+[sub_resource type="StyleBoxFlat" id="sb_toast"]
+content_margin_left = 22.0
+content_margin_top = 10.0
+content_margin_right = 22.0
+content_margin_bottom = 10.0
+bg_color = Color(0.957, 0.925, 0.831, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.373, 0.29, 0.141, 1)
+corner_radius_top_left = 999
+corner_radius_top_right = 999
+corner_radius_bottom_right = 999
+corner_radius_bottom_left = 999
+shadow_color = Color(0, 0, 0, 0.45)
+shadow_size = 12
+
 [sub_resource type="StyleBoxFlat" id="sb_win"]
 bg_color = Color(0.851, 0.776, 0.608, 1)
 border_width_left = 1
@@ -385,4 +403,26 @@ grow_vertical = 2
 mouse_filter = 1
 color = Color(0.078, 0.059, 0.031, 0.62)
 
-[node name="CukDock" parent="UiSelect" unique_id=1355471399 instance=ExtResource("4_cuk")]
+[node name="CukDock" parent="Map/UiLayer" unique_id=1355471399 instance=ExtResource("4_cuk")]
+
+[node name="Toast" type="PanelContainer" parent="UiSelect" unique_id=1128168208]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_top = -62.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_toast")
+
+[node name="ToastText" type="Label" parent="UiSelect/Toast" unique_id=1392906821]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 14

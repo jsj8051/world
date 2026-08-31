@@ -87,7 +87,7 @@ public partial class CukHud : PanelContainer
 				//   会把 38px 图标按钮撑满 90px → 盖住下方分类行。ShrinkCenter 保持原高。
 				SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
 			};
-			// ⚠️ 2026-08-31 场景化统一：样式从场景分类按钮取（单一来源 = MapViewer.tscn sub_resource），
+			// ⚠️ 2026-08-31 场景化统一：样式从场景分类按钮取（单一来源 = scenes/ui/CukDock.tscn sub_resource），
 			//   不再 C# new StyleBoxFlat——此前代码 pressed=金色 与场景 pressed=暗红 同坞分裂
 			var src = _catButtons[0];
 			btn.AddThemeStyleboxOverride("normal", src.GetThemeStylebox("normal"));
