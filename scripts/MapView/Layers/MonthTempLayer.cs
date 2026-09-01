@@ -3,11 +3,13 @@ using World.Biome;
 using World.HexPlanet;
 using World.MapGen;
 using static World.MapView.MapLayerColors;
+using static World.Utils.ColorRamp;
 
 namespace World.MapView.Layers;
 
 /// <summary>图层 11 月温度：当月均温色块（MonthTemp −60~60°C→0-255；月份滑块切换）。
-/// 月份切换（RefreshMonthTemp + 重算颜色）M3 接入。</summary>
+/// 月份切换（RefreshMonthTemp + 重算颜色）M3 接入。
+/// 2026-08-31 色带与温度层同源（BiomeColors.TempStops，气候模块定义处）——月份视图不另立色带。</summary>
 public sealed class MonthTempLayer : MapLayer
 {
     public override int Id => 11;
@@ -36,9 +38,7 @@ public sealed class MonthTempLayer : MapLayer
 
     public override void BuildLegend(LegendBuilder b, LayerContext ctx)
     {
-        b.Gradient(
-            new[] { new Color(0.08f, 0.12f, 0.45f), new Color(0.22f, 0.52f, 0.72f), new Color(0.38f, 0.72f, 0.42f), new Color(0.92f, 0.78f, 0.28f), new Color(0.88f, 0.30f, 0.15f) },
-            "-60°C", "+60°C");
+        b.Gradient(RampLegendColors(BiomeColors.TempStops), "-60°C", "+60°C");
         b.Text("当月均温");
     }
 }

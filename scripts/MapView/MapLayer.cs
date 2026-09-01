@@ -1,4 +1,5 @@
 using Godot;
+using System;
 using World.HexPlanet;
 
 namespace World.MapView;
@@ -60,4 +61,9 @@ public abstract class MapLayer
 
     /// <summary>图例条目（原 RebuildLegend switch 的分支体；经 LegendBuilder 添加）。</summary>
     public virtual void BuildLegend(LegendBuilder b, LayerContext ctx) { }
+
+    /// <summary>格子信息行（格信息面板内容；2026-09-01 面板接入）：每层实现自己的语义
+    /// （海拔层：海拔米/海陆分带/温度/海冰），默认空 = 面板只显示通用信息（格号/图层）。
+    /// ⚠️ 只读派生（CivSim 零改动）——禁止写游戏状态。</summary>
+    public virtual string[] TileInfo(LayerContext ctx, HexTile tile) => Array.Empty<string>();
 }

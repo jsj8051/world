@@ -4,7 +4,10 @@ using World.CivSim.Entities;
 namespace World.MapView;
 
 /// <summary>地图图层共享取色工具（2026-08-21 策略模式重构 M2：从 MapViewer 搬出，
-/// 供 MapViewer 与各图层策略共用；文件内 using static World.MapView.MapLayerColors 后引用不变）。</summary>
+/// 供 MapViewer 与各图层策略共用；文件内 using static World.MapView.MapLayerColors 后引用不变）。
+/// 2026-08-31 分层：连续色带算法迁入 World.Utils.ColorRamp（RampSample/RampLegendColors/ColorStop），
+/// 业务色带定义内聚各自归属处（ElevationLayer.ElevationStops / BiomeColors.TempStops /
+/// PrecipitationLayer.PrecipStops）；本文件只保留【跨图层共享色板】与取色算法。</summary>
 public static class MapLayerColors
 {
     /// <summary>HSL → RGB（标准换算）。</summary>

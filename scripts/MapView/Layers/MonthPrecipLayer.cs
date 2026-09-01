@@ -2,13 +2,15 @@ using Godot;
 using World.HexPlanet;
 using World.MapGen;
 using static World.MapView.MapLayerColors;
+using static World.Utils.ColorRamp;
 
 namespace World.MapView.Layers;
 
 /// <summary>图层 10 月降水：与总降水同一自适应色带（当月陆地 min-max 归一化；月份滑块切换）。
 /// ⚠️ 2026-08-16 v3（用户拍板）：与总降水同色带同统计方式；×12 换算回年尺度
 ///   → 非季风区≈年降水色，季风区 7 月深蓝 / 1 月枯黄；min-max 自适应当月分布。
-/// 月份切换（RefreshMonthPrecip + 重算颜色）M3 接入。</summary>
+/// 月份切换（RefreshMonthPrecip + 重算颜色）M3 接入。
+/// 2026-08-31 色带与降水层同源（PrecipitationLayer.PrecipStops）——月份视图不另立色带。</summary>
 public sealed class MonthPrecipLayer : MapLayer
 {
     public override int Id => 10;
@@ -27,7 +29,7 @@ public sealed class MonthPrecipLayer : MapLayer
         if (ctx.IsSea(id)) return SeaColor;
         float mm = FieldCodec.ByteMonthPrecipToMm(ctx.Cache.TileMonthPrecip[id], ctx.Cache.TilePrecip[id]) * 12f;   // 等效年尺度（比例×年降水×12）
         float x = Mathf.Clamp((mm - ctx.Cache.MonthPrecipMin) / (ctx.Cache.MonthPrecipMax - ctx.Cache.MonthPrecipMin), 0f, 1f);
-        return new Color(0.90f, 0.80f, 0.40f).Lerp(new Color(0.10f, 0.30f, 0.70f), x);
+        return RampSample(PrecipitationLayer.PrecipStops, x);
     }
 
     /// <summary>月份切换：刷新当月降水缓存 + 重算颜色（原滑块回调分支）。</summary>
@@ -39,9 +41,7 @@ public sealed class MonthPrecipLayer : MapLayer
 
     public override void BuildLegend(LegendBuilder b, LayerContext ctx)
     {
-        b.Gradient(
-            new[] { new Color(0.90f, 0.80f, 0.40f), new Color(0.10f, 0.30f, 0.70f) },
-            $"{ctx.Cache.MonthPrecipMin:F0}mm", $"{ctx.Cache.MonthPrecipMax:F0}mm");
+        b.Gradient(RampLegendColors(PrecipitationLayer.PrecipStops), $"{ctx.Cache.MonthPrecipMin:F0}mm", $"{ctx.Cache.MonthPrecipMax:F0}mm");
         b.Text("当月降水（×12 年尺度色带）");
     }
 }

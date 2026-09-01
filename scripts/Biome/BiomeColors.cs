@@ -1,9 +1,12 @@
 using Godot;
+using World.Utils;
+using static World.Utils.ColorRamp;
 
 namespace World.Biome;
 
 /// <summary>
 /// 生物群系 / 气候图层色板（策略地图色块风，纯函数）。
+/// 2026-08-31：温度色带定义内聚本模块（气候概念的家——温度/月温度两图层共用，见 TempStops）。
 /// </summary>
 public static class BiomeColors
 {
@@ -37,39 +40,28 @@ public static class BiomeColors
         _ => Colors.Magenta,
     };
 
-    /// <summary>温度色板（分段，非线性）：
-    /// ⚠️ 2026-08-02 改为分段色带——线性归一化(-85..45)会把常见温度区间压缩（用户指出
-    ///   "常见温度和极端温度差距很大，直接归一化不能查看敏感温度区间"）。
-    ///   分段分配：极寒 -85~-30 占 25%，冰点区 -30~0 占 20%，0~15 占 20%，
-    ///   宜居带 15~30 占 20%，高温 30~45 占 15% → 常见区(-30..+30)拿到 60% 色带分辨率。
-    /// 断点/位置/颜色三段平行数组，插值用 FieldOps.Lerp 同款逻辑。</summary>
-    private static readonly float[] TempBreaks =
-        { -85f, -30f, 0f, 15f, 30f, 45f };
-    private static readonly Color[] TempColors =
+    // ── 温度色带（气候模块定义处；TemperatureLayer 与 MonthTempLayer（月份视图）共用）──
+
+    /// <summary>温度连续色带（位置=°C；2026-08-02 分段色带——常见温度区间拿更高色带分辨率：
+    /// 极寒 -85~-30 占 25%，冰点区 -30~0 占 20%，0~15 占 20%，宜居带 15~30 占 20%，高温 30~45 占 15%，
+    /// → 常见区(-30..+30)拿到 60% 色带分辨率。【改色带】= 编辑下方点位（异位置=线性渐变）。</summary>
+    public static readonly ColorStop[] TempStops =
     {
-        new(0.08f, 0.12f, 0.45f),   // -85 极深蓝（极寒）
-        new(0.10f, 0.28f, 0.62f),   // -30 深蓝
-        new(0.22f, 0.52f, 0.72f),   // 0  蓝青（冰点附近细粒度）
-        new(0.38f, 0.72f, 0.42f),   // 15 绿
-        new(0.92f, 0.78f, 0.28f),   // 30 黄（宜居带）
-        new(0.88f, 0.30f, 0.15f),   // 45 红（高温）
+        new(-85f, new Color(0.08f, 0.12f, 0.45f)),  // 极寒
+        new(-30f, new Color(0.10f, 0.28f, 0.62f)),  // 深蓝
+        new(0f,   new Color(0.22f, 0.52f, 0.72f)),  // 冰点
+        new(15f,  new Color(0.38f, 0.72f, 0.42f)),  // 绿
+        new(30f,  new Color(0.92f, 0.78f, 0.28f)),  // 黄（宜居带）
+        new(45f,  new Color(0.88f, 0.30f, 0.15f)),  // 红（高温）
     };
 
+    /// <summary>温度色板取色（2026-08-02 起为分段色带；2026-08-31 定义收编 TempStops + ColorRamp 采样）。</summary>
     public static Color TemperatureToColor(float t)
-    {
-        // 二分找段，段内线性插值（断点按位置映射，段内颜色线性）
-        int seg = -1;
-        for (int i = 0; i < TempBreaks.Length - 1; i++)
-        {
-            if (t >= TempBreaks[i] && t <= TempBreaks[i + 1]) { seg = i; break; }
-        }
-        if (seg < 0)
-            return t < TempBreaks[0] ? TempColors[0] : TempColors[^1];
-        float f = (t - TempBreaks[seg]) / (TempBreaks[seg + 1] - TempBreaks[seg]);
-        return TempColors[seg].Lerp(TempColors[seg + 1], f);
-    }
+        => RampSample(TempStops, t);
 
-    /// <summary>降水色板：0mm 黄 → 2000mm+ 深蓝。</summary>
+    /// <summary>[已废弃 2026-08-31] 固定 2000mm 降水色板——PrecipitationLayer/MonthPrecipLayer
+    /// 已按用户拍板改走陆地 min-max 自适应归一化（PrecipitationLayer.PrecipStops），本方法仅由
+    /// 单元测试与遗留参考保留，勿再用于新代码。</summary>
     public static Color PrecipitationToColor(float p)
     {
         float x = Mathf.Clamp(p / 2000f, 0f, 1f);

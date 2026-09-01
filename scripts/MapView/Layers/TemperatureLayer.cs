@@ -1,10 +1,13 @@
 using Godot;
 using World.Biome;
 using World.HexPlanet;
+using static World.Utils.ColorRamp;
 
 namespace World.MapView.Layers;
 
-/// <summary>图层 1 温度：分段色带（极寒/冰点/0-15°/宜居/高温）。</summary>
+/// <summary>图层 1 温度：分段色带（极寒/冰点/0-15°/宜居/高温）。
+/// 2026-08-31 色带定义内聚气候模块 BiomeColors.TempStops（温度层与月温度层共用），
+/// 本层只做取色与图例（图例与画面同源 RampLegendColors）。</summary>
 public sealed class TemperatureLayer : MapLayer
 {
     public override int Id => 1;
@@ -17,9 +20,7 @@ public sealed class TemperatureLayer : MapLayer
 
     public override void BuildLegend(LegendBuilder b, LayerContext ctx)
     {
-        b.Gradient(
-            new[] { new Color(0.08f, 0.12f, 0.45f), new Color(0.22f, 0.52f, 0.72f), new Color(0.38f, 0.72f, 0.42f), new Color(0.92f, 0.78f, 0.28f), new Color(0.88f, 0.30f, 0.15f) },
-            "-85°C", "+45°C");
+        b.Gradient(RampLegendColors(BiomeColors.TempStops), "-85°C", "+45°C");
         b.Text("分段色带：极寒/冰点/0-15°/宜居/高温");
     }
 }
