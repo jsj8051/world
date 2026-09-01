@@ -926,20 +926,20 @@ public partial class MapViewer : Node3D
         }
     }
 
-    /// <summary>格信息面板（2026-09-01）：通用行（格号/图层）+ 当前图层策略的只读派生信息
-    /// （TileInfo 虚方法——海拔层先实现：海拔米/海陆分带/温度/海冰；CivSim 零改动）。
-    /// 面板固定左下角（TileInfoPanel._Process 定位），本方法只填内容。</summary>
+    /// <summary>格信息面板（2026-09-01）：通用条目（格子/图层）+ 当前图层策略的结构化条目
+    /// （TileInfo → TileInfoEntry：标签/值/色块；海拔层先行：海拔米/海陆分带/温度/海冰；CivSim 零改动）。
+    /// 面板固定左下角（TileInfoPanel 场景固定），本方法只填数据。</summary>
     private void ShowTileInfo(int tileId)
     {
         if (_tileInfoPanel == null || _ctx == null || _tiles == null) return;
         var strat = LayerRegistry.Of(_layer);
-        var rows = new System.Collections.Generic.List<string>
+        var entries = new System.Collections.Generic.List<TileInfoEntry>
         {
-            $"格子 #{tileId}",
-            $"图层：{strat.Name}",
+            new("格子", $"#{tileId}"),
+            new("图层", strat.Name),
         };
-        rows.AddRange(strat.TileInfo(_ctx, _tiles[tileId]));
-        _tileInfoPanel.ShowAt(rows);
+        entries.AddRange(strat.TileInfo(_ctx, _tiles[tileId]));
+        _tileInfoPanel.ShowAt(entries);
     }
 
     // ═══════════════════════ 选国形态交互（2026-08-31；NationSelect 实例化本场景）═══════════════════════

@@ -1,4 +1,5 @@
 using Godot;
+using System.Collections.Generic;
 using World.HexPlanet;
 using static World.Utils.ColorRamp;
 
@@ -93,25 +94,25 @@ public sealed class ElevationLayer : MapLayer
         return "极高山区";
     }
 
-    public override string[] TileInfo(LayerContext ctx, HexTile tile)
+    public override IReadOnlyList<TileInfoEntry> TileInfo(LayerContext ctx, HexTile tile)
     {
         int id = tile.Id;
         float h = ctx.Cache.TileElev[id];
         int vidE = ctx.TileIndex != null ? ctx.TileIndex.FaceToVertex(id) : id;
         float elevM = ctx.Map.Elev != null ? ctx.Map.Elev[vidE] : (h - ctx.Cache.HSea) * (ctx.Map.MaxElev - ctx.Map.MinElev);   // 米（0=海平面）
         bool sea = ctx.IsSea(id);
-        // 陆地显示"海拔"；海洋显示"深度"（负数，0=海平面）
-        var lines = new System.Collections.Generic.List<string>
+        // 结构化条目（只填数据；swatch=该格当前图层颜色；显示文本由面板拼"标签：值"）
+        var list = new System.Collections.Generic.List<TileInfoEntry>
         {
-            $"{elevM:F0} m（{(sea ? "深度" : "海拔")}，0=海平面）",
-            $"类型：{(sea ? "海洋" : "陆地")} · {ElevationZoneName(elevM)}",
+            new("高度", $"{elevM:F0} m（0=海平面）", ColorOf(ctx, tile)),
+            new("类型", (sea ? "海洋" : "陆地") + " · " + ElevationZoneName(elevM)),
         };
         if (ctx.Map.Temp != null)
         {
             float tempC = ctx.Map.Temp[vidE];
-            lines.Add($"温度：{tempC:F0}°C");
-            if (sea && tempC <= -5f) lines.Add("海冰（极地冰盖）");
+            list.Add(new("温度", $"{tempC:F0}°C"));
+            if (sea && tempC <= -5f) list.Add(new("状态", "海冰（极地冰盖）"));
         }
-        return lines.ToArray();
+        return list;
     }
 }

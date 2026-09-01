@@ -1,5 +1,6 @@
 using Godot;
 using System.Collections.Generic;
+using World.MapView;
 
 namespace World.UI;
 
@@ -7,8 +8,8 @@ namespace World.UI;
 /// 四层模型：表现+容器全部在 scenes/ui/TileInfoPanel.tscn——【固定左下角位置 + 固定 260×168 尺寸】
 /// （用户拍板 09-01：位置/大小场景钉死、代码只操控内容，消除动态定位的显示跳变；
 /// 行数少量超限时由固定矩形裁切——后续需更多行再引入滚动容器）。
-/// 本组件只做逻辑层：ShowAt 清空重建行 + 显示；HidePanel 隐藏。数据由 MapViewer 拾取后下行
-/// （通用行 + 策略 TileInfo 只读派生），零游戏状态写入、零坐标计算。</summary>
+/// 本组件只做逻辑层：ShowAt 渲染结构化条目（TileInfoEntry：标签/值/色块——有色块时行前加
+/// "标签：值"颜色块，Data 只读派生零写入）；HidePanel 隐藏。零坐标计算。</summary>
 public partial class TileInfoPanel : PanelContainer
 {
     private VBoxContainer _body;   // 行容器（%Body，场景预置）
@@ -18,18 +19,30 @@ public partial class TileInfoPanel : PanelContainer
         _body = GetNode<VBoxContainer>("%Body");
     }
 
-    /// <summary>显示：清空旧行 → 重建数据行（位置/尺寸由场景固定，无跳变）。
-    /// rows：信息行（"值"或"标签：值"），首行建议为格号/图层。</summary>
-    public void ShowAt(IReadOnlyList<string> rows)
+    /// <summary>显示：清空旧行 → 渲染条目行（色块 + "标签：值"；位置/尺寸由场景固定，无跳变）。</summary>
+    public void ShowAt(IReadOnlyList<TileInfoEntry> entries)
     {
         // 清空旧行（数据驱动重建；行数少，QueueFree 可接受）
         foreach (Node child in _body.GetChildren())
             child.QueueFree();
-        foreach (var text in rows)
+        foreach (var e in entries)
         {
-            var lab = new Label { Text = text, MouseFilter = MouseFilterEnum.Ignore };
+            var row = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+            row.AddThemeConstantOverride("separation", 6);
+            if (e.Swatch is Color s)
+            {
+                var sw = new ColorRect
+                {
+                    Color = s,
+                    CustomMinimumSize = new Vector2(14, 14),
+                    SizeFlagsVertical = Control.SizeFlags.ShrinkCenter,
+                };
+                row.AddChild(sw);
+            }
+            var lab = new Label { Text = $"{e.Label}：{e.Value}", MouseFilter = MouseFilterEnum.Ignore };
             lab.AddThemeFontSizeOverride("font_size", 13);
-            _body.AddChild(lab);
+            row.AddChild(lab);
+            _body.AddChild(row);
         }
         Visible = true;
     }
