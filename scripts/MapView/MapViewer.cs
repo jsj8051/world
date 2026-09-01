@@ -194,6 +194,7 @@ public partial class MapViewer : Node3D
     private World.UI.CukHud _cukHud;                 // 地图坞（UiLayer/CukDock；LayerSelected 上行信号）
     private World.UI.EpochBar _epochBar;             // 右上时间行（UiLayer/EpochPanel；MonthChanged 上行信号）
     private World.UI.SaveDialog _saveDialog;         // 游玩保存链（UiLayer/EpochPanel/EpochRow/SaveBtn）
+    private World.UI.TileInfoPanel _tileInfoPanel;    // 格信息面板（UiLayer/TileInfoPanel；点击格 → ShowTileInfo 下行）
 
     /// <summary>实体 → 势力 id（最高聚合层：酋邦>部落≥2>独立 band；高位域标记防跨域撞色）。</summary>
     private static int PowerIdOf(Polity e)
@@ -276,6 +277,7 @@ public partial class MapViewer : Node3D
         _cukHud = GetNodeOrNull<World.UI.CukHud>("UiLayer/CukDock");
         _epochBar = GetNodeOrNull<World.UI.EpochBar>("UiLayer/EpochPanel");
         _saveDialog = GetNodeOrNull<World.UI.SaveDialog>("UiLayer/EpochPanel/EpochRow/SaveBtn");
+        _tileInfoPanel = GetNodeOrNull<World.UI.TileInfoPanel>("UiLayer/TileInfoPanel");
 
         // 上行信号接线：图层按钮 → Layer setter；月份滑块 → 上下文/策略回调
         if (_cukHud != null) _cukHud.LayerSelected += id => Layer = id;
@@ -862,6 +864,43 @@ public partial class MapViewer : Node3D
     private bool _monthWindStarted;                 // 防重复启动
     private volatile Vector3[][] _monthWindPending; // 后台写、主线程 ApplyMonthWind 读
 
+    // ── 屏幕坐标 → 格子拾取（2026-09-01 收敛：点击诊断 / 选国拣选 / 格信息面板共用）──
+
+    /// <summary>相机射线-球面求交 + 最近格中心 → 点击命中的格下标（-1 = 未命中/相机缺失）。
+    /// O(n) 全量扫描——点击级（40962 格 ~1ms；65 万格 ~16ms），⚠️ 勿每帧调用（悬停跟随需先建格中心桶索引）。
+    /// 量纲：hit 与 tile.Center 同在 RadiusKm 球面（Center = Normalized()*radius），最近邻 = 球面 Voronoi 归属。</summary>
+    private int PickTileAt(Vector2 screenPos)
+    {
+        var cam = GetNode<OrbitalCamera>("OrbitalCamera")?.Cam;
+        if (cam == null || _tiles == null || _tiles.Count == 0) return -1;
+        var from = cam.ProjectRayOrigin(screenPos);
+        var dir = cam.ProjectRayNormal(screenPos);
+        // 射线-球面求交（球心=原点，r=RadiusKm；与 _UnhandledInput/SelectPickAt 原拷贝同款）
+        float r = RadiusKm;
+        float a = dir.Dot(dir);
+        float b = 2f * from.Dot(dir);
+        float c = from.Dot(from) - r * r;
+        float disc = b * b - 4f * a * c;
+        if (disc < 0f) return -1;
+        float t = (-b - Mathf.Sqrt(disc)) / (2f * a);
+        if (t < 0f) t = (-b + Mathf.Sqrt(disc)) / (2f * a);
+        if (t < 0f) return -1;
+        return NearestTile(from + dir * t, _tiles);
+    }
+
+    /// <summary>最近格中心（纯函数可单测）：球面命中点 → 最近 HexTile 下标（Voronoi 归属）；空表返回 -1。</summary>
+    internal static int NearestTile(Vector3 hit, IReadOnlyList<HexTile> tiles)
+    {
+        int best = -1;
+        float bestD = float.MaxValue;
+        for (int i = 0; i < tiles.Count; i++)
+        {
+            float d = (tiles[i].Center - hit).LengthSquared();
+            if (d < bestD) { bestD = d; best = i; }
+        }
+        return best;
+    }
+
     /// <summary>点击诊断（2026-08-17 用户要求）：左键点击地图格 → 日志打印位置/颜色/势力/人口等
     /// 全量诊断信息——定位异常势力色块/人口格的具体实例。</summary>
     public override void _UnhandledInput(InputEvent e)
@@ -876,31 +915,31 @@ public partial class MapViewer : Node3D
         if (e is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left
             && _map != null && _tiles != null)
         {
-            var cam = GetNode<OrbitalCamera>("OrbitalCamera")?.Cam;
-            if (cam == null) return;
-            var from = cam.ProjectRayOrigin(mb.Position);
-            var dir = cam.ProjectRayNormal(mb.Position);
-            // 射线-球面求交（球心=原点）
-            float r = RadiusKm;
-            float a = dir.Dot(dir);
-            float b = 2f * from.Dot(dir);
-            float c = from.Dot(from) - r * r;
-            float disc = b * b - 4f * a * c;
-            if (disc < 0f) return;
-            float t = (-b - Mathf.Sqrt(disc)) / (2f * a);
-            if (t < 0f) t = (-b + Mathf.Sqrt(disc)) / (2f * a);
-            if (t < 0f) return;
-            var hit = from + dir * t;
-            // 最近格中心（O(n) 一次点击——40962 距离比较 ~1ms）
-            int best = -1;
-            float bestD = float.MaxValue;
-            for (int i = 0; i < _tiles.Count; i++)
+            int best = PickTileAt(mb.Position);
+            if (best >= 0)
             {
-                float d = (_tiles[i].Center - hit).LengthSquared();
-                if (d < bestD) { bestD = d; best = i; }
+                ClickDebug(best);
+                ShowTileInfo(best);
             }
-            if (best >= 0) ClickDebug(best);
+            else if (_tileInfoPanel != null)
+                _tileInfoPanel.HidePanel();   // 点击空白处 → 收起格信息面板
         }
+    }
+
+    /// <summary>格信息面板（2026-09-01）：通用行（格号/图层）+ 当前图层策略的只读派生信息
+    /// （TileInfo 虚方法——海拔层先实现：海拔米/海陆分带/温度/海冰；CivSim 零改动）。
+    /// 面板固定左下角（TileInfoPanel._Process 定位），本方法只填内容。</summary>
+    private void ShowTileInfo(int tileId)
+    {
+        if (_tileInfoPanel == null || _ctx == null || _tiles == null) return;
+        var strat = LayerRegistry.Of(_layer);
+        var rows = new System.Collections.Generic.List<string>
+        {
+            $"格子 #{tileId}",
+            $"图层：{strat.Name}",
+        };
+        rows.AddRange(strat.TileInfo(_ctx, _tiles[tileId]));
+        _tileInfoPanel.ShowAt(rows);
     }
 
     // ═══════════════════════ 选国形态交互（2026-08-31；NationSelect 实例化本场景）═══════════════════════
@@ -929,32 +968,11 @@ public partial class MapViewer : Node3D
         }
     }
 
-    /// <summary>选国拣选（射线-球面求交同既有点击诊断；白名单图层→存活政权→TilePicked；否则 PickBlocked）。</summary>
+    /// <summary>选国拣选（PickTileAt 射线-球面求交同点击诊断；白名单图层→存活政权→TilePicked；否则 PickBlocked）。</summary>
     private void SelectPickAt(Vector2 screenPos)
     {
-        var cam = GetNode<OrbitalCamera>("OrbitalCamera")?.Cam;
-        if (cam == null || _tileIndex == null || _civCtx?.CellOwner == null) return;
-        var from = cam.ProjectRayOrigin(screenPos);
-        var dir = cam.ProjectRayNormal(screenPos);
-        // 射线-球面求交（球心=原点）——与 _UnhandledInput 同款
-        float r = RadiusKm;
-        float a = dir.Dot(dir);
-        float b = 2f * from.Dot(dir);
-        float c = from.Dot(from) - r * r;
-        float disc = b * b - 4f * a * c;
-        if (disc < 0f) return;
-        float t = (-b - Mathf.Sqrt(disc)) / (2f * a);
-        if (t < 0f) t = (-b + Mathf.Sqrt(disc)) / (2f * a);
-        if (t < 0f) return;
-        var hit = from + dir * t;
-        // 最近格中心（O(n) 一次点击——同点击诊断）
-        int best = -1;
-        float bestD = float.MaxValue;
-        for (int i = 0; i < _tiles.Count; i++)
-        {
-            float d = (_tiles[i].Center - hit).LengthSquared();
-            if (d < bestD) { bestD = d; best = i; }
-        }
+        if (_tileIndex == null || _civCtx?.CellOwner == null) return;
+        int best = PickTileAt(screenPos);
         if (best < 0) return;
         // ⚠️ 2026-08-31 可点选图层白名单（P7 拍板：政体18/独立势力14/势力范围17/人口12——均有"格→政权"归属语义）
         int layer = _layer;

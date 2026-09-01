@@ -6,6 +6,7 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/CivPanel.tscn" id="4_civpanel"]
 [ext_resource type="PackedScene" path="res://scenes/ui/CukDock.tscn" id="5_cuk"]
 [ext_resource type="PackedScene" path="res://scenes/ui/EpochPanel.tscn" id="6_epoch"]
+[ext_resource type="PackedScene" path="res://scenes/ui/TileInfoPanel.tscn" id="7_tileinfo"]
 
 [node name="MapViewer" instance=ExtResource("1_core")]
 
@@ -18,3 +19,5 @@
 [node name="CukDock" parent="UiLayer" instance=ExtResource("5_cuk")]
 
 [node name="EpochPanel" parent="UiLayer" instance=ExtResource("6_epoch")]
+
+[node name="TileInfoPanel" parent="UiLayer" instance=ExtResource("7_tileinfo")]
