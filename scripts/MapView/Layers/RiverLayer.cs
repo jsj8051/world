@@ -21,7 +21,8 @@ public sealed class RiverLayer : MapLayer
     public override Color ColorOf(LayerContext ctx, HexTile tile)
         => PaleBase(ctx, tile.Id);
 
-    /// <summary>河流网格（原 MapViewer.BuildRivers；每条河独立颜色，支流汇合截断）。</summary>
+    /// <summary>河流网格（原 MapViewer.BuildRivers；每条河独立颜色，支流汇合收束）。
+    /// 几何画法已抽至 RiverMesh（2026-09-01：蜿蜒/渐变宽/防穿模——见组件头注释）。</summary>
     public override Node3D BuildOverlay(LayerContext ctx, MapViewer host)
     {
         if (ctx.Map == null || ctx.Map.RiverLevel == null || ctx.Map.RiverFlow == null)
@@ -46,76 +47,11 @@ public sealed class RiverLayer : MapLayer
         }
 
         float radius = ctx.RadiusKm * MapViewer.OverlayLiftFactor;   // 略高于球面，避免 z-fighting
-        var vertList = new List<Vector3>();
-        var colorList = new List<Color>();
-        var indexList = new List<int>();
-
-        // 主河先画（长→短），支流遇已画顶点截断（汇合点）
-        var painted = new HashSet<int>();
-        paths.Sort((a, b) => b.Length.CompareTo(a.Length));
-        // ⚠️ 2026-08-06：河宽按分辨率缩放——固定 halfW 在 n=128 格距减半时相对粗 2 倍。
-        //   统一按格距比例：halfW = 格距 × 0.13（n=64 时即原 0.004）
+        // ⚠️ 2026-08-06：河宽/蜿蜒按分辨率缩放——固定绝对宽在 n=128 格距减半时相对粗 2 倍。
+        //   统一按格距比例：宽 = 格距 × 系数（RiverMesh 内 HalfWMin/Max），n=64 时原 0.13 为中值档
         int simN = Icosahedron.GridNFromVertexCount(n);
         float gridArc = Mathf.Tau / (Mathf.Sqrt(10f) * Mathf.Max(8, simN));
-        float halfW = gridArc * 0.13f;   // 河宽 ≈ 0.26 格距（观感统一，随分辨率缩放）
-        int riverCount = 0;
-        foreach (var path in paths)
-        {
-            // 每条河独立颜色：HSL 色相黄金角循环（相邻河差异最大）
-            float hue = GoldenHue(riverCount);
-            var c = HslToRgb(hue, 0.9f, 0.55f);
-            riverCount++;
-            bool drawn = false;
-            for (int i = 0; i < path.Length - 1; i++)
-            {
-                int va = path[i], vb = path[i + 1];
-                if (painted.Contains(va)) break;   // 遇汇合点 → 支流段结束
-                painted.Add(va);
-                Vector3 a = verts[va], b = verts[vb];
-                Vector3 seg = b - a;
-                if (seg.LengthSquared() < 1e-12f) continue;
-                Vector3 side = seg.Cross(a).Normalized();
-                Vector3 l0 = (a + side * halfW).Normalized() * radius;
-                Vector3 r0 = (a - side * halfW).Normalized() * radius;
-                Vector3 l1 = (b + side * halfW).Normalized() * radius;
-                Vector3 r1 = (b - side * halfW).Normalized() * radius;
-                int bi = vertList.Count;
-                vertList.Add(l0); vertList.Add(r0); vertList.Add(l1); vertList.Add(r1);
-                colorList.Add(c); colorList.Add(c); colorList.Add(c); colorList.Add(c);
-                indexList.Add(bi); indexList.Add(bi + 1); indexList.Add(bi + 2);
-                indexList.Add(bi + 1); indexList.Add(bi + 3); indexList.Add(bi + 2);
-                drawn = true;
-            }
-            if (!drawn) riverCount--;   // 全被截断（纯支流无独有段）→ 不计
-        }
-
-        if (vertList.Count == 0)
-        {
-            LogService.Log("MapViewer", "rivers: 无可见河道");
-            return null;
-        }
-
-        var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = vertList.ToArray();
-        arrays[(int)Mesh.ArrayType.Color] = colorList.ToArray();
-        arrays[(int)Mesh.ArrayType.Index] = indexList.ToArray();
-        var mesh = new ArrayMesh();
-        mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arrays);
-
-        var mat = new StandardMaterial3D
-        {
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-            VertexColorUseAsAlbedo = true,
-            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-        };
-
-        return new MeshInstance3D
-        {
-            Mesh = mesh,
-            MaterialOverride = mat,
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        };
+        return RiverMesh.Build(ctx.Map, paths, radius, gridArc);
     }
 
     public override void BuildLegend(LegendBuilder b, LayerContext ctx)
