@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>格内细分：三条路线对比</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:1020px; margin:0 auto; padding:28px 32px 40px; }
+  h1 { font-size:20px; margin:0 0 6px; color:#7ee0ff; }
+  .sub { font-size:13px; color:#8b949e; margin-bottom:22px; }
+  .cols { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+  .card { border:1px solid #30363d; border-radius:10px; padding:14px; background:#161b22; }
+  .card h2 { font-size:13.5px; margin:0 0 4px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .tag { font-size:10.5px; padding:1px 7px; border-radius:10px; font-weight:normal; }
+  .t1 { background:#1f3d2b; color:#4ade80; border:1px solid #2ea04355; }
+  .t2 { background:#3d2a1f; color:#fbbf24; border:1px solid #d2992255; }
+  .t3 { background:#1f2d3d; color:#58a6ff; border:1px solid #1f6feb55; }
+  .d { font-size:11.5px; color:#8b949e; margin:4px 0 8px; line-height:1.6; }
+  svg { display:block; margin:0 auto; }
+  table { width:100%; border-collapse:collapse; font-size:12px; margin-top:18px; }
+  th, td { border:1px solid #30363d; padding:7px 10px; text-align:left; }
+  th { background:#1c2128; color:#7ee0ff; }
+  td.k { color:#fbbf24; font-weight:600; white-space:nowrap; }
+  .ok { color:#4ade80; font-weight:600; }
+  .no { color:#f87171; font-weight:600; }
+  .verdict { border:1px solid #2ea04366; background:#0d1a12; border-radius:10px; padding:12px 16px; margin-top:16px; font-size:13px; color:#c9d1d9; line-height:1.8; }
+  .verdict b { color:#4ade80; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>“格子中再细分”的三条路线</h1>
+  <div class="sub">取决于：小格子与显示大格是【同一套渲染】还是【独立叠加】——以及要渲染的内容是否跨格连续（河流=连续）</div>
+
+  <div class="cols">
+    <div class="card">
+      <h2>路线 1 显示升级<span class="tag t3">改动最大</span></h2>
+      <div class="d">GridN 直接翻倍（n → 2n）：显示格整体变细，所有 20 图层、拾取、CivSim 映射全部在细格上重做。</div>
+      <svg width="260" height="200" viewBox="0 0 260 200">
+        <!-- 一个"大格"分成 4 个小格（示意） -->
+        <polygon points="130,40 205,78 205,142 130,180 55,142 55,78" fill="none" stroke="#58a6ff" stroke-width="2"/>
+        <g stroke="#2f81f7" stroke-width="1">
+          <line x1="130" y1="40" x2="130" y2="180"/>
+          <line x1="55" y1="78" x2="205" y2="142"/>
+          <line x1="205" y1="78" x2="55" y2="142"/>
+        </g>
+        <circle cx="130" cy="110" r="26" fill="#1f6feb" opacity="0.45"/>
+        <circle cx="80" cy="80" r="26" fill="#1f6feb" opacity="0.45"/>
+        <circle cx="180" cy="80" r="26" fill="#1f6feb" opacity="0.45"/>
+        <circle cx="80" cy="140" r="26" fill="#1f6feb" opacity="0.45"/>
+        <circle cx="180" cy="140" r="26" fill="#1f6feb" opacity="0.45"/>
+        <text x="130" y="196" text-anchor="middle" font-size="11" fill="#58a6ff">每格 1 → 4，全球一致</text>
+      </svg>
+    </div>
+
+    <div class="card">
+      <h2>路线 2 格内子格<span class="tag t2">独立叠加</span></h2>
+      <div class="d">显示大格不动；每个大格内部再划 7 个子六边形（aperture-7 思想），子格各自渲染（色/纹理/标记）。</div>
+      <svg width="260" height="200" viewBox="0 0 260 200">
+        <g stroke="#d29922" stroke-width="1.5" fill="none">
+          <!-- 大六边形 -->
+          <polygon points="130,40 205,78 205,142 130,180 55,142 55,78"/>
+          <!-- 中心小六边形 -->
+          <polygon points="137,90 157,101 157,123 137,134 117,123 117,101"/>
+          <!-- 六个环绕 -->
+          <polygon points="173,64 193,75 193,97 173,108 153,97 153,75"/>
+          <polygon points="117,68 137,79 137,101 117,112 97,101 97,79"/>
+          <polygon points="193,107 213,118 213,140 193,151 173,140 173,118"/>
+          <polygon points="137,144 157,155 157,177 137,188 117,177 117,155"/>
+          <polygon points="93,107 113,118 113,140 93,151 73,140 73,118"/>
+          <polygon points="93,64 113,75 113,97 93,108 73,97 73,75"/>
+        </g>
+        <circle cx="147" cy="112" r="9" fill="#fbbf24" opacity="0.8"/>
+        <text x="130" y="196" text-anchor="middle" font-size="11" fill="#fbbf24">每格独立 1→7，格内自由渲染</text>
+      </svg>
+    </div>
+
+    <div class="card">
+      <h2>路线 3 全局细网格<span class="tag t1">河流正解</span></h2>
+      <div class="d">渲染层私有 2n 细球体（RenderSphere）：细网格横跨大格边界，河流/海岸线这类连续要素不断界。</div>
+      <svg width="260" height="200" viewBox="0 0 260 200">
+        <!-- 两个虚线大格轮廓，上面叠连续小六边形 -->
+        <g stroke="#8b949e" stroke-width="1" stroke-dasharray="4 3" fill="none">
+          <polygon points="110,30 185,68 185,132 110,170 35,132 35,68"/>
+          <polygon points="170,30 245,68 245,132 170,170 95,132 95,68"/>
+        </g>
+        <g stroke="#4ade80" stroke-width="1.2" fill="none" opacity="0.9">
+          <polygon points="100,90 120,100 120,123 100,133 80,123 80,100"/>
+          <polygon points="137,60 157,70 157,93 137,103 117,93 117,70"/>
+          <polygon points="137,97 157,107 157,130 137,140 117,130 117,107"/>
+          <polygon points="174,60 194,70 194,93 174,103 154,93 154,70"/>
+          <polygon points="174,97 194,107 194,130 174,140 154,130 154,107"/>
+          <polygon points="100,127 120,137 120,160 100,170 80,160 80,137"/>
+          <polygon points="137,134 157,144 157,167 137,177 117,167 117,144"/>
+          <polygon points="174,134 194,144 194,167 174,177 154,167 154,144"/>
+        </g>
+        <path d="M60,150 C100,120 140,90 200,70" stroke="#7ee0ff" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <text x="130" y="196" text-anchor="middle" font-size="11" fill="#4ade80">细网格跨格连续（虚线=大格界）</text>
+      </svg>
+    </div>
+  </div>
+
+  <table>
+    <tr><th style="width:110px">对比</th><th>路线 1 显示升级（GridN 翻倍）</th><th>路线 2 格内子格（per-tile）</th><th>路线 3 全局细网格（RenderSphere）</th></tr>
+    <tr><td class="k">小格 ↔ 大格</td><td>小格 = 新全局网格，无“格内”概念</td><td>严格在各自大格内部</td><td>跨大格边界连续</td></tr>
+    <tr><td class="k">河流渲染</td><td class="ok">连续 ✓（路径在细格上可重采样）</td><td class="no">格界断开 ✗（除非子格跨格共享）</td><td class="ok">连续 ✓（设计目标）</td></tr>
+    <tr><td class="k">格内独立渲染</td><td>无（格即渲染单元）</td><td class="ok">自由 ✓（每子格独立着色/标记）</td><td>可查细场，但无“大格内”语义</td></tr>
+    <tr><td class="k">改动面</td><td class="no">大：20 图层/拾取/CivSim 映射/性能全动</td><td class="no">中：新覆盖层 + 跨格缝合问题</td><td class="ok">小：RenderSphere + 河流画法，其余不动</td></tr>
+    <tr><td class="k">性能</td><td>格 ×4，构色/拾取对应变重</td><td>子格数 = 大格 ×7，常驻开销</td><td>细场一次性构建（+1~2s 后台），河流毫秒级</td></tr>
+  </table>
+
+  <div class="verdict">
+    <b>组合建议：</b>三件事其实可以同时有——<b>路线 3 做河流等连续要素</b>（渲染层私有细球体，上轮方案），<b>路线 2 做格内独立渲染</b>（大格内部画纹理/标记/格内容时按需叠加，大格仍是信息与拾取单元）。路线 1（显示整体变细）改动最大、风险最高，除非你要的是"整张地图观感更细"，否则暂缓。
+  </div>
+</div>
+</body>
+</html>

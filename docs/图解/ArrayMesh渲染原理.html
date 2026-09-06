@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ArrayMesh 数组渲染原理 —— 从三张表到屏幕上的球</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#12161f; --panel2:#171c28; --line:#273043;
+    --fg:#dbe2ee; --mut:#8b949e; --acc:#58a6ff; --acc2:#e3b341; --ok:#4cc38a;
+    --mono:'Cascadia Mono','JetBrains Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--fg);font:15px/1.7 -apple-system,'Segoe UI','Microsoft YaHei',sans-serif;padding:32px 20px 80px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:26px;letter-spacing:.5px;margin-bottom:6px}
+  .sub{color:var(--mut);margin-bottom:28px}
+  h2{font-size:19px;margin:44px 0 14px;padding-left:10px;border-left:3px solid var(--acc)}
+  h3{font-size:15.5px;margin:22px 0 8px;color:var(--acc)}
+  code{font-family:var(--mono);font-size:13px;background:#1b2130;border:1px solid #262e41;border-radius:4px;padding:1px 6px;color:#c9d4e8}
+  pre{font-family:var(--mono);font-size:12.5px;background:#0e1219;border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;color:#c9d4e8;line-height:1.55}
+  .note{background:#10202b;border:1px solid #1f4d5e;border-left:3px solid var(--acc2);border-radius:6px;padding:10px 14px;margin:14px 0;font-size:14px}
+  .warn{background:#2b1c10;border:1px solid #5e3d1f;border-left:3px solid #e3b341;border-radius:6px;padding:10px 14px;margin:14px 0;font-size:14px}
+  .hl{color:var(--acc2);font-weight:600}
+  .tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 18px;margin:12px 0}
+  /* 流程条 */
+  .flow{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;margin:18px 0}
+  .fstep{flex:1 1 170px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;position:relative;margin-right:26px}
+  .fstep:last-child{margin-right:0}
+  .fstep::after{content:'→';position:absolute;right:-22px;top:50%;transform:translateY(-50%);color:var(--acc);font-size:18px}
+  .fstep:last-child::after{content:none}
+  .fstep b{display:block;font-size:13.5px;margin-bottom:6px;color:var(--acc)}
+  .fstep code{display:block;margin:4px 0;font-size:11.5px}
+  .fstep span{font-size:12.5px;color:var(--mut)}
+  .fnum{display:inline-block;width:20px;height:20px;line-height:20px;text-align:center;background:var(--acc);color:#0b0e14;border-radius:50%;font-size:12px;font-weight:700;margin-right:6px}
+  /* 互动区 */
+  .grid{display:grid;grid-template-columns:1.15fr 1fr;gap:18px;align-items:start}
+  @media(max-width:860px){.grid{grid-template-columns:1fr}}
+  table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px}
+  th,td{border:1px solid var(--line);padding:3px 8px;text-align:center}
+  th{background:#1a2130;color:var(--mut);font-weight:600}
+  tr.row0 td{background:#141c2c}
+  .row{transition:background .12s}
+  .row.sel td{background:#2a3a24 !important}
+  .row.hot td{background:#3a2f14 !important}
+  .swatch{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:6px}
+  .vt{color:#8fa8d8} .ct{color:#c9a86b} .it{color:#7fd1a8}
+  .svgbox{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px}
+  .legend{font-size:12px;color:var(--mut);margin-top:8px;line-height:1.6}
+  .legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .keytag{color:var(--acc);cursor:pointer;border-bottom:1px dashed var(--acc)}
+  svg text{font-family:var(--mono);user-select:none}
+  .lbl{fill:#8fa8d8;font-size:11px}
+  .lblc{fill:#c9a86b;font-size:11px}
+  .lblk{fill:#8b949e;font-size:10.5px}
+  .lblm{fill:#7fd1a8;font-size:11px}
+  .tri{cursor:pointer;transition:fill-opacity .15s,stroke .15s}
+  .row.sel ~ * .tri.sel{stroke:#fff}
+  .corner{cursor:pointer}
+  .dim{color:var(--mut);font-size:13px}
+  .colhead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px}
+  .colhead b{font-size:14px;color:var(--acc)}
+  .colhead span{font-family:var(--mono);font-size:11.5px;color:var(--mut)}
+  .qa b{color:var(--acc2)}
+  .qa li{margin:8px 0;list-style:none;padding-left:22px;position:relative}
+  .qa li::before{content:'▸';position:absolute;left:0;color:var(--acc)}
+  .good{color:var(--ok)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>ArrayMesh 数组渲染：代码在做什么</h1>
+<div class="sub">以 <code>new_HexWorld/BallView.cs → RenderMesh()</code> 为例 —— 一句话：<b>先把"画面"翻译成三张平行表，再按引擎规定的槽位一次上交</b>，之后 GPU 每 3 个索引连一个三角形画出来。</div>
+
+<!-- ============ 1 全景流程 ============ -->
+<h2>① 全景：数据从哪来、经过谁、到哪去</h2>
+<div class="flow">
+  <div class="fstep"><span class="fnum">1</span><b>数据层 Ball</b><code>Positions[]</code><span>每个 H3 共享角点的球面坐标（位置只存一份）</span></div>
+  <div class="fstep"><span class="fnum">2</span><b>BallMesh 建表</b><code>BuildTileMeshData</code><span>每格把角点坐标<span class="hl">拷进自己的块</span> → 产出三张表（见 ②）</span></div>
+  <div class="fstep"><span class="fnum">3</span><b>装箱</b><code>RenderMesh</code><span>把三张表放进"槽位信封"（<code>arr[Vertex/Color/Index]</code>）</span></div>
+  <div class="fstep"><span class="fnum">4</span><b>一次上交</b><code>AddSurfaceFromArrays</code><span>引擎收走数组 → 建成网格资源（顶点/索引缓冲），一次 interop 调用全量提交</span></div>
+  <div class="fstep"><span class="fnum">5</span><b>入场景</b><code>MeshInstance3D</code><span>数据(ArrayMesh) + 画法(Material) + 摆放(节点 Transform) 三分离；每帧 <code>RotateY</code> 只转节点，几何不动</span></div>
+</div>
+
+<!-- ============ 2 三张表互动 ============ -->
+<h2>② 三张表 → 三角形（核心）</h2>
+<div class="tile">
+<p>一个六边形格子的 6 个角点存为顶点表 <b>1 块</b>（下标 0–5）；颜色表和顶点表<b>平行</b>（同下标 = 同顶点的属性）；索引表每 <b>3 个一组</b>指向顶点，就是一个三角形。fan 三角化：<code>(v0,k,k+1)</code> 绕枢纽 v0 转一圈。</p>
+<div class="grid">
+  <div>
+    <div class="colhead"><b>顶点表 DisplayVerts</b><span>每行 = 一个 Vector3（球面坐标）</span></div>
+    <table id="vt">
+      <tr><th>下标</th><th>本格角点</th></tr>
+    </table>
+    <div class="colhead" style="margin-top:12px"><b>颜色表 colors（平行）</b><span>同下标 = 同顶点的颜色</span></div>
+    <table id="ct">
+      <tr><th>下标</th><th>颜色</th><th>值</th></tr>
+    </table>
+    <div class="colhead" style="margin-top:12px"><b>索引表 DisplayIndices</b><span>每 3 个一行 = 一个三角形</span></div>
+    <table id="it">
+      <tr><th>三角形</th><th colspan="3">索引三元组</th></tr>
+    </table>
+  </div>
+  <div>
+    <div class="svgbox" id="hexwrap">
+      <svg id="hex" viewBox="0 0 340 300" width="100%"></svg>
+    </div>
+    <div class="legend">
+      <div><i style="background:#58a6ff"></i> 格内三角（鼠标悬停表格行 ↔ 图形高亮联动）</div>
+      <div><i style="background:#e3b341"></i> 枢纽顶点 v0 —— 被 4 个三角形共用，<b>索引的意义</b></div>
+    </div>
+  </div>
+</div>
+<div class="note">
+  <b>为什么要索引？</b>枢纽 v0 同时属于 4 个三角形。没有索引表就得把 v0 的坐标+颜色在顶点表里<b>重复写 4 份</b>（"三角形汤"）；有了索引表，v0 只存 1 份、被引用 4 次 → 显存省、且改一个点只需改一处。<br>
+  引擎文档原话：加入索引数组后曲面进入 <b>"index mode"</b>——"顶点等数组成为数据源，索引数组决定顶点顺序"。
+</div>
+</div>
+
+<!-- 相邻格共享角点 -->
+<h3>相邻两格的角点是"复制"的，但不裂</h3>
+<div class="tile">
+<p>H3 里相邻格共享角点（同一个全局顶点 id）。BallMesh 的做法是<b>每格独立成块</b>，把共享角点的坐标各写一份——表里重复，几何上坐标相同：</p>
+<div class="svgbox" id="pairwrap"><svg id="pair" viewBox="0 0 460 190" width="100%"></svg></div>
+<div class="legend">
+  <div><i style="background:#58a6ff"></i> 格 A（一整块 6 角点，同色）</div>
+  <div><i style="background:#e3b341"></i> 格 B（自己的块，可不同色）</div>
+  <div><i style="background:#fff"></i> 共享边两端：<b>同一个球面点，两块各存一份坐标 → 完全重合 → 水密无缝</b>；两格颜色不同 → 这条边就是可见的蜂窝分界</div>
+</div>
+</div>
+
+<!-- ============ 3 逐行拆解 ============ -->
+<h2>③ RenderMesh 逐行拆解</h2>
+<div class="tile">
+<pre>Color[] colors = _mesh.BuildTileColors(_ball, c => Color.FromHsv(H3.GetBaseCellNumber(c)/122f, 0.8f, 0.9f));
+// ① 颜色表 = 每格 1 个颜色 → 展开成 6 份（6 个角点同色）
+//   色相 = 基底格编号/122 → 122 个基底族各一色：能看清蜂窝结构和 12 个五边形的位置
+
+var arr = new Godot.Collections.Array();        // ② "槽位信封"：Variant 数组（不是 C# List！），
+arr.Resize((int)Mesh.ArrayType.Max);            //    开够引擎规定的全部槽位：Vertex/Normal/Color/…/Index/Max
+arr[(int)Mesh.ArrayType.Vertex] = _mesh.DisplayVerts;    // ③ 槽[0]  顶点坐标
+arr[(int)Mesh.ArrayType.Color]  = colors;                //    槽[3]  每顶点颜色（平行表）
+arr[(int)Mesh.ArrayType.Index]  = _mesh.DisplayIndices;  //    槽[·] 索引 → 进入 index mode
+//    没填的槽（Normal/TexUV…）= null = "这格没数据" → 引擎就不启用对应通道
+
+mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
+// ④ 引擎解析信封：收走数组 → 建 RenderingServer 网格资源（顶点缓冲 + 索引缓冲）
+//   PrimitiveType.Triangles = 告诉 GPU："索引每 3 个连一个三角形"（不是 Line/Point）
+
+new StandardMaterial3D { ShadingMode = Unshaded, VertexColorUseAsAlbedo = true };
+// ⑤ 没给 Normal（法线）槽 → 材质必须是无光的（Unshaded 不打光、不需要法线）
+//   VertexColorUseAsAlbedo = 把顶点色当"固有色" → 三角形内部每个像素的颜色
+//   = 三个顶点颜色的插值 → 同格 6 顶点同色 ⇒ 插值恒等 ⇒ 整格纯色
+
+_meshInstance = new MeshInstance3D { Mesh = mesh, MaterialOverride = mat }; AddChild(_meshInstance);
+// ⑥ 几何(ArrayMesh)/画法(Material)/位置(节点)三分离；_Process 里 RotateY 只改节点 Transform —— 每帧成本≈0</pre>
+<div class="note"><b>为什么是"数组套槽位"这么别扭的写法？</b>因为 Godot 的网格定义是"一条龙约定"：一个曲面可能带顶点/法线/切线/UV×2/顶点色/骨骼权重/索引……引擎把每种数据编成固定槽位号。<code>arr.Resize(Max)</code> 就是"按约定把信封隔层全开好"，你只往用到的隔层里塞数据，其余留 null。引擎拿到信封后<b>一次 interop 调用</b>就解析完所有层——这正是和 ImmediateMesh 逐顶点调用的本质区别（36k 顶点逐点调 ≈ 7–15ms/帧，批提交 ≈ 3–4 次调用）。</div>
+</div>
+
+<!-- ============ 4 常问 ============ -->
+<h2>④ 四个"为什么"（把代码看明白的关键）</h2>
+<div class="tile qa">
+<ul>
+  <li><b>为什么颜色要和顶点"平行"一一对应？</b>GPU 只认识"顶点属性"。一个三角形 3 个顶点各带颜色，片元着色器按像素离三个顶点的远近<b>插值</b>出每个像素的颜色。同格 6 角点同色 → 格内处处同色；邻格颜色不同 → 交界处硬切换。给"面"上色 = 给这个面的所有顶点上同一个色。</li>
+  <li><b>为什么顶点是每格复制一份，不共享？</b>因为每格要能独立上色（每格 1 色），共享顶点会互相抢颜色。复制坐标换独立着色，几何上坐标一致所以不裂——这是"按格着色"与"顶点共享"不可兼得时的取舍。</li>
+  <li><b>为什么 Unshaded？</b>光照需要法线（Normal 槽），我们没填；Unshaded 直接输出颜色，正好只给了颜色的数据。想上光照 = 补一个法线数组进信封即可。</li>
+  <li><b>为什么只在 _Ready 建一次？</b>球是静态几何，变化的是节点 Transform（自转）。数据只上交一次；之后每帧 <code>RotateY</code> 转节点 → GPU 侧只是换了个矩阵，零几何成本。若每帧改网格（如洋流/河流图层）才需要 <code>ClearSurfaces() + AddSurfaceFromArrays()</code> 重交（本仓库动态网格纪律：预分配精确大小数组，每帧仅 3–4 次 interop）。</li>
+</ul>
+</div>
+
+</div>
+
+<script>
+// ---------- 六边形几何（点顶朝上，ring 0..5 逆时针） ----------
+const C={x:170,y:150}, R=92, s=Math.sqrt(3)/2*R;
+const ang=[90,30,-30,-90,-150,150].map(d=>d*Math.PI/180);
+const corners=ang.map(a=>({x:C.x+R*Math.cos(a), y:C.y+R*Math.sin(a)}));
+const TRIS=[[0,1,2],[0,2,3],[0,3,4],[0,4,5]];
+const VLABEL=['v0 · 枢纽','v1','v2','v3','v4','v5'];
+const FILLS=['#58a6ff','#58a6ff','#58a6ff','#58a6ff'];
+const hub=document.getElementById('hex'), ns='http://www.w3.org/2000/svg';
+hub.setAttribute('viewBox','0 0 340 300');
+
+// 六边形边
+let p=corners.map(c=>`${c.x},${c.y}`).join(' ');
+let poly=document.createElementNS(ns,'polygon');
+poly.setAttribute('points',p);poly.setAttribute('fill','none');poly.setAttribute('stroke','#39445c');poly.setAttribute('stroke-width','2');
+hub.appendChild(poly);
+
+// 顶点表
+const vt=document.getElementById('vt');
+VLABEL.forEach((l,i)=>{const tr=document.createElement('tr');tr.className='row vt';
+  tr.innerHTML=`<td>${i}</td><td>${l}</td>`;tr.dataset.v=i;vt.appendChild(tr);});
+// 颜色表
+const ct=document.getElementById('ct');
+VLABEL.forEach((l,i)=>{const tr=document.createElement('tr');tr.className='row ct';
+  tr.innerHTML=`<td>${i}</td><td><span class="swatch" style="background:#58a6ff"></span></td><td>#58a6ff · 本格色</td>`;ct.appendChild(tr);});
+// 索引表
+const it=document.getElementById('it');
+TRIS.forEach((t,i)=>{const tr=document.createElement('tr');tr.className='row it';
+  tr.innerHTML=`<td>△${i}</td><td>${t[0]}</td><td>${t[1]}</td><td>${t[2]}</td>`;
+  tr.dataset.t=i;it.appendChild(tr);});
+
+// 角点圆 + 标签
+const dots=[];
+corners.forEach((c,i)=>{
+  const g=document.createElementNS(ns,'g');g.className='corner';g.dataset.v=i;
+  const circ=document.createElementNS(ns,'circle');
+  circ.setAttribute('cx',c.x);circ.setAttribute('cy',c.y);circ.setAttribute('r',i===0?9:6);
+  circ.setAttribute('fill',i===0?'#e3b341':'#8fa8d8');
+  g.appendChild(circ);
+  const txt=document.createElementNS(ns,'text');
+  txt.setAttribute('x',c.x+(i===0?16:12));txt.setAttribute('y',c.y-8);
+  txt.setAttribute('class',i===0?'lblc':'lbl');txt.textContent=`v${i}`;
+  g.appendChild(txt);hub.appendChild(g);dots.push(g);
+});
+// 枢纽标注
+let note=document.createElementNS(ns,'text');note.setAttribute('x',C.x-30);note.setAttribute('y',C.y+R+26);
+note.setAttribute('class','lblk');note.textContent='fan：v0 连到每个后续角点';
+hub.appendChild(note);
+
+// 三角形（fill 半透明, 先画在圆下面: 直接先插到最前）
+TRIS.forEach((t,i)=>{
+  const tri=document.createElementNS(ns,'polygon');
+  const pts=t.map(k=>`${corners[k].x},${corners[k].y}`).join(' ');
+  tri.setAttribute('points',pts);
+  tri.setAttribute('fill',FILLS[i]);tri.setAttribute('fill-opacity','0.16');
+  tri.setAttribute('stroke','#7aa2f7');tri.setAttribute('stroke-width','1.2');
+  tri.setAttribute('class','tri');tri.dataset.t=i;
+  hub.insertBefore(tri,hub.firstChild);
+  // 悬停三角形 → 高亮表行
+  tri.addEventListener('mouseenter',()=>selRow(i,'tri'));
+  tri.addEventListener('mouseleave',()=>clearRow());
+});
+function selRow(i,src){
+  document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));
+  const r=document.querySelector(`tr[data-t="${i}"]`);if(r)r.classList.add('sel');
+}
+function clearRow(){document.querySelectorAll('.row.sel').forEach(r=>r.classList.remove('sel'));}
+// 悬停表行 → 高亮三角形 + 顶点
+document.querySelectorAll('#it tr.row').forEach(tr=>{
+  tr.addEventListener('mouseenter',()=>{
+    const i=+tr.dataset.t;
+    selRow(i,'row');
+    document.querySelectorAll('.tri').forEach((t,k)=>t.setAttribute('stroke',k===i?'#fff':'#7aa2f7'));
+  });
+  tr.addEventListener('mouseleave',()=>{
+    clearRow();
+    document.querySelectorAll('.tri').forEach(t=>t.setAttribute('stroke','#7aa2f7'));
+  });
+});
+// 悬停角点 → 高亮包含它的三角形
+dots.forEach(g=>{
+  g.addEventListener('mouseenter',()=>{
+    const v=+g.dataset.v;
+    document.querySelectorAll('.tri').forEach((t,k)=>{
+      const on=TRIS[k].includes(v);
+      t.setAttribute('stroke',on?'#ffd76a':'#7aa2f7');
+      t.setAttribute('stroke-width',on?'2.5':'1.2');
+    });
+  });
+  g.addEventListener('mouseleave',()=>{
+    document.querySelectorAll('.tri').forEach(t=>{t.setAttribute('stroke','#7aa2f7');t.setAttribute('stroke-width','1.2');});
+  });
+});
+
+// ---------- 相邻格共享角点示意 ----------
+const pair=document.getElementById('pair');
+function hexPts(cx,cy,r,fill,op){
+  const pts=[90,30,-30,-90,-150,150].map(d=>{const a=d*Math.PI/180;return `${cx+r*Math.cos(a)},${cy+r*Math.sin(a)}`}).join(' ');
+  const el=document.createElementNS(ns,'polygon');
+  el.setAttribute('points',pts);el.setAttribute('fill',fill);el.setAttribute('fill-opacity',op);
+  el.setAttribute('stroke','#39445c');el.setAttribute('stroke-width','2');pair.appendChild(el);
+  return pts;
+}
+hexPts(120,95,62,'#58a6ff',.85);
+hexPts(236,95,62,'#e3b341',.85);
+// 共享边两点
+[[205.4,127.5],[205.4,62.5]].forEach(([x,y])=>{
+  const c=document.createElementNS(ns,'circle');
+  c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r',7);
+  c.setAttribute('fill','none');c.setAttribute('stroke','#fff');c.setAttribute('stroke-width','2.5');
+  pair.appendChild(c);
+});
+const a1=document.createElementNS(ns,'text');a1.setAttribute('x',330);a1.setAttribute('y',70);a1.setAttribute('class','lblk');
+a1.innerHTML='同一球面点：<tspan class="good">格A块写一份</tspan> → 共享边两端';pair.appendChild(a1);
+const a2=document.createElementNS(ns,'text');a2.setAttribute('x',330);a2.setAttribute('y',92);a2.setAttribute('class','lblk');
+a2.innerHTML='<tspan class="good">格B块再写一份</tspan> → 坐标相同 ⇒ 无缝';pair.appendChild(a2);
+const a3=document.createElementNS(ns,'text');a3.setAttribute('x',330);a3.setAttribute('y',124);a3.setAttribute('class','lblk');
+a3.innerHTML='颜色各随本格 ⇒ 边界=色界';pair.appendChild(a3);
+</script>
+</body>
+</html>

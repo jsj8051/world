@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>板块为什么只能绕球心转</title>
+<style>
+  body{margin:0;background:#0e1116;color:#b7c3d4;
+       font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:18px;}
+  h1{font-size:16px;color:#e8eef7;margin:0 0 14px;font-weight:600;}
+  .panel{background:#151a23;border:1px solid #2a3342;border-radius:10px;
+         padding:12px 14px;margin-bottom:12px;}
+  .ptitle{font-size:13.5px;color:#cfe0ff;margin:2px 0 6px;font-weight:600;}
+  .cap{font-size:12.5px;color:#9fb0c8;line-height:1.7;margin:6px 2px 2px;}
+  .cap b{color:#e8eef7;}
+</style>
+</head>
+<body>
+<h1>"浮着"和"只能绕球心转"为什么不矛盾</h1>
+
+<div class="panel">
+  <div class="ptitle">A. 硬要把这块弯板"平着推"——推不动</div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <!-- 球 -->
+    <circle cx="300" cy="175" r="140" fill="#131926" stroke="#4a5a76" stroke-width="2"/>
+    <!-- 原位（虚影）：紧紧贴在球顶 -->
+    <path d="M 273 47 A 153 153 0 0 1 432 108" stroke="#ffffff22" stroke-width="34" fill="none"/>
+    <text x="160" y="60" font-size="12" fill="#6f83a3">原位置：整片贴着球面</text>
+    <!-- 平推后的板（实心橙色） -->
+    <path d="M 273 47 A 153 153 0 0 1 432 108" transform="translate(58,20)" stroke="#f7a94f" stroke-width="34" fill="none" opacity="0.95"/>
+    <!-- 红色箭头：左端插进 / 右端翘起 -->
+    <g stroke="#ff6b6b" stroke-width="2.5" fill="none">
+      <path d="M 326 88 q -10 22 -6 40" />
+      <path d="M 318 118 l 2 -14 M 318 118 l 11 1"/>  <!-- 指向球面：插进 -->
+    </g>
+    <g stroke="#ff6b6b" stroke-width="2.5" fill="none">
+      <path d="M 480 160 q 14 -26 8 -52"/>
+      <path d="M 488 110 l -9 -8 M 488 110 l -1 12"/>  <!-- 指向上方：翘起 -->
+    </g>
+    <text x="296" y="60" font-size="12.5" fill="#ffb4b4" font-weight="600">这头插进球面以下</text>
+    <text x="500" y="96" font-size="12.5" fill="#ffb4b4" font-weight="600">这头翘起、悬空</text>
+    <!-- 平推方向 -->
+    <text x="620" y="210" font-size="12.5" fill="#f7a94f">使劲"平着推" →</text>
+    <text x="620" y="232" font-size="12.5" fill="#9fb0c8">左端插进去、右端悬空，</text>
+    <text x="620" y="252" font-size="12.5" fill="#9fb0c8">整片永远贴不住球面。</text>
+    <text x="620" y="272" font-size="12.5" fill="#9fb0c8">板自己又硬、不肯变形，</text>
+    <text x="620" y="292" font-size="12.5" fill="#9fb0c8">所以"平着滑"不是它能做到的动作。</text>
+  </svg>
+  <div class="cap">道理：板是一块<b>半径和地球相同的弯薄壳</b>（它是贴在地球表面的一层）。平面桌上托盘能"平推"，因为桌子和托盘底都是平的；球面上任何"平推"，都会让弯壳一头扎进地里、另一头翘离地面——<b>两个半径相同的弯面，只有圆心（球心）重合时才能处处贴合</b>。</div>
+</div>
+
+<div class="panel">
+  <div class="ptitle">B. 绕球心转一个角度——处处依然贴合，这才是它唯一的动作</div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <circle cx="300" cy="175" r="140" fill="#131926" stroke="#4a5a76" stroke-width="2"/>
+    <!-- 旋转后的板：贴在右上 -->
+    <path d="M 398 68 A 153 153 0 0 1 444 237" stroke="#7ee081" stroke-width="34" fill="none" opacity="0.95"/>
+    <!-- 旋转弧线箭头（绕球心） -->
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#7ee081"/>
+      </marker>
+    </defs>
+    <path d="M 330 60 A 120 120 0 0 1 416 175" stroke="#7ee081" stroke-width="3" fill="none" marker-end="url(#ar2)"/>
+    <text x="352" y="58" font-size="12.5" fill="#8ff0a1">绕球心转 θ</text>
+    <text x="480" y="150" font-size="12.5" fill="#9fb0c8">转多少度都行——</text>
+    <text x="480" y="172" font-size="12.5" fill="#9fb0c8">板永远整片贴着球面，</text>
+    <text x="480" y="194" font-size="12.5" fill="#9fb0c8">像贴纸跟着球转。</text>
+    <text x="480" y="216" font-size="12.5" fill="#8ff0a1">这就是"欧拉转动"：</text>
+    <text x="480" y="238" font-size="12.5" fill="#8ff0a1">绕一根穿过球心的轴转。</text>
+    <text x="170" y="70" font-size="12" fill="#6f83a3">转到哪都服帖</text>
+  </svg>
+  <div class="cap">所以给每块板定"绕哪根轴、转多快"，不是我们图省事做的近似，而是球面几何唯一留给它的动作。</div>
+</div>
+
+<div class="panel">
+  <div class="ptitle">那"浮着"又是怎么回事？——它管的是另一件事</div>
+  <svg viewBox="0 0 880 240" width="100%">
+    <!-- 软流圈剖面示意 -->
+    <path d="M 40 150 Q 130 130 220 155 T 400 150 T 580 155 T 760 145 L 800 150 L 800 220 L 40 220 Z" fill="#3a2a4a" opacity="0.8"/>
+    <path d="M 40 150 Q 130 130 220 155 T 400 150 T 580 155 T 760 145" stroke="#8b6fb0" stroke-width="3" fill="none"/>
+    <text x="420" y="205" text-anchor="middle" font-size="13" fill="#b99fd8">软流圈：能缓慢流动的黏稠层（不是硬地板，也不是水）</text>
+    <!-- 浮着的板块 -->
+    <rect x="300" y="88" width="240" height="30" rx="6" fill="#f7a94f"/>
+    <rect x="300" y="112" width="240" height="6" fill="#d8933a"/>
+    <text x="420" y="76" text-anchor="middle" font-size="13" fill="#ffcf8f">板块像木片浮在黏稠液体上</text>
+    <!-- 自由度箭头 -->
+    <g stroke="#ffcf8f" stroke-width="2.5" fill="none">
+      <path d="M 350 118 L 350 136 M 350 136 l 10 -2 M 350 136 l 10 2"/>  <!-- 向下的力的示意略 -->
+      <path d="M 250 100 h -26 M 250 100 l -4 -9 M 250 100 l -4 9"/>   <!-- 左拉 -->
+      <path d="M 592 100 h 26 M 592 100 l -4 -9 M 592 100 l -4 9"/>     <!-- 右拉 -->
+    </g>
+    <text x="186" y="92" text-anchor="middle" font-size="12" fill="#ffcf8f">地幔拖着它</text>
+    <text x="652" y="92" text-anchor="middle" font-size="12" fill="#ffcf8f">想把它往这边带</text>
+  </svg>
+  <div class="cap"><b>"浮着"回答"为什么能动、被什么推着动"</b>：下面是可以流动的软流圈，没有铰链拴住它，地幔对流拖它、洋脊推它、俯冲的沉块拉它——方向随时可以变。<b>但它每次"想动"，落到动作上仍然只能是图 B 那种绕球心转</b>：只是"绕哪根轴"由当下这些力的合力说了算，不是焊死的——力变了，轴可以慢慢漂。</div>
+</div>
+</body>
+</html>

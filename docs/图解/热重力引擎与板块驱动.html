@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>热—重力引擎：板块为什么会被拽着走</title>
+<style>
+  body{margin:0;background:#0e1116;color:#b7c3d4;
+       font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:18px;}
+  h1{font-size:16px;color:#e8eef7;margin:0 0 14px;font-weight:600;}
+  .panel{background:#151a23;border:1px solid #2a3342;border-radius:10px;
+         padding:12px 14px;margin-bottom:12px;}
+  .ptitle{font-size:13.5px;color:#cfe0ff;margin:2px 0 6px;font-weight:600;}
+  .cap{font-size:12.5px;color:#9fb0c8;line-height:1.7;margin:6px 2px 2px;}
+  .cap b{color:#e8eef7;}
+</style>
+</head>
+<body>
+<h1>"浮着"的真正含义：重力被请进了引擎室</h1>
+
+<div class="panel">
+  <div class="ptitle">引擎剖面：热 → 密度差 → 重力 → 流动 → 拽着板块走</div>
+  <svg viewBox="0 0 880 430" width="100%">
+    <!-- 地幔 -->
+    <circle cx="300" cy="245" r="200" fill="#241b38"/>
+    <!-- 地核 -->
+    <circle cx="300" cy="300" r="70" fill="#4a2417"/>
+    <text x="300" y="305" text-anchor="middle" font-size="12" fill="#e89a76">地核（热源）</text>
+    <!-- 上升热流 -->
+    <defs>
+      <marker id="redA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#ff8f6b"/>
+      </marker>
+      <marker id="blueA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#8fb4ff"/>
+      </marker>
+      <marker id="orA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+        <path d="M0,0 L10,5 L0,10 z" fill="#ffcf8f"/>
+      </marker>
+    </defs>
+    <!-- 对流：上升（左）→ 横流（中）→ 下沉（右） -->
+    <path d="M 185 400 C 160 330 150 260 158 185" stroke="#ff8f6b" stroke-width="10" fill="none" marker-end="url(#redA)"/>
+    <path d="M 185 262 C 270 235 360 235 430 262" stroke="#c9a06b" stroke-width="8" fill="none" marker-end="url(#orA)"/>
+    <path d="M 452 275 C 468 330 455 375 440 405" stroke="#8fb4ff" stroke-width="10" fill="none" marker-end="url(#blueA)"/>
+    <!-- 板块：从洋中脊到俯冲带的厚弯壳 -->
+    <path d="M 127 145 A 215 215 0 0 1 473 145" stroke="#f7a94f" stroke-width="24" fill="none"/>
+    <text x="300" y="118" text-anchor="middle" font-size="12.5" fill="#ffcf8f">板块（冷的硬壳，浮在软流圈上）</text>
+    <!-- 板被拖向右的箭头 -->
+    <path d="M 240 145 L 330 145" stroke="#ffffff" stroke-width="4" fill="none" marker-end="url(#orA)"/>
+    <!-- 俯冲沉块 -->
+    <path d="M 470 150 C 500 200 480 270 440 340" stroke="#8fb4ff" stroke-width="22" fill="none"/>
+    <text x="516" y="200" font-size="12.5" fill="#8fb4ff">俯冲带：</text>
+    <text x="516" y="218" font-size="12.5" fill="#8fb4ff">老洋壳变冷变重，</text>
+    <text x="516" y="236" font-size="12.5" fill="#8fb4ff">自己往下沉</text>
+    <!-- 洋中脊 -->
+    <path d="M 127 145 L 108 160 M 127 145 L 108 128" stroke="#ff8f6b" stroke-width="5"/>
+    <text x="42" y="185" font-size="12.5" fill="#ff8f6b">洋中脊：热物质上升，</text>
+    <text x="42" y="203" font-size="12.5" fill="#ff8f6b">把两边板顶开（较弱的推力）</text>
+    <!-- 锚一样的拖拽 -->
+    <text x="40" y="330" font-size="13" fill="#ffffff" font-weight="600">下沉的沉块像锚一样</text>
+    <text x="40" y="352" font-size="13" fill="#ffffff" font-weight="600">拖着整块板往俯冲带走</text>
+    <text x="40" y="374" font-size="12" fill="#9fb0c8">（地球板块最强的驱动力）</text>
+  </svg>
+  <div class="cap"><b>链条：热</b>（地核）让物质密度不均 → <b>重力只对密度差发力</b>：热而轻的上升、冷而重的下沉 → 软流圈因此流动（对流）→ 板块是这层流动顶上的"冷皮"，被上升流顶开、被沉块拽走。<b>"浮着"不是静态背景——它意味着重力在系统里真实做工。</b></div>
+</div>
+
+<div class="panel">
+  <div class="ptitle">实测印证：板跑多快、往哪跑，由"重力锚"的多少决定，不是随机数</div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <!-- 左：太平洋 -->
+    <circle cx="210" cy="140" r="92" fill="#131926" stroke="#4a5a76" stroke-width="2"/>
+    <g stroke="#8fb4ff" stroke-width="7">
+      <path d="M 210 48 A 92 92 0 0 1 302 140" opacity="0.55"/>
+      <path d="M 118 140 A 92 92 0 0 1 210 232" opacity="0.55"/>
+      <path d="M 210 232 A 92 92 0 0 1 282 186" opacity="0.55"/>
+    </g>
+    <g stroke="#8fb4ff" stroke-width="2.5" fill="none">
+      <path d="M 250 60 l 16 10 M 250 60 l 1 -12"/>        <!-- 向内 -->
+      <path d="M 120 175 l -8 18 M 120 175 l -12 -5"/>
+    </g>
+    <text x="210" y="150" text-anchor="middle" font-size="14" fill="#cfe0ff" font-weight="600">太平洋板</text>
+    <text x="210" y="260" text-anchor="middle" font-size="12.5" fill="#8fb4ff">四周几乎全是俯冲带（锚）</text>
+    <text x="210" y="280" text-anchor="middle" font-size="12.5" fill="#ffcf8f">→ 被四面拽 → 全球最快</text>
+    <!-- 右：非洲 -->
+    <circle cx="660" cy="140" r="92" fill="#131926" stroke="#4a5a76" stroke-width="2"/>
+    <g stroke="#ff8f6b" stroke-width="7">
+      <path d="M 660 48 A 92 92 0 0 1 752 140" opacity="0.55"/>
+      <path d="M 660 232 A 92 92 0 0 1 568 140" opacity="0.55"/>
+      <path d="M 752 140 A 92 92 0 0 1 660 232" opacity="0.55"/>
+    </g>
+    <g stroke="#ff8f6b" stroke-width="2.5" fill="none">
+      <path d="M 700 52 l 14 -13 M 700 52 l -8 -9"/>        <!-- 向外 -->
+      <path d="M 748 170 l 17 9 M 748 170 l -12 4"/>
+    </g>
+    <text x="660" y="150" text-anchor="middle" font-size="14" fill="#cfe0ff" font-weight="600">非洲板</text>
+    <text x="660" y="260" text-anchor="middle" font-size="12.5" fill="#ff8f6b">四周几乎全是洋中脊（坡），</text>
+    <text x="660" y="280" text-anchor="middle" font-size="12.5" fill="#9fb0c8">几乎没有俯冲带拽它 → 千万年几乎不动</text>
+  </svg>
+  <div class="cap">同一套重力引擎，两种命运：<b>沉块越多、越老（越重），板被拽得越快</b>。轴和速度是重力"投票"出来的结果，不是可以随便抽签的参数。</div>
+</div>
+</body>
+</html>

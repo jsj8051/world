@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>板块运动：三原理落地</title>
+<style>
+  body{margin:0;background:#0e1116;color:#b7c3d4;
+       font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:18px;}
+  h1{font-size:17px;color:#e8eef7;margin:0 0 4px;font-weight:600;}
+  .sub{font-size:12px;color:#7d8ba0;margin:0 0 16px;}
+  .panel{background:#151a23;border:1px solid #2a3342;border-radius:10px;
+         padding:12px 14px;margin-bottom:14px;}
+  .ptitle{font-size:14px;color:#cfe0ff;margin:2px 0 6px;font-weight:600;}
+  .ptitle .tag{display:inline-block;font-size:11px;font-weight:500;color:#0e1116;
+    border-radius:4px;padding:1px 7px;margin-left:8px;vertical-align:2px;}
+  .t1{background:#f7b84a;} .t2{background:#7ee081;} .t3{background:#4da6ff;}
+  text{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .cap{font-size:11.5px;color:#7d8ba0;margin:8px 2px 0;}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;margin-top:6px;}
+  .legend span{display:inline-flex;align-items:center;gap:6px;}
+  .sw{width:14px;height:5px;border-radius:2px;display:inline-block;}
+</style>
+</head>
+<body>
+<h1>板块"动起来"：三原理在代码里的真实落点</h1>
+<p class="sub">模型前提（已拍板）：H3 格子永不动，物质（板归属/厚度/年龄）在格间搬家 —— 旋转只是"算物质漂到哪格"的寻址。</p>
+
+<div class="panel">
+  <div class="ptitle">① 欧拉刚性运动 —— tick 循环的内核 <span class="tag t1">要写代码（唯一必须）</span></div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <defs>
+      <clipPath id="sp"><circle cx="240" cy="150" r="128"/></clipPath>
+    </defs>
+    <!-- 球 -->
+    <circle cx="240" cy="150" r="128" fill="#131926" stroke="#4a5a76" stroke-width="2"/>
+    <g clip-path="url(#sp)">
+      <!-- 三块板：A 上、B 左下、C 右下（分界为两条波浪线，交汇于三重点） -->
+      <path d="M112,60 Q210,70 255,140 Q268,120 300,96 Q340,120 368,150 L368,278 Q300,250 240,278 Q180,300 112,278 Z"
+            fill="rgba(64,120,255,0.34)"/>
+      <path d="M112,60 Q210,70 255,140 L150,240 Q120,280 112,278 Z" fill="rgba(255,170,60,0.30)"/>
+      <path d="M255,140 Q300,120 368,150 L368,278 Q300,250 240,278 Q200,292 150,240 Z"
+            fill="rgba(80,210,140,0.30)"/>
+      <!-- A|B 分界：离散（洋中脊） -->
+      <path d="M112,60 Q190,90 255,140" stroke="#ff6b6b" stroke-width="3" fill="none"/>
+      <!-- B|C 分界：汇聚（俯冲） -->
+      <path d="M255,140 Q215,205 150,240" stroke="#4da6ff" stroke-width="3" fill="none"/>
+      <!-- A|C 分界：走滑 -->
+      <path d="M255,140 Q300,120 368,150" stroke="#7ee081" stroke-width="3" fill="none"/>
+      <!-- 板块运动方向箭头 -->
+      <g stroke="#8fb4ff" stroke-width="2.5" fill="none">
+        <path d="M170,105 L135,72 M152,98 l-4,12 M135,72 l12,5" />   <!-- A 上偏左 -->
+      </g>
+      <g stroke="#ffc46b" stroke-width="2.5" fill="none">
+        <path d="M150,215 L118,250 M120,240 l-2,-12 M118,250 l13,-2"/> <!-- B 下偏左 -->
+      </g>
+      <g stroke="#7ee081" stroke-width="2.5" fill="none">
+        <path d="M330,175 L368,196 M358,182 l-4,-11 M368,196 l-13,2"/> <!-- C 右 -->
+      </g>
+    </g>
+    <!-- 边界小标签 -->
+    <g font-size="11" fill="#ff8f8f">
+      <text x="60" y="42" text-anchor="middle" font-weight="600">离散</text>
+      <text x="60" y="56" text-anchor="middle">空洞→补新洋壳</text>
+    </g>
+    <g font-size="11" fill="#7eb6ff">
+      <text x="96" y="296" text-anchor="middle" font-weight="600">汇聚</text>
+      <text x="96" y="310" text-anchor="middle">重叠→仲裁吃一方</text>
+    </g>
+    <g font-size="11" fill="#8ff0a1">
+      <text x="400" y="128" text-anchor="middle" font-weight="600">走滑</text>
+      <text x="400" y="142" text-anchor="middle">切向擦过（免费）</text>
+    </g>
+    <text x="240" y="24" text-anchor="middle" font-size="12" fill="#8fa3c4">每板一个欧拉矢量 ω：极轴方向 + 转速 |ω|；每 tick 所有物质只做这一次刚体旋转</text>
+    <!-- 右侧：相对运动分解 -->
+    <g transform="translate(560,40)">
+      <rect x="0" y="0" width="300" height="240" rx="10" fill="#11151d" stroke="#2a3342"/>
+      <text x="150" y="28" text-anchor="middle" font-size="13" fill="#cfe0ff" font-weight="600">边界行为 = 相对速度分解</text>
+      <text x="150" y="50" text-anchor="middle" font-size="13" fill="#8fa3c4">v_rel = v_A − v_B</text>
+      <line x1="150" y1="70" x2="150" y2="80" stroke="#2a3342"/>
+      <!-- 一条竖直边界，两侧板速 -->
+      <line x1="110" y1="90" x2="110" y2="215" stroke="#3c4a63" stroke-width="2"/>
+      <line x1="190" y1="90" x2="190" y2="215" stroke="#3c4a63" stroke-width="2"/>
+      <!-- 法向分离 -->
+      <g stroke="#ff6b6b" stroke-width="2">
+        <path d="M95,120 l-25,0 M95,120 l0,-10 M95,120 l10,0" fill="none"/>
+        <path d="M205,120 l25,0 M205,120 l0,-10 M205,120 l-10,0" fill="none"/>
+      </g>
+      <text x="60" y="108" font-size="11" fill="#ff8f8f" text-anchor="middle">法向·离</text>
+      <text x="250" y="108" font-size="11" fill="#ff8f8f" text-anchor="middle">法向·离</text>
+      <text x="150" y="128" text-anchor="middle" font-size="11" fill="#ffb4b4">= 离散 → 洋中脊</text>
+      <!-- 法向相向 -->
+      <g stroke="#4da6ff" stroke-width="2">
+        <path d="M95,170 l25,0 M95,170 l0,10 M95,170 l-10,0" fill="none"/>
+        <path d="M205,170 l-25,0 M205,170 l0,10 M205,170 l10,0" fill="none"/>
+      </g>
+      <text x="150" y="190" text-anchor="middle" font-size="11" fill="#7eb6ff">法向·向 = 汇聚 → 俯冲/缝合</text>
+      <!-- 切向 -->
+      <g stroke="#7ee081" stroke-width="2">
+        <path d="M75,210 l0,18 M75,210 l8,-6 M75,210 l-8,-6" fill="none"/>
+        <path d="M225,228 l0,-18 M225,228 l8,6 M225,228 l-8,6" fill="none"/>
+      </g>
+      <text x="150" y="248" text-anchor="middle" font-size="11" fill="#8ff0a1">切向 = 走滑（两侧平行错动）</text>
+    </g>
+  </svg>
+  <div class="cap">同一边界上离欧拉极越远动得越快（速度 ∝ sin 至极距）——这是"真旋转而非平移"的肉眼签名，可当验收点。</div>
+</div>
+
+<div class="panel">
+  <div class="ptitle">② 闭合守恒 —— 免费恒等式，不是配平模块 <span class="tag t2">不写代码 · 写一条断言</span></div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <!-- 行 1：t 铺满 -->
+    <text x="12" y="26" font-size="12.5" fill="#cfe0ff" font-weight="600">t：每格恰有一个物主（N 格铺满球面）</text>
+    <!-- 用矩形画 12 格，行 1 -->
+    <g>
+      <g fill="#3a6fd8"><rect x="12" y="34" width="40" height="34"/><rect x="55" y="34" width="40" height="34"/><rect x="98" y="34" width="40" height="34"/><rect x="141" y="34" width="40" height="34"/><rect x="184" y="34" width="40" height="34"/><rect x="227" y="34" width="40" height="34"/></g>
+      <g fill="#d8933a"><rect x="270" y="34" width="40" height="34"/><rect x="313" y="34" width="40" height="34"/><rect x="356" y="34" width="40" height="34"/><rect x="399" y="34" width="40" height="34"/><rect x="442" y="34" width="40" height="34"/><rect x="485" y="34" width="40" height="34"/></g>
+      <text x="560" y="56" font-size="12" fill="#8fa3c4">板 A（6 格）向右移一格；</text>
+      <text x="560" y="72" font-size="12" fill="#8fa3c4">板 B（6 格）向左移一格</text>
+    </g>
+    <!-- 行 2：旋转后 -->
+    <text x="12" y="104" font-size="12.5" fill="#cfe0ff" font-weight="600">t+1 旋转后：N 格物质 → N 个"声明"（旋转是逐格一一映射）</text>
+    <g>
+      <!-- col0 洞 -->
+      <rect x="12" y="112" width="40" height="34" fill="#0c0f14" stroke="#ff6b6b" stroke-dasharray="4 3"/>
+      <text x="32" y="133" font-size="15" fill="#ff6b6b" text-anchor="middle">×</text>
+      <!-- col1-4 A -->
+      <g fill="#3a6fd8"><rect x="55" y="112" width="40" height="34"/><rect x="98" y="112" width="40" height="34"/><rect x="141" y="112" width="40" height="34"/><rect x="184" y="112" width="40" height="34"/></g>
+      <!-- col5 A+B -->
+      <rect x="227" y="112" width="40" height="34" fill="#3a6fd8"/>
+      <rect x="227" y="112" width="40" height="17" fill="#d8933a"/>
+      <rect x="227" y="112" width="40" height="34" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+      <!-- col6 A+B -->
+      <rect x="270" y="112" width="40" height="34" fill="#3a6fd8"/>
+      <rect x="270" y="112" width="40" height="17" fill="#d8933a"/>
+      <rect x="270" y="112" width="40" height="34" fill="none" stroke="#ff6b6b" stroke-width="3"/>
+      <!-- col7-10 B -->
+      <g fill="#d8933a"><rect x="313" y="112" width="40" height="34"/><rect x="356" y="112" width="40" height="34"/><rect x="399" y="112" width="40" height="34"/><rect x="442" y="112" width="40" height="34"/></g>
+      <!-- col11 洞 -->
+      <rect x="485" y="112" width="40" height="34" fill="#0c0f14" stroke="#ff6b6b" stroke-dasharray="4 3"/>
+      <text x="505" y="133" font-size="15" fill="#ff6b6b" text-anchor="middle">×</text>
+      <text x="560" y="124" font-size="12" fill="#8fa3c4">空洞 ×2（无人声明）</text>
+      <text x="560" y="140" font-size="12" fill="#8fa3c4">重叠 ×2（双方都声明）</text>
+    </g>
+    <!-- 行 3：结算 -->
+    <text x="12" y="182" font-size="12.5" fill="#cfe0ff" font-weight="600">结算：空洞→补新生洋壳 Age=0；重叠→仲裁裁掉输家 → 又铺满</text>
+    <g>
+      <rect x="12" y="190" width="40" height="34" fill="#4b7be0" stroke="#7ee081" stroke-width="2"/>
+      <text x="32" y="211" font-size="16" fill="#d9ffd9" text-anchor="middle">✦</text>
+      <g fill="#3a6fd8"><rect x="55" y="190" width="40" height="34"/><rect x="98" y="190" width="40" height="34"/><rect x="141" y="190" width="40" height="34"/><rect x="184" y="190" width="40" height="34"/><rect x="227" y="190" width="40" height="34"/></g>
+      <g fill="#d8933a"><rect x="270" y="190" width="40" height="34"/><rect x="313" y="190" width="40" height="34"/><rect x="356" y="190" width="40" height="34"/><rect x="399" y="190" width="40" height="34"/><rect x="442" y="190" width="40" height="34"/></g>
+      <rect x="485" y="190" width="40" height="34" fill="#e0a84b" stroke="#7ee081" stroke-width="2"/>
+      <text x="505" y="211" font-size="16" fill="#d9ffd9" text-anchor="middle">✦</text>
+      <text x="560" y="202" font-size="12" fill="#cfe0ff" font-weight="600">#空洞 ≡ #被裁（A 在 col6 被裁 + B 在 col5 被裁）</text>
+      <text x="560" y="218" font-size="12" fill="#8fa3c4">逐 tick 精确相等 —— 与 ω 取什么值无关</text>
+      <text x="560" y="238" font-size="12" fill="#8fa3c4">格预算守恒 → 只需把这条写成每 tick 断言/单测</text>
+    </g>
+  </svg>
+  <div class="legend">
+    <span><span class="sw" style="background:#3a6fd8"></span>板 A 物质</span>
+    <span><span class="sw" style="background:#d8933a"></span>板 B 物质</span>
+    <span><span class="sw" style="background:#4b7be0"></span>新生洋壳（Age=0，归入旁侧板）</span>
+    <span>推理：N 个物主 → N 个声明；0 声明的格数 ≡ 被仲裁裁掉的格数（Σ声明=N 推出）</span>
+  </div>
+  <div class="cap">注意：恒等式只管"格预算"；H3 格面积本就不均（五边形 + 变形），km² 层面的误差在格面积差内，可忽略。真正的设计自由度只剩簿记规则：空洞新生壳归谁、仲裁表谁吃掉谁。</div>
+</div>
+
+<div class="panel">
+  <div class="ptitle">落地顺序与三原理落点</div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#5a6b85"/>
+      </marker>
+    </defs>
+    <!-- 5 boxes -->
+    <g font-size="12.5">
+      <g font-size="11.5">
+        <rect x="16" y="36" width="150" height="66" rx="8" fill="#1a2130" stroke="#3c4a63"/>
+        <text x="91" y="58" text-anchor="middle" fill="#e8eef7">① 静态分板</text>
+        <text x="91" y="74" text-anchor="middle" fill="#8fa3c4">PlateId 场 + 每板 ω</text>
+        <text x="91" y="90" text-anchor="middle" fill="#6f83a3">（已有 H3Plate）</text>
+        <rect x="190" y="36" width="150" height="66" rx="8" fill="#1a2130" stroke="#3c4a63"/>
+        <text x="265" y="58" text-anchor="middle" fill="#e8eef7">② 内容场初值</text>
+        <text x="265" y="74" text-anchor="middle" fill="#8fa3c4">Thick / Age / Elev</text>
+        <text x="265" y="90" text-anchor="middle" fill="#6f83a3">全格填充（现在还是空声明）</text>
+        <rect x="364" y="36" width="150" height="66" rx="8" fill="#1a2130" stroke="#3c4a63"/>
+        <text x="439" y="58" text-anchor="middle" fill="#e8eef7">③ tick 环 ×300–400</text>
+        <text x="439" y="74" text-anchor="middle" fill="#8fa3c4">旋转寻址 → 结算三态</text>
+        <text x="439" y="90" text-anchor="middle" fill="#8fa3c4">→ 全格老化 Age+=dt</text>
+        <rect x="538" y="36" width="150" height="66" rx="8" fill="#1a2130" stroke="#3c4a63"/>
+        <text x="613" y="58" text-anchor="middle" fill="#e8eef7">④ 均衡海拔</text>
+        <text x="613" y="74" text-anchor="middle" fill="#8fa3c4">Elev = f(Thick)</text>
+        <text x="613" y="90" text-anchor="middle" fill="#8fa3c4">汇聚增厚 → 山脉</text>
+        <rect x="712" y="36" width="150" height="66" rx="8" fill="#24304a" stroke="#4da6ff"/>
+        <text x="787" y="58" text-anchor="middle" fill="#e8eef7" font-weight="600">⑤ 终态</text>
+        <text x="787" y="74" text-anchor="middle" fill="#8fa3c4">海龄 · 厚度 · 海拔</text>
+        <text x="787" y="90" text-anchor="middle" fill="#8fa3c4">喂给下游气候/洋流</text>
+      </g>
+      <!-- arrows -->
+      <line x1="166" y1="69" x2="188" y2="69" stroke="#5a6b85" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="340" y1="69" x2="362" y2="69" stroke="#5a6b85" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="514" y1="69" x2="536" y2="69" stroke="#5a6b85" stroke-width="2" marker-end="url(#ar)"/>
+      <line x1="688" y1="69" x2="710" y2="69" stroke="#5a6b85" stroke-width="2" marker-end="url(#ar)"/>
+    </g>
+    <!-- box3 注解 -->
+    <g font-size="11.5">
+      <rect x="364" y="120" width="324" height="58" rx="8" fill="none" stroke="#f7b84a" stroke-dasharray="5 4"/>
+      <text x="376" y="138" fill="#f7b84a">原理① = tick 内核；走滑免费；板数只减不增</text>
+      <text x="376" y="154" fill="#7ee081">原理② = 结算规则自洽 → "#洞=#裁" 断言</text>
+      <text x="376" y="170" fill="#8fa3c4">同板两格撞同一目标（旋转舍入）→ 合并，不销毁</text>
+    </g>
+    <!-- 可选事件 -->
+    <g font-size="11.5">
+      <rect x="364" y="196" width="324" height="80" rx="8" fill="none" stroke="#4da6ff" stroke-dasharray="5 4"/>
+      <text x="376" y="216" fill="#4da6ff" font-weight="600">可选：拓扑事件 —— 原理③ 唯一的用武之地</text>
+      <text x="376" y="234" fill="#8fa3c4">裂谷：大陆裂开 = 板块分裂（超大陆剧本必需）</text>
+      <text x="376" y="250" fill="#8fa3c4">选线沿"最弱线"：避开克拉通（Thick 高 + Age 老）</text>
+      <text x="376" y="266" fill="#8fa3c4">板死：面积 &lt; 阈值 → 移除（Farallon 先例）</text>
+    </g>
+    <!-- 右侧：不做事件则…… -->
+    <g font-size="11.5">
+      <rect x="712" y="196" width="150" height="80" rx="8" fill="none" stroke="#7d8ba0" stroke-dasharray="5 4"/>
+      <text x="787" y="216" text-anchor="middle" fill="#b7c3d4">不做裂谷：</text>
+      <text x="787" y="234" text-anchor="middle" fill="#8fa3c4">大陆永不裂开</text>
+      <text x="787" y="250" text-anchor="middle" fill="#8fa3c4">得不到"海岸线可拼合</text>
+      <text x="787" y="266" text-anchor="middle" fill="#8fa3c4">的裂开大陆"</text>
+    </g>
+    <!-- top caption -->
+    <text x="16" y="22" font-size="12.5" fill="#cfe0ff" font-weight="600">建议顺序：②→③ 先跑通（只看 PlateId/Age 场动画与守恒断言）→ ④ 地质写入 → 事件最后</text>
+  </svg>
+  <div class="legend">
+    <span><span class="sw" style="background:#f7b84a"></span>原理① 运动内核</span>
+    <span><span class="sw" style="background:#7ee081"></span>原理② 免费恒等式</span>
+    <span><span class="sw" style="background:#4da6ff"></span>原理③ 事件准则</span>
+  </div>
+</div>
+</body>
+</html>

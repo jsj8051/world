@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>渲染细分球体 RenderSphere 架构</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:28px 32px 40px; }
+  h1 { font-size:20px; margin:0 0 4px; color:#7ee0ff; }
+  .sub { font-size:13px; color:#8b949e; margin-bottom:22px; }
+  .lane { border:1px solid #30363d; border-radius:10px; padding:14px 16px; margin-bottom:14px; background:#161b22; }
+  .lane h2 { font-size:14px; margin:0 0 10px; display:flex; align-items:center; gap:8px; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:10px; font-weight:normal; }
+  .tag.sim  { background:#1f3d2b; color:#4ade80; border:1px solid #2ea04355; }
+  .tag.der  { background:#3d2a1f; color:#fbbf24; border:1px solid #d2992255; }
+  .tag.ren  { background:#1f2d3d; color:#58a6ff; border:1px solid #1f6feb55; }
+  .tag.bad  { background:#3d1f1f; color:#f87171; border:1px solid #f8514955; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+  .card { background:#0d1117; border:1px solid #21262d; border-radius:8px; padding:10px 12px; }
+  .card .t { font-size:12px; color:#7ee0ff; margin-bottom:6px; font-weight:600; }
+  .card ul { margin:0; padding-left:16px; font-size:12px; color:#c9d1d9; line-height:1.7; }
+  .card li b { color:#e6edf3; }
+  .arrow { text-align:center; color:#8b949e; font-size:13px; margin:2px 0; }
+  .arrow .lbl { font-size:11px; color:#58a6ff; margin-left:8px; }
+  .rivers { border:1px solid #2ea04366; background:#0d1a12; border-radius:8px; padding:10px 12px; margin-top:10px; }
+  .rivers .t { font-size:12px; color:#4ade80; font-weight:600; margin-bottom:6px; }
+  .forbid { border:1px dashed #f8514966; border-radius:8px; padding:8px 12px; margin-top:10px; font-size:12px; color:#f87171; background:#1a0f0f; }
+  .note { font-size:11.5px; color:#8b949e; line-height:1.7; margin-top:14px; }
+  .num { display:inline-block; width:16px; height:16px; border-radius:50%; background:#1f6feb; color:#fff; font-size:10px; text-align:center; line-height:16px; margin-right:6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>渲染细分球体 RenderSphere —— 渲染层私有高分辨率资产</h1>
+  <div class="sub">模拟 n 再细分一次（n′ = 2n，顶点 ×4）｜不存档、不产新事实、不碰逻辑层｜首消费者 = 河流覆盖层</div>
+
+  <div class="lane">
+    <h2><span class="tag sim">事实层 · 唯一语义源</span> 模拟层（存档）—— 河流的“是什么”</h2>
+    <div class="grid">
+      <div class="card"><div class="t">几何</div><ul><li>n = 64｜40,962 顶点｜格距 ≈ 198 km</li><li>Verts / Elev / Temp / Precip</li></ul></div>
+      <div class="card"><div class="t">河流事实（全部只读）</div><ul><li>RiverFlow（流向）→ 路径语义</li><li>RiverVolume（流量）→ 宽窄语义</li><li>RiverLevel / LakeLevel → 水系语义</li><li>流域 / CivSim 沿河文明 ← 同一套</li></ul></div>
+    </div>
+  </div>
+
+  <div class="arrow">▼ 现场派生 · 重采样 · 插值（后台线程，读档即算，不吃存档）</div>
+
+  <div class="lane">
+    <h2><span class="tag der">派生层 · 新增</span> 渲染细分球体 RenderSphere（n′ = 2n = 128，163,842 顶点）</h2>
+    <div class="grid">
+      <div class="card"><div class="t">几何</div><ul><li>Icosahedron.Subdivide(2n) 单位方向顶点</li><li><b>嵌套性质</b>：2n 细分 ⊇ n 细分（同 12 基础顶点，偶数坐标精确重合）→ 粗顶点在细球上有精确对应</li></ul></div>
+      <div class="card"><div class="t">归属 + 插值场</div><ul><li>每细顶点 → 最近模拟顶点 id（桶索引，~O(270)）</li><li>细海拔 = Shepard cos⁴ 插值（连续场，探针友好）</li><li>细格距 ≈ 99 km → 渲染分辨率翻倍</li></ul></div>
+    </div>
+  </div>
+
+  <div class="forbid">✕ <b>禁止</b>：在细球体上重算水文（ComputeFlow/ComputeWater）——会产出与存档/CivSim 平行的第二套河网，位置/流量与逻辑层脱节。RenderSphere 只做<b>几何 + 插值派生</b>，不产生任何新语义事实。</div>
+
+  <div class="arrow">▼ 细场查询（探针 / 骨架 / 宽度基准）</div>
+
+  <div class="lane">
+    <h2><span class="tag ren">渲染层（现状不动）</span> + <span class="tag ren">河流覆盖层（本次升级）</span> + <span class="tag" style="background:#1f2d3d;color:#8b949e;border:1px solid #21262d">未来（不实现）</span></h2>
+    <div class="grid">
+      <div class="card"><div class="t">显示 hex 球（不变）</div><ul><li>GridN 仍 = 模拟 n，20 图层 / 点击拾取 / crisp 格值全部不动</li><li>河流 3D 覆盖层独立于显示格</li></ul></div>
+      <div class="rivers"><div class="t">河流覆盖层 RiverMesh（改造）</div><ul style="margin:0;padding-left:16px;font-size:12px;color:#c9d1d9;line-height:1.8">
+        <li><b>1 路径语义不变</b>：RebuildPaths 照旧（源头 → 入海/盆地）</li>
+        <li><b>2 骨架加密</b>：Catmull-Rom 子点 = 每细格距一点（点数 ×2）</li>
+        <li><b>3 地形贴合升级</b>：探针改查细插值场（±1 细格距、多针）→ 骨架点吸向细场谷底</li>
+        <li><b>4 宽度基准改细格距</b>：绝对宽度减半，上细下粗对比更强</li>
+        <li><b>5 水系 / 汇合 / 防穿模</b>：整棵水系一根线逻辑原样保留</li>
+      </ul></div>
+      <div class="card"><div class="t">未来用例（地基已备）</div><ul><li>海岸线 / 湖岸轮廓（细场海陆过渡）</li><li>地形脊线、等值线（细场采样）</li><li>高清显示球体的地基（若以后要）</li></ul></div>
+    </div>
+  </div>
+
+  <div class="note">
+    性能预算（n=64 → 2n=128）：细分 ~50–150ms + 归属映射 16.4 万顶点并行 ~0.3–1s + 海拔插值 ~0.2–0.5s → 后台总增量 ≈ 1–2s（复用现有进度条阶段）。存量 .mpa / .cmp 读档即受益，无需重新生成。
+  </div>
+</div>
+</body>
+</html>
