@@ -1,6 +1,6 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene format=3 uid="uid://bkw4g3e82dxjq"]
 
-[ext_resource type="Script" path="res://scripts/UI/TileInfoPanel.cs" id="1_panel"]
+[ext_resource type="Script" uid="uid://dald0cnky14mh" path="res://scripts/UI/TileInfoPanel.cs" id="1_panel"]
 
 [sub_resource type="StyleBoxFlat" id="sb_hud_panel"]
 content_margin_left = 14.0
@@ -24,34 +24,32 @@ shadow_size = 8
 font_size = 14
 font_color = Color(0.227, 0.173, 0.102, 1)
 
-[node name="TileInfoPanel" type="PanelContainer"]
-visible = false
+[node name="TileInfoPanel" type="PanelContainer" unique_id=2079736289]
 custom_minimum_size = Vector2(260, 168)
 anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -184.0
+offset_top = -249.0
 offset_right = 276.0
 offset_bottom = -16.0
-grow_horizontal = 1
 grow_vertical = 0
 mouse_filter = 2
 theme_override_styles/panel = SubResource("sb_hud_panel")
 script = ExtResource("1_panel")
 
-[node name="V" type="VBoxContainer" parent="."]
+[node name="V" type="VBoxContainer" parent="." unique_id=1727054517]
 layout_mode = 2
 theme_override_constants/separation = 3
 
-[node name="Title" type="Label" parent="V"]
+[node name="Title" type="Label" parent="V" unique_id=1443116918]
 layout_mode = 2
-theme_override_font_sizes/font_size = 13
 theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 13
 text = "格子信息"
 label_settings = SubResource("ls_title")
 
-[node name="Body" type="VBoxContainer" parent="V"]
+[node name="Body" type="VBoxContainer" parent="V" unique_id=272719390]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 1
