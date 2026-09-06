@@ -259,19 +259,18 @@ namespace World.Tectonics
                              $"rift={swRift.ElapsedMilliseconds}ms erode={swErode.ElapsedMilliseconds}ms " +
                              $"other={swOther.ElapsedMilliseconds}ms total={totalMs}ms");
                 }
-                if (EnableErosion)
-                {
-                    var delta = ApplySurfaceProcesses(stepMy);  // M3：侵蚀/风化/成岩/变质
-                    SyncWorldToPlates(delta);                   // 净变化量写回各板块（原版 integrate_deltas）
-                    ComputeDisplacement();                      // 重算（侵蚀后位移变了）
-                    SolveSeaLevelByVolume();
-                }
                 if (s % 10 == 0 || s == steps - 1)
                     LogService.Log("Tectonics", $"step {s}/{steps} ({s * stepMy:F0}My) plates={Plates.Count} " +
                              $"disp[{FieldOps.Min(Displacement):F0},{FieldOps.Max(Displacement):F0}]m land={LandFractionAboveSea() * 100:F1}%");
                 onProgress?.Invoke((s + 1f) / steps);
             }
-            SolveSeaLevelByVolume();
+            if (EnableErosion)
+            {
+                var delta = ApplySurfaceProcesses(stepMy);  // M3：侵蚀/风化/成岩/变质
+                SyncWorldToPlates(delta);                   // 净变化量写回各板块（原版 integrate_deltas）
+                ComputeDisplacement();                      // 重算（侵蚀后位移变了）
+                SolveSeaLevelByVolume();
+            }
         }
 
         private int LocalGridCount => GlobalGrid.VertexCount;
