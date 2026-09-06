@@ -13,6 +13,8 @@
   <ItemGroup>
     <!-- 复用同一套 NUnit 测试源码：CI/本机用 `dotnet test`，受限环境用本执行器 -->
     <ProjectReference Include="..\World.Tests\World.Tests.csproj" />
+    <!-- H3 原生库：控制台执行器直接 P/Invoke h3.dll，同样显式拷一份 -->
+    <None Include="..\..\native\h3\h3.dll" Link="h3.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

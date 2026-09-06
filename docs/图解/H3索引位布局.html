@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>H3 索引为什么是 64 位（ulong）</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:28px 32px 40px; }
+  h1 { font-size:20px; margin:0 0 6px; color:#7ee0ff; }
+  .sub { font-size:13px; color:#8b949e; margin-bottom:20px; }
+  .box { border:1px solid #30363d; border-radius:10px; padding:14px 16px; background:#161b22; margin-top:14px; }
+  .box h2 { font-size:14px; margin:0 0 10px; }
+  .bits { display:flex; gap:2px; margin:6px 0 4px; }
+  .bit { flex:1; height:26px; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:9px; color:#0d1117; font-weight:bold; }
+  .rows { display:grid; grid-template-columns:repeat(16, 1fr); gap:2px; margin:8px 0; }
+  .cell { height:26px; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:9px; color:#0d1117; font-weight:bold; }
+  .reserved { background:#484f58; }
+  .mode { background:#a371f7; }
+  .digits { background:#39c5cf; }
+  .base { background:#4ade80; }
+  .res { background:#f0883e; }
+  .legend { display:flex; gap:18px; flex-wrap:wrap; font-size:12px; color:#c9d1d9; margin:10px 0 4px; }
+  .legend span { display:flex; align-items:center; gap:6px; }
+  .sw { width:14px; height:14px; border-radius:3px; display:inline-block; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
+  td, th { border:1px solid #30363d; padding:7px 10px; text-align:left; }
+  th { background:#1b2028; color:#8b949e; font-weight:normal; }
+  code { background:#1f242c; border:1px solid #30363d; border-radius:4px; padding:1px 6px; font-size:12px; color:#7ee0ff; }
+  .verdict { border:1px solid #2ea04366; background:#0d1a12; border-radius:10px; padding:12px 16px; margin-top:14px; font-size:13px; color:#c9d1d9; line-height:1.8; }
+  .verdict b { color:#4ade80; }
+  .warn { border:1px solid #f8514966; background:#1a0f0f; border-radius:10px; padding:12px 16px; margin-top:14px; font-size:13px; color:#c9d1d9; line-height:1.8; }
+  .warn b { color:#f87171; }
+  .note { font-size:11.5px; color:#8b949e; margin-top:10px; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>H3 索引为什么是 64 位（ulong）</h1>
+  <div class="sub">一个"格子地址"= 基底格 + 15 级路径方向，全部塞进一个定宽整数 —— 光路径就 45 bit，int（32 bit）装不下</div>
+
+  <div class="box">
+    <h2>64 位索引的位布局（bit 63 → 0）</h2>
+    <div class="bits">
+      <div class="bit reserved" title="bits 59-63：保留位（将来扩展用）">reserved×5</div>
+      <div class="bit mode" title="bits 56-58：模式——1=格子 cell，2=有向边，3=顶点（所以顶点 id 也是 64 位）">mode 3</div>
+      <div class="bit digits" title="bits 11-55：15 级 × 每级 3 bit 方向数字 = 45 bit —— 从基底格到自己的完整族谱路径">方向数字 15 级 × 3 bit = 45 bit</div>
+      <div class="bit base" title="bits 4-10：基底格编号 0-121（7 bit）">base 7</div>
+      <div class="bit res" title="bits 0-3：分辨率 0-15（4 bit）">res 4</div>
+    </div>
+    <div class="legend">
+      <span><span class="sw reserved"></span>保留位 5</span>
+      <span><span class="sw mode"></span>模式 3</span>
+      <span><span class="sw digits"></span>层级路径 45</span>
+      <span><span class="sw base"></span>基底格 7</span>
+      <span><span class="sw res"></span>分辨率 4</span>
+      <span style="color:#8b949e">合计 = 64 bit</span>
+    </div>
+    <div class="note">45 位路径展开：每高一级的格子，它的索引就比父格多 3 bit 方向数字 —— <b>格子的地址就是它的族谱</b>。res 0 只有 19 bit 被用上，但容器必须按最深的 res 15（45 bit 路径）定宽 —— 全体索引共用同一个 64 位空间。</div>
+  </div>
+
+  <div class="box">
+    <h2>为什么 int 装不下 —— 光路径就超了</h2>
+    <table>
+      <tr><th>字段</th><th>位宽</th><th>说明</th></tr>
+      <tr><td>分辨率 res</td><td>4 bit</td><td>0–15，正好 4 bit</td></tr>
+      <tr><td>基底格 base cell</td><td>7 bit</td><td>0–121，正好 7 bit</td></tr>
+      <tr><td>方向数字</td><td><b>45 bit</b></td><td>15 级 × 3 bit —— 单这一项就超过 int 的 32 bit</td></tr>
+      <tr><td>模式 / 保留</td><td>3 + 5 bit</td><td>类型标记 + 扩展余量</td></tr>
+    </table>
+    <div class="note">32 位最多表示 2³² 个状态；而"H3 格子"这个状态空间本身需要 64 位才能装下（尤其最深 15 级的路径）。这不是"格子太多"的问题，是<b>地址编码就要这么多位</b>。</div>
+  </div>
+
+  <div class="box">
+    <h2>ulong 的三个直接理由（对内对外都是硬约束）</h2>
+    <table>
+      <tr><th>理由</th><th>细节</th></tr>
+      <tr><td><b>C API 契约就是 uint64_t</b></td><td>h3api.h 所有 cell/vertex 参数全是 <code>uint64_t</code>。P/Invoke 侧必须 <code>ulong</code> 无损对齐 —— 用 int 会丢高位，索引直接变非法</td></tr>
+      <tr><td><b>无符号、按位运算</b></td><td>索引没有负数语义；层级操作是纯位运算（找 parent = 右移 3×层级差截位），用有符号整型反而要防符号扩展</td></tr>
+      <tr><td><b>标准字符串 = 16 位十六进制</b></td><td><code>H3ToString</code> 输出 <code>8928308280fffff</code>（15 位以内前导 0 省略）—— 就是完整 uint64 的 hex 表示，存档/交换都按 64 位走</td></tr>
+    </table>
+  </div>
+
+  <div class="verdict">
+    <b>一句话：</b>H3 的设计是"把整个层级路径编码进一个定宽整数"，64 位是这个设计的最小容器；<code>ulong</code> 就是 C 端 <code>uint64_t</code> 在 C# 里的唯一无损对应。换成 int 不是省内存，是直接破坏索引语义。
+  </div>
+
+  <div class="warn">
+    <b>附赠一个相关事实：</b>顶点 id 同样是 64 位（mode=3）—— 所以门面里 <code>CellToVertexes</code> 返回 <code>ulong[]</code>。你的两遍构建里 <code>HashSet&lt;ulong&gt;</code> 存的正是这种顶点 id，别想着"转换后再压缩成 int 本地索引"——<b>共享顶点去重必须发生在 64 位空间</b>，等收集完了再映射成紧凑 int 数组做渲染（那正是第三遍索引缓冲做的事）。
+  </div>
+</div>
+</body>
+</html>

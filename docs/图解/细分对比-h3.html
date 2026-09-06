@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>细分方案对比：自研 icosa 等分 vs Uber H3</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:28px 32px 40px; }
+  h1 { font-size:20px; margin:0 0 6px; color:#7ee0ff; }
+  .sub { font-size:13px; color:#8b949e; margin-bottom:24px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .box { border:1px solid #30363d; border-radius:10px; padding:16px; background:#161b22; }
+  .box h2 { font-size:14px; margin:0 0 4px; }
+  .box .tag { font-size:11px; padding:2px 8px; border-radius:10px; margin-left:8px; }
+  .tag.ours { background:#1f3d2b; color:#4ade80; border:1px solid #2ea04355; }
+  .tag.h3 { background:#3d2a1f; color:#fbbf24; border:1px solid #d2992255; }
+  .box .d { font-size:12px; color:#8b949e; margin:4px 0 12px; }
+  svg { display:block; margin:0 auto; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:20px; }
+  th, td { border:1px solid #30363d; padding:8px 10px; text-align:left; vertical-align:top; }
+  th { background:#1c2128; color:#7ee0ff; font-weight:600; }
+  td.k { color:#fbbf24; white-space:nowrap; font-weight:600; }
+  .verdict { border:1px solid #2ea04366; background:#0d1a12; border-radius:10px; padding:12px 16px; margin-top:18px; font-size:13px; color:#c9d1d9; line-height:1.8; }
+  .verdict b { color:#4ade80; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>球面细分：我们（三角 n 等分 + Goldberg 对偶） vs Uber H3（aperture-7 六边形层级）</h1>
+  <div class="sub">结论：同根（都是 icosahedron 六边形球面网格），但细分机制、层级缩放、朝向、目的完全不同——是两套体系。</div>
+
+  <div class="cols">
+    <div class="box">
+      <h2>我们的方案<span class="tag ours">自研</span></h2>
+      <div class="d">Icosahedron.Subdivide(n)：每条边 n 等分 → 三角网格 → GoldbergBuilder 对偶 → 每顶点一个六边形（12 个五边形）。顶点数 = 10n² + 2。</div>
+      <svg width="430" height="300" viewBox="0 0 430 300">
+        <!-- 左：三角面 n=4 等分网格 -->
+        <polygon points="60,240 340,240 200,40" fill="#0d1117" stroke="#58a6ff" stroke-width="2"/>
+        <g stroke="#2f81f7" stroke-width="1" opacity="0.75">
+          <line x1="60" y1="240" x2="200" y2="40"/>
+          <line x1="200" y1="40" x2="340" y2="240"/>
+          <line x1="60" y1="240" x2="340" y2="240"/>
+          <!-- n=4 等分线（三角形内平行线） -->
+          <line x1="130" y1="190" x2="270" y2="190"/>
+          <line x1="165" y1="140" x2="235" y2="140"/>
+          <line x1="130" y1="190" x2="165" y2="140"/>
+          <line x1="270" y1="190" x2="235" y2="140"/>
+          <line x1="60" y1="240" x2="165" y2="140"/>
+          <line x1="340" y1="240" x2="235" y2="140"/>
+          <line x1="130" y1="190" x2="200" y2="40"/>
+          <line x1="270" y1="190" x2="200" y2="40"/>
+        </g>
+        <circle cx="60" cy="240" r="5" fill="#4ade80"/>
+        <circle cx="340" cy="240" r="5" fill="#4ade80"/>
+        <circle cx="200" cy="40" r="5" fill="#4ade80"/>
+        <circle cx="130" cy="190" r="4" fill="#7ee0ff"/>
+        <circle cx="270" cy="190" r="4" fill="#7ee0ff"/>
+        <circle cx="165" cy="140" r="4" fill="#7ee0ff"/>
+        <circle cx="235" cy="140" r="4" fill="#7ee0ff"/>
+        <circle cx="200" cy="240" r="5" fill="#fbbf24" stroke="#d29922"/>
+        <!-- 对偶六边形（示意：中心顶点 → 周围三角质心围成） -->
+        <g stroke="#4ade80" stroke-width="1.5" fill="none" opacity="0.9">
+          <polygon points="200,240 236,212 216,175 184,175 164,212"/>
+        </g>
+        <text x="200" y="278" text-anchor="middle" font-size="12" fill="#8b949e">n 等分三角网格 → 顶点对偶出六边形</text>
+        <text x="200" y="294" text-anchor="middle" font-size="12" fill="#4ade80">顶点数 10n²+2 ｜ n → 2n = 面积 ×4 精确嵌套</text>
+      </svg>
+    </div>
+
+    <div class="box">
+      <h2>Uber H3<span class="tag h3">业界标准</span></h2>
+      <div class="d">专用旋转朝向的 icosahedron + 面上 (i,j,k) 六边形晶格；分辨率 +1 = aperture-7（每六边形分为 1+6 个子六边形）。索引 = 64 位整数。</div>
+      <svg width="430" height="300" viewBox="0 0 430 300">
+        <!-- 中心六边形 + 6 个子六边形（七分） -->
+        <g stroke="#d29922" stroke-width="1.5" fill="none">
+          <polygon points="215,160 245,175 245,205 215,220 185,205 185,175"/>
+          <polygon points="215,160 245,145 275,160 275,190 245,175"/>
+          <polygon points="245,205 275,190 305,205 305,235 275,220 245,235"/>
+          <polygon points="215,220 245,235 245,265 215,280 185,265 185,235"/>
+          <polygon points="185,175 215,160 215,220 185,205"/>
+          <polygon points="185,175 155,160 125,175 125,205 155,220 185,205"/>
+          <polygon points="155,220 185,235 185,265 155,280 125,265 125,235"/>
+        </g>
+        <circle cx="215" cy="190" r="10" fill="#fbbf24" opacity="0.85"/>
+        <text x="215" y="194" text-anchor="middle" font-size="9" fill="#0d1117">res R</text>
+        <circle cx="260" cy="160" r="8" fill="#d29922" opacity="0.9"/>
+        <circle cx="290" cy="205" r="8" fill="#d29922" opacity="0.9"/>
+        <circle cx="215" cy="250" r="8" fill="#d29922" opacity="0.9"/>
+        <circle cx="140" cy="205" r="8" fill="#d29922" opacity="0.9"/>
+        <text x="215" y="38" text-anchor="middle" font-size="12" fill="#8b949e">res +1：1 个六边形 → 7 个（aperture-7）</text>
+        <text x="215" y="54" text-anchor="middle" font-size="12" fill="#fbbf24">面积 ÷7 ｜ res 0–15 固定档 ｜ 五边形落在海洋</text>
+        <polygon points="215,95 245,110 245,140 215,155 185,140 185,110" stroke="#8b949e" stroke-width="1" fill="none" stroke-dasharray="4 3"/>
+        <text x="215" y="90" text-anchor="middle" font-size="10" fill="#8b949e">上一级 1 格</text>
+      </svg>
+    </div>
+  </div>
+
+  <table>
+    <tr><th style="width:120px">维度</th><th>本项目（自研）</th><th>Uber H3</th></tr>
+    <tr><td class="k">基础单元</td><td>三角网格顶点（对偶后六边形）</td><td>面内直接铺六边形晶格</td></tr>
+    <tr><td class="k">分辨率参数</td><td><b>n 任意整数</b>（32/64/96/120/128/256 全用过），n² 面积缩放</td><td><b>res 固定档 0–15</b>，每级面积 ÷7（aperture-7）</td></tr>
+    <tr><td class="k">层级嵌套</td><td><b>精确嵌套</b>：2n 细分 ⊇ n 细分，粗顶点在细网格中坐标重合</td><td>相邻 res 中心对齐，但非简单顶点嵌套</td></tr>
+    <tr><td class="k">icosa 朝向</td><td>标准朝向（12 顶点在 ±φ 轴）</td><td>旋转定制朝向（12 个五边形避开主要陆地，利于地理应用）</td></tr>
+    <tr><td class="k">索引体系</td><td>顶点 id（int），无全局编码</td><td>64 位 H3 索引（层级 + faceijk 位置编码），全球统一</td></tr>
+    <tr><td class="k">设计目的</td><td>程序化随机星球的任意分辨率模拟/渲染</td><td>地理空间索引、聚合统计、行政区划（全球一套编码）</td></tr>
+  </table>
+
+  <div class="verdict">
+    <b>对本项目的影响：</b>「再细分一次给渲染层」继续用 Subdivide(2n) 正确——它在自身体系内的自然延伸（精确嵌套归属、任意 n、10n²+2 存档公式全项目唯一）。若引入 H3 式分层反而会破坏三件事：任意分辨率（n=120 分析档、n=64 快速档都是特意选的）、2n 精确嵌套（RenderSphere 归属映射就靠它）、存档公式的单一来源。
+  </div>
+</div>
+</body>
+</html>

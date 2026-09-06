@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>H3 切换工作量账本</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:980px; margin:0 auto; padding:28px 32px 40px; }
+  h1 { font-size:20px; margin:0 0 6px; color:#7ee0ff; }
+  .sub { font-size:13px; color:#8b949e; margin-bottom:24px; }
+  .cols { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  .box { border:1px solid #30363d; border-radius:10px; padding:14px 16px; background:#161b22; }
+  .box h2 { font-size:14px; margin:0 0 10px; }
+  .tag { font-size:11px; padding:2px 8px; border-radius:10px; margin-left:8px; }
+  .tag.give { background:#1f3d2b; color:#4ade80; border:1px solid #2ea04355; }
+  .tag.need { background:#1f2d3d; color:#58a6ff; border:1px solid #1f6feb55; }
+  ul { margin:0; padding-left:0; list-style:none; font-size:12.5px; line-height:2; }
+  li { padding-left:22px; position:relative; color:#c9d1d9; }
+  li::before { position:absolute; left:0; font-weight:bold; }
+  li.have::before { content:"✔"; color:#4ade80; }
+  li.no::before { content:"✘"; color:#f87171; }
+  li.warn::before { content:"▲"; color:#fbbf24; }
+  .mid { text-align:center; margin:10px 0; color:#8b949e; font-size:12px; }
+  .cost { border:1px solid #f8514966; background:#1a0f0f; border-radius:10px; padding:12px 16px; margin-top:14px; }
+  .cost h2 { font-size:13px; color:#f87171; margin:0 0 8px; }
+  .verdict { border:1px solid #2ea04366; background:#0d1a12; border-radius:10px; padding:12px 16px; margin-top:14px; font-size:13px; color:#c9d1d9; line-height:1.8; }
+  .verdict b { color:#4ade80; }
+  .note { font-size:11.5px; color:#8b949e; margin-top:12px; line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>切换 H3 的工作量账本</h1>
+  <div class="sub">H3 封装好了什么（能省的） vs 我们真正消耗什么（省不了的）——交集只有我们早已实现的 10%</div>
+
+  <div class="cols">
+    <div class="box">
+      <h2>H3 的 API 供给<span class="tag give">现成能力</span></h2>
+      <ul>
+        <li class="have">细分球面六边形网格（res 0–15 分档）</li>
+        <li class="have">邻居 / kRing / 距离查询</li>
+        <li class="have">latLng ↔ cell 双向索引（64 位编码）</li>
+        <li class="no">任意分辨率（只有固定 16 档）</li>
+        <li class="no">跨级精确嵌套（相邻 res 不保证顶点重合）</li>
+        <li class="no">几何/插值/河流带子/样条——它不碰几何渲染</li>
+        <li class="no">模拟语义（流向/流域/水文/CivSim）</li>
+      </ul>
+    </div>
+    <div class="box">
+      <h2>我们真正消耗<span class="tag need">项目需求</span></h2>
+      <ul>
+        <li class="have">任意 n 细分（32/64/96/120/128/256 全用过）</li>
+        <li class="have">邻居 / 最近邻查询（桶索引 O(~270)）</li>
+        <li class="no">2n 精确嵌套（RenderSphere 归属映射的数学地基）</li>
+        <li class="no">存档公式 10n²+2（校验/UI/诊断全引用）</li>
+        <li class="no">流向 / 流域 / 水文 / CivSim 逻辑拓扑</li>
+        <li class="no">河流覆盖层几何（Catmull-Rom/探针/带子/防穿模）</li>
+        <li class="no">400+ 单元测试 / 诊断场景的网格假设</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="cost">
+    <h2>真切换的代价（一次性 + 永久）</h2>
+    <ul>
+      <li class="warn">模拟层拓扑全重写：邻居/流向/流域/水文/CivSim 全部换索引语义</li>
+      <li class="warn">存档段表格式报废：v6/v15/v3 全废，已有存档全删</li>
+      <li class="warn">470+ 测试大部分重写（网格假设全变）</li>
+      <li class="warn">显示 hex 格视觉毫无差别：H3 也还是六边形——对偶层白干</li>
+      <li class="warn">河流渲染零收益：H3 不提供任何几何/插值能力，RiverMesh 原样重写一遍</li>
+      <li class="warn">RenderSphere 方案作废：细球体"2n ⊇ n 精确嵌套"在 H3 里不存在</li>
+    </ul>
+  </div>
+
+  <div class="verdict">
+    <b>账目结论：</b>H3 覆盖的能力中我们只需 ~10%（细分/邻居/距离——且已稳定实现数月、有测试兜底）；我们 90% 的消耗（模拟语义、存档、河流几何、嵌套细分）H3 覆盖 0。切换 = 用 16 档固定分辨率换掉任意 n，用非嵌套换掉精确嵌套——<b>引进三个新限制，解决零个现有问题</b>。
+  </div>
+
+  <div class="note">
+    唯一值得"借"的不是 H3 代码，是它的分层思想（aperture-7）：若将来渲染层要 LOD 分级，我们的 2n 嵌套天然支持四叉式分层，不需要 H3。判断标准：只有当项目转向真实地理数据 / 在线地理服务 / 跨平台网格交换时，H3 才值得评估——那是产品方向问题，与工作量无关。
+  </div>
+</div>
+</body>
+</html>

@@ -18,6 +18,8 @@
   <ItemGroup>
     <!-- 引用游戏程序集；测试只覆盖纯托管逻辑（不触碰 Godot 原生调用） -->
     <ProjectReference Include="..\..\world.csproj" />
+    <!-- H3 原生库：测试进程里 P/Invoke 也走 H3Native 解析器（AppContext.BaseDirectory），显式拷一份 -->
+    <None Include="..\..\native\h3\h3.dll" Link="h3.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>CellToVertexes：共享顶点语义</title>
+<style>
+  body { margin:0; background:#0d1117; color:#e6edf3; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .wrap { max-width:900px; margin:0 auto; padding:28px 32px 40px; }
+  h1 { font-size:20px; margin:0 0 6px; color:#7ee0ff; }
+  .sub { font-size:13px; color:#8b949e; margin-bottom:20px; }
+  .box { border:1px solid #30363d; border-radius:10px; padding:14px 16px; background:#161b22; margin-top:14px; }
+  .box h2 { font-size:14px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:12.5px; margin-top:8px; }
+  td, th { border:1px solid #30363d; padding:7px 10px; text-align:left; vertical-align:top; }
+  th { background:#1b2028; color:#8b949e; font-weight:normal; width:90px; }
+  code { background:#1f242c; border:1px solid #30363d; border-radius:4px; padding:1px 6px; font-size:12px; color:#7ee0ff; }
+  .ok { color:#4ade80; font-weight:bold; }
+  .no { color:#f87171; font-weight:bold; }
+  .note { font-size:11.5px; color:#8b949e; margin-top:10px; line-height:1.7; }
+  svg text { font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CellToVertexes：一个格子的顶点（全局共享 id）</h1>
+  <div class="sub">传进 <b>1 个格子索引</b>，返回<b>这个格子自己的</b>边界顶点 id —— 但这些 id 全星球唯一、相邻格共用</div>
+
+  <div class="box">
+    <h2>两个相邻格子的真实关系</h2>
+    <svg width="520" height="250" viewBox="0 0 520 250">
+      <!-- 六边形 A（左） -->
+      <polygon points="120,40 220,25 275,85 220,145 120,130 65,85" fill="#0d2818" stroke="#4ade80" stroke-width="2"/>
+      <!-- 六边形 B（右，共享边 275,85 → 220,145） -->
+      <polygon points="275,85 375,70 430,130 375,190 275,175 220,145" fill="#10233b" stroke="#58a6ff" stroke-width="2"/>
+      <!-- A 的独立顶点 -->
+      <circle cx="120" cy="40" r="6" fill="#4ade80"/><text x="132" y="36" fill="#e6edf3" font-size="13">v3 = 0x…a21</text>
+      <circle cx="120" cy="130" r="6" fill="#4ade80"/><text x="132" y="148" fill="#e6edf3" font-size="13">v6 = 0x…f77</text>
+      <circle cx="65" cy="85" r="6" fill="#4ade80"/><text x="10" y="80" fill="#e6edf3" font-size="13">v1 = 0x…c04</text>
+      <circle cx="220" cy="25" r="6" fill="#4ade80"/><text x="185" y="15" fill="#e6edf3" font-size="13">v2 = 0x…b83</text>
+      <!-- 共享边两端（高亮黄色） -->
+      <circle cx="275" cy="85" r="8" fill="#fbbf24" stroke="#0d1117" stroke-width="2"/><text x="288" y="80" fill="#fbbf24" font-size="13" font-weight="bold">v4 = 0x…d02（A、B 同一个）</text>
+      <circle cx="220" cy="145" r="8" fill="#fbbf24" stroke="#0d1117" stroke-width="2"/><text x="150" y="175" fill="#fbbf24" font-size="13" font-weight="bold">v5 = 0x…e6b（A、B 同一个）</text>
+      <circle cx="430" cy="130" r="6" fill="#58a6ff"/><text x="442" y="126" fill="#e6edf3" font-size="13">v9 = 0x…118</text>
+      <circle cx="375" cy="190" r="6" fill="#58a6ff"/><text x="352" y="212" fill="#e6edf3" font-size="13">v8 = 0x…9d4</text>
+      <circle cx="375" cy="70" r="6" fill="#58a6ff"/><text x="387" y="66" fill="#e6edf3" font-size="13">v7 = 0x…5aa</text>
+      <text x="90" y="235" fill="#8b949e" font-size="13">格子 A：CellToVertexes(A) → 6 个 id（含 v4、v5）</text>
+      <text x="320" y="235" fill="#8b949e" font-size="13">格子 B：CellToVertexes(B) → 6 个 id（含 v4、v5）</text>
+      <text x="90" y="10" fill="#4ade80" font-size="13" font-weight="bold">A</text>
+      <text x="330" y="10" fill="#58a6ff" font-size="13" font-weight="bold">B</text>
+    </svg>
+    <table>
+      <tr><th>调用</th><td><code>CellToVertexes(A)</code> → 返回 <b>A 的</b> 6 个顶点 id<br><code>CellToVertexes(B)</code> → 返回 <b>B 的</b> 6 个顶点 id（五边形只给 5 个）</td></tr>
+      <tr><th>关键</th><td>共边的两个格子在返回里拿到 <b>同一对 id</b>（v4、v5）——不是两份拷贝。6 + 6 去重后 = <b>10 个</b>唯一顶点，不是 12</td></tr>
+      <tr><th>为什么</th><td>顶点 id 是"格子的图结构"里的真顶点：每条边的两端被相邻格共享。H3 v4 特意暴露这种共享 id —— 渲染时相邻格拼同一批顶点 → <b>无缝无裂缝</b>，且顶点数组省 3 倍内存</td></tr>
+    </table>
+  </div>
+
+  <div class="box">
+    <h2>它是 / 它不是</h2>
+    <table>
+      <tr><th>✓ 是</th><td>「给我<b>某一个格子</b>，还你<b>它自己</b>的边界顶点 id」的<b>单格函数</b>，输入输出都是 64 位索引</td></tr>
+      <tr><th>✗ 不是</th><td>没有任何「一次调用返回全星球所有顶点」的 API —— 全图顶点表必须你自己<b>遍历所有格 + HashSet 去重</b>收集（就是两遍构建的第一遍）</td></tr>
+    </table>
+    <div class="note">收集完的唯一 id 集，就是整张网格的顶点表。之后对<b>每个唯一 id</b> 调一次 <code>VertexToLatLng</code>（4,033,680 次而非 12M 次），转成经纬度 → ECEF × R = 球面位置。</div>
+  </div>
+</div>
+</body>
+</html>
