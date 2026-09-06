@@ -1,0 +1,50 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/new_HexWorld/UI/HexInfoPanel.cs" id="1_panel"]
+
+[sub_resource type="StyleBoxFlat" id="sb_panel"]
+content_margin_left = 14.0
+content_margin_top = 10.0
+content_margin_right = 14.0
+content_margin_bottom = 10.0
+bg_color = Color(0.851, 0.776, 0.608, 0.97)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.722, 0.525, 0.043, 0.9)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+shadow_color = Color(0, 0, 0, 0.4)
+shadow_size = 8
+
+[node name="HexInfoPanel" type="PanelContainer"]
+custom_minimum_size = Vector2(260, 168)
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -249.0
+offset_right = 276.0
+offset_bottom = -16.0
+grow_vertical = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("sb_panel")
+script = ExtResource("1_panel")
+
+[node name="V" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="Title" type="Label" parent="V"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.722, 0.525, 0.043, 1)
+theme_override_font_sizes/font_size = 13
+text = "格信息"
+
+[node name="Body" type="VBoxContainer" parent="V"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 1
