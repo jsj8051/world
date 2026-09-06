@@ -7,6 +7,7 @@ using World.HexPlanet;
 using World.LogicGrid;
 using World.MapGen;
 using World.MapGen.Model;
+using World.Utils;    // DeterministicRandom（2026-09-03 迁至 World.Utils）
 
 namespace World.Tests;
 

@@ -1,6 +1,6 @@
 using System;
 
-namespace World.CivSim;
+namespace World.Utils;
 
 /// <summary>
 /// 确定性随机（SplitMix64 状态可序列化）。

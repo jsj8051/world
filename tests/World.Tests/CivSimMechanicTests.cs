@@ -15,6 +15,7 @@ using World.CivSim.Mechanics.Politics;
 using World.CivSim.Mechanics.State;
 using World.CivSim.Mechanics.Culture;
 using World.CivSim.Mechanics.Military;
+using World.Utils;    // DeterministicRandom（2026-09-03 迁至 World.Utils）
 namespace World.Tests;
 
 /// <summary>

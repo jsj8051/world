@@ -1,6 +1,6 @@
 using Godot;
 using System;
-using World.CivSim;   // DeterministicRandom（诊断导出也用确定性随机，2026-08-19）
+using World.Utils;    // DeterministicRandom（2026-09-03 迁至 Utils）
 using World.Diagnostics;
 using World.HexPlanet;
 using World.MapGen;

@@ -1,6 +1,6 @@
 using Godot;
 using System;
-using World.CivSim;   // DeterministicRandom（确定性随机工具——跨 .NET 运行时序列稳定，2026-08-19）
+using World.Utils;    // DeterministicRandom（确定性随机工具——跨 .NET 运行时序列稳定，2026-09-03 迁至 Utils）
 using World.MapGen;
 using World.Services;
 

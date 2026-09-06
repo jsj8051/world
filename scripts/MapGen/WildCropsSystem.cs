@@ -1,7 +1,7 @@
 using Godot;
 using System;
 using World.Biome;
-using World.CivSim;   // DeterministicRandom（确定性随机工具，2026-08-19）
+using World.Utils;    // DeterministicRandom（确定性随机工具，2026-09-03 迁至 Utils）
 using World.LogicGrid;
 
 namespace World.MapGen;

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
 using NUnit.Framework;
+using World.Utils;    // DeterministicRandom（2026-09-03 迁至 World.Utils）
 
 namespace World.Tests.Local;
 
