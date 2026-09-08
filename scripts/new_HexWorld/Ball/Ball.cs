@@ -27,10 +27,12 @@ namespace World.NewHexWorld
 		public Vector3[] CellCenters => _cellCenters;
 		public int[][] CellNeighbors => _cellNeighbors;
 		public int Res { get; }   // 分辨率档（拾取 LatLngToCell / 重染用，构造即定）
+		public float Radius { get; }   // 球半径（格心/顶点坐标同尺度；边界链浮起等派生几何用）
 
 		public Ball(int res, float radius)
 		{
 			Res = res;
+			Radius = radius;
 			BuildCellIds(res);
 			BuildVertexIds();
 			BuildVertexPositions(radius);

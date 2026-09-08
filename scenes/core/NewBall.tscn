@@ -4,16 +4,18 @@
 [ext_resource type="Script" uid="uid://bu87qn16el8lf" path="res://scripts/new_HexWorld/Ball/BallView.cs" id="2_view"]
 [ext_resource type="PackedScene" path="res://scenes/hexworld/HexDock.tscn" id="3_dock"]
 [ext_resource type="PackedScene" path="res://scenes/hexworld/HexInfoPanel.tscn" id="4_info"]
+[ext_resource type="Script" uid="uid://dnv6nefxx8l1f" path="res://scripts/Camera/OrbitalCamera.cs" id="5_cam"]
 
 [node name="Root" type="Node3D" unique_id=1452505373]
 script = ExtResource("1_mgr")
+Radius = 2.0
 
-[node name="Camera3D" type="Camera3D" parent="." unique_id=2004298144]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 3)
+[node name="OrbitalCamera" type="Node3D" parent="." unique_id=2004298144]
+script = ExtResource("5_cam")
+_planetRadius = 2.0
 
 [node name="Ball" type="Node3D" parent="." unique_id=495043332]
 script = ExtResource("2_view")
-Radius = 2.0
 
 [node name="UiLayer" type="CanvasLayer" parent="."]
 

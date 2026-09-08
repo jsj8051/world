@@ -1,57 +1,80 @@
 using Godot;
 using System;
+using World.NewHexWorld.UI.ViewModels;
 using World.Utils;
 using World.Utils.H3;
 
 namespace World.NewHexWorld
 {
-	// 球视图：Ball 数据 + BallMesh 几何 + MeshInstance 渲染，自转展示。
-	// 换配色 ApplyColorScheme（地图模式/内容更新）；拾取 PickCell（屏幕点 → 球面 cell）。
+	// 球视图（View）：Ball 数据 + BallMesh 几何 + MeshInstance 渲染。
+	// MVVM 接线（设计入口 §2.2/§2.4）：Bind(HexWorldViewModel) 订阅 Changed 信号 → 拉取
+	// 逐格色投影缓存提交 GPU（板块边界描边权重随 COLOR.a 一并并入——描边是格面材质的一部分，
+	// 无独立线几何）。View 只显示，不读/改 Model 的地壳场数组（颜色/边界角点集都经 VM 派生口）；
+	// Ball 自身的静态网格几何（建面/拾取）属渲染基础设施，直读只读 Ball。
+	// Model 构造权在组装器：Init(Ball) 下行注入，View 不自建数据。拾取 PickCell（屏幕点 → 球面
+	// cell）。视角运动全交给 OrbitalCamera（拖转/缩放）——星球本身不自转（用户拍板 09-07）。
 	public partial class BallView : Node3D
 	{
-		[Export] public int ResLevel = 3;
-		[Export] public float Radius = 1f;
-		[Export] public float SpinSpeed = 0.3f;     // 自转速度（弧度/秒）
-
-		Ball _ball;                     // 数据层（_Ready 构建）
+		Ball _ball;                     // 数据层（组装器 Init 注入）
 		BallMesh _mesh;                 // 几何层
-		MeshInstance3D _meshInstance;   // 渲染产物
+		MeshInstance3D _meshInstance;   // 格色面（含描边）渲染产物
+		float[] _outlineWeights;        // 逐显示顶点边界权重（1 内部 / 0 边界角点；建一次常驻）
+		HexWorldViewModel _vm;          // 球视图 VM（Bind 注入；变更信号驱动刷新）
 
-		// 数据层访问器（内容层 H3Plate / 编排 Manager 拿网格数据用）。
-		public Ball BallData => _ball;
-
-		public override void _Ready()
+		// 组装器下行：注入 Model 并建几何/渲染节点。分辨率/半径以 Ball 为单一事实源
+		// （_ball.Res / _ball.Radius），本类不再持参数导出。
+		public void Init(Ball ball)
 		{
-			_ball = new Ball(ResLevel, Radius);
+			_ball = ball;
 			_mesh = new BallMesh();
-			_mesh.BuildTileMeshData(_ball, Radius);
+			_mesh.BuildTileMeshData(_ball, _ball.Radius);
 			CreateMeshNode();
-			ApplyColorScheme(DebugBaseColorScheme);   // 初始调试配色：按基底格分色
 		}
 
-		public override void _Process(double delta)
+		// ── MVVM 绑定：订阅 VM 变更信号 → 拉取刷新（首帧即渲染当前模式）──
+
+		public void Bind(HexWorldViewModel vm)
 		{
-			_meshInstance?.RotateY((float)delta * SpinSpeed);   // 自转看全表面
+			_vm = vm;
+			_vm.Changed += Refresh;
+			Refresh();
 		}
 
-		// 建渲染节点（只建一次）：无光材质吃顶点色——球面格显示不需要光照。
-		private void CreateMeshNode()
+		// 拉取 VM 派生数据重提交：逐格色投影（全量重交 surface，描边开关随权重并入 alpha）。
+		void Refresh()
 		{
-			var mat = new StandardMaterial3D
+			if (_vm == null) return;
+			SubmitColors(_vm.CellColors, _vm.ShowBoundaries);
+		}
+
+		// ── 渲染提交 ──
+
+		// 建格色面节点（只建一次）：描边材质吃顶点色——rgb = 格色（linear）、a = 边界权重，
+		// 片元按权重插值压暗格色成轮廓带（hex_tile_outline.gdshader；老树 planet_detail 同款方案）。
+		void CreateMeshNode()
+		{
+			var mat = new ShaderMaterial
 			{
-				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-				VertexColorUseAsAlbedo = true,
+				Shader = GD.Load<Shader>("res://shaders/hex_tile_outline.gdshader"),
 			};
 			_meshInstance = new MeshInstance3D { Mesh = new ArrayMesh(), MaterialOverride = mat };
 			AddChild(_meshInstance);
 		}
 
-		/// <summary>应用一套每格配色方案：按 scheme(cell id) 生成颜色 → 清旧 surface → 重提交。
-		/// ArrayMesh 提交后色数组不可局部改，只能 ClearSurfaces + AddSurfaceFromArrays 全量重交
-		/// （res3 一次 ~10ms 级；换配色是低频操作，可接受）。顶点/索引数组复用不动。</summary>
-		public void ApplyColorScheme(Func<ulong, Color> scheme)
+		// 按每格色投影重交格色面。ArrayMesh 提交后色数组不可局部改，只能 ClearSurfaces +
+		// AddSurfaceFromArrays 全量重交（res3 一次 ~10ms 级；换模式低频，可接受）。顶点/索引复用不动。
+		// showOutline = 当前模式叠加板块边界描边：权重懒构建一次后并入顶点色 alpha；
+		// 关闭时 alpha 全 1（片元 smoothstep 恒 1 → 纯格色），同一几何零额外开销。
+		// ⚠️ 3D 渲染 linear 工作空间：策略色为 sRGB 意图（色带/常量/2D swatch 同语义），提交前
+		// 逐格转 linear——输出端 sRGB encode 还原，否则整球观感被提亮（2026-09-07 实测色偏修复）。
+		void SubmitColors(Color[] perCellColors, bool showOutline)
 		{
-			Color[] colors = _mesh.BuildTileColors(_ball, scheme);
+			if (showOutline && _outlineWeights == null)
+				_outlineWeights = _mesh.BuildTileOutlineWeights(_ball, _vm.BoundaryCellVerts);
+			float[] weights = showOutline ? _outlineWeights : null;
+			var linear = new Color[perCellColors.Length];
+			for (int i = 0; i < perCellColors.Length; i++) linear[i] = perCellColors[i].SrgbToLinear();
+			Color[] colors = _mesh.BuildTileColors(_ball, linear, weights);
 			var am = (ArrayMesh)_meshInstance.Mesh;
 			am.ClearSurfaces();
 			var arr = new Godot.Collections.Array();
@@ -62,12 +85,10 @@ namespace World.NewHexWorld
 			am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
 		}
 
-		// 默认调试配色：122 基底格族分色（看清格型与五边形位置）。
-		private static Color DebugBaseColorScheme(ulong cell)
-			=> Color.FromHsv(H3.GetBaseCellNumber(cell) / 122f, 0.8f, 0.9f);
+	// ── 拾取 ──
 
-		// 拾取：屏幕点 → 相机射线 → 变换进 mesh 局部系（自转在 mesh 上，必须消除旋转
-		// 才能对上数据层坐标）→ 与球求最近正交点 → 交点方向 = 单位球坐标 → LatLngToCell。
+		// 拾取：屏幕点 → 相机射线 → 变换进 mesh 局部系（星球不自转后该变换为恒等，
+		// 保留以兼容未来节点级变换）→ 与球求最近正交点 → 交点方向 = 单位球坐标 → LatLngToCell。
 		// 返回命中格 id；未命中（射线不交球 / 点在球后）返回 null。
 		public ulong? PickCell(Vector2 screenPos, Camera3D camera)
 		{
@@ -75,19 +96,19 @@ namespace World.NewHexWorld
 			Vector3 o = toLocal * camera.ProjectRayOrigin(screenPos);      // 局部系射线原点
 			Vector3 d = (toLocal.Basis * camera.ProjectRayNormal(screenPos)).Normalized();  // 局部系射线方向
 
-			// 球心在局部原点、半径 Radius：|o + t·d|² = R² → t² + 2(o·d)t + (o·o−R²) = 0
+			// 球心在局部原点、半径 R：|o + t·d|² = R² → t² + 2(o·d)t + (o·o−R²) = 0
 			float b = o.Dot(d);
-			float c = o.Dot(o) - Radius * Radius;
+			float c = o.Dot(o) - _ball.Radius * _ball.Radius;
 			float disc = b * b - c;
 			if (disc < 0f) return null;               // 射线不交球
 			float t = -b - Mathf.Sqrt(disc);          // 最近交点（正面）
 			if (t < 0f) return null;                  // 球在相机背后
 
 			Vector3 hit = o + d * t;
-			Vector3 dir = hit / Radius;               // 单位球方向（数据层坐标系的经纬方向）
+			Vector3 dir = hit / _ball.Radius;         // 单位球方向（数据层坐标系的经纬方向）
 			double lat = Math.Asin(Mathf.Clamp(dir.Y, -1f, 1f));   // 弧度（门面 LatLng 与 h3api 一致）
 			double lng = Math.Atan2(dir.Z, dir.X);
-			return H3.LatLngToCell(new LatLng(lat, lng), ResLevel);
+			return H3.LatLngToCell(new LatLng(lat, lng), _ball.Res);
 		}
 	}
 }

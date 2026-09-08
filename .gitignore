@@ -27,3 +27,6 @@ obj/
 # Godot 运行期 user:// 重定向目录（APPDATA→runs/appdata；运行产物不入库）
 # 测试用 v5 存档也属运行资源，不入库
 /runs/
+
+# 工具本地缓存（空 tmp；不入库）
+/.hermes/

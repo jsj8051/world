@@ -1,10 +1,15 @@
 using Godot;
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using World.NewHexWorld.UI.Modes;
 
 namespace World.NewHexWorld.UI
 {
 	// 新世界归航坞（自旧 CukHud 迁移，独立演进）：模式按钮行状态 + 坞滑出/滑入动画（鼠标驱动）。
-	// 模式按钮 = %ModeRow 场景预置按钮（代码自动收集，无 LayerRegistry 依赖）——将来加模式 = 场景加按钮。
+	// 模式按钮 = %ModeRow 场景预置按钮（代码自动收集）；按钮文案/数量由 BindModes 从模式注册表
+	// 同源下行（场景只保留按钮顺序职责：下标 = 模式 Id = 注册序）——加模式 = 注册表注册一行
+	// + 场景加一个无文案按钮，错位/漏加由 BindModes 当场暴露。
 	// 坞动画用显式状态模型（用户拍板）：current 实时读 offset，唯一路径 from=CurrentPos() → to=target。
 	public partial class HexDock : PanelContainer
 	{
@@ -69,6 +74,19 @@ namespace World.NewHexWorld.UI
 			_currentMode = modeId;
 			for (int i = 0; i < _modeButtons.Length; i++)
 				_modeButtons[i].ButtonPressed = i == modeId;
+		}
+
+		// 下行：模式清单与坞按钮对账（组装器建好注册表后调一次）。按钮文案取模式 Name（注册表
+		// 单一事实源，场景文案只是编辑器预览）；数量不符当场抛——场景 ModeRow 与注册表不同步
+		// （顺序调了/漏加按钮）在启动首日暴露，而不是运行期静默错位高亮。
+		public void BindModes(IReadOnlyList<MapMode> modes)
+		{
+			if (_modeButtons == null) throw new InvalidOperationException("坞按钮未收集（_Ready 未跑）");
+			if (modes.Count != _modeButtons.Length)
+				throw new InvalidOperationException(
+					$"坞按钮数 {_modeButtons.Length} 与注册模式数 {modes.Count} 不同步：场景 ModeRow 与 MapModeRegistry 须一一对应（按钮顺序 = 注册序 = 模式 Id）");
+			for (int i = 0; i < _modeButtons.Length; i++)
+				_modeButtons[i].Text = modes[i].Name;
 		}
 
 		// ──────────────────────────────────────────────

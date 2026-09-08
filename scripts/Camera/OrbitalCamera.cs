@@ -30,6 +30,9 @@ namespace World.Camera
         public void SetPlanetRadius(float radiusKm)
         {
             _planetRadius = radiusKm;
+            // 近/远裁剪随半径重推（_Ready 同款公式；半径可变后必须同步，否则换档星球裁剪错位）
+            _camera.Near = _planetRadius * 0.01f;
+            _camera.Far = _planetRadius * 10f;
             // 初始满屏视图 + 缩放范围随 R 重算（当前距离若超出新范围则钳制）
             _distance = Mathf.Clamp(_distance, MinDistance, MaxDistance);
             _targetDistance = _distance;
@@ -40,10 +43,11 @@ namespace World.Camera
         {
             _camera = new Camera3D
             {
-                // 真实比例星球（默认半径 6371 km）：far 必须覆盖整颗球。
-                // near=10 允许贴地视角（最小 1.02× 半径 → 球面距相机 ~127km）
-                Near = 10f,
-                Far = 50000f
+                // 近/远裁剪按星球半径推导（2026-09-07 参数化：原 km 尺度写死 Near=10/Far=50000，
+                // 新世界 NewBall 用单位尺度 R=2 会被 Near 面裁掉整颗球）。
+                // km 尺度（R=6371）：Near≈64（< 贴地视角球面距 127，仍可贴地）、Far≈63710（> 最远 5R+R，覆盖全球）——行为与原写死值等价。
+                Near = _planetRadius * 0.01f,
+                Far = _planetRadius * 10f
             };
             AddChild(_camera);
             _camera.Current = true; // 必须在入树后设置，否则视口没有活动相机 → 黑屏

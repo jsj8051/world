@@ -1,0 +1,159 @@
+using System;
+using System.Linq;
+using Godot;
+using NUnit.Framework;
+using World.MapView.Layers;                       // 老树 ElevationLayer（色带照搬一致性对账）
+using World.NewHexWorld;
+using World.NewHexWorld.Plate;
+using World.NewHexWorld.UI.Modes;
+using World.Utils;                                // ColorRamp 停点类型
+
+namespace World.Tests;
+
+/// <summary>
+/// 地图模式策略层（MapMode：海陆/海拔/板块 + 注册表）投影正确性测试。
+/// 断言：海陆二元跳变与拍板色值（方案 A）、海拔色带与老树 ElevationLayer 停点逐点一致（照搬防漂移）
+/// 且取色 = 通用平滑采样、板块模式板色均布纯色 + 边界描边带叠加、注册表查重/查询。
+/// 纪律：只用 [Test]；不写文件；不触碰 GD.*/LogService；不依赖场景。
+/// </summary>
+public class MapModeTests
+{
+    private const int Res = 2;
+    private const int Plates = 15;
+    private const int Seed = 42;
+
+    static readonly Lazy<Ball> SharedBall = new(() => new Ball(Res, 1f));
+    static readonly Lazy<H3Plate> SharedPlate = new(() =>
+    {
+        var p = new H3Plate(SharedBall.Value);
+        p.CreatePlates(Plates, Seed);
+        return p;
+    });
+
+    static H3Plate Plate => SharedPlate.Value;
+    static Crust Crust => Plate.Crust;
+    static int PlateCount => Plate.NumPlates;
+
+    // ═══════════════════════════════════════════════════════════════
+    // 海陆模式（Id 0 默认）
+    // ═══════════════════════════════════════════════════════════════
+
+    [Test]
+    public void LandSeaMode_TwoTierColors_MatchPaletteA()
+    {
+        var mode = new LandSeaMapMode(Crust);
+        Assert.AreEqual(0, mode.Id);
+        Assert.AreEqual("海陆", mode.Name);
+        Assert.IsTrue(mode.ShowPlateBoundaries, "海陆模式应叠加板块边界线");
+        for (int i = 0; i < Crust.PlateId.Length; i++)
+        {
+            bool land = Crust.FelsicThick[i] > 0f;
+            Color c = mode.CellColorAt(i);
+            Assert.AreEqual(land ? LandSeaMapMode.LandColor : LandSeaMapMode.OceanColor, c,
+                $"格 {i}（{(land ? "陆" : "洋")}）投影色不符方案 A");
+        }
+        // 方案 A 色值锚定（拍板 09-07；判读后调常量时同步改这里）
+        Assert.AreEqual(new Color(0.10f, 0.22f, 0.48f), LandSeaMapMode.OceanColor, "海色 = 老树 SeaColor 同款");
+        Assert.AreEqual(new Color(0.58f, 0.78f, 0.32f), LandSeaMapMode.LandColor, "陆色 = 海拔带 500m 同款");
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 海拔模式（Id 1）：色带照搬老树逐点一致 + 取色平滑采样
+    // ═══════════════════════════════════════════════════════════════
+
+    [Test]
+    public void ElevationStops_MatchLegacyLayer_NoColorDrift()
+    {
+        var theirs = ElevationLayer.ElevationStops;
+        var ours = ElevationMapMode.ElevationStops;
+        Assert.AreEqual(theirs.Length, ours.Length, "停点数须一致（照搬整表）");
+        for (int i = 0; i < theirs.Length; i++)
+        {
+            Assert.AreEqual(theirs[i].Pos, ours[i].Pos, $"停点 {i} 位置漂移");
+            Assert.AreEqual(theirs[i].C, ours[i].C, $"停点 {i} 颜色漂移");
+        }
+    }
+
+    [Test]
+    public void ElevationMode_InitialTwoTier_SeaBlueLandGreenYellow()
+    {
+        var mode = new ElevationMapMode(Crust);
+        Assert.AreEqual(1, mode.Id);
+        Assert.AreEqual("海拔", mode.Name);
+        Assert.IsTrue(mode.ShowPlateBoundaries, "海拔模式应叠加板块边界线（海岸线 = 0m 线双重视觉对照）");
+
+        for (int i = 0; i < Crust.PlateId.Length; i++)
+        {
+            float elev = Crust.Elevation[i];
+            Color c = mode.CellColorAt(i);
+            Color expect = ColorRamp.RampSampleSmooth(ElevationMapMode.ElevationStops, elev);
+            Assert.AreEqual(expect, c, $"格 {i} 海拔取色应与平滑采样一致");
+            if (elev >= 0f)
+            {
+                // 陆格初值 +800m：落在 [500 浅绿, 2000 金黄) 段的绿黄系（R < G，未到金黄翻 R > G）
+                Assert.Greater(c.G, c.R, $"陆格 {i}（+800m）应绿黄系（浅绿为主，R<G）");
+                Assert.Less(c.B, 0.5f, $"陆格 {i} 绿黄系不应偏蓝");
+            }
+            else
+            {
+                // 洋格初值 −3700m：落在 [-6000 靛蓝, -2000 深蓝) 段的蓝系（B 分量最大）
+                Assert.Greater(c.B, c.R, $"洋格 {i}（−3700m）应蓝系");
+                Assert.Greater(c.B, c.G, $"洋格 {i}（−3700m）应蓝系");
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 板块模式（Id 2）：板色均布纯色 + 边界描边带叠加（09-09 拍板，弃整格暗化）
+    // ═══════════════════════════════════════════════════════════════
+
+    [Test]
+    public void PlateMode_PurePlateColors_WithOutlineOverlay()
+    {
+        var ball = SharedBall.Value;
+        var mode = new PlateMapMode(Crust, PlateCount,
+            Enumerable.Range(0, PlateCount).Select(p => Crust.PlateId.Count(x => x == p)).ToArray());
+        Assert.AreEqual(2, mode.Id);
+        Assert.AreEqual("板块", mode.Name);
+        Assert.IsTrue(mode.ShowPlateBoundaries, "板块模式应叠加边界描边带（09-09 拍板，弃板色自带界）");
+
+        for (int i = 0; i < Crust.PlateId.Length; i++)
+        {
+            Color baseCol = PlateMapMode.PlateColor(Crust.PlateId[i], PlateCount);
+            Assert.AreEqual(baseCol, mode.CellColorAt(i),
+                $"格 {i} 应为板基准纯色（边界观感由描边带负责，取色不掺暗化）");
+        }
+        // 板色相均布：相邻板号色相差 ≈ 1/P（只差色相、同 S/L → 色相差即 |Δh|）
+        for (int p = 0; p < PlateCount - 1; p++)
+        {
+            var a = PlateMapMode.PlateColor(p, PlateCount);
+            var b = PlateMapMode.PlateColor(p + 1, PlateCount);
+            Assert.AreEqual(1f / PlateCount, Mathf.Abs(a.H - b.H), 1e-5f, $"板 {p}/{p + 1} 色相应均布");
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 注册表
+    // ═══════════════════════════════════════════════════════════════
+
+    [Test]
+    public void Registry_RegisterQuery_ByIdWorks_DuplicateThrows()
+    {
+        var registry = new MapModeRegistry();
+        registry.Register(new LandSeaMapMode(Crust));
+        registry.Register(new ElevationMapMode(Crust));
+        registry.Register(new PlateMapMode(Crust, PlateCount,
+            Enumerable.Range(0, PlateCount).Select(p => Crust.PlateId.Count(x => x == p)).ToArray()));
+
+        Assert.AreEqual(3, registry.Modes.Count, "模式清单 = 海陆/海拔/板块");
+        Assert.AreEqual(0, registry.Modes[0].Id);
+        Assert.AreEqual(1, registry.Modes[1].Id);
+        Assert.AreEqual(2, registry.Modes[2].Id);
+        Assert.AreEqual("海陆", registry.ById(0).Name);
+        Assert.AreEqual("海拔", registry.ById(1).Name);
+        Assert.AreEqual("板块", registry.ById(2).Name);
+        Assert.Throws<InvalidOperationException>(() => registry.Register(new LandSeaMapMode(Crust)),
+            "重复 Id 注册须当场暴露");
+        Assert.Throws<InvalidOperationException>(() => registry.ById(9), "未注册 Id 查询须当场暴露");
+    }
+}

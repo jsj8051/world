@@ -1,114 +1,110 @@
 using Godot;
-using System;
-using System.Collections.Generic;
-using World.MapView;              // TileInfoEntry（格信息条目结构）
-using World.NewHexWorld.Plate;    // H3Plate
-using World.NewHexWorld.Planet;   // H3PlateManager
-using World.NewHexWorld.UI;       // HexDock / HexInfoPanel
-using World.Utils.H3;
+using World.Camera;                          // OrbitalCamera（老树轨道相机，单源复用）
+using World.NewHexWorld.Planet;              // H3PlateManager
+using World.NewHexWorld.UI;                  // HexDock / HexInfoPanel
+using World.NewHexWorld.UI.Modes;            // 地图模式策略 + 注册表
+using World.NewHexWorld.UI.ViewModels;       // 球视图 / 坞 / 格信息 VM
 
 namespace World.NewHexWorld
 {
-	// 场景 Root 编排：内容层（H3Plate 板块）→ BallView 染色 + UI（HexDock 坞 / HexInfoPanel 格信息）+ 点击拾取。
-	// 地图模式：0=板块地图（坞内唯一模式；将来加模式在 OnModeSelected 扩展）。
+	// 场景根 = 组装器 + 输入路由（设计入口 §2.2/§2.4）：构造全部逻辑层对象（Ball → H3PlateManager
+	// 静态生成）→ 建 MapModeRegistry（三模式策略注入 Model）→ 建各视图 VM（注入 Model/当前模式）→
+	// 下行注入 View（BallView.Init/Bind、HexDock.BindModes、信息面板事件接线）→ 承担点击拾取输入路由。
+	// 相机 = OrbitalCamera（老树单源复用：左键拖转/滚轮缩放/WASD）；本类不承载业务数据
+	// （只留场景调参旋钮 ResLevel/Radius/NumPlates/Seed）；数据流 = Model → VM 派生 → View。
 	public partial class BallManager : Node3D
 	{
-		[Export] public int NumPlates = 12;      // 板块数（Voronoi 种子数）
-		[Export] public int Seed = 42;           // 星球种子（同 seed 永远同一板块格局）
+		[Export] public int ResLevel = 3;        // H3 分辨率档（Ball 单一事实源；相机/视图全由此推导）
+		[Export] public float Radius = 2.0f;     // 球半径（须与 OrbitalCamera._planetRadius 场景同值）
+		[Export] public int NumPlates = 15;      // 板块数 P（设计参数表：10–20 区间，默认 15）
+		[Export] public int Seed = 42;           // 星球种子（定胞心抽取/生长/陆性，同 seed 全球同局）
 
-		Camera3D _camera;                        // 子节点：相机（拾取射线源）
-		BallView _ballView;                      // 子节点：球视图（Ball/BallMesh/染色/拾取）
-		H3PlateManager _plates;                  // 内容层：板块场
-		HexDock _dock;                           // 地图模式坞（UiLayer 下）
-		HexInfoPanel _infoPanel;                 // 格信息面板（UiLayer 下）
-		int _mode;                               // 当前地图模式（0=板块地图）
+		OrbitalCamera _orbitalCamera;            // 子节点：轨道相机（拖转/缩放/拾取射线源）
+		BallView _ballView;                      // 子节点：球视图（View）
+		H3PlateManager _plates;                  // 逻辑层：静态地壳场 + 板统计（唯一权威）
+		HexDock _dock;                           // 坞（View；模式按钮 + 坞动画）
+		HexInfoPanel _infoPanel;                 // 格信息面板（View）
+		DockViewModel _dockVm;                   // 坞 VM：模式列表 + 当前模式（交互状态）
+		HexWorldViewModel _worldVm;              // 球视图 VM：颜色投影/边界描边/统计
+		CellInfoViewModel _cellInfoVm;           // 格信息 VM：拾取格 → 条目
+
+		// 点击拾取判别（老树同款）：按下记位，释放时位移 <8px 且时长 <300ms 视为点击——
+		// 拖动旋转（OrbitalCamera 消费）不会误触发格信息拾取。
+		Vector2 _pickPressPos;
+		ulong _pickPressTime;
+		bool _pickPressArmed;
 
 		public override void _Ready()
 		{
-			_camera = GetNode<Camera3D>("Camera3D");
-			_camera.Position = new Vector3(0f, 0f, 3f);   // 球半径 1 → 摆到球外
-			_camera.LookAt(Vector3.Zero, Vector3.Up);
+			_orbitalCamera = GetNode<OrbitalCamera>("OrbitalCamera");
 
-			// 内容：Voronoi 分板块（BallView._Ready 已先建好 Ball → BallData 可用）
+			// ① 逻辑层（Model 构造权全在组装器，View 只收已建好的引用）：
+			//    Ball 网格数据 → 注入球视图建几何 → H3PlateManager 静态生成地壳场
 			_ballView = GetNode<BallView>("Ball");
+			var ball = new Ball(ResLevel, Radius);
+			_ballView.Init(ball);
 			_plates = new H3PlateManager();
-			_plates.Init(_ballView.BallData, NumPlates, Seed);
-			ShowPlateMap();
+			_plates.Init(ball, NumPlates, Seed);
 
-			// UI：模式坞 + 格信息面板（场景挂在 UiLayer 下）
+			// ② 模式策略注册表（MapMode 注入 Model 只读引用；注册序 = 坞按钮序 = Id 0/1/2）
+			var registry = new MapModeRegistry();
+			registry.Register(new LandSeaMapMode(_plates.Plate.Crust));
+			registry.Register(new ElevationMapMode(_plates.Plate.Crust));
+			registry.Register(new PlateMapMode(_plates.Plate.Crust,
+				_plates.NumPlates, _plates.PlateCounts));
+
+			// ③ VM（注入 Model；初始模式 = Id 0 海陆——坞按钮默认高亮同由 HexDock._Ready 置位）
+			_worldVm = new HexWorldViewModel(ball, _plates, registry.ById(0));
+			_dockVm = new DockViewModel(registry);
+			_cellInfoVm = new CellInfoViewModel(ball, _plates, registry.ById(0));
+
+			// ④ View 接线（全部下行注入）：球视图订阅 VM 变更信号 → 首帧即渲染海陆模式 + 边界线；
+			//    坞按钮文案/数量与注册表对账（不同步当场抛，见 HexDock.BindModes）
+			_ballView.Bind(_worldVm);
+
+			// UI：坞模式点击（View 事件上抛）→ 坞 VM 选择 → 广播：球视图重投影 + 格信息换策略 + 坞高亮
 			var uiLayer = GetNode<CanvasLayer>("UiLayer");
 			_dock = uiLayer.GetNode<HexDock>("HexDock");
-			_dock.ModeSelected += OnModeSelected;
-			_dock.SetMode(0);
+			_dock.BindModes(_dockVm.Modes);
+			_dock.ModeSelected += modeId => _dockVm.Select(modeId);
+			_dockVm.ModeChanged += mode =>
+			{
+				_worldVm.ApplyMode(mode);
+				_cellInfoVm.SetMode(mode);
+				_dock.SetMode(mode.Id);
+			};
+
+			// 格信息面板：VM 条目事件 → 面板渲染（null = 无选中 → 隐藏）
 			_infoPanel = uiLayer.GetNode<HexInfoPanel>("HexInfoPanel");
+			_cellInfoVm.EntriesChanged += entries =>
+			{
+				if (entries == null) _infoPanel.HidePanel();
+				else _infoPanel.ShowAt(entries);
+			};
 		}
 
-		// ── 地图模式（0=板块地图；将来加模式在此扩展）──
-
-		private void OnModeSelected(int modeId)
-		{
-			_mode = modeId;
-			if (modeId == 0) ShowPlateMap();   // 板块地图（当前唯一模式，重染幂等）
-		}
-
-		// 板块地图：套用"每格按板块着色 + 边界暗化"的配色方案。
-		private void ShowPlateMap() => _ballView.ApplyColorScheme(PlateMapColorAt);
-
-		// 板块地图配色：该格所属板块色；边界格（任一邻居异板）暗化 → 汇聚带一眼可见。
-		private Color PlateMapColorAt(ulong cell)
-		{
-			int i = _ballView.BallData.CellIndexOf(cell);
-			int plate = _plates.Plate.PlateId[i];
-			Color col = PlateColor(plate);
-			return IsPlateBoundary(i) ? col * 0.45f : col;
-		}
-
-		// 板块基准色：板号 → HSV 均布色相。
-		private Color PlateColor(int plate) => Color.FromHsv(plate / (float)NumPlates, 0.8f, 0.9f);
-
-		// 边界判定：格 i 是否有任一邻居属于别的板块。
-		private bool IsPlateBoundary(int cellIndex)
-		{
-			var ball = _ballView.BallData;
-			int plate = _plates.Plate.PlateId[cellIndex];
-			foreach (int j in ball.CellNeighbors[cellIndex])
-				if (_plates.Plate.PlateId[j] != plate) return true;
-			return false;
-		}
-
-		// ── 点击拾取：射线 → 球面格 → 填信息面板 ──
+		// ── 输入路由：点击拾取 → 格信息 VM（不承载业务数据）──
+		// 点击判别 = 老树同款"按下记位/释放判点击"（位移 <8px 且时长 <300ms）：
+		// 左键拖动已被 OrbitalCamera 消费为旋转，此处只放行真正的点击；空白处点击 → 隐藏面板。
 
 		public override void _UnhandledInput(InputEvent @event)
 		{
-			if (@event is InputEventMouseButton { ButtonIndex: MouseButton.Left, Pressed: true } ev)
+			if (@event is not InputEventMouseButton mb || mb.ButtonIndex != MouseButton.Left) return;
+			if (mb.Pressed)
 			{
-				ulong? cell = _ballView.PickCell(ev.Position, _camera);
-				if (cell is ulong id) _infoPanel.ShowAt(BuildCellInfoEntries(id));
-				else _infoPanel.HidePanel();   // 点到空白（球外）→ 隐藏
+				_pickPressPos = mb.Position;
+				_pickPressTime = Time.GetTicksMsec();
+				_pickPressArmed = true;
 			}
-		}
-
-		// 组装该格格信息条目：格子号 / 板块(色块) / 板块大小与占比 / 经纬度（纯数据，显示交面板）。
-		private List<TileInfoEntry> BuildCellInfoEntries(ulong cell)
-		{
-			var ball = _ballView.BallData;
-			int i = ball.CellIndexOf(cell);
-			int plate = _plates.Plate.PlateId[i];
-			int cellCount = ball.CellIds.Length;
-			float sharePct = _plates.PlateCounts[plate] * 100f / cellCount;
-
-			var ll = H3.CellToLatLng(cell);   // 弧度 → 度（显示用）
-			double latDeg = ll.Lat * 180.0 / Math.PI;
-			double lngDeg = ll.Lng * 180.0 / Math.PI;
-
-			return new List<TileInfoEntry>
+			else if (_pickPressArmed)
 			{
-				new("格子", H3.H3ToString(cell), PlateMapColorAt(cell)),   // 色块 = 该格当前颜色
-				new("板块", plate.ToString(), PlateColor(plate)),
-				new("板块格数", _plates.PlateCounts[plate].ToString()),
-				new("全球占比", $"{sharePct:F1}%"),
-				new("经纬度", $"{latDeg:F1}°, {lngDeg:F1}°"),
-			};
+				_pickPressArmed = false;   // 无论是否点击都复位（下一次按下重新记位）
+				if (mb.Position.DistanceTo(_pickPressPos) >= 8f
+					|| Time.GetTicksMsec() - _pickPressTime >= 300) return;   // 拖动 → 不拣选
+				ulong? cell = _ballView.PickCell(mb.Position, _orbitalCamera.Cam);
+				if (cell is ulong id) _cellInfoVm.ShowCell(id);
+				else _cellInfoVm.Hide();   // 点到空白（球外）→ 隐藏面板
+			}
 		}
 	}
 }
