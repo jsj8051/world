@@ -12,16 +12,18 @@ public class BallMesh
     public Vector3[] DisplayVerts => _displayVerts;    // 渲染用：显示网格顶点
     public int[] DisplayIndices => _displayIndices;    // 渲染用：三角索引
     public Vector2[] DisplayUv => _displayUv;          // 渲染用：UV = 格纹素中心（region_data 查找）
-    public Vector2[] DisplayCellDirXy => _cellDirXy;   // 渲染用：UV2 = 格心单位方向 x/y（z 片元重构）
-    public Color[] DisplayCellAttrs => _cellAttrs;     // 渲染用：R=边0法向方位角/2π，G=旗标字节，B/A=1
-    Vector3[] _displayVerts;    // 显示网格：每格 [格心, 角0..角m-1] 块（格心扇形）
+    public Vector2[] DisplayCellLocal => _cellLocal;   // 渲染用：UV2 = 格心切面坐标（片元位置）
+    public Color[] DisplayCellAttrs => _cellAttrs;     // 渲染用：R=旗标 G/B=边法向 A=内切半径（归一）
+    Vector3[] _displayVerts;    // 显示网格：每格 m 个三角 × 3 顶点（逐三角复制，属性插值恒精确）
     Vector2[] _displayUv;       // 逐顶点 UV：格数据纹理纹素中心（块内同值 → 插值恒定）
-    Vector2[] _cellDirXy;       // 逐顶点 UV2：格心单位方向 x/y（块内同值 → 插值 = 常量精确）
-    Color[] _cellAttrs;         // 逐顶点格属性（块内同值）：R=边0法向方位角/2π、G=旗标字节、B/A=1
-    int[] _displayIndices;      // 格心扇形三角索引
-    int[] _tileVertOffset;      // 每格块起点
+    Vector2[] _cellLocal;       // 逐顶点 UV2：格心切面坐标（格心 (0,0)、角点为其切面坐标）
+    Color[] _cellAttrs;         // 逐顶点 COLOR：R=边旗、G/B=边法向 xy、A=内切半径/ρ尺度（逐三角常量）
+    int[] _displayIndices;      // 三角索引
+    int[] _tileVertOffset;      // 每格首个三角顶点起点（每格 3m 个顶点）
 
-    const float TwoPi = 6.2831855f;
+    public float RhoScale { get; private set; } = 0.02f;          // COLOR.a 的内切半径归一化尺度（rad）
+    public Vector2 CellMetricsHex { get; private set; } = Vector2.Zero;   // 六边格（内切半径, 半边长）
+    public Vector2 CellMetricsPent { get; private set; } = Vector2.Zero;  // 五边格
 
     public BallMesh()
     {
@@ -39,17 +41,18 @@ public class BallMesh
         new(((cellIndex % width) + 0.5f) / width, ((cellIndex / width) + 0.5f) / height);
 
     // 切线框架（CPU 与 sphere_region_material 同式）：tu = up×ĉ 归一、tv = ĉ×tu——
-    // 两式框架一致，片元侧的边方位角才与 CPU 写入的 θ 对齐。
-    public static (Vector3 Tu, Vector3 Tv) TangentFrame(Vector3 cDir)
+    // 两式框架一致，片元侧的边法向/切面坐标才与 CPU 写入的属性对齐。
+    static (Vector3 Tu, Vector3 Tv) TangentFrame(Vector3 cDir)
     {
         Vector3 up = Math.Abs(cDir.Y) < 0.98f ? Vector3.Up : Vector3.Right;
         Vector3 tu = up.Cross(cDir).Normalized();
         return (tu, cDir.Cross(tu));
     }
 
-    // 各格平均内切半径/半边长（切线平面弦长单位，rad 级）：[0]=六边格、[1]=五边格。
-    // 供片元解析式边距用（正六/五边形模型；H3 畸变带来的 ±数% 逐格偏差可接受）。
-    public static Vector2[] ComputeCellMetrics(Ball ball)
+    // 采样格（首个六边格 + 首个五边格）实测几何度量：内切半径 ρ 与半边长（切线平面单位）。
+    // 供片元解析边距：COLOR.a 归一化尺度、段端圆角的半长阈值。逐格畸变由每三角真实法向/ρ 承担，
+    // 此处均值只作为 COLOR.a 归一化尺度与五边格半长近似。
+    public void ComputeCellMetrics(Ball ball)
     {
         var hex = Vector2.Zero;
         var pent = Vector2.Zero;
@@ -59,21 +62,23 @@ public class BallMesh
             ulong[] vids = H3.CellToVertexes(ball.CellIds[i]);
             int m = vids.Length;
             if ((m == 6 && hexN > 0) || (m == 5 && pentN > 0)) continue;
-            Vector3 c = ball.CellCenters[i].Normalized();
-            var (tu, tv) = TangentFrame(c);
+            Vector3 cDir = ball.CellCenters[i].Normalized();
+            var (tu, tv) = TangentFrame(cDir);
             float rho = 0f, halfL = 0f;
             for (int k = 0; k < m; k++)
             {
                 Vector2 tK = CornerTangent(ball, vids[k], tu, tv);
                 Vector2 tK1 = CornerTangent(ball, vids[(k + 1) % m], tu, tv);
-                Vector2 mid = (tK + tK1) * 0.5f;                 // 边中点 = 内切圆触点方向
+                Vector2 mid = (tK + tK1) * 0.5f;
                 rho += mid.Length();
                 halfL += (tK1 - tK).Length() * 0.5f;
             }
             if (m == 6) { hex = new Vector2(rho / m, halfL / m); hexN = 1; }
             else { pent = new Vector2(rho / m, halfL / m); pentN = 1; }
         }
-        return new[] { hex, pent };
+        RhoScale = Math.Max(hex.X, 1e-4f) * 4f;   // COLOR.a 8bit：ρ/尺度 → 步长 ≈ ρ/64（带宽的 ~4%）
+        CellMetricsHex = hex;
+        CellMetricsPent = pent;
     }
 
     static Vector2 CornerTangent(Ball ball, ulong vid, Vector3 tu, Vector3 tv)
@@ -82,19 +87,21 @@ public class BallMesh
         return new Vector2(d.Dot(tu), d.Dot(tv));
     }
 
-    // 格块布局 = [格心, 角0..角m-1]（六边格 m=6 / 五边格 m=5），格心 = 角点均值投影回球面。
-    // 扇形三角 (格心, 角k, 角k+1) 环绕取模闭合。（2026-09-09 v3 起**边顶点不再复制**：描边带改
-    // 片元解析六边距离——每格常量属性（格心方向/边方位角/旗标）块内插值恒精确，无需每边独立
-    // 插值参数，几何大幅简化。）
-    // UV 全块写同一纹素中心；UV2 = 格心方向 x/y（块内常量）；COLOR = (θ/2π, 旗标字节/255 待填, 0, 1)。
+    // 格块布局 = 每格 m 个三角 × 3 顶点 [center_k, corner_k, corner_k+1]（逐三角复制）。
+    // 描边带需要片元处"到本格旗标边线段的精确距离"——每条边的法向/旗标必须作为该三角的常量
+    // 属性下发，因此三角的三个顶点独占（格心/角点不再跨三角共用，2026-09-09 v3 解析边距方案）。
+    // 逐顶点属性：
+    //   UV   = 格纹素中心（region_data 查找）；
+    //   UV2  = 格心切面坐标（格心 (0,0)、角点为其切面投影）——插值 = 片元自身切面坐标；
+    //   COLOR= (旗标 f, 法向 n.x, 法向 n.y, ρ/RhoScale)——逐三角常量，插值恒精确。
     public void BuildTileMeshData(Ball ball, float radius)
     {
         int n = ball.CellIds.Length;
-        _displayVerts = new Vector3[7 * n - 12];    // 六边格 7（格心+6角）×(n−12) + 五边格 6×12
-        _displayIndices = new int[18 * n - 36];     // 每格 m 个三角：6×3×(n−12) + 5×3×12
+        _displayVerts = new Vector3[18 * n - 36];   // 六边格 18（6 三角×3）×(n−12) + 五边格 15×12
         _displayUv = new Vector2[_displayVerts.Length];
-        _cellDirXy = new Vector2[_displayVerts.Length];
+        _cellLocal = new Vector2[_displayVerts.Length];
         _cellAttrs = new Color[_displayVerts.Length];
+        _displayIndices = new int[18 * n - 36];
         _tileVertOffset = new int[n];
         int texW = DataTexWidth(n), texH = (n + texW - 1) / texW;
         int v = 0, t = 0;
@@ -107,41 +114,44 @@ public class BallMesh
             int m = vids.Length;
             Vector3 cDir = ball.CellCenters[i].Normalized();
             var (tu, tv) = TangentFrame(cDir);
-            Vector2 t0 = CornerTangent(ball, vids[0], tu, tv);
-            Vector2 t1 = CornerTangent(ball, vids[1], tu, tv);
-            Vector2 mid01 = (t0 + t1) * 0.5f;                       // 边 0（角0-角1）法向方位
-            float theta = Mathf.Atan2(mid01.Y, mid01.X);
-            if (theta < 0) theta += TwoPi;
-
-            int v0 = v;                                             // 块首格心（全部 m 个三角共用）
             Vector3 center = Vector3.Zero;
             for (int k = 0; k < m; k++)
                 center += ball.VertexPositions[ball.VertexIndexOf(vids[k])];
-            _displayVerts[v] = center.Normalized() * radius;
-            _displayUv[v] = uv;
-            _cellDirXy[v] = new Vector2(cDir.X, cDir.Y);
-            _cellAttrs[v] = new Color(theta / TwoPi, 0f, 0f, 1f);   // G 旗标字节由 BuildCellAttributeFlags 填
-            v++;
+            center = center.Normalized() * radius;
+
             for (int k = 0; k < m; k++)
             {
-                int ck = v0 + 1 + k;                                // 角 k
-                _displayVerts[ck] = ball.VertexPositions[ball.VertexIndexOf(vids[k])];
-                _displayUv[ck] = uv;
-                _cellDirXy[ck] = new Vector2(cDir.X, cDir.Y);
-                _cellAttrs[ck] = new Color(theta / TwoPi, 0f, 0f, 1f);
-                int ck1 = v0 + 1 + ((k + 1) % m);                   // 环绕取模：末边绕回角 0
-                _displayIndices[t++] = v0;                          // 三角 (格心, 角k, 角k+1)
-                _displayIndices[t++] = ck;
-                _displayIndices[t++] = ck1;
+                Vector2 tK = CornerTangent(ball, vids[k], tu, tv);
+                Vector2 tK1 = CornerTangent(ball, vids[(k + 1) % m], tu, tv);
+                Vector2 mid = (tK + tK1) * 0.5f;
+                Vector2 nrm = mid.Normalized();                     // 边 k 外法向（切面）；勿名 n——与外层格数 n 冲突
+                float rho = mid.Length();                           // 内切半径（切面弦单位）
+                Color attr = new Color(0f, nrm.X * 0.5f + 0.5f, nrm.Y * 0.5f + 0.5f, rho / RhoScale);
+
+                _displayVerts[v] = center;                          // 三角三顶点：格心 + 两角（逐三角复制）
+                _displayVerts[v + 1] = ball.VertexPositions[ball.VertexIndexOf(vids[k])];
+                _displayVerts[v + 2] = ball.VertexPositions[ball.VertexIndexOf(vids[(k + 1) % m])];
+                _displayUv[v] = uv;
+                _displayUv[v + 1] = uv;
+                _displayUv[v + 2] = uv;
+                _cellLocal[v] = Vector2.Zero;                       // 格心 = 切面原点
+                _cellLocal[v + 1] = tK;
+                _cellLocal[v + 2] = tK1;
+                _cellAttrs[v] = attr;                               // 旗标由 BuildCellAttributeFlags 填
+                _cellAttrs[v + 1] = attr;
+                _cellAttrs[v + 2] = attr;
+                _displayIndices[t++] = v;                           // 三角 (格心, 角k, 角k+1)
+                _displayIndices[t++] = v + 1;
+                _displayIndices[t++] = v + 2;
+                v += 3;
             }
-            v = v0 + 1 + m;                                         // 推进到下一格块首
         }
     }
 
-    // 逐格旗标字节落 COLOR.g（描边渲染输入，建一次常驻；块内全顶点同值 → 插值精确）：
-    // bit0..5 = 边 k（角 k→角 k+1）是否异板边（片元只对旗标边算距离），bit6 = 格心方向 z 为负，
-    // bit7 = 五边格。boundaryEdges = VM 的 H3Plate.ExtractBoundaryCellEdges 派生集
-    // （(格 id, 顶点对规范化序 va<vb)，与片元解析的距离计算同源）。
+    // 逐格逐【边】的异板边旗落 COLOR.r（描边渲染输入，建一次常驻）：边 ∈ 边界格边集 → 该边所属
+    // 三角的三个顶点旗 1，片元对旗标边求到线段的精确距离。同板边绝不描边（2026-09-09 误描修复），
+    // 拐角由段端距离自动圆角衔接（2026-09-09 缺口/深斑修复——不再需要角点帽）。
+    // boundaryEdges = VM 的 H3Plate.ExtractBoundaryCellEdges 派生集（(格 id, 顶点对规范化序 va<vb)）。
     public void BuildCellAttributeFlags(Ball ball, IReadOnlySet<(ulong cell, ulong va, ulong vb)> boundaryEdges)
     {
         for (int i = 0; i < ball.CellIds.Length; i++)
@@ -151,21 +161,17 @@ public class BallMesh
             int m = vids.Length;
             int off = _tileVertOffset[i];
 
-            int flags = m == 5 ? 128 : 0;                           // bit7：五边格
-            if (ball.CellCenters[i].Z < 0) flags |= 64;             // bit6：格心方向 z 为负
             for (int k = 0; k < m; k++)
             {
                 ulong v1 = vids[k], v2 = vids[(k + 1) % m];
                 (ulong va, ulong vb) = v1 < v2 ? (v1, v2) : (v2, v1);   // 集合键 = 规范化序（与提取口同规）
-                if (boundaryEdges.Contains((cell, va, vb))) flags |= 1 << k;
-            }
-
-            float g = flags / 255f;
-            int count = m + 1;
-            for (int j = 0; j < count; j++)
-            {
-                Color c = _cellAttrs[off + j];
-                _cellAttrs[off + j] = new Color(c.R, g, 0f, 1f);
+                float f = boundaryEdges.Contains((cell, va, vb)) ? 1f : 0f;
+                int tri = off + 3 * k;
+                Color attr = _cellAttrs[tri];
+                attr.R8 = (byte)(f * 255f);
+                _cellAttrs[tri] = attr;
+                _cellAttrs[tri + 1] = attr;
+                _cellAttrs[tri + 2] = attr;
             }
         }
     }

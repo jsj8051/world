@@ -30,7 +30,8 @@ namespace World.NewHexWorld
 		{
 			_ball = ball;
 			_mesh = new BallMesh();
-			_mesh.BuildTileMeshData(_ball, _ball.Radius);
+			_mesh.ComputeCellMetrics(ball);           // 度量先行（COLOR.a 的 ρ 归一化尺度在此确定）
+			_mesh.BuildTileMeshData(ball, _ball.Radius);
 			CreateMeshNode();
 		}
 
@@ -59,22 +60,21 @@ namespace World.NewHexWorld
 		// ── 渲染提交（一次性）──
 
 		// 建格面节点（只建一次）：全域材质 = sphere_region_material + 逐格数据纹理区域查找，
-		// 并注入格几何度量（内切半径/半边长，片元解析边距用）。
+		// 并注入解析边距度量（ρ 归一化尺度、半边长）。
 		void CreateMeshNode()
 		{
 			_material = new ShaderMaterial
 			{
 				Shader = GD.Load<Shader>("res://shaders/sphere_region_material.gdshader"),
 			};
-			var metrics = BallMesh.ComputeCellMetrics(_ball);
-			_material.SetShaderParameter("cell_metrics_hex", metrics[0]);
-			_material.SetShaderParameter("cell_metrics_pent", metrics[1]);
+			_material.SetShaderParameter("rho_scale", _mesh.RhoScale);
+			_material.SetShaderParameter("cell_half_len", _mesh.CellMetricsHex.Y);
 			_meshInstance = new MeshInstance3D { Mesh = new ArrayMesh(), MaterialOverride = _material };
 			AddChild(_meshInstance);
 		}
 
 		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）+ UV2/COLOR
-		// （格常量属性：格心方向 / 边方位角 / 旗标字节，块内插值恒精确）。
+		// （切面坐标与逐边解析属性：旗标/法向/内切半径，逐三角常量插值恒精确）。
 		// 几何常驻不再动；取色与描边全在片元侧派生。
 		void SubmitSurface()
 		{
@@ -83,7 +83,7 @@ namespace World.NewHexWorld
 			arr.Resize((int)Mesh.ArrayType.Max);
 			arr[(int)Mesh.ArrayType.Vertex] = _mesh.DisplayVerts;
 			arr[(int)Mesh.ArrayType.TexUV] = _mesh.DisplayUv;
-			arr[(int)Mesh.ArrayType.TexUV2] = _mesh.DisplayCellDirXy;
+			arr[(int)Mesh.ArrayType.TexUV2] = _mesh.DisplayCellLocal;
 			arr[(int)Mesh.ArrayType.Color] = _mesh.DisplayCellAttrs;
 			arr[(int)Mesh.ArrayType.Index] = _mesh.DisplayIndices;
 			am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);

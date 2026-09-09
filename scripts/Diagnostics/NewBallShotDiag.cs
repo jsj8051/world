@@ -20,7 +20,7 @@ public partial class NewBallShotDiag : Node
 	string _outPath = "user://maps/newball_shot.png";
 	const int BaseShotFrame = 10;    // 全景截图帧（首帧提交 + 渲染稳定）
 	const int CloseShotFrame = 18;   // 病征格特写截图帧
-	const int PlateShotFrame = 26;   // 板块模式特写截图帧
+	const int PlateShotFrame = 42;   // 板块模式特写截图帧
 
 	public override void _Ready()
 	{
@@ -37,7 +37,11 @@ public partial class NewBallShotDiag : Node
 		if (_frame == BaseShotFrame) Shot(_outPath, "海拔·全景");
 		if (_frame == BaseShotFrame + 1) AimBugCell();
 		if (_frame == CloseShotFrame) Shot(InsertSuffix(_outPath, "_closeup"), "海拔·病征格特写");
-		if (_frame == CloseShotFrame + 1)
+		if (_frame == CloseShotFrame + 1) AimSpecial(true);           // 五边格
+		if (_frame == CloseShotFrame + 8) Shot(InsertSuffix(_outPath, "_pent"), "五边格特写");
+		if (_frame == CloseShotFrame + 9) AimSpecial(false);          // 极区格
+		if (_frame == CloseShotFrame + 16) Shot(InsertSuffix(_outPath, "_pole"), "极区特写");
+		if (_frame == CloseShotFrame + 17)
 		{
 			// 模拟点第二块模式按钮（坞按钮序 = 注册序：0 海拔 / 1 板块）
 			var row = FindChild("ModeRow", recursive: true, owned: false) as HBoxContainer;
@@ -57,6 +61,38 @@ public partial class NewBallShotDiag : Node
 			GD.Print("NewBallShotDiag: 截图完成，退出");
 			GetTree().Quit(0);
 		}
+	}
+
+	// 定位特殊格（五边格/极区格）→ 相机 LookAtPoint 指向 + 拉近（检查解析边距在这些格上的表现）。
+	void AimSpecial(bool pentagon)
+	{
+		var ball = new Ball(3, 2f);
+		var plates = new H3PlateManager();
+		plates.Init(ball, 15, 42);
+		var plateId = plates.Plate.Crust.PlateId;
+		int best = -1;
+		for (int i = 0; i < ball.CellIds.Length; i++)
+		{
+			if (pentagon)
+			{
+				// 找压在板块边界上的五边格（≥2 条邻边为异板边），其描边最考验解析边距
+				if (H3.CellToVertexes(ball.CellIds[i]).Length != 5) continue;
+				int boundaryEdges = ball.CellNeighbors[i].Count(j => plateId[j] != plateId[i]);
+				if (boundaryEdges >= 2) { best = i; break; }
+			}
+			else if (best < 0 || ball.CellCenters[i].Y > ball.CellCenters[best].Y)
+			{
+				best = i;                                                                   // 极区格（|纬度|最大）
+			}
+		}
+		if (best < 0) { GD.Print("NewBallShotDiag: ⚠️ 未找到目标格"); return; }
+		GD.Print($"NewBallShotDiag: {(pentagon ? "边界五边格" : "极区格")} {H3.H3ToString(ball.CellIds[best])}");
+
+		var cam = FindChild("OrbitalCamera", recursive: true, owned: false);
+		cam?.GetType().GetMethod("LookAtPoint")?.Invoke(cam, new object[] { ball.CellCenters[best] });
+		var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+		cam?.GetType().GetField("_targetDistance", flags)?.SetValue(cam, 2.3f);
+		cam?.GetType().GetField("_distance", flags)?.SetValue(cam, 2.3f);
 	}
 
 	// 定位病征格（异板邻居 ≥5，退化取全星最大值）→ 相机 LookAtPoint 指向它 + 反射拉近（特写验证描边）。
