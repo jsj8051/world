@@ -18,7 +18,7 @@ namespace World.Tests;
 /// </summary>
 public class H3PlateStaticTests
 {
-    private const int Res = 2;          // res2：N=5882 格、K=59 胞——测试网格（构造 ~百 ms 级，类内共享）
+    private const int Res = 2;          // res2：N=5882 格——测试网格（构造 ~百 ms 级，类内共享）
     private const int Plates = 15;      // 文档默认 P（10–20 区间）
     private const int Seed = 42;        // 文档默认 seed（场景默认同值）
 
@@ -162,7 +162,7 @@ public class H3PlateStaticTests
         // 参数校验前置：非法参数当场抛，且不留半成品状态（同实例换合法参数可直接重试）
         var plate = new H3Plate(Ball);
         Assert.Throws<ArgumentOutOfRangeException>(() => plate.CreatePlates(1, Seed), "板块数至少 2");
-        Assert.Throws<ArgumentOutOfRangeException>(() => plate.CreatePlates(int.MaxValue, Seed), "超过胞数须抛");
+        Assert.Throws<ArgumentOutOfRangeException>(() => plate.CreatePlates(int.MaxValue, Seed), "超过格数须抛");
         Assert.IsNull(plate.Crust, "非法参数抛出后不得留下半成品地壳场");
 
         plate.CreatePlates(Plates, Seed);   // 抛出后对象未被污染，合法参数可直接重跑
@@ -282,15 +282,15 @@ public class H3PlateStaticTests
     }
 
     [Test]
-    public void ExtractBoundaryVerts_MatchesBothSidesOfEverySharedEdge()
+    public void ExtractBoundaryCellEdges_ExactlyDifferentPlateEdges_BothSides()
     {
         var plate = Generate(Seed);
         var ball = Ball;
         var crust = plate.Crust;
         int n = crust.PlateId.Length;
 
-        // 独立期望：每条异板共享边，两端顶点在边界两侧【各格】名下都应记账（描边骑缝语义）
-        var expect = new HashSet<(ulong cell, ulong vid)>();
+        // 独立期望：每条异板共享边，边界两侧【各格】名下都应记账（描边骑缝语义）
+        var expect = new HashSet<(ulong cell, ulong va, ulong vb)>();
         for (int i = 0; i < n; i++)
         {
             int pi = crust.PlateId[i];
@@ -298,23 +298,46 @@ public class H3PlateStaticTests
             {
                 if (j <= i || crust.PlateId[j] == pi) continue;
                 var edge = SharedEdgeIds(ball.CellIds[i], ball.CellIds[j]);
-                expect.Add((ball.CellIds[i], edge.Item1));
-                expect.Add((ball.CellIds[i], edge.Item2));
-                expect.Add((ball.CellIds[j], edge.Item1));
-                expect.Add((ball.CellIds[j], edge.Item2));
+                expect.Add((ball.CellIds[i], edge.Item1, edge.Item2));
+                expect.Add((ball.CellIds[j], edge.Item1, edge.Item2));
             }
         }
         Assert.Greater(expect.Count, 0, "P≥2 时全球必有板边界");
 
-        var actual = H3Plate.ExtractBoundaryVerts(ball, crust.PlateId);
-        CollectionAssert.AreEquivalent(expect, actual, "描边角点集与异板共享边两侧记账不一致：有漏记/多记");
+        var actual = H3Plate.ExtractBoundaryCellEdges(ball, crust.PlateId);
+        CollectionAssert.AreEquivalent(expect, actual, "描边格边集与异板共享边两侧记账不一致：有漏记/多记");
 
-        // 记账的顶点必须真属该格（描边权重构建按 (格, 顶点) 查集，错记会暗化不相干格角）
-        // ⚠️ 勿用 Is.AnyOf(ulong[])：params object[] 会把数组整体当成单个比较元素（恒假）
-        foreach (var (cell, vid) in actual)
+        // 记账的顶点必须真属该格（旗标构建按 (格, 边顶点对) 查集，错记会描到不相干格边）
+        foreach (var (cell, va, vb) in actual)
         {
             ulong[] vids = H3.CellToVertexes(cell);
-            Assert.That(vids, Has.Member(vid), $"格 {H3.H3ToString(cell)} 被记了不属于它的顶点 {H3.H3ToString(vid)}");
+            Assert.That(vids, Has.Member(va), $"格 {H3.H3ToString(cell)} 被记了不属于它的顶点 {H3.H3ToString(va)}");
+            Assert.That(vids, Has.Member(vb), $"格 {H3.H3ToString(cell)} 被记了不属于它的顶点 {H3.H3ToString(vb)}");
+        }
+
+        // 回归（2026-09-09 用户报告：五边贴异板的格其同板边整条误描）：逐格逐边核对——
+        // 边 ∈ 集 ⟺ 跨该边的邻居格异板。边粒度记账的硬保证：同板边绝不入集（角点怎么贴边界都不行）
+        for (int i = 0; i < n; i++)
+        {
+            ulong cellI = ball.CellIds[i];
+            ulong[] vids = H3.CellToVertexes(cellI);
+            int m = vids.Length;
+            for (int k = 0; k < m; k++)
+            {
+                ulong va = vids[k], vb = vids[(k + 1) % m];
+                (ulong, ulong) pair = va < vb ? (va, vb) : (vb, va);
+                bool inSet = actual.Contains((cellI, pair.Item1, pair.Item2));
+                bool crossesDifferentPlate = false;
+                foreach (int j in ball.CellNeighbors[i])
+                {
+                    var edge = SharedEdgeIds(cellI, ball.CellIds[j]);
+                    if ((edge.Item1, edge.Item2) != pair) continue;
+                    crossesDifferentPlate = crust.PlateId[j] != crust.PlateId[i];
+                    break;
+                }
+                Assert.AreEqual(crossesDifferentPlate, inSet,
+                    $"格 {H3.H3ToString(cellI)} 边 {H3.H3ToString(va)}-{H3.H3ToString(vb)} 记账状态与跨边邻居异板与否不符（同板边被误记/异板边漏记）");
+            }
         }
     }
 }

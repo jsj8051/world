@@ -14,7 +14,7 @@ namespace World.NewHexWorld.Plate
 
 		// 统一判陆口（全工程唯一陆海判定口径）：长英质厚 > 0 = 陆壳（陆性板写 35000、洋性板恒 0
 		// → 二元跳变无中间态）。海拔只是派生初值，勿用 Elevation 正负另立口径（初值两级时碰巧等价，
-		// 将来要素生成器加连续起伏必分叉）。显示模式（海陆/海拔/…）与格信息一律走这里。
+		// 将来要素生成器加连续起伏必分叉）。显示模式（海拔/板块/…）与格信息一律走这里。
 		public bool IsLand(int cellIndex) => FelsicThick[cellIndex] > 0f;
 	}
 }

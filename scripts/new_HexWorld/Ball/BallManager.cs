@@ -8,7 +8,7 @@ using World.NewHexWorld.UI.ViewModels;       // 球视图 / 坞 / 格信息 VM
 namespace World.NewHexWorld
 {
 	// 场景根 = 组装器 + 输入路由（设计入口 §2.2/§2.4）：构造全部逻辑层对象（Ball → H3PlateManager
-	// 静态生成）→ 建 MapModeRegistry（三模式策略注入 Model）→ 建各视图 VM（注入 Model/当前模式）→
+	// 静态生成）→ 建 MapModeRegistry（两模式策略注入 Model）→ 建各视图 VM（注入 Model/当前模式）→
 	// 下行注入 View（BallView.Init/Bind、HexDock.BindModes、信息面板事件接线）→ 承担点击拾取输入路由。
 	// 相机 = OrbitalCamera（老树单源复用：左键拖转/滚轮缩放/WASD）；本类不承载业务数据
 	// （只留场景调参旋钮 ResLevel/Radius/NumPlates/Seed）；数据流 = Model → VM 派生 → View。
@@ -46,23 +46,23 @@ namespace World.NewHexWorld
 			_plates = new H3PlateManager();
 			_plates.Init(ball, NumPlates, Seed);
 
-			// ② 模式策略注册表（MapMode 注入 Model 只读引用；注册序 = 坞按钮序 = Id 0/1/2）
+			// ② 模式策略注册表（MapMode 注入 Model 只读引用；注册序 = 坞按钮序 = Id 0/1；
+			//    海陆模式 2026-09-09 删除——海陆观感由海拔色带 0m 硬台阶天然承载）
 			var registry = new MapModeRegistry();
-			registry.Register(new LandSeaMapMode(_plates.Plate.Crust));
 			registry.Register(new ElevationMapMode(_plates.Plate.Crust));
 			registry.Register(new PlateMapMode(_plates.Plate.Crust,
 				_plates.NumPlates, _plates.PlateCounts));
 
-			// ③ VM（注入 Model；初始模式 = Id 0 海陆——坞按钮默认高亮同由 HexDock._Ready 置位）
-			_worldVm = new HexWorldViewModel(ball, _plates, registry.ById(0));
+			// ③ VM（注入 Model；初始模式 = 注册表首模式（海拔）——坞按钮默认高亮同由 HexDock._Ready 置位）
+			_worldVm = new HexWorldViewModel(ball, _plates, registry.Modes[0]);
 			_dockVm = new DockViewModel(registry);
-			_cellInfoVm = new CellInfoViewModel(ball, _plates, registry.ById(0));
+			_cellInfoVm = new CellInfoViewModel(ball, _plates, registry.Modes[0]);
 
-			// ④ View 接线（全部下行注入）：球视图订阅 VM 变更信号 → 首帧即渲染海陆模式 + 边界线；
+			// ④ View 接线（全部下行注入）：球视图订阅 VM 变更信号 → 首帧即渲染海拔模式 + 边界线；
 			//    坞按钮文案/数量与注册表对账（不同步当场抛，见 HexDock.BindModes）
 			_ballView.Bind(_worldVm);
 
-			// UI：坞模式点击（View 事件上抛）→ 坞 VM 选择 → 广播：球视图重投影 + 格信息换策略 + 坞高亮
+			// UI：坞模式点击（View 事件上抛）→ 坞 VM 选择 → 广播：球视图换显示 uniform + 格信息换策略 + 坞高亮
 			var uiLayer = GetNode<CanvasLayer>("UiLayer");
 			_dock = uiLayer.GetNode<HexDock>("HexDock");
 			_dock.BindModes(_dockVm.Modes);

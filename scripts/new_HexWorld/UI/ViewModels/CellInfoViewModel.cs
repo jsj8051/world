@@ -47,7 +47,7 @@ namespace World.NewHexWorld.UI.ViewModels
 		public void Hide() => EntriesChanged?.Invoke(null);
 
 		// 组装条目并广播：通用行（格子号[swatch=当前模式色] / 所属板块[swatch=板色] / 经纬度）
-		// + 当前模式策略特有行（MapMode.TileInfo——海陆:类型；海拔:高度+类型·分带；板块:格数+占比）。
+			// + 当前模式策略特有行（MapMode.TileInfo——海拔:高度+类型·分带；板块:格数+占比）。
 		void Publish()
 		{
 			int i = _selectedIndex;

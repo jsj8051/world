@@ -71,9 +71,9 @@ anchor_left = 0.5
 anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
-offset_left = -372.0
+offset_left = -234.0
 offset_top = -30.0
-offset_right = 372.0
+offset_right = 234.0
 offset_bottom = 50.0
 grow_horizontal = 2
 grow_vertical = 0
@@ -101,20 +101,6 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 4
 theme_override_constants/separation = 4
-
-[node name="ModeLandSea" type="Button" parent="DockBox/ModeRow"]
-custom_minimum_size = Vector2(232, 34)
-layout_mode = 2
-theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
-theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
-theme_override_font_sizes/font_size = 15
-theme_override_styles/normal = SubResource("sb_btn")
-theme_override_styles/pressed = SubResource("sb_btn_pressed")
-theme_override_styles/hover = SubResource("sb_btn_hover")
-theme_override_styles/focus = SubResource("sb_btn")
-toggle_mode = true
-button_group = SubResource("bg_modes")
-text = "海陆"
 
 [node name="ModeElevation" type="Button" parent="DockBox/ModeRow"]
 custom_minimum_size = Vector2(232, 34)

@@ -6,7 +6,7 @@ using static World.Utils.ColorRamp;        // RampSampleSmooth（通用连续色
 
 namespace World.NewHexWorld.UI.Modes
 {
-	// 模式 1 海拔（设计-01 §5A）：照搬老树 ElevationLayer（2026-08-31 ISO 9241-307 版色带）——
+	// 模式 0 海拔（默认模式；设计-01 §5A）：照搬老树 ElevationLayer（2026-08-31 ISO 9241-307 版色带）——
 	// 色带停点与分带函数迁至此文件内聚（新世界独立演进，老树零改动）；连续色带算法用
 	// World.Utils.ColorRamp.RampSampleSmooth（同位置双停点 = 0m 海陆硬台阶）。
 	// 数据源 = Crust.Elevation（米，0=海平面）。本阶段初值两级常量（陆 +800 / 洋 −3700）→
@@ -42,7 +42,7 @@ namespace World.NewHexWorld.UI.Modes
 			_crust = crust;
 		}
 
-		public override int Id => 1;
+		public override int Id => 0;
 		public override string Name => "海拔";
 		public override bool ShowPlateBoundaries => true;
 
