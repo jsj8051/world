@@ -10,12 +10,12 @@ namespace World.NewHexWorld
 {
 	// 球视图（View）：Ball 数据 + BallMesh 几何 + 单张全域材质渲染（2026-09-09 材质覆盖方案）。
 	// MVVM 接线（设计入口 §2.2/§2.4）：Bind(HexWorldViewModel) 时一次性提交静态表面（顶点/索引 +
-	// UV=格纹素中心 + UV2=边距权重/边界旗），并把 VM 派生的逐格区域数据烘成 region_data 纹理；此后
-	// 海拔/板块取色全在片元侧按数据纹理派生，模式切换只改材质 uniform（display_mode/outline_enable）
-	// ——零几何重交、零 CPU 逐格取色（旧逐格顶点色方案作废）。View 只显示，不读/改 Model 的地壳场
-	// 数组（区域数据/边界格边集都经 VM 派生口）；Ball 自身的静态网格几何（建面/拾取）属渲染基础
-	// 设施，直读只读 Ball。拾取 PickCell（屏幕点 → 球面 cell）。视角运动全交 OrbitalCamera
-	// （拖转/缩放）——星球本身不自转（用户拍板 09-07）。
+	// UV=格纹素中心 + UV2/COLOR=格常量属性），并把 VM 派生的逐格区域数据烘成 region_data 纹理；
+	// 此后海拔/板块取色与边界描边全在片元侧派生（解析边距），模式切换只改材质 uniform
+	// （display_mode/outline_enable）——零几何重交、零 CPU 逐格取色。View 只显示，不读/改 Model
+	// 的地壳场数组（区域数据/边界格边集都经 VM 派生口）；Ball 自身的静态网格几何（建面/拾取）属
+	// 渲染基础设施，直读只读 Ball。拾取 PickCell（屏幕点 → 球面 cell）。视角运动全交
+	// OrbitalCamera（拖转/缩放）——星球本身不自转（用户拍板 09-07）。
 	public partial class BallView : Node3D
 	{
 		Ball _ball;                     // 数据层（组装器 Init 注入）
@@ -39,9 +39,8 @@ namespace World.NewHexWorld
 		public void Bind(HexWorldViewModel vm)
 		{
 			_vm = vm;
-			// 描边旗（区域静态 → 建一次常驻）：每条异板共享边在两侧格名下记旗 1（UV2.y），
-			// 边粒度记账——同板边即使两端角点都贴邻边界边也绝不被误描（2026-09-09 修）
-			_mesh.BuildTileEdgeFlags(_ball, vm.BoundaryCellEdges);
+			// 描边旗标（区域静态 → 建一次常驻）：每格 6 边的异板边旗字节（片元解析边距用）
+			_mesh.BuildCellAttributeFlags(_ball, vm.BoundaryCellEdges);
 			SubmitSurface();
 			_material.SetShaderParameter("region_data", BuildRegionDataTexture());
 			_material.SetShaderParameter("elevation_ramp", BuildElevationRampTexture());
@@ -59,20 +58,24 @@ namespace World.NewHexWorld
 
 		// ── 渲染提交（一次性）──
 
-		// 建格面节点（只建一次）：全域材质 = sphere_region_material + 逐格数据纹理区域查找。
+		// 建格面节点（只建一次）：全域材质 = sphere_region_material + 逐格数据纹理区域查找，
+		// 并注入格几何度量（内切半径/半边长，片元解析边距用）。
 		void CreateMeshNode()
 		{
 			_material = new ShaderMaterial
 			{
 				Shader = GD.Load<Shader>("res://shaders/sphere_region_material.gdshader"),
 			};
+			var metrics = BallMesh.ComputeCellMetrics(_ball);
+			_material.SetShaderParameter("cell_metrics_hex", metrics[0]);
+			_material.SetShaderParameter("cell_metrics_pent", metrics[1]);
 			_meshInstance = new MeshInstance3D { Mesh = new ArrayMesh(), MaterialOverride = _material };
 			AddChild(_meshInstance);
 		}
 
-		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）+ UV2（边距/边旗）+
-		// COLOR.r/g（角旗，拐角帽用）。
-		// 几何常驻不再动；取色移到片元侧按数据纹理派生。
+		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）+ UV2/COLOR
+		// （格常量属性：格心方向 / 边方位角 / 旗标字节，块内插值恒精确）。
+		// 几何常驻不再动；取色与描边全在片元侧派生。
 		void SubmitSurface()
 		{
 			var am = (ArrayMesh)_meshInstance.Mesh;
@@ -80,8 +83,8 @@ namespace World.NewHexWorld
 			arr.Resize((int)Mesh.ArrayType.Max);
 			arr[(int)Mesh.ArrayType.Vertex] = _mesh.DisplayVerts;
 			arr[(int)Mesh.ArrayType.TexUV] = _mesh.DisplayUv;
-			arr[(int)Mesh.ArrayType.TexUV2] = _mesh.DisplayUv2;
-			arr[(int)Mesh.ArrayType.Color] = _mesh.DisplayCornerFlags;
+			arr[(int)Mesh.ArrayType.TexUV2] = _mesh.DisplayCellDirXy;
+			arr[(int)Mesh.ArrayType.Color] = _mesh.DisplayCellAttrs;
 			arr[(int)Mesh.ArrayType.Index] = _mesh.DisplayIndices;
 			am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
 		}

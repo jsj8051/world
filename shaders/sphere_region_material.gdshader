@@ -1,23 +1,24 @@
 shader_type spatial;
 render_mode unshaded;
 
-// 全域材质（2026-09-09 材质覆盖方案，替旧"逐格顶点色重交"）：一颗星球一张材质——逐格区域
-// 数据烘进 region_data 纹理（每格 1 纹素，UV = 格纹素中心，格块内顶点同值 → 插值恒定），
-// 片元按当前显示模式在材质侧派生区域外观：海拔模式采样色带纹理、板块模式按板号色相现算板色。
-// 模式切换 = 改 uniform，零几何重交、零 CPU 逐格取色。"对应区域显示对应材质"由 region_data
-// 按纹素（= 按格）寻址达成；将来真"分区域材质"（陆贴地表纹理 / 洋贴水面）按 B 通道陆位分支即可。
-// region_data（filter_nearest，纹素布局见 BallMesh.DataTexWidth）：R = 海拔归一（色带域 clamp）、
-// G = 板号色相归一（板号/板数）、B = 陆 1 / 洋 0（Crust.IsLand 统一口）、A 备用。
-// 描边带沿用 2026-09-08 拍板方案，记账粒度 2026-09-09 v2 改【边】：UV2 = (x 边距权重, y 边界旗)——
-// x：格心 1 → 边顶点 0（等值线平行格边）；y：本三角形所属格边的边界旗（边顶点按边复制，非边界
-// 边恒 0）→ 带强 = 旗 × 边距带，同板边绝不整条描边（修"五边贴异板格第 6 边误描"）。
-// outline_enable = 0 时整体失效（旗数据保留，开关零成本）。
+// 全域材质（2026-09-09 v3 解析边距版，替旧"逐格顶点色重交"与"边距权重插值"两代）：一颗星球
+// 一张材质——逐格区域数据烘进 region_data 纹理（每格 1 纹素，UV = 格纹素中心），片元按
+// display_mode uniform 派生区域外观（海拔色带 / 板块色相），模式切换只换 uniform。
+//
+// 板块边界描边 = 片元解析边距（2026-09-09 v3，替"边距权重插值 + 角点帽"两代）：
+// 每格常量属性（格心方向 UV2、边 0 法向方位角 COLOR.r、旗标字节 COLOR.g）块内插值恒精确，
+// 片元把自身方向投影到格心切面，对【旗标边】逐边求到线段的真实距离取 min——带宽处处一致、
+// 拐角天然圆角衔接、同板边绝不描边（修"五边贴异板格第 6 边误描"与"拐角缺口/深色圆珠"两代问题）。
+// region_data（filter_nearest，纹素布局见 BallMesh.DataTexWidth）：R = 海拔归一、G = 板号色相归一、
+// B = 陆 1 / 洋 0（Crust.IsLand 统一口）、A 备用。
 uniform sampler2D region_data : filter_nearest, repeat_disable;
 uniform sampler2D elevation_ramp : filter_nearest, repeat_disable;   // 256×1，C# 从 ElevationStops 烘（已转 linear）
 uniform int display_mode = 0;      // 当前显示模式 = MapMode.Id（0 海拔 / 1 板块；加模式在此扩分支）
 uniform float outline_enable : hint_range(0.0, 1.0) = 1.0;
 uniform float outline_darken : hint_range(0.0, 1.0) = 0.0;    // 描边带压暗系数（用户已调 0 = 纯黑线）
-uniform float outline_width : hint_range(0.0, 0.5) = 0.18;    // 带半宽（× 格心到边距离；两侧格各出一条）
+uniform float outline_width : hint_range(0.0, 0.5) = 0.18;    // 带半宽（× 格内切半径）
+uniform vec2 cell_metrics_hex = vec2(0.0071, 0.0041);         // 六边格（内切半径, 半边长），CPU 按球实测
+uniform vec2 cell_metrics_pent = vec2(0.0081, 0.0047);        // 五边格
 
 // sRGB→linear（与 Godot Color.SrgbToLinear 同公式——策略色为 sRGB 意图，进 ALBEDO 前转 linear，
 // 否则整球观感被提亮；2026-09-07 实测色偏修复的同款纪律）
@@ -48,6 +49,13 @@ vec3 plate_color(float hue)
 	return srgb_to_linear3(rgb);
 }
 
+varying vec3 v_dir;   // 顶点内：模型空间单位球方向（格内片元位置基准）
+
+void vertex()
+{
+	v_dir = normalize(VERTEX);
+}
+
 void fragment()
 {
 	vec4 region = texture(region_data, UV);
@@ -57,17 +65,39 @@ void fragment()
 	else
 		base = plate_color(region.g);                              // 板块：板号 → 色相现算
 
-	// 锐边描边（2026-09-09 拍板）：单阈值切实心带 + fwidth 屏幕空间导数 1px 抗锯齿。
-	// 带强 = max(边带, 角帽)：边带 = 边界旗(UV2.y) × 边距带(UV2.x < 带宽)——同板边绝不整条描边；
-	// 角帽 = 贴边角旗(COLOR.r/g 各归各通道) 的重心权重 λ > 1-带宽 → 路径折弯/分岔处条带衔接连续
-	//（帽只在角点带宽半径内生效，不沿非边界边蔓延——五边贴异板格第 6 边中段仍干净）
-	float aa = fwidth(UV2.x);
-	float band = (1.0 - smoothstep(outline_width - aa, outline_width + aa, UV2.x)) * UV2.y;
-	// 帽半径取带宽的一半（阈值 1-带宽/2）：只补拐角处条带之间的缺口，不外凸成深色圆珠
-	float aac = max(fwidth(COLOR.r), 1e-5);   // ε 护栏：平台区 fwidth=0 防除零 NaN
-	float cap_thr = 1.0 - outline_width * 0.5;
-	float cap = max(smoothstep(cap_thr - aac, cap_thr + aac, COLOR.r),
-		smoothstep(cap_thr - aac, cap_thr + aac, COLOR.g));
-	band = max(band, cap) * outline_enable;
+	// ── 板块边界描边：解析边距 ──
+	// 解码格常量（COLOR 8bit：G = 旗标字节，bit0..5 异板边 / bit6 格心 z 负 / bit7 五边格）
+	float b = floor(COLOR.g * 255.0 + 0.5);
+	bool is_pent = b >= 128.0;
+	float zsign = mod(b, 128.0) >= 64.0 ? -1.0 : 1.0;
+	float fb = mod(b, 64.0);
+	vec3 cdir = normalize(vec3(UV2, zsign * sqrt(max(1.0 - dot(UV2, UV2), 0.0))));
+
+	// 片元方向投影到格心切面（tu/tv 与 CPU TangentFrame 同式）
+	vec3 up = abs(cdir.y) < 0.98 ? vec3(0, 1, 0) : vec3(1, 0, 0);
+	vec3 tu = normalize(cross(up, cdir));
+	vec3 tv = cross(cdir, tu);
+	vec2 o = vec2(dot(normalize(v_dir), tu), dot(normalize(v_dir), tv));
+
+	// 对旗标边逐边求到【线段】的真实距离（段端自动圆角衔接拐角），取 min = 到边界路径距离。
+	// ⚠️ 边 k 法向方位 = θ + k·步长（θ 本身就是边 0 的法向方位，CPU 取角0/角1 中点方向），
+	//    勿再 +0.5 步——错半步会把每条旗标边画到相邻边上（碎裂描边，2026-09-09 修）
+	float step_ang = is_pent ? 1.2566371 : 1.0471976;              // 72° / 60°
+	vec2 metrics = is_pent ? cell_metrics_pent : cell_metrics_hex; // (内切半径, 半边长)
+	float dmin = 1e9;
+	for (int k = 0; k < 6; k++)
+	{
+		if (is_pent && k == 5) break;
+		if (mod(floor(fb / exp2(float(k))), 2.0) < 0.5) continue;  // bit k = 边 k 是否异板边
+		float ang = COLOR.r * 6.2831855 - float(k) * step_ang;
+		vec2 n = vec2(cos(ang), sin(ang));                         // 边外法向
+		float dn = metrics.x - dot(n, o);                          // 到边线距离（格内为正）
+		float dt = max(abs(dot(vec2(-n.y, n.x), o)) - metrics.y, 0.0);  // 段端外伸量
+		dmin = min(dmin, length(vec2(dn, dt)));
+	}
+
+	float w = outline_width * metrics.x;
+	float aa = fwidth(dmin);
+	float band = (1.0 - smoothstep(w - aa, w + aa, dmin)) * outline_enable;
 	ALBEDO = mix(base, base * outline_darken, band);
 }
