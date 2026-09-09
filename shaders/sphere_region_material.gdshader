@@ -57,9 +57,17 @@ void fragment()
 	else
 		base = plate_color(region.g);                              // 板块：板号 → 色相现算
 
-	// 锐边描边（2026-09-09 拍板）：单阈值切实心带 + fwidth 屏幕空间导数 1px 抗锯齿；
-	// 带强 = 边界旗 × 边距带
+	// 锐边描边（2026-09-09 拍板）：单阈值切实心带 + fwidth 屏幕空间导数 1px 抗锯齿。
+	// 带强 = max(边带, 角帽)：边带 = 边界旗(UV2.y) × 边距带(UV2.x < 带宽)——同板边绝不整条描边；
+	// 角帽 = 贴边角旗(COLOR.r/g 各归各通道) 的重心权重 λ > 1-带宽 → 路径折弯/分岔处条带衔接连续
+	//（帽只在角点带宽半径内生效，不沿非边界边蔓延——五边贴异板格第 6 边中段仍干净）
 	float aa = fwidth(UV2.x);
-	float band = (1.0 - smoothstep(outline_width - aa, outline_width + aa, UV2.x)) * UV2.y * outline_enable;
+	float band = (1.0 - smoothstep(outline_width - aa, outline_width + aa, UV2.x)) * UV2.y;
+	// 帽半径取带宽的一半（阈值 1-带宽/2）：只补拐角处条带之间的缺口，不外凸成深色圆珠
+	float aac = max(fwidth(COLOR.r), 1e-5);   // ε 护栏：平台区 fwidth=0 防除零 NaN
+	float cap_thr = 1.0 - outline_width * 0.5;
+	float cap = max(smoothstep(cap_thr - aac, cap_thr + aac, COLOR.r),
+		smoothstep(cap_thr - aac, cap_thr + aac, COLOR.g));
+	band = max(band, cap) * outline_enable;
 	ALBEDO = mix(base, base * outline_darken, band);
 }

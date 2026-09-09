@@ -70,8 +70,9 @@ namespace World.NewHexWorld
 			AddChild(_meshInstance);
 		}
 
-		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）+ UV2（边距/边旗）。
-		// 几何常驻不再动；取色移到片元侧按数据纹理派生（无顶点色数组）。
+		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）+ UV2（边距/边旗）+
+		// COLOR.r/g（角旗，拐角帽用）。
+		// 几何常驻不再动；取色移到片元侧按数据纹理派生。
 		void SubmitSurface()
 		{
 			var am = (ArrayMesh)_meshInstance.Mesh;
@@ -80,6 +81,7 @@ namespace World.NewHexWorld
 			arr[(int)Mesh.ArrayType.Vertex] = _mesh.DisplayVerts;
 			arr[(int)Mesh.ArrayType.TexUV] = _mesh.DisplayUv;
 			arr[(int)Mesh.ArrayType.TexUV2] = _mesh.DisplayUv2;
+			arr[(int)Mesh.ArrayType.Color] = _mesh.DisplayCornerFlags;
 			arr[(int)Mesh.ArrayType.Index] = _mesh.DisplayIndices;
 			am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
 		}
