@@ -64,7 +64,7 @@ public HashSet<(ulong cell, ulong va, ulong vb)> BoundaryCellEdges
 }
 
 // 边界线顶点对全集（2026-09-10 几何描边口）：BoundaryCellEdges 去重（每边两侧格各记一条 →
-// 只留一条）+ 排序（确定性几何纪律），BallMesh.BuildBoundaryLineMesh 据此逐边采点成线带。
+// 只留一条）+ 排序（确定性几何纪律），BallView 换算成世界坐标点串喂 SphereLines 逐边采点成线带。
 List<(ulong va, ulong vb)> _boundaryVertEdges;   // 不随模式变；首访懒构建一次
 public IReadOnlyList<(ulong va, ulong vb)> BoundaryVertexEdges
 {

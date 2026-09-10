@@ -3,18 +3,19 @@ using System;
 using System.Collections.Generic;
 using World.NewHexWorld.UI.Modes;            // ElevationMapMode（海拔色带烘焙源）
 using World.NewHexWorld.UI.ViewModels;
+using World.Render;                          // SphereLines（球面画线工具）
 using World.Utils;
 using static World.Utils.ColorRamp;          // RampSampleSmooth（画面与信息条同一色带源）
 using World.Utils.H3;
 
 namespace World.NewHexWorld
 {
-	// 球视图（View）：Ball 数据 + BallMesh 几何 + 单张全域材质渲染 + 板块边界线带（2026-09-10
-	// 点串描边方案）。MVVM 接线（设计入口 §2.2/§2.4）：Bind(HexWorldViewModel) 时一次性提交静态
-	// 表面（顶点/索引 + UV=格纹素中心）与边界线几何（异板共享边 → 球面三角带 + 角点端帽圆盘，
-	// 两遍深度预写渲染——线几何自重叠每像素只混色一次，半透明线也不叠加变深），并把 VM 派生的逐格
-	// 区域数据烘成 region_data 纹理；此后海拔/板块取色在片元侧派生，模式切换换 uniform、
-	// 描边开关切线带可见性——零几何重交。
+	// 球视图（View）：Ball 数据 + BallMesh 几何 + 单张全域材质渲染 + 板块边界线（World.Render.
+	// SphereLines 球面画线工具）。MVVM 接线（设计入口 §2.2/§2.4）：Bind(HexWorldViewModel) 时
+	// 一次性提交静态表面（顶点/索引 + UV=格纹素中心）与边界线几何（异板共享边换算成世界坐标点串
+	// 喂 SphereLines，线带/端帽与两遍深度预写渲染都在工具内——自重叠每像素只混色一次，半透明线
+	// 也不叠加变深），并把 VM 派生的逐格区域数据烘成 region_data 纹理；此后海拔/板块取色在片元侧
+	// 派生，模式切换换 uniform、描边开关切线可见性——零几何重交。
 	// View 只显示，不读/改 Model 的地壳场数组（区域数据/边界边集都经 VM 派生口）；Ball 自身的静态
 	// 网格几何（建面/拾取）属渲染基础设施，直读只读 Ball。拾取 PickCell（屏幕点 → 球面 cell）。
 	// 视角运动全交 OrbitalCamera（拖转/缩放）——星球本身不自转（用户拍板 09-07）。
@@ -24,9 +25,9 @@ namespace World.NewHexWorld
 		BallMesh _mesh;                 // 几何层
 		MeshInstance3D _meshInstance;   // 格面渲染产物（单表面一次提交，之后只换 uniform）
 		ShaderMaterial _material;       // 全域材质（sphere_region_material.gdshader）
-		MeshInstance3D _lineInstance;   // 板块边界线带（两遍深度预写渲染，建一次常驻，开关切可见性）
-		ShaderMaterial _lineColorMat;   // 第二遍上色材质（line_color uniform 的唯一去处）
+		SphereLines _lines;             // 板块边界线（球面画线工具，建一次常驻，开关切可见性）
 		Color _outlineColor = Colors.Black;   // 线色（Init 注入；透明度任意——深度预写不叠加变深）
+		float _lineWidthFrac;           // 线宽系数（Init 注入；线半宽 = × ρ × R，Bind 时换算）
 		HexWorldViewModel _vm;          // 球视图 VM（Bind 注入；变更信号驱动 uniform 刷新）
 
 		// 组装器下行：注入 Model 与线宽/线色旋钮并建几何/渲染节点。分辨率/半径以 Ball 为单一事实源
@@ -34,9 +35,10 @@ namespace World.NewHexWorld
 		public void Init(Ball ball, float lineWidthFrac = 0.18f, Color? outlineColor = null)
 		{
 			_ball = ball;
-			_mesh = new BallMesh { LineWidthFrac = lineWidthFrac };
+			_lineWidthFrac = lineWidthFrac;
+			_mesh = new BallMesh();
 			if (outlineColor.HasValue) _outlineColor = outlineColor.Value;
-			_mesh.ComputeCellMetrics(ball);           // 度量先行（线半宽 = LineWidthFrac × ρ）
+			_mesh.ComputeCellMetrics(ball);           // 度量先行（线半宽 = _lineWidthFrac × ρ × R）
 			_mesh.BuildTileMeshData(ball, _ball.Radius);
 			CreateMeshNode();
 		}
@@ -59,16 +61,14 @@ namespace World.NewHexWorld
 		{
 			if (_vm == null) return;
 			_material.SetShaderParameter("display_mode", _vm.DisplayMode);
-			_lineInstance.Visible = _vm.ShowBoundaries;
+			_lines.Visible = _vm.ShowBoundaries;
 		}
 
 		// ── 渲染提交（一次性）──
 
 		// 建格面 + 边界线两节点（只建一次）：格面 = 全域材质（sphere_region_material + 逐格数据
-		// 纹理区域查找）；边界线 = 两遍深度预写渲染——第一遍隐形写线几何最近深度（depth 遍的
-		// NextPass = color 遍），第二遍只画深度命中的最近层片元：线带/端帽自重叠每像素恰混一次色，
-		// 半透明线也不叠加变深；遍顺序用 render_priority 钉住（透明队列按深度排序会打乱 NextPass）。
-		// 抗锯齿走视口 MSAA（project.godot msaa_3d = 4x）。
+		// 纹理区域查找）；边界线 = World.Render.SphereLines（线带/端帽几何与两遍深度预写渲染、
+		// render_priority 钉序都在工具内，见该类）。抗锯齿走视口 MSAA（project.godot msaa_3d = 4x）。
 		void CreateMeshNode()
 		{
 			_material = new ShaderMaterial
@@ -78,23 +78,8 @@ namespace World.NewHexWorld
 			_meshInstance = new MeshInstance3D { Mesh = new ArrayMesh(), MaterialOverride = _material };
 			AddChild(_meshInstance);
 
-			_lineColorMat = new ShaderMaterial
-			{
-				Shader = GD.Load<Shader>("res://shaders/boundary_line_color.gdshader"),
-				RenderPriority = 1,   // 必须 > depth 遍（默认 0）：透明队列同深度会乱序，实测必钉
-			};
-			_lineColorMat.SetShaderParameter("line_color", _outlineColor);
-			var lineDepthMat = new ShaderMaterial
-			{
-				Shader = GD.Load<Shader>("res://shaders/boundary_line_depth.gdshader"),
-				NextPass = _lineColorMat,
-			};
-			_lineInstance = new MeshInstance3D
-			{
-				MaterialOverride = lineDepthMat,
-				CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-			};
-			AddChild(_lineInstance);
+			_lines = new SphereLines { LineColor = _outlineColor };
+			AddChild(_lines);
 		}
 
 		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）。
@@ -110,17 +95,21 @@ namespace World.NewHexWorld
 			am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
 		}
 
-		// 边界线带一次提交：BallMesh.BuildBoundaryLineMesh 产出的线带 + 端帽几何（世界系顶点）。
+		// 边界线一次提交：异板共享边顶点对 → 世界坐标两点串喂 SphereLines（线带/端帽几何由工具
+		// 生成，建一次常驻）。换算与旧几何线带同值：线半宽 = _lineWidthFrac × ρ × R、细分步长 =
+		// 0.4 × ρ × R（格度量 ρ 角量 × 球半径 → 世界单位）。
 		void SubmitBoundaryLines(IReadOnlyList<(ulong va, ulong vb)> edges)
 		{
-			_mesh.BuildBoundaryLineMesh(_ball, edges, _ball.Radius);
-			var am = new ArrayMesh();
-			var arr = new Godot.Collections.Array();
-			arr.Resize((int)Mesh.ArrayType.Max);
-			arr[(int)Mesh.ArrayType.Vertex] = _mesh.LineVerts;
-			arr[(int)Mesh.ArrayType.Index] = _mesh.LineIndices;
-			am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
-			_lineInstance.Mesh = am;
+			float rho = _mesh.MeanInradius;
+			float halfWidth = _lineWidthFrac * rho * _ball.Radius;
+			var strips = new Vector3[edges.Count][];
+			for (int i = 0; i < edges.Count; i++)
+			{
+				(ulong va, ulong vb) = edges[i];
+				strips[i] = new[] { _ball.VertexPositions[_ball.VertexIndexOf(va)],
+					_ball.VertexPositions[_ball.VertexIndexOf(vb)] };
+			}
+			_lines.SetLines(strips, _ball.Radius, halfWidth, 0.4f * rho * _ball.Radius);
 		}
 
 		// 逐格区域数据纹理（每格 1 纹素；R=海拔归一 / G=板号色相 / B=陆1洋0 / A 备用；布局 =
