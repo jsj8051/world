@@ -18,6 +18,8 @@ namespace World.NewHexWorld
 		[Export] public float Radius = 2.0f;     // 球半径（须与 OrbitalCamera._planetRadius 场景同值）
 		[Export] public int NumPlates = 15;      // 板块数 P（设计参数表：10–20 区间，默认 15）
 		[Export] public int Seed = 42;           // 星球种子（定胞心抽取/生长/陆性，同 seed 全球同局）
+		[Export] public float OutlineWidthFrac = 0.18f;   // 板块边界线半宽（× 格平均内切半径）
+		[Export] public Color OutlineColor = new Color(0f, 0f, 0f, 0.55f); // 板块边界线色（含透明度；两遍深度预写渲染，半透明也不叠加变深）
 
 		OrbitalCamera _orbitalCamera;            // 子节点：轨道相机（拖转/缩放/拾取射线源）
 		BallView _ballView;                      // 子节点：球视图（View）
@@ -42,7 +44,7 @@ namespace World.NewHexWorld
 			//    Ball 网格数据 → 注入球视图建几何 → H3PlateManager 静态生成地壳场
 			_ballView = GetNode<BallView>("Ball");
 			var ball = new Ball(ResLevel, Radius);
-			_ballView.Init(ball);
+			_ballView.Init(ball, OutlineWidthFrac, OutlineColor);
 			_plates = new H3PlateManager();
 			_plates.Init(ball, NumPlates, Seed);
 
