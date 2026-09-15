@@ -35,6 +35,7 @@ namespace World.Tectonics
         [Export] public bool InitOnly = false; // true=只看初始地壳（不分割/不移动）
         [Export] public bool Compare = false;  // true=侵蚀 开/关 对比
         [Export] public bool Rift = true;      // false=关闭裂谷/俯冲（对比用）
+        [Export] public string OutPrefix = "tectonics";   // 出图文件名前缀（--out= 覆盖）
 
         public override void _Ready()
         {
@@ -53,12 +54,13 @@ namespace World.Tectonics
                 if (bool.TryParse(sv, out bool b1)) Rift = b1;
                 else Rift = true;
             }
+            if (args.TryGetValue("out", out sv)) OutPrefix = sv;
 
             LogService.Log("TectonicsTest", $"gridN={GridN} plates={NumPlates} seed={Seed} radius={RadiusKm}km run={RunMy}My step={StepMy}My compare={Compare}");
 
             if (InitOnly) { RunInitOnly(); return; }
             if (Compare) { RunCompare(); return; }
-            RunSingle(true, "user://tectonics_elev.png", "user://tectonics_plates.png");
+            RunSingle(true, PreviewPath("elev"), PreviewPath("plates"));
             GetTree().Quit();   // ⚠️ 2026-08-19：默认路径此前漏 Quit——headless 下挂到 timeout（verify.sh 回归发现）
         }
 
@@ -74,8 +76,8 @@ namespace World.Tectonics
             float sea = sim.SolveSeaLevel(0.6f);
             LogService.Log("TectonicsTest", $"INITIAL ONLY: sealevel={sea:F0} m, land={100f * sim.LandFractionAboveSea():F1}%, " +
                      $"disp[{FieldOps.Min(sim.Displacement):F0},{FieldOps.Max(sim.Displacement):F0}]m");
-            ExportEquirectPreview(sim, "user://tectonics_elev.png");
-            ExportPlatePreview(sim, "user://tectonics_plates.png");
+            ExportEquirectPreview(sim, PreviewPath("init_elev"));
+            ExportPlatePreview(sim, PreviewPath("init_plates"));
             GetTree().Quit();
         }
 
@@ -83,9 +85,9 @@ namespace World.Tectonics
         private void RunCompare()
         {
             LogService.Log("TectonicsTest", $"=== 侵蚀关（无地表过程）===");
-            var simNo = RunSingle(false, "user://tectonics_elev_noerosion.png", "user://tectonics_plates_noerosion.png");
+            var simNo = RunSingle(false, PreviewPath("elev_noerosion"), PreviewPath("plates_noerosion"));
             LogService.Log("TectonicsTest", $"=== 侵蚀开（侵蚀/风化/成岩/变质）===");
-            var simYes = RunSingle(true, "user://tectonics_elev_erosion.png", "user://tectonics_plates_erosion.png");
+            var simYes = RunSingle(true, PreviewPath("elev_erosion"), PreviewPath("plates_erosion"));
 
             // 对比诊断
             float[] d0 = simNo.Displacement, d1 = simYes.Displacement;
@@ -118,6 +120,16 @@ namespace World.Tectonics
         }
 
         // ── 预览导出 ──
+
+        /// <summary>出图路径：一律经 UserPaths 落**游戏目录旁** userdata/（2026-09-11 修：原硬编码
+        /// `user://` = C:\Users\…\Godot\app_userdata\world，违反"写盘产物不落 C 盘"的用户规矩）。
+        /// `--out=前缀` 可改文件名前缀。</summary>
+        private string PreviewPath(string suffix)
+        {
+            string resolved = UserPaths.Resolve($"userdata/maps/{OutPrefix}_{suffix}.png").Replace('\\', '/');
+            LogService.Log("TectonicsTest", $"预览输出 → {resolved}");
+            return resolved;
+        }
 
         /// <summary>球面位移 → 512×256 等距柱状预览 PNG（连续高度色带，海平面基准）。</summary>
         private void ExportEquirectPreview(TectonicsSimulation sim, string path)

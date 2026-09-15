@@ -1,4 +1,4 @@
-[gd_scene load_steps=5 format=3 uid="uid://cru0n1sgxbf34"]
+[gd_scene format=3 uid="uid://cru0n1sgxbf34"]
 
 [ext_resource type="Script" uid="uid://j31bhrvl3f4b" path="res://scripts/new_HexWorld/Ball/BallManager.cs" id="1_mgr"]
 [ext_resource type="Script" uid="uid://bu87qn16el8lf" path="res://scripts/new_HexWorld/Ball/BallView.cs" id="2_view"]
@@ -8,7 +8,6 @@
 
 [node name="Root" type="Node3D" unique_id=1452505373]
 script = ExtResource("1_mgr")
-Radius = 2.0
 
 [node name="OrbitalCamera" type="Node3D" parent="." unique_id=2004298144]
 script = ExtResource("5_cam")
@@ -17,8 +16,8 @@ _planetRadius = 2.0
 [node name="Ball" type="Node3D" parent="." unique_id=495043332]
 script = ExtResource("2_view")
 
-[node name="UiLayer" type="CanvasLayer" parent="."]
+[node name="UiLayer" type="CanvasLayer" parent="." unique_id=1144109853]
 
-[node name="HexDock" parent="UiLayer" instance=ExtResource("3_dock")]
+[node name="HexDock" parent="UiLayer" unique_id=79880649 instance=ExtResource("3_dock")]
 
-[node name="HexInfoPanel" parent="UiLayer" instance=ExtResource("4_info")]
+[node name="HexInfoPanel" parent="UiLayer" unique_id=1089018955 instance=ExtResource("4_info")]

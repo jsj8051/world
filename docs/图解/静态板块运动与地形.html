@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>静态板块运动 → 地形：几何、剖面与流水线</title>
+<style>
+  body{margin:0;background:#0e1116;color:#b7c3d4;
+       font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:18px;}
+  h1{font-size:17px;color:#e8eef7;margin:0 0 4px;font-weight:600;}
+  .sub{font-size:12px;color:#7d8ba0;margin:0 0 16px;line-height:1.6;}
+  .panel{background:#151a23;border:1px solid #2a3342;border-radius:10px;
+         padding:12px 14px;margin-bottom:14px;}
+  .ptitle{font-size:14px;color:#cfe0ff;margin:2px 0 8px;font-weight:600;}
+  .ptitle .tag{display:inline-block;font-size:11px;font-weight:500;color:#0e1116;
+    border-radius:4px;padding:1px 7px;margin-left:8px;vertical-align:2px;}
+  .t1{background:#f7b84a;} .t2{background:#7ee081;} .t3{background:#4da6ff;} .t4{background:#c792ea;}
+  text{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .cap{font-size:11.5px;color:#7d8ba0;margin:8px 2px 0;line-height:1.65;}
+  code{background:#1d232e;padding:1px 5px;border-radius:4px;color:#9fc4ff;font-size:11.5px;}
+</style>
+</head>
+<body>
+<h1>静态板块运动 → 地形：几何、剖面与流水线</h1>
+<p class="sub">设计依据：<code>docs/设计-new_HexWorld-地壳运动-02-板块运动与地形要素生成.md</code>（v1 草案）<br>
+运动只抽一次（欧拉极 Ω），只用来<b>分类边界</b>与<b>定幅度</b>；没有时间步进、没有格在动。</p>
+
+<!-- ══════════ ① 符号约定 ══════════ -->
+<div class="panel">
+  <div class="ptitle">① 符号约定：v<sub>n</sub> 的正负就是"汇聚 / 离散"<span class="tag t1">最易写错</span></div>
+  <svg viewBox="0 0 880 250" width="100%">
+    <defs>
+      <clipPath id="sp"><circle cx="175" cy="122" r="112"/></clipPath>
+      <marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#cfe0ff"/>
+      </marker>
+      <marker id="arwG" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+        <path d="M0,0 L9,4.5 L0,9 z" fill="#7ee081"/>
+      </marker>
+    </defs>
+    <!-- 左：球面两块板 -->
+    <circle cx="175" cy="122" r="112" fill="#131926" stroke="#4a5a76" stroke-width="2"/>
+    <g clip-path="url(#sp)">
+      <path d="M70,20 Q170,86 300,70 L300,10 L70,10 Z" fill="rgba(64,120,255,0.30)"/>
+      <path d="M70,20 Q170,86 300,70 L300,240 L70,240 Z" fill="rgba(255,170,60,0.26)"/>
+      <path d="M70,20 Q170,86 300,70" stroke="#ff6b6b" stroke-width="3" fill="none"/>
+    </g>
+    <text x="112" y="52" fill="#8fb4ff" font-size="12" font-weight="600">板 p</text>
+    <text x="146" y="186" fill="#ffc46b" font-size="12" font-weight="600">板 q</text>
+    <text x="196" y="62" fill="#ff6b6b" font-size="11">共享边</text>
+    <circle cx="175" cy="122" r="3" fill="#7d8ba0"/>
+    <text x="110" y="136" fill="#7d8ba0" font-size="11">球心 O</text>
+    <line x1="175" y1="122" x2="232" y2="86" stroke="#7d8ba0" stroke-width="1.2" stroke-dasharray="4,3"/>
+    <text x="150" y="82" fill="#7d8ba0" font-size="11">r̂</text>
+
+    <!-- 右：分解 -->
+    <text x="360" y="30" fill="#cfe0ff" font-size="12.5" font-weight="600">边界边上的分解（在边中点处做）</text>
+    <circle cx="430" cy="120" r="7" fill="#8fb4ff"/><text x="404" y="112" fill="#8fb4ff" font-size="11">c_i</text>
+    <circle cx="600" cy="120" r="7" fill="#ffc46b"/><text x="608" y="112" fill="#ffc46b" font-size="11">c_j</text>
+    <line x1="430" y1="120" x2="600" y2="120" stroke="#3a4657" stroke-width="1.2" stroke-dasharray="3,3"/>
+    <line x1="520" y1="120" x2="648" y2="120" stroke="#e8eef7" stroke-width="2" marker-end="url(#arw)"/>
+    <text x="614" y="140" fill="#e8eef7" font-size="11.5">n̂（i 侧 → j 侧）</text>
+    <line x1="520" y1="120" x2="612" y2="62" stroke="#4da6ff" stroke-width="2.4" marker-end="url(#arw)"/>
+    <text x="618" y="58" fill="#4da6ff" font-size="11.5">v_rel</text>
+    <line x1="520" y1="120" x2="612" y2="120" stroke="#7ee081" stroke-width="2.4" marker-end="url(#arwG)"/>
+    <text x="528" y="168" fill="#7ee081" font-size="11.5">v_n = v_rel · n̂</text>
+    <line x1="612" y1="120" x2="612" y2="64" stroke="#7ee081" stroke-width="1.6" stroke-dasharray="4,3"
+          marker-end="url(#arwG)"/>
+    <text x="620" y="96" fill="#7ee081" font-size="11">v_t（切向）</text>
+
+    <g font-size="12">
+      <rect x="360" y="192" width="150" height="42" rx="7" fill="rgba(255,107,107,0.13)" stroke="#ff6b6b"/>
+      <text x="372" y="210" fill="#ff9a9a" font-weight="600">v_n &gt; 0 → 汇聚</text>
+      <text x="372" y="226" fill="#7d8ba0" font-size="11">两板相向（碰撞 / 俯冲）</text>
+
+      <rect x="522" y="192" width="150" height="42" rx="7" fill="rgba(77,166,255,0.13)" stroke="#4da6ff"/>
+      <text x="534" y="210" fill="#8fc4ff" font-weight="600">v_n &lt; 0 → 离散</text>
+      <text x="534" y="226" fill="#7d8ba0" font-size="11">两板相离（洋脊 / 裂谷）</text>
+
+      <rect x="684" y="192" width="170" height="42" rx="7" fill="rgba(126,224,129,0.12)" stroke="#7ee081"/>
+      <text x="696" y="210" fill="#9cee9f" font-weight="600">|cosα| &lt; 0.20 → 转换</text>
+      <text x="696" y="226" fill="#7d8ba0" font-size="11">近乎平行边界：无地形</text>
+    </g>
+  </svg>
+  <p class="cap"><b>为什么只看相对速度：</b>给所有板同时叠加一个共同旋转，<b>所有相对速度逐位不变</b>——所以 Ω 的绝对基准是任意的，地形只允许依赖 <code>Ω_p − Ω_q</code>。这是<b>严格等价</b>，不是近似。<br>
+  <b>两遍分类：</b>第一遍只算 v<sub>n</sub> 定"汇聚/离散/转换"；离散边的洋侧格即脊轴 → BFS 出洋壳年龄；第二遍才用年龄判"洋-洋汇聚谁下插"（老壳下插）——这样避免"要年龄就得先分类，要分类就得先有年龄"的循环。</p>
+</div>
+
+<!-- ══════════ ② 热沉降 ══════════ -->
+<div class="panel">
+  <div class="ptitle">② 洋底深度 = 离脊距离 ÷ 扩张速率（= 相对速度）→ 年龄 → 热沉降<span class="tag t3">"运动塑造地形"最直接处</span></div>
+  <svg viewBox="0 0 880 370" width="100%">
+    <line x1="90" y1="345" x2="800" y2="345" stroke="#3a4657" stroke-width="1.5"/>
+    <line x1="90" y1="40" x2="90" y2="345" stroke="#3a4657" stroke-width="1.5"/>
+    <text x="706" y="338" fill="#7d8ba0" font-size="11">离脊距离 (km)</text>
+    <text x="16" y="30" fill="#7d8ba0" font-size="11">水深 (m)</text>
+    <g fill="#7d8ba0" font-size="10.5">
+      <text x="86" y="360">0</text><text x="200" y="360">1000</text><text x="316" y="360">2000</text>
+      <text x="433" y="360">3000</text><text x="550" y="360">4000</text><text x="666" y="360">5000</text>
+      <text x="778" y="360">6000</text>
+    </g>
+    <g fill="#7d8ba0" font-size="10.5">
+      <text x="52" y="64">-2500</text><text x="52" y="184">-4500</text><text x="52" y="334">-7000</text>
+    </g>
+    <line x1="90" y1="60" x2="800" y2="60" stroke="#2a3342" stroke-dasharray="4,4"/>
+    <line x1="90" y1="317" x2="800" y2="317" stroke="#6b5f8a" stroke-width="1" stroke-dasharray="5,4"/>
+    <text x="612" y="311" fill="#9a86c9" font-size="10.5">年龄封顶 150 My → -6786 m</text>
+    <text x="96" y="54" fill="#8fc4ff" font-size="10.5">脊轴 -2500 m（Age = 0）</text>
+    <rect x="90" y="40" width="330" height="305" fill="rgba(77,166,255,0.05)"/>
+    <path d="M90,60 L207,154 L323,193 L440,223 L557,248 L673,270 L790,290"
+          fill="none" stroke="#4da6ff" stroke-width="2.6"/>
+    <text x="694" y="284" fill="#4da6ff" font-size="11.5">快脊 10 cm/yr</text>
+    <path d="M90,60 L148,193 L207,248 L265,290 L309,317 L790,317"
+          fill="none" stroke="#f7b84a" stroke-width="2.6"/>
+    <text x="322" y="332" fill="#f7b84a" font-size="11.5">慢脊 2.5 cm/yr（更早进入深海平原）</text>
+    <text x="112" y="112" fill="#7d8ba0" font-size="11">离脊近：年轻洋壳浅</text>
+    <text x="112" y="128" fill="#7d8ba0" font-size="11">—— 这一段就是"洋中脊两翼"</text>
+    <text x="440" y="146" fill="#7d8ba0" font-size="11">远离脊：老洋壳平坦</text>
+    <text x="440" y="162" fill="#7d8ba0" font-size="11">—— 深海平原（无逐格硬编码）</text>
+  </svg>
+  <p class="cap">公式：<code>Age = 2 · d_ridge / vOpen</code>（半扩张速率 = vOpen/2）→ <code>Elevation = −(2500 + 350·√Age)</code>（Parsons &amp; Sclater 半空间冷却）。<br>
+  <b>同一个公式全域生效</b>：洋中脊"自然浮起"、深海平原"自然变深"都不需要生成器去写剖面——扩张速率直接来自该边界边的相对法向速度。<b>Mafic 厚度不动</b>（热沉降是热状态效应，不是壳厚效应）。</p>
+</div>
+
+<!-- ══════════ ③ 汇聚两种剖面 ══════════ -->
+<div class="panel">
+  <div class="ptitle">③ 汇聚边界的两种剖面（全部是"基准 + Σ 增量"，累加、无覆盖）<span class="tag t2">写场规则</span></div>
+  <svg viewBox="0 0 880 440" width="100%">
+    <!-- ── 碰撞造山 ── -->
+    <text x="60" y="22" fill="#cfe0ff" font-size="12.5" font-weight="600">陆-陆汇聚 → 碰撞造山带（机制：地壳增厚 → Airy）</text>
+    <line x1="60" y1="152" x2="820" y2="152" stroke="#2a3342" stroke-dasharray="4,4"/>
+    <text x="686" y="146" fill="#7d8ba0" font-size="10.5">陆基准 +800 m</text>
+    <path d="M60,152 L250,152 L287,148 L320,138 L365,122 L412,103 L440,54 L468,103 L515,122 L560,138 L593,148 L630,152 L820,152"
+          fill="rgba(247,184,74,0.18)" stroke="#f7b84a" stroke-width="2.4"/>
+    <line x1="440" y1="34" x2="440" y2="162" stroke="#ff6b6b" stroke-width="1.6" stroke-dasharray="5,4"/>
+    <text x="410" y="30" fill="#ff9a9a" font-size="11">边界</text>
+    <text x="452" y="48" fill="#f7b84a" font-size="11.5">峰值 +5.3 km ｜ 总壳厚 60 km</text>
+    <line x1="250" y1="170" x2="630" y2="170" stroke="#3a4657" stroke-width="1"/>
+    <text x="380" y="184" fill="#7d8ba0" font-size="10.5">半宽 600 km（全宽 ~1200 km）</text>
+
+    <!-- ── 俯冲 ── -->
+    <text x="60" y="242" fill="#cfe0ff" font-size="12.5" font-weight="600">洋-陆汇聚 → 海沟（机制：挠曲下弯）+ 火山弧（机制：弧岩浆增厚 → Airy）</text>
+    <path d="M60,385 L395,385 Q440,405 468,408 L470,321 L486,321 L502,309 L517,284 L533,272 L549,284 L565,309 L581,321 L820,321 L820,420 L60,420 Z"
+          fill="rgba(77,166,255,0.10)"/>
+    <path d="M60,385 L395,385 Q440,405 468,408 L470,321 L486,321 L502,309 L517,284 L533,272 L549,284 L565,309 L581,321 L820,321"
+          fill="none" stroke="#4da6ff" stroke-width="2.4"/>
+    <line x1="472" y1="321" x2="820" y2="321" stroke="#2a3342" stroke-dasharray="4,4"/>
+    <line x1="60" y1="385" x2="392" y2="385" stroke="#2a3342" stroke-dasharray="4,4"/>
+    <line x1="470" y1="258" x2="470" y2="416" stroke="#ff6b6b" stroke-width="1.6" stroke-dasharray="5,4"/>
+    <text x="408" y="272" fill="#ff9a9a" font-size="11">俯冲边界</text>
+    <text x="76" y="378" fill="#8fc4ff" font-size="10.5">洋底基准（老洋壳 -6500 m）</text>
+    <text x="300" y="404" fill="#8fc4ff" font-size="11">沟底 ≈ -9000 m（2500 m 挠曲下沉）</text>
+    <text x="632" y="314" fill="#7d8ba0" font-size="10.5">陆基准 +800 m</text>
+    <text x="540" y="262" fill="#7ee081" font-size="11.5">弧峰 +6.2 km（离边界 200 km）</text>
+    <line x1="470" y1="334" x2="533" y2="334" stroke="#3a4657" stroke-width="1"/>
+    <text x="482" y="348" fill="#7d8ba0" font-size="10.5">200 km</text>
+  </svg>
+  <p class="cap"><b>两种机制的写场差别（这是纪律修订的核心）：</b><br>
+  造山带 / 弧 = <b>写地壳厚度</b>（<code>FelsicThick += Δt</code>），海拔由 <code>Δh = Δt · kAiry</code> 增量导出（kAiry = 1 − 2700/3300 ≈ 0.182）；弧岩浆是地幔→地壳的净输入，上盘是洋壳时 felsic 从 0 增到 30 km，<b>岛弧出露由此自然发生</b>（`IsLand` = 长英质厚 &gt; 0，不写特判）。<br>
+  海沟 = <b>只写海拔</b>（挠曲是几何下弯，不是壳减薄——纯 Airy 到不了 -9 km，知识库已论证）。<br>
+  弧能否出水取决于该处洋底基准深度：近脊处（-2500）弧峰到 +3 km 会出露成岛，老洋底处（-6500）弧峰只剩 -1 km 不出露——<b>物理上诚实，不是 bug</b>。</p>
+</div>
+
+<!-- ══════════ ④ 离散边界陆侧 ══════════ -->
+<div class="panel">
+  <div class="ptitle">④ 离散边界陆侧：裂谷（减薄 → Airy 下沉）+ 肩部（热穹窿/回弹 → 纯海拔）<span class="tag t4">两种机制并列</span></div>
+  <svg viewBox="0 0 880 290" width="100%">
+    <line x1="60" y1="141" x2="820" y2="141" stroke="#2a3342" stroke-dasharray="4,4"/>
+    <text x="686" y="135" fill="#7d8ba0" font-size="10.5">陆基准 +800 m</text>
+    <path d="M60,141 L329,141 L345,107 L361,93 L377,107 L392,141 L404,153 L416,184 L428,214 L440,227 L452,214 L464,184 L476,153 L488,141 L503,107 L519,93 L535,107 L551,141 L820,141 L820,268 L60,268 Z"
+          fill="rgba(199,146,234,0.13)"/>
+    <path d="M60,141 L329,141 L345,107 L361,93 L377,107 L392,141 L404,153 L416,184 L428,214 L440,227 L452,214 L464,184 L476,153 L488,141 L503,107 L519,93 L535,107 L551,141 L820,141"
+          fill="none" stroke="#c792ea" stroke-width="2.4"/>
+    <line x1="440" y1="72" x2="440" y2="244" stroke="#ff6b6b" stroke-width="1.6" stroke-dasharray="5,4"/>
+    <text x="404" y="68" fill="#ff9a9a" font-size="11">离散边界</text>
+    <text x="326" y="88" fill="#c792ea" font-size="11">肩 +1800 m</text>
+    <text x="506" y="88" fill="#c792ea" font-size="11">肩 +1800 m</text>
+    <text x="452" y="240" fill="#c792ea" font-size="11">地堑底 -1018 m（陆壳减薄 10 km → Airy 下沉）</text>
+    <line x1="329" y1="158" x2="377" y2="158" stroke="#3a4657" stroke-width="1"/>
+    <line x1="503" y1="158" x2="551" y2="158" stroke="#3a4657" stroke-width="1"/>
+    <text x="332" y="172" fill="#7d8ba0" font-size="10.5">肩宽 200 km</text>
+    <text x="60" y="282" fill="#7d8ba0" font-size="11">陆-洋离散的陆侧同源但参数更缓：被动陆缘 = 陆缘减薄带（初值 6 km / 半宽 300 km），<b>无肩部</b>（被动边缘已冷却）。</text>
+  </svg>
+</div>
+
+<!-- ══════════ ⑤ 流水线 ══════════ -->
+<div class="panel">
+  <div class="ptitle">⑤ 生成的固定顺序（不存在循环依赖）</div>
+  <svg viewBox="0 0 880 160" width="100%">
+    <g font-size="11.5">
+      <rect x="14" y="52" width="150" height="46" rx="7" fill="#1d232e" stroke="#3a4657"/>
+      <text x="26" y="72" fill="#b7c3d4">01 初值场</text>
+      <text x="26" y="88" fill="#7d8ba0" font-size="10.5">+800 / -3700 两级</text>
+
+      <rect x="180" y="52" width="140" height="46" rx="7" fill="#1d232e" stroke="#3a4657"/>
+      <text x="192" y="72" fill="#f7b84a">抽欧拉极 Ω</text>
+      <text x="192" y="88" fill="#7d8ba0" font-size="10.5">rng 续流 · P 次</text>
+
+      <rect x="336" y="52" width="150" height="46" rx="7" fill="#1d232e" stroke="#3a4657"/>
+      <text x="348" y="72" fill="#c792ea">逐边分类（一遍）</text>
+      <text x="348" y="88" fill="#7d8ba0" font-size="10.5">只读初值</text>
+
+      <rect x="502" y="52" width="160" height="46" rx="7" fill="#1d232e" stroke="#3a4657"/>
+      <text x="514" y="72" fill="#4da6ff">脊轴 → BFS → 年龄</text>
+      <text x="514" y="88" fill="#7d8ba0" font-size="10.5">洋区海拔基准（热沉降）</text>
+
+      <rect x="678" y="52" width="188" height="46" rx="7" fill="#1d232e" stroke="#3a4657"/>
+      <text x="690" y="72" fill="#7ee081">分类二遍 + 省份定局</text>
+      <text x="690" y="88" fill="#7d8ba0" font-size="10.5">用年龄定下插侧</text>
+
+      <rect x="180" y="16" width="686" height="24" rx="6" fill="rgba(77,166,255,0.10)" stroke="#2a3342"/>
+      <text x="192" y="32" fill="#8fc4ff">之后：有界 BFS 距离场 → 要素生成器累加写场（造山 → 海沟 → 弧 → 裂谷 → 被动陆缘）→ 统计 / 派生口</text>
+
+      <text x="192" y="126" fill="#7d8ba0" font-size="11">纪律：分类阶段只读初值场；写场阶段不再重判陆性（IsLand = 长英质厚 &gt; 0，会被要素生成器改）——</text>
+      <text x="192" y="144" fill="#7d8ba0" font-size="11">否则判据会随写场顺序漂移。分类与省份在写场前全部定局。</text>
+    </g>
+  </svg>
+</div>
+
+</body>
+</html>

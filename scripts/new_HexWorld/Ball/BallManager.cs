@@ -7,20 +7,34 @@ using World.NewHexWorld.UI.ViewModels;       // 球视图 / 坞 / 格信息 VM
 
 namespace World.NewHexWorld
 {
+	// H3 分辨率档（设计入口 §4 分辨率表；本枚举 = 编辑器旋钮的取值域）：
+	// 只列设计内的三档——res ≥ 6 是 14.1M 格（生成耗时与内存都不可承受），
+	// 故不给裸 int：枚举让越界档在 inspector 里根本不可表示。
+	public enum HexResLevel
+	{
+		Res3 = 3,   // 41,162 格 / 格宽 ~120 km：测试与判读档（形态断言、出图）
+		Res4 = 4,   // 288,122 格 / 格宽 ~45 km
+		Res5 = 5,   // 2,016,842 格 / 格宽 ~17 km：最终目标世界（当前网格渲染扛不住，仅数值判读）
+	}
+
 	// 场景根 = 组装器 + 输入路由（设计入口 §2.2/§2.4）：构造全部逻辑层对象（Ball → H3PlateManager
 	// 静态生成）→ 建 MapModeRegistry（两模式策略注入 Model）→ 建各视图 VM（注入 Model/当前模式）→
 	// 下行注入 View（BallView.Init/Bind、HexDock.BindModes、信息面板事件接线）→ 承担点击拾取输入路由。
 	// 相机 = OrbitalCamera（老树单源复用：左键拖转/滚轮缩放/WASD）；本类不承载业务数据
-	// （只留场景调参旋钮 ResLevel/Radius/NumPlates/Seed）；数据流 = Model → VM 派生 → View。
+	// （只留场景调参旋钮 ResLevel/Radius/NumPlates/Seed/OceanFraction/LandOceanNoiseBlend）；数据流 = Model → VM 派生 → View。
 	public partial class BallManager : Node3D
 	{
-		[Export] public int ResLevel = 3;        // H3 分辨率档（Ball 单一事实源；相机/视图全由此推导）
+		[Export] public HexResLevel ResLevel = HexResLevel.Res3;   // H3 分辨率档（Ball 单一事实源；相机/视图全由此推导）
 		[Export] public float Radius = 2.0f;     // 球半径（须与 OrbitalCamera._planetRadius 场景同值）
 		[Export] public int NumPlates = 15;      // 板块数 P（设计参数表：10–20 区间，默认 15）
 		[Export] public int Seed = 42;           // 星球种子（定胞心抽取/生长/陆性，同 seed 全球同局）
+		[Export] public float OceanFraction = 0.6f;  // 海洋占比（逐格分位数钉住；1−此值 ≈ 陆地占比）
+		[Export] public float LandOceanNoiseBlend = 0.7f;  // 初始陆洋混合：0=整板陆/洋（海岸线=板块边界），1=纯噪声斑块（与板块解耦）
 		[Export] public float OutlineWidthFrac = 0.18f;   // 板块边界线半宽（× 格平均内切半径）
 		[Export] public Color OutlineColor = new Color(0f, 0f, 0f, 0.55f); // 板块边界线色（含透明度；两遍深度预写渲染，半透明也不叠加变深）
+		[Export] public int StepsPerFrame = 12;   // 分帧生成：每帧推进的模拟步数（04 批次 5；0 = 同步一次跑完）
 
+		Ball _ball;                              // 网格数据层（分帧装配期需跨方法引用）
 		OrbitalCamera _orbitalCamera;            // 子节点：轨道相机（拖转/缩放/拾取射线源）
 		BallView _ballView;                      // 子节点：球视图（View）
 		H3PlateManager _plates;                  // 逻辑层：静态地壳场 + 板统计（唯一权威）
@@ -43,11 +57,36 @@ namespace World.NewHexWorld
 			// ① 逻辑层（Model 构造权全在组装器，View 只收已建好的引用）：
 			//    Ball 网格数据 → 注入球视图建几何 → H3PlateManager 静态生成地壳场
 			_ballView = GetNode<BallView>("Ball");
-			var ball = new Ball(ResLevel, Radius);
+			var ball = new Ball((int)ResLevel, Radius);   // Ball 是数据层：收裸 int，不反向依赖场景枚举
 			_ballView.Init(ball, OutlineWidthFrac, OutlineColor);
 			_plates = new H3PlateManager();
-			_plates.Init(ball, NumPlates, Seed);
+			_ball = ball;
 
+			// ①b 生成（04 批次 5）：StepsPerFrame = 0 → 同步一次跑完（拖住首帧）；
+			//     > 0 → 分帧推进（编辑器不再被 600 My 模拟卡住数秒），完成后再装配 UI。
+			_plates.BeginInit(ball, NumPlates, Seed, OceanFraction, LandOceanNoiseBlend);
+			if (StepsPerFrame <= 0)
+			{
+				while (_plates.AdvanceInit(int.MaxValue)) { }
+				_plates.FinishInit();
+				AssembleUi();
+			}
+			else SetProcess(true);   // 交给 _Process 分帧推进
+		}
+
+		/// <summary>分帧推进生成（04 批次 5）：每帧 StepsPerFrame 步；完成即装配 UI 并关闭处理。</summary>
+		public override void _Process(double delta)
+		{
+			if (_plates == null) { SetProcess(false); return; }
+			if (_plates.AdvanceInit(StepsPerFrame)) return;      // 还要继续
+			_plates.FinishInit();
+			SetProcess(false);
+			AssembleUi();
+		}
+
+		// UI 装配（生成完成后调用；Model 已就绪 = _plates.Crust/Boundary 全部可用）
+		void AssembleUi()
+		{
 			// ② 模式策略注册表（MapMode 注入 Model 只读引用；注册序 = 坞按钮序 = Id 0/1；
 			//    海陆模式 2026-09-09 删除——海陆观感由海拔色带 0m 硬台阶天然承载）
 			var registry = new MapModeRegistry();
@@ -56,9 +95,9 @@ namespace World.NewHexWorld
 				_plates.NumPlates, _plates.PlateCounts));
 
 			// ③ VM（注入 Model；初始模式 = 注册表首模式（海拔）——坞按钮默认高亮同由 HexDock._Ready 置位）
-			_worldVm = new HexWorldViewModel(ball, _plates, registry.Modes[0]);
+			_worldVm = new HexWorldViewModel(_ball, _plates, registry.Modes[0]);
 			_dockVm = new DockViewModel(registry);
-			_cellInfoVm = new CellInfoViewModel(ball, _plates, registry.Modes[0]);
+			_cellInfoVm = new CellInfoViewModel(_ball, _plates, registry.Modes[0]);
 
 			// ④ View 接线（全部下行注入）：球视图订阅 VM 变更信号 → 首帧即渲染海拔模式 + 边界线；
 			//    坞按钮文案/数量与注册表对账（不同步当场抛，见 HexDock.BindModes）

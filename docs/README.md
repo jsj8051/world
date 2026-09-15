@@ -15,6 +15,14 @@
 | [索引.md](索引.md) | **代码索引**：按目录列出脚本/场景/着色器/数据/插件的职责、关键类与交互 |
 | [存档段表格式设计.md](存档段表格式设计.md) | 段表容器（ChunkWriter/ChunkReader）、布局、版本判定（.mpa v9 / .cmp v17 / .gmp v3）、验证配方 |
 
+## 世界生成（new_HexWorld —— H3 六边形新世界）
+
+| 文档 | 内容 |
+|---|---|
+| [设计-new_HexWorld-地壳运动.md](设计-new_HexWorld-地壳运动.md) | **入口（唯一权威，v12）**：Crust 六场与常量一次定义、架构分层（逻辑层 + UI 层 MVVM 地图模式体系）、地形目标清单、系列目录 |
+| [设计-new_HexWorld-地壳运动-01-板块运动与属性平流.md](设计-new_HexWorld-地壳运动-01-板块运动与属性平流.md) | 01 初始地壳模板静态生成（v1.3）：抽种归并分板、海陆 = 板属性两级模板、海拔初值、边界几何派生口（**文件名遗留**，内容已重写为静态版） |
+| [设计-new_HexWorld-地壳运动-02-板块运动与地形要素生成.md](设计-new_HexWorld-地壳运动-02-板块运动与地形要素生成.md) | 02 运动学与地形（v1.2）：欧拉极 Ω、逐边两遍分类（汇聚/离散/转换/惰性）、洋底热沉降（离脊距离→年龄→深度）、三类边界地形（造山 / 海沟+弧 / 洋脊·裂谷·被动陆缘）、写场机制纪律、参数表与测量项；**v1.2**：陆-洋汇聚改走造山带（岛弧只留洋-洋）、形态判读口径改 res4 起；**§11A** 登记「大陆架须水位」空洞（水量守恒另立项） |
+
 ## 人文层设计（阶段设计——现行机制）
 
 | 文档 | 内容 |
@@ -46,10 +54,10 @@
 
 ## 快速入口
 
-- 主场景：`res://scenes/core/MainMenu.tscn`（project.godot main_scene）
+- 主场景：`res://scenes/core/NewBall.tscn`（project.godot main_scene；new_HexWorld 动态板块世界）
 - 生成器：`res://scenes/core/MapGen.tscn`（headless：`--headless --quit-after 400`）
 - 查看器：`res://scenes/core/MapViewer.tscn`（键盘切图层）
 - 诊断场景：`res://scenes/diag/`（23 个，全部 headless 可跑）
-- 单元测试：`dotnet run --project tests/World.Tests.Local/World.Tests.Local.csproj --no-build`（484 全绿）
+- 单元测试：`dotnet test tests/World.Tests/World.Tests.csproj`（new_HexWorld/老树全量）
 
 > 注：`docs/` 含 `.gdignore`（Godot 不导入本目录）；截图只作记录，非游戏资源。

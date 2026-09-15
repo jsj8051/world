@@ -29,6 +29,9 @@ namespace World.NewHexWorld
 		public int Res { get; }   // 分辨率档（拾取 LatLngToCell / 重染用，构造即定）
 		public float Radius { get; }   // 球半径（格心/顶点坐标同尺度；边界链浮起等派生几何用）
 
+		// 格 id → 下标（显示层按 cell id 查内容场用，见 CellIndexOf/VertexIndexOf；未命中返回 -1 的
+		// 旧口已删——v1.7 平流改一步一格 CA 后无调用者，查不到即抛的 CellIndexOf 是唯一正口）。
+
 		public Ball(int res, float radius)
 		{
 			Res = res;

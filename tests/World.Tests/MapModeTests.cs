@@ -19,7 +19,7 @@ namespace World.Tests;
 /// </summary>
 public class MapModeTests
 {
-    private const int Res = 2;
+    private const int Res = 3;   // res3（与本仓库其它 new_HexWorld 测试同档；不用 res2）
     private const int Plates = 15;
     private const int Seed = 42;
 
@@ -53,32 +53,36 @@ public class MapModeTests
     }
 
     [Test]
-    public void ElevationMode_InitialTwoTier_SeaBlueLandGreenYellow()
+    public void ElevationMode_RampSamplingConsistent_LandBaseAndRidgeAxisColors()
     {
+        // 本测试断言 ① 取色 = 通用平滑采样（全格、模式无关）；② 海平面两侧取色分属冷/暖两类
+        // （0 m 色相硬台阶）。⚠️ 03 动态路线下不再有"模板基准格"（+800 / −2500 是老两级模板的值，
+        // 现在的海拔由 600 My 演化算出），故改为按**实际分布**校验色带语义。
         var mode = new ElevationMapMode(Crust);
         Assert.AreEqual(0, mode.Id);
         Assert.AreEqual("海拔", mode.Name);
         Assert.IsTrue(mode.ShowPlateBoundaries, "海拔模式应叠加板块边界线（海岸线 = 0m 线双重视觉对照）");
 
+        int landCells = 0, oceanCells = 0;
         for (int i = 0; i < Crust.PlateId.Length; i++)
         {
             float elev = Crust.Elevation[i];
             Color c = mode.CellColorAt(i);
             Color expect = ColorRamp.RampSampleSmooth(ElevationMapMode.ElevationStops, elev);
             Assert.AreEqual(expect, c, $"格 {i} 海拔取色应与平滑采样一致");
-            if (elev >= 0f)
-            {
-                // 陆格初值 +800m：落在 [500 浅绿, 2000 金黄) 段的绿黄系（R < G，未到金黄翻 R > G）
-                Assert.Greater(c.G, c.R, $"陆格 {i}（+800m）应绿黄系（浅绿为主，R<G）");
-                Assert.Less(c.B, 0.5f, $"陆格 {i} 绿黄系不应偏蓝");
-            }
-            else
-            {
-                // 洋格初值 −3700m：落在 [-6000 靛蓝, -2000 深蓝) 段的蓝系（B 分量最大）
-                Assert.Greater(c.B, c.R, $"洋格 {i}（−3700m）应蓝系");
-                Assert.Greater(c.B, c.G, $"洋格 {i}（−3700m）应蓝系");
-            }
+
+            if (elev < 0f) oceanCells++; else landCells++;
         }
+        Assert.Greater(landCells, 0, "应有陆格（演化后海拔 > 0）");
+        Assert.Greater(oceanCells, 0, "应有海洋格（演化后海拔 < 0）");
+
+        // 0 m 硬台阶（09-09 拍板）：海平面两侧代表海拔的取色必须分属冷/暖两类。
+        // 不逐格判通道大小 —— 0~200 m 那段是从"海平面浅蓝"插值过来的过渡色，逐格断言会误伤岸边格。
+        Color deepSea = ColorRamp.RampSampleSmooth(ElevationMapMode.ElevationStops, -1000f);
+        Color inland = ColorRamp.RampSampleSmooth(ElevationMapMode.ElevationStops, 1000f);
+        Assert.Greater(deepSea.B, deepSea.R, "−1000 m 应冷色系（B > R）");
+        Assert.Greater(inland.G, inland.B, "+1000 m 应暖色系（G > B）");
+        Assert.AreNotEqual(deepSea, inland, "海平面两侧色带取值必须不同（0 m 硬台阶）");
     }
 
     // ═══════════════════════════════════════════════════════════════

@@ -13,12 +13,17 @@ namespace World.Tests;
 /// new_HexWorld 静态地壳生成（H3Plate，设计-01 v1.1）正确性测试。
 /// 断言的测量项（文档 §6 中可自动化的部分）：确定性、铺满无空洞、每板连通、
 /// 海陆=板块属性两级料场（含海拔初值）、边界链段集与异板共享边集合逐段对账（无遗漏无重复）、
-/// 链不跨三板块交汇点（断链语义）、多种子海陆占比围绕 LandFrac。
+/// 链不跨三板块交汇点（断链语义）、板表与板缘分类自洽。
+/// ⚠️ 03 起改走**动态路线**：陆性不再是板属性（一块板可同时有陆有洋），海陆占比由初始海洋格占比
+/// + 600 My 演化共同决定 —— 故「两级料场模板」「陆性 = 板属性」那几条断言已随 02 作废删除。
+///（03 v1.9 动态**初始化**又改回板级陆洋属性——那是动态模拟的初始口径，与本静态路线无关，见 03。）
 /// 纪律：只用 [Test]；不写文件；不触碰 GD.*/LogService。Ball 需 H3 原生库（测试工程已引用）。
 /// </summary>
 public class H3PlateStaticTests
 {
-    private const int Res = 2;          // res2：N=5882 格——测试网格（构造 ~百 ms 级，类内共享）
+    // res3：N=41162 格。**不用 res2**（用户 2026-09-10 拍板）：带宽按板块尺度缩放后，
+    // 弧带全宽 420 km 而 res2 格宽 294 km → 带形落在格与格之间、弧地形在网格上生不出来。
+    private const int Res = 3;
     private const int Plates = 15;      // 文档默认 P（10–20 区间）
     private const int Seed = 42;        // 文档默认 seed（场景默认同值）
 
@@ -26,10 +31,12 @@ public class H3PlateStaticTests
     static readonly Lazy<Ball> SharedBall = new(() => new Ball(Res, 1f));
     static Ball Ball => SharedBall.Value;
 
-    static H3Plate Generate(int seed, int plates = Plates, float landFrac = 1f / 3f, Ball ball = null)
+    // ⚠️ 口径修正（04 批次 0）：旧名 landFrac = 1/3 直接喂给 oceanFraction——**同名参数语义相反**，
+    // 测试世界实际海占 1/3（与场景默认 0.6 相反）。改回与 CreatePlates 同名同默认，消除反义陷阱。
+    static H3Plate Generate(int seed, int plates = Plates, float oceanFraction = 0.6f, Ball ball = null)
     {
         var plate = new H3Plate(ball ?? Ball);
-        plate.CreatePlates(plates, seed, landFrac);
+        plate.CreatePlates(plates, seed, oceanFraction);
         return plate;
     }
 
@@ -67,94 +74,71 @@ public class H3PlateStaticTests
     {
         var plate = Generate(Seed);
         int n = plate.Crust.PlateId.Length;
-        var counts = new int[Plates];
+        // 04 批次 4：缝合/裂解/重启会改板数与板号（裂解新板号可 ≥ 初始板数）——口径放宽为
+        // "逐格归属非负、出现的每个板号都非空、板数 ∈ [2, 2×初始]"（restart 重置回初始数）。
+        var counts = new System.Collections.Generic.Dictionary<int, int>();
         foreach (int p in plate.Crust.PlateId)
         {
-            Assert.That(p, Is.InRange(0, Plates - 1), "归属板号越界 = 空洞/脏数据");
-            counts[p]++;
+            Assert.GreaterOrEqual(p, 0, "归属板号非负 = 空洞/脏数据的回归判据");
+            counts[p] = counts.GetValueOrDefault(p) + 1;
         }
-        Assert.AreEqual(n, counts.Sum(), "归属计数总和须等于格数");
-        for (int p = 0; p < Plates; p++)
-            Assert.Greater(counts[p], 0, $"板 {p} 无格（种子胞必占 ≥1 胞）");
+        Assert.AreEqual(n, counts.Values.Sum(), "归属计数总和须等于格数");
+        Assert.That(counts.Count, Is.InRange(2, Plates * 2),
+            $"终态板数 {counts.Count}（缝合可减、裂解可增，上限守卫 = 2×初始）");
+        foreach (var kv in counts)
+            Assert.Greater(kv.Value, 0, $"板 {kv.Key} 无格（空板不应出现在计数里）");
     }
 
     [Test]
-    public void CreatePlates_EachPlate_ConnectedOnCellNeighborGraph()
+    public void CreatePlates_EachPlate_MainBodyConnectedOnCellNeighborGraph()
     {
         var plate = Generate(Seed);
         var ball = Ball;
         int n = plate.Crust.PlateId.Length;
-        var counts = new int[Plates];
-        foreach (int p in plate.Crust.PlateId) counts[p]++;
-
-        // 逐板 BFS（经格邻居表，只走同板格）→ 到达数须等于该板格数
-        for (int p = 0; p < Plates; p++)
+        var counts = new System.Collections.Generic.Dictionary<int, int>();
+        foreach (int p in plate.Crust.PlateId)
         {
-            int start = Array.FindIndex(plate.Crust.PlateId, x => x == p);
+            Assert.GreaterOrEqual(p, 0, "有格无主（PlateId = -1：平流空洞未填）——裂谷填充步骤的回归判据");
+            counts[p] = counts.GetValueOrDefault(p) + 1;
+        }
+
+        // 逐板找**最大连通分量**（经格邻居表，只走同板格）：从每个未访问的同板格起 BFS，
+        // 取最大者。⚠️ 不能只从"首个找到的格"BFS —— 那个格可能恰好落在一个小碎片里。
+        foreach (int p in counts.Keys)
+        {
             var seen = new bool[n];
-            var queue = new Queue<int>();
-            queue.Enqueue(start);
-            seen[start] = true;
-            int reached = 0;
-            while (queue.Count > 0)
+            var queue = new System.Collections.Generic.Queue<int>();
+            int largest = 0;
+            for (int cell = 0; cell < n; cell++)
             {
-                int i = queue.Dequeue();
-                reached++;
-                foreach (int j in ball.CellNeighbors[i])
+                if (plate.Crust.PlateId[cell] != p || seen[cell]) continue;
+                queue.Enqueue(cell);
+                seen[cell] = true;
+                int reached = 0;
+                while (queue.Count > 0)
                 {
-                    if (!seen[j] && plate.Crust.PlateId[j] == p)
+                    int i = queue.Dequeue();
+                    reached++;
+                    foreach (int j in ball.CellNeighbors[i])
                     {
-                        seen[j] = true;
-                        queue.Enqueue(j);
+                        if (!seen[j] && plate.Crust.PlateId[j] == p)
+                        {
+                            seen[j] = true;
+                            queue.Enqueue(j);
+                        }
                     }
                 }
+                if (reached > largest) largest = reached;
             }
-            Assert.AreEqual(counts[p], reached, $"板 {p} 不连通（BFS 到达 {reached}/{counts[p]}）");
+            // ⚠️ 03 动态路线下**板块可以被平流撕碎**——平流是"逐格按本板旋转增量搬运"，
+            // 板缘的格会与板主体错开，一块板的格不再保证在邻居图上整体连通。故只断言"主体连通"
+            // （最大连通分量 ≥ 半数格）；碎片化程度交给诊断场景判读（这是动态路线的已知性质，
+            // 不是缺陷：真实板块本来也会被走滑断层切成碎块）。
+            Assert.GreaterOrEqual(largest, counts[p] / 2, $"板 {p} 主体不连通（最大连通分量 {largest}/{counts[p]}）");
         }
     }
 
-    [Test]
-    public void CreatePlates_TwoTierCrustFields_MatchDesignConstants()
-    {
-        var plate = Generate(Seed);
-        var crust = plate.Crust;
-        int landCells = 0, oceanCells = 0;
-        for (int i = 0; i < crust.PlateId.Length; i++)
-        {
-            int p = crust.PlateId[i];
-            if (plate.Plates[p].IsLand)
-            {
-                landCells++;
-                Assert.AreEqual(H3Plate.LandFelsicThicknessM, crust.FelsicThick[i], $"陆格 {i} felsic");
-                Assert.AreEqual(0f, crust.MaficThick[i], $"陆格 {i} mafic 应为 0");
-                Assert.AreEqual(H3Plate.ContinentalAgeMy, crust.Age[i], $"陆格 {i} age");
-                Assert.AreEqual(H3Plate.LandElevationM, crust.Elevation[i], $"陆格 {i} elevation");
-            }
-            else
-            {
-                oceanCells++;
-                Assert.AreEqual(0f, crust.FelsicThick[i], $"洋格 {i} felsic 应为 0");
-                Assert.AreEqual(H3Plate.OceanMaficThicknessM, crust.MaficThick[i], $"洋格 {i} mafic");
-                Assert.AreEqual(H3Plate.OceanicAgeMy, crust.Age[i], $"洋格 {i} age");
-                Assert.AreEqual(-H3Plate.OceanDepthM, crust.Elevation[i], $"洋格 {i} elevation");
-            }
-            Assert.AreEqual(0f, crust.SedimentThick[i], "沉积物本阶段全 0");
-        }
-        Assert.Greater(landCells, 0, "应有陆格（LandFrac≈1/3、P=15 时几乎必然）");
-        Assert.Greater(oceanCells, 0, "应有洋格");
-        Assert.AreEqual(landCells + oceanCells, crust.PlateId.Length, "陆洋格数合计 = 总格数（海陆=板属性全覆盖）");
-    }
 
-    [Test]
-    public void CreatePlates_CrustIsLand_MatchesPlateAttribute()
-    {
-        // 统一判陆口径不变量：Crust.IsLand（长英质厚>0 派生）必须与板属性 IsLand 逐格一致
-        var plate = Generate(Seed);
-        var crust = plate.Crust;
-        for (int i = 0; i < crust.PlateId.Length; i++)
-            Assert.AreEqual(plate.Plates[crust.PlateId[i]].IsLand, crust.IsLand(i),
-                $"格 {i} 的 Crust.IsLand 与板属性 IsLand 不一致（判陆口径被破坏）");
-    }
 
     [Test]
     public void CreatePlates_InvalidPlateCount_ThrowsLeavesStateClean()
@@ -170,23 +154,63 @@ public class H3PlateStaticTests
         Assert.AreEqual(Plates, plate.NumPlates);
     }
 
+    // ═══════════════════════════════════════════════════════════════
+    // 加权随机生长分板（2026-09-15 拍板，替换撒点-合并 Voronoi）特性
+    // ═══════════════════════════════════════════════════════════════
+
     [Test]
-    public void CreatePlates_ManySeeds_LandShareAroundLandFrac()
+    public void SplitIntoPlates_Growth_EachPlateExactlyOneComponent()
     {
-        // 40 个 seed 平均陆占比应贴近 1/3（二项+板大小涨落），区间宽松防误伤
-        const int seeds = 40;
-        long landTotal = 0, cellTotal = 0;
-        for (int s = 1; s <= seeds; s++)
+        // 生长逐格**贴邻认领** ⇒ 每板天然单连通（强于旧路线"主体连通"的硬回归判据：
+        // Voronoi 的孤岛/嵌入簇路径在这里直接红）
+        var plateOfCell = new H3Plate(Ball).SplitIntoPlates(Plates, Seed);
+        var ball = Ball;
+        int n = plateOfCell.Length;
+        var counts = new System.Collections.Generic.Dictionary<int, int>();
+        foreach (int p in plateOfCell)
         {
-            var plate = Generate(s);
-            int n = plate.Crust.PlateId.Length;
-            cellTotal += n;
-            for (int i = 0; i < n; i++)
-                if (plate.Plates[plate.Crust.PlateId[i]].IsLand) landTotal++;
+            Assert.GreaterOrEqual(p, 0, "生长铺满全球，不应有无主格");
+            counts[p] = counts.GetValueOrDefault(p) + 1;
         }
-        double avg = (double)landTotal / cellTotal;
-        Assert.That(avg, Is.InRange(0.18, 0.50), $"40 seed 平均陆占比 {avg:F3} 偏离 LandFrac=1/3 过多");
+        Assert.AreEqual(Plates, counts.Count, "生长式分板应恰好 P 块（每板至少占种子格）");
+
+        foreach (int p in counts.Keys)
+        {
+            var seen = new bool[n];
+            var queue = new System.Collections.Generic.Queue<int>();
+            int reached = 0;
+            for (int cell = 0; cell < n && reached == 0; cell++)
+            {
+                if (plateOfCell[cell] != p) continue;
+                queue.Enqueue(cell);
+                seen[cell] = true;
+                while (queue.Count > 0)
+                {
+                    int i = queue.Dequeue();
+                    reached++;
+                    foreach (int j in ball.CellNeighbors[i])
+                        if (!seen[j] && plateOfCell[j] == p) { seen[j] = true; queue.Enqueue(j); }
+                }
+            }
+            Assert.AreEqual(counts[p], reached, $"板 {p} 应单连通（最大分量 {reached}/{counts[p]}）");
+        }
     }
+
+    [Test]
+    public void SplitIntoPlates_Growth_SizeVarianceEmerges()
+    {
+        // 默认生长率指数（rate = u^1.5，前沿加权 = 富者愈富）应长出"巨板 + 小板"的悬殊格局，
+        // 而不是 Voronoi 式的匀称拼贴——这是换生长路线的动机回归判据
+        var plateOfCell = new H3Plate(Ball).SplitIntoPlates(Plates, Seed);
+        var counts = new System.Collections.Generic.Dictionary<int, int>();
+        foreach (int p in plateOfCell) counts[p] = counts.GetValueOrDefault(p) + 1;
+        var sizes = counts.Values.OrderBy(v => v).ToList();
+        double median = sizes[sizes.Count / 2];
+        double ratio = sizes[^1] / median;
+        TestContext.Out.WriteLine($"[生长分板] 板大小 {sizes[0]}..{sizes[^1]}（中位 {median:F0}），max/median = {ratio:F2}");
+        Assert.Greater(ratio, 1.8, $"最大板/中位板 = {ratio:F2}，大小悬殊格局未出现（生长率/前沿加权可能被改坏）");
+    }
+
 
     // ═══════════════════════════════════════════════════════════════
     // 边界链提取（01 §4：对账 = 无遗漏无重复；链不跨三板块交汇 = 断链语义）
@@ -339,5 +363,23 @@ public class H3PlateStaticTests
                     $"格 {H3.H3ToString(cellI)} 边 {H3.H3ToString(va)}-{H3.H3ToString(vb)} 记账状态与跨边邻居异板与否不符（同板边被误记/异板边漏记）");
             }
         }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 编辑器旋钮取值域（入口 §4 分辨率表：三档闭集）
+    // ═══════════════════════════════════════════════════════════════
+
+    [Test]
+    public void HexResLevel_ClosedSet_MatchesEntryDocResTable()
+    {
+        // BallManager 的 [Export] 旋钮是**闭集枚举**（inspector 下拉，2026-09-10 用户拍板），
+        // 不是裸 int：res ≥ 6（14.1M 格）在编辑器里根本不可表示。本断言把取值域钉到入口 §4
+        // 分辨率表——任一侧加档/删档都会打到它，逼"改代码必同步文档"。
+        // 只查 H3 常数公式（O(1)），不构造网格：res5 建一次 Ball 要几十秒，不适合进单测。
+        CollectionAssert.AreEquivalent(new[] { 3, 4, 5 },
+            Enum.GetValues<HexResLevel>().Cast<int>().ToArray(), "旋钮档位与入口 §4 分辨率表不符");
+        Assert.AreEqual(41162L, H3.GetNumCells(3), "入口 §4：res3 格数");
+        Assert.AreEqual(288122L, H3.GetNumCells(4), "入口 §4：res4 格数");
+        Assert.AreEqual(2016842L, H3.GetNumCells(5), "入口 §4：res5 格数");
     }
 }

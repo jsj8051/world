@@ -18,5 +18,7 @@ namespace World.Utils
             double z = Math.Cos(g.Lat) * Math.Sin(g.Lng);
             return new Vector3((float)x, (float)y, (float)z) * radius;
         }
+
+        // （球面坐标 → 经纬度的逆映射 SphereToLatLng 已删：v1.7 平流改一步一格 CA 后无调用者。）
     }
 }

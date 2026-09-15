@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>地形"带宽"是什么：影响带、剖面形状与格宽离散化</title>
+<style>
+  body{margin:0;background:#0e1116;color:#b7c3d4;
+       font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:18px;}
+  h1{font-size:17px;color:#e8eef7;margin:0 0 4px;font-weight:600;}
+  .sub{font-size:12px;color:#7d8ba0;margin:0 0 16px;line-height:1.6;}
+  .panel{background:#151a23;border:1px solid #2a3342;border-radius:10px;
+         padding:12px 14px;margin-bottom:14px;}
+  .ptitle{font-size:14px;color:#cfe0ff;margin:2px 0 8px;font-weight:600;}
+  .ptitle .tag{display:inline-block;font-size:11px;font-weight:500;color:#0e1116;
+    border-radius:4px;padding:1px 7px;margin-left:8px;vertical-align:2px;}
+  .t1{background:#f7b84a;} .t2{background:#7ee081;} .t3{background:#4da6ff;} .t4{background:#c792ea;}
+  text{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .cap{font-size:11.5px;color:#7d8ba0;margin:8px 2px 0;line-height:1.65;}
+  code{background:#1d232e;padding:1px 5px;border-radius:4px;color:#9fc4ff;font-size:11.5px;}
+  table{border-collapse:collapse;width:100%;font-size:12px;margin-top:4px;}
+  th{background:#1d232e;color:#cfe0ff;font-weight:600;text-align:left;
+     padding:6px 8px;border:1px solid #2a3342;}
+  td{padding:5px 8px;border:1px solid #2a3342;color:#b7c3d4;vertical-align:top;}
+  td.k{color:#e8eef7;font-weight:600;white-space:nowrap;}
+  td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums;}
+  .warn{color:#f7b84a;} .ok{color:#7ee081;}</style>
+</head>
+<body>
+<h1>地形"带宽"是什么</h1>
+<p class="sub">对应设计文档 <code>设计-new_HexWorld-地壳运动-02</code> §5/§8；实现 = <code>LandformGenerator.cs</code> L34–59（参数）与 <code>PlateBoundary.cs</code> 的距离场 BFS（深度上限 = 带宽 ÷ 格宽）。<br>
+一句话：<b>板块边界是一条线，运动造出的地形是一条带；带宽 = 这条带从边界向外铺开、到幅度归零为止的距离。</b></p>
+
+<!-- ══════════ ① 带是"面"不是"线" ══════════ -->
+<div class="panel">
+  <div class="ptitle">① 带 = 边界两侧的影响区；带宽 = 它<b>垂直</b>边界伸多远<span class="tag t1">定义</span></div>
+  <svg viewBox="0 0 880 272" width="100%">
+    <defs>
+      <linearGradient id="gL" x1="1" y1="0" x2="0" y2="0">
+        <stop offset="0" stop-color="#f7b84a" stop-opacity="0.55"/>
+        <stop offset="1" stop-color="#f7b84a" stop-opacity="0.02"/></linearGradient>
+      <linearGradient id="gR" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#f7b84a" stop-opacity="0.55"/>
+        <stop offset="1" stop-color="#f7b84a" stop-opacity="0.02"/></linearGradient>
+      <marker id="a1" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="#7d8ba0"/></marker>
+      <marker id="a2" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="#c792ea"/></marker>
+    </defs>
+    <!-- 带体（梯度：中心浓、外缘淡） -->
+    <rect x="300" y="40" width="140" height="160" fill="url(#gL)"/>
+    <rect x="440" y="40" width="140" height="160" fill="url(#gR)"/>
+    <!-- 外缘归零线 -->
+    <line x1="300" y1="40" x2="300" y2="200" stroke="#f7b84a" stroke-width="1" stroke-dasharray="4,4" opacity="0.7"/>
+    <line x1="580" y1="40" x2="580" y2="200" stroke="#f7b84a" stroke-width="1" stroke-dasharray="4,4" opacity="0.7"/>
+    <!-- 边界线 -->
+    <path d="M440,28 C432,80 448,140 440,206" stroke="#ff6b6b" stroke-width="3" fill="none"/>
+    <text x="448" y="22" fill="#ff6b6b" font-size="12" font-weight="600">板块边界（一条线）</text>
+    <text x="150" y="120" fill="#7ee081" font-size="12" font-weight="600">带外：幅度 = 0</text>
+    <text x="150" y="138" fill="#7ee081" font-size="11.5">不写场 → 海拔 = 基准值</text>
+    <text x="620" y="120" fill="#7ee081" font-size="12" font-weight="600">带外：幅度 = 0</text>
+    <text x="620" y="138" fill="#7ee081" font-size="11.5">不写场 → 海拔 = 基准值</text>
+    <text x="336" y="58" fill="#f7b84a" font-size="11.5">影响带（地形在这里生成）</text>
+    <!-- 尺寸箭头 -->
+    <line x1="586" y1="212" x2="446" y2="212" stroke="#c792ea" stroke-width="1.4" marker-start="url(#a2)"/>
+    <text x="596" y="216" fill="#c792ea" font-size="11.5">半宽 W（边界 → 归零）</text>
+    <line x1="300" y1="236" x2="580" y2="236" stroke="#7d8ba0" stroke-width="1.4"
+          marker-start="url(#a1)" marker-end="url(#a1)"/>
+    <text x="352" y="250" fill="#7d8ba0" font-size="11.5">全宽 2W（带的总宽度）</text>
+    <text x="60" y="70" fill="#8fb4ff" font-size="11.5">沿边界方向长度不限：</text>
+    <text x="60" y="88" fill="#8fb4ff" font-size="11.5">哪一段是汇聚边，</text>
+    <text x="60" y="106" fill="#8fb4ff" font-size="11.5">带就长到哪里。</text>
+  </svg>
+  <p class="cap">关键：<b>带宽是"垂直边界的距离"，不是沿边界的长度</b>。沿边界方向不需要宽度参数——它由"哪些边被分类成这个类型"决定（02 §3 逐边分类：41,713 条异板共享边里，汇聚 42.2% / 离散 42.3% / 转换 15.5%）。所以"带有多长"是分类的产物，"带有多宽"才是参数。</p>
+</div>
+
+<!-- ══════════ ② 带宽控坡度，峰值控幅度 ══════════ -->
+<div class="panel">
+  <div class="ptitle">② 带宽内不是一个方块，是"半余弦"衰减——带宽控<b>坡度</b>，峰值控<b>幅度</b><span class="tag t2">形状</span></div>
+  <svg viewBox="0 0 880 240" width="100%">
+    <!-- 轴 -->
+    <line x1="90" y1="200" x2="845" y2="200" stroke="#3a4657" stroke-width="1.4"/>
+    <line x1="90" y1="200" x2="90" y2="38" stroke="#3a4657" stroke-width="1.4"/>
+    <text x="34" y="44" fill="#7d8ba0" font-size="11.5">幅度</text>
+    <text x="58" y="204" fill="#7d8ba0" font-size="11.5">0</text>
+    <text x="752" y="222" fill="#7d8ba0" font-size="11.5">距边界距离 d (km)</text>
+    <!-- 刻度 -->
+    <g stroke="#2a3342" stroke-width="1">
+      <line x1="90" y1="200" x2="90" y2="206"/><line x1="280" y1="200" x2="280" y2="206"/>
+      <line x1="470" y1="200" x2="470" y2="206"/></g>
+    <text x="82" y="220" fill="#7d8ba0" font-size="11">0</text>
+    <text x="262" y="220" fill="#7d8ba0" font-size="11">180</text>
+    <text x="452" y="220" fill="#7d8ba0" font-size="11">360 = W</text>
+    <!-- 曲线 A：W=360 -->
+    <polyline fill="none" stroke="#f7b84a" stroke-width="2.6" points="90,40 128,44 166,55 204,73 242,95 280,120 318,145 356,167 394,185 432,196 470,200 845,200"/>
+    <!-- 曲线 B：W=180（同峰值、双倍坡） -->
+    <polyline fill="none" stroke="#8fb4ff" stroke-width="2" stroke-dasharray="6,4" points="90,40 109,44 128,55 147,73 166,95 185,120 204,145 223,167 242,185 261,196 280,200 845,200"/>
+    <line x1="470" y1="200" x2="470" y2="60" stroke="#f7b84a" stroke-width="1" stroke-dasharray="4,4" opacity="0.8"/>
+    <circle cx="90" cy="40" r="3.5" fill="#f7b84a"/>
+    <text x="96" y="36" fill="#f7b84a" font-size="11.5">峰值 = 另一参数（ThickenMax）</text>
+    <text x="300" y="176" fill="#f7b84a" font-size="11.5">W = 360 km（有效带宽）</text>
+    <text x="300" y="150" fill="#8fb4ff" font-size="11.5">W = 180 km：同峰值、坡度加倍</text>
+    <text x="478" y="112" fill="#7ee081" font-size="11.5">d = W → 幅度归零</text>
+    <text x="610" y="70" fill="#7ee081" font-size="11.5">d &gt; W 整段为 0（带外）</text>
+  </svg>
+  <p class="cap">公式（02 §5.2，所有要素共用同一个形状函数）：<code>Δt(d) = 峰值 · 0.5·(1 + cos(π·min(d/W, 1)))</code>。<br>
+  所以：<b>峰值</b>决定"抬多高"（<code>OrogenThickenMaxM = 25 km</code>），<b>带宽</b>决定"从峰值降到 0 用多长距离"（<code>OrogenHalfWidthBaseKm = 600 km</code>）。两者正交——改带宽不改峰值，只改地形陡缓。这就是为什么"把带宽缩到 0.60"会让剖面变陡（同级峰值挤进 720 km 而不是 1200 km）。</p>
+</div>
+
+<!-- ══════════ ③ 峰值不总在边界上 ══════════ -->
+<div class="panel">
+  <div class="ptitle">③ 海沟/火山弧：带宽是"半宽"，弧还多一个"偏移"（峰值不在边界上）<span class="tag t3">不对称</span></div>
+  <svg viewBox="0 0 880 265" width="100%">
+    <defs>
+      <marker id="a3" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="#4da6ff"/></marker>
+      <marker id="a4" markerWidth="8" markerHeight="8" refX="6.5" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="#c792ea"/></marker>
+    </defs>
+    <!-- 海平面 / 洋底基准 -->
+    <line x1="110" y1="150" x2="848" y2="150" stroke="#3a4657" stroke-width="1.4" stroke-dasharray="7,5"/>
+    <text x="118" y="144" fill="#7d8ba0" font-size="11.5">洋底基准（该处热沉降深度）</text>
+    <!-- 边界 -->
+    <line x1="380" y1="34" x2="380" y2="232" stroke="#ff6b6b" stroke-width="2" stroke-dasharray="6,4"/>
+    <text x="384" y="28" fill="#ff6b6b" font-size="12" font-weight="600">边界</text>
+    <text x="196" y="52" fill="#8fb4ff" font-size="11.5">下插板（洋）</text>
+    <text x="560" y="52" fill="#ffc46b" font-size="11.5">上盘（弧在这侧）</text>
+    <!-- 海沟剖面：峰值贴边界（d=0），半宽 150 km -->
+    <polyline fill="none" stroke="#4da6ff" stroke-width="2.6" points="110,150 297,150 318,160 339,185 359,210 380,221"/>
+    <text x="118" y="196" fill="#4da6ff" font-size="11.5">海沟：峰值贴边界 −2500 m</text>
+    <text x="118" y="213" fill="#4da6ff" font-size="11.5">带宽 = 150 km（→ 归零）</text>
+    <line x1="297" y1="248" x2="380" y2="248" stroke="#4da6ff" stroke-width="1.4"
+          marker-start="url(#a3)" marker-end="url(#a3)"/>
+    <text x="288" y="262" fill="#4da6ff" font-size="11.5">半宽 150 km</text>
+    <!-- 弧剖面：峰值在偏移 120 km 处，半宽 90 km -->
+    <polyline fill="none" stroke="#f7b84a" stroke-width="2.6" points="396,150 409,141 421,120 434,99 446,90 458,99 471,120 483,141 496,150"/>
+    <text x="512" y="86" fill="#f7b84a" font-size="11.5">火山弧：峰值在偏移 120 km 处（+5455 m，本图纵向压缩）</text>
+    <text x="512" y="104" fill="#f7b84a" font-size="11.5">半宽 = 90 km → 带外缘在 210 km</text>
+    <line x1="380" y1="50" x2="446" y2="50" stroke="#c792ea" stroke-width="1.4"
+          marker-start="url(#a4)" marker-end="url(#a4)"/>
+    <text x="352" y="44" fill="#c792ea" font-size="11.5">偏移 120 km</text>
+    <line x1="446" y1="68" x2="496" y2="68" stroke="#c792ea" stroke-width="1.4"
+          marker-start="url(#a4)" marker-end="url(#a4)"/>
+    <text x="502" y="72" fill="#c792ea" font-size="11.5">半宽 90 km</text>
+  </svg>
+  <p class="cap">所以参数表里"带宽"一项对不同要素含义并不完全一样：<b>造山 / 裂谷 / 被动陆缘</b>是半宽（峰值贴边界、两侧对称）；<b>海沟</b>是半宽（峰值贴边界、只往外海一侧衰减）；<b>火山弧</b>是"<b>偏移 + 半宽</b>"两个数——偏移把峰值从边界推到 120 km 外（弧离沟 100–300 km 是地球实测），半宽决定这条弧带自身多宽。图上能看到弧峰的横坐标明显不在红线上。</p>
+</div>
+
+<!-- ══════════ ④ 带宽 ÷ 格宽 ══════════ -->
+<div class="panel">
+  <div class="ptitle">④ 同一个带，两种分辨率：带宽 ÷ 格宽 = 剖面能被取几个采样点<span class="tag t4">离散化</span></div>
+  <svg viewBox="0 0 880 275" width="100%">
+    <!-- 连续真值（虚线；两行共用同一 km 尺度，各自纵向缩放） -->
+    <polyline fill="none" stroke="#6b7a90" stroke-width="1.5" stroke-dasharray="5,4" points="70,30.0 104,30.4 138,31.8 173,34.0 207,36.9 241,40.5 275,44.8 309,49.4 344,54.4 378,59.5 412,64.6 446,69.6 480,74.2 515,78.5 549,82.1 583,85.0 617,87.2 651,88.6 686,89.0 686,89.0 830,89.0"/>
+    <polyline fill="none" stroke="#6b7a90" stroke-width="1.5" stroke-dasharray="5,4" points="70,140.0 104,140.5 138,141.8 173,144.0 207,147.0 241,150.7 275,155.0 309,159.7 344,164.8 378,170.0 412,175.2 446,180.3 480,185.0 515,189.3 549,193.0 583,196.0 617,198.2 651,199.5 686,200.0 686,200.0 830,200.0"/>
+    <!-- 行 A：res3 -->
+    <text x="70" y="20" fill="#ff9b9b" font-size="12" font-weight="600">res3（格宽 111 km）</text>
+    <text x="252" y="20" fill="#7d8ba0" font-size="11.5">带内只有 3–4 格 → 相邻格跳 1.0 / 2.1 km（阶梯）</text>
+    <path d="M70,30.0 L260,30.0 L260,42.9 L451,42.9 L451,70.2 L641,70.2 L641,88.2 L830,88.2 L830,89" fill="none" stroke="#f7b84a" stroke-width="2.6"/>
+    <!-- 行 B：res5 -->
+    <text x="70" y="130" fill="#9be89b" font-size="12" font-weight="600">res5（格宽 15.9 km）</text>
+    <text x="252" y="130" fill="#7d8ba0" font-size="11.5">带内 23 格 → 相邻格差最大 315 m（读成连续）</text>
+    <path d="M70,140.0 L97,140.0 L97,140.3 L124,140.3 L124,141.1 L152,141.1 L152,142.6 L179,142.6 L179,144.5 L206,144.5 L206,146.9 L233,146.9 L233,149.8 L260,149.8 L260,153.1 L288,153.1 L288,156.7 L315,156.7 L315,160.5 L342,160.5 L342,164.5 L369,164.5 L369,168.7 L396,168.7 L396,172.8 L423,172.8 L423,176.9 L451,176.9 L451,180.9 L478,180.9 L478,184.7 L505,184.7 L505,188.1 L532,188.1 L532,191.3 L559,191.3 L559,194.0 L587,194.0 L587,196.3 L614,196.3 L614,198.0 L641,198.0 L641,199.2 L668,199.2 L668,199.9 L695,199.9 L695,200.0 L723,200.0 L830,200" fill="none" stroke="#7ee081" stroke-width="2.1"/>
+    <!-- x 轴 -->
+    <line x1="70" y1="245" x2="830" y2="245" stroke="#3a4657" stroke-width="1.2"/>
+    <g stroke="#2a3342" stroke-width="1">
+      <line x1="70" y1="245" x2="70" y2="250"/><line x1="260" y1="245" x2="260" y2="250"/>
+      <line x1="451" y1="245" x2="451" y2="250"/><line x1="641" y1="245" x2="641" y2="250"/></g>
+    <text x="60" y="264" fill="#7d8ba0" font-size="11">d=0</text>
+    <text x="240" y="264" fill="#7d8ba0" font-size="11">111</text>
+    <text x="431" y="264" fill="#7d8ba0" font-size="11">222</text>
+    <text x="617" y="264" fill="#7d8ba0" font-size="11">333 km</text>
+    <text x="690" y="264" fill="#7d8ba0" font-size="11">（两行共用同一 km 尺度）</text>
+    <text x="690" y="34" fill="#7d8ba0" font-size="11">虚线 = 连续真值</text>
+  </svg>
+  <p class="cap">这是"海拔看起来离散、不连续"的直接来源：<b>带宽是连续量，网格是离散量</b>，带内幅度只能在格心取值。<br>
+  res3 下造山带宽 360 km ÷ 111 km = <b>3.2 格</b> → 整条带只剩 4 个采样点，走 100% → 78% → 32% → 1% → 0；乘上造山峰值 Δh=4545 m，就是 +4545 / +3560 / +1460 / +66 m，相邻格跳 1.0 / 2.1 km——肉眼必然读成"等值块"。res5 下同样的带分到 23 格，相邻格差最大 315 m，就读成连续的了。<br>
+  ⚠️ 更极端：<b>带形全宽 &lt; 格宽时，该要素在网格上完全消失</b>——弧带全宽 420 km 撞上 res2 的 294 km 格宽，带体落在格与格之间，弧岩浆什么都生不出。故形态判读与断言一律 res3 起（02 §7）。
+  </p>
+</div>
+
+<!-- ══════════ ⑤ 参数与格数对照 ══════════ -->
+<div class="panel">
+  <div class="ptitle">⑤ 五条带的带宽参数一览（02 §8）</div>
+  <table>
+    <tr>
+      <th>要素</th><th>带宽的物理含义</th>
+      <th class="num">基准</th><th class="num">有效 = ×0.60</th>
+      <th class="num">占几格<br>res3 (111 km)</th><th class="num">占几格<br>res5 (15.9 km)</th>
+    </tr>
+    <tr><td class="k">碰撞造山</td><td>碰撞造山带全宽（青藏高原量级 1000–1500 km）</td>
+      <td class="num">600 半宽<br><span style="color:#7d8ba0">全宽 1200</span></td>
+      <td class="num">360 半宽<br><span style="color:#7d8ba0">全宽 720</span></td>
+      <td class="num warn">3.2 格</td><td class="num ok">22.6 格</td></tr>
+    <tr><td class="k">海沟</td><td>弹性挠曲下弯的衰减尺度（外侧隆起波长同量级）</td>
+      <td class="num">250</td><td class="num">150</td>
+      <td class="num warn">1.4 格</td><td class="num ok">9.4 格</td></tr>
+    <tr><td class="k">火山弧</td><td>弧离沟 100–300 km（<b>偏移</b>）+ 弧岩浆带自身宽度（<b>半宽</b>）</td>
+      <td class="num">200 偏移<br>150 半宽</td><td class="num">120 偏移<br>90 半宽<br><span style="color:#7d8ba0">外缘 210</span></td>
+      <td class="num warn">1.9 格</td><td class="num ok">13.2 格</td></tr>
+    <tr><td class="k">大陆裂谷</td><td>地堑半宽 + 两侧肩部（裂谷肩抬升 1–2 km）</td>
+      <td class="num">150 半宽<br>200 肩宽</td><td class="num">90 半宽<br>120 肩宽<br><span style="color:#7d8ba0">外缘 210</span></td>
+      <td class="num warn">1.9 格</td><td class="num ok">13.2 格</td></tr>
+    <tr><td class="k">被动陆缘</td><td>陆壳减薄过渡带宽度（无肩部：已被动冷却）</td>
+      <td class="num">300</td><td class="num">180</td>
+      <td class="num warn">1.6 格</td><td class="num ok">11.3 格</td></tr>
+    <tr><td class="k">外缘隆起</td><td>海沟外坡的挠曲隆起（初值 0 = <b>关闭</b>，尚未启用）</td>
+      <td class="num">150</td><td class="num">90</td>
+      <td class="num">0.8 格</td><td class="num">5.7 格</td></tr>
+  </table>
+  <p class="cap">为什么要有"×0.60"这一列：基准列是<b>地球尺度</b>（知识库抄来的），但本世界的板块平均边界间距只有 ~1,235 km（地球 ~2,040 km）——实测边界总长 41.3 万 km 是地球 25 万 km 的 1.65 倍。<b>不缩就会互相叠置</b>：实测 16.4% 的格同时落进 ≥2 条带，最厚的格叠出 87 km 壳厚。缩到 0.60 后叠置降到 11.2%。<br>
+  ⚠️ 注意 res3 那一列：海沟带只剩 <b>1.4 格</b>——在 res3 上"海沟"几乎就表现为"边界那一格变深 2.5 km"，槽形（缓外坡 / 陡内坡）根本画不出来。这不是 bug，是"带形全宽 ≥ 2 格"这条分辨率纪律的具体体现（入口 §4）。</p>
+</div>
+
+<p class="cap">相关代码：带宽参数与"有效带宽"属性 = <code>scripts/new_HexWorld/Planet/LandformGenerator.cs</code> L34–59；带宽经 <code>Bands</code> 注入 <code>PlateBoundary</code> 作为距离场 BFS 的<b>深度上限</b>（几何层不反向依赖常量）；剖面形状函数 <code>HalfCosineTaper</code> 在同文件末尾。<br>
+配套图：<code>docs/图解/静态板块运动与地形.html</code>（五要素总览与流水线）。</p>
+</body>
+</html>

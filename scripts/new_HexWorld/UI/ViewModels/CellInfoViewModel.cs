@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using World.MapView;                       // TileInfoEntry（标签/值/色块；跨世界复用）
 using World.NewHexWorld.Planet;             // H3PlateManager
+using World.NewHexWorld.Plate;              // TerrainProvince / BoundaryKind / PlateMotion（02 地形派生）
 using World.NewHexWorld.UI.Modes;
 using World.Utils.H3;                       // H3ToString / CellToLatLng（门面）
 
@@ -62,9 +63,40 @@ namespace World.NewHexWorld.UI.ViewModels
 				new("格子", H3.H3ToString(cellId), _mode.CellColorAt(i)),          // 色块 = 该格当前模式色
 				new("板块", plate.ToString(), PlateMapMode.PlateColor(plate, _plates.NumPlates)),
 				new("经纬度", $"{latDeg:F1}°, {lngDeg:F1}°"),
+				BuildMotionEntry(i),                                               // 板块运动行（02 §9）
 			};
 			entries.AddRange(_mode.TileInfo(i));
 			EntriesChanged?.Invoke(entries);
 		}
+
+		// 板块运动行（设计-03 §6；不新增地图模式，靠海拔图对照验收）：
+		// 板缘格报"类型 · 相对速率"；板内格报"距最近板缘的类型 + 距离"；无板缘 → "—"。
+		// ⚠️ 03 起数据源换成**动态模拟每一步真实算出的速度场**（不再是抽出来的 Ω 一次定局）。
+		TileInfoEntry BuildMotionEntry(int cellIndex)
+		{
+			var boundary = _plates.Boundary;
+			int distance = boundary.NearestBoundaryDistanceCells[cellIndex];
+			if (distance < 0) return new TileInfoEntry("板块运动", "—（全球无板缘）");
+			if (distance == 0)
+			{
+				float speedCmPerYear = boundary.RelativeSpeedKmPerMy[cellIndex] * KmPerMyToCmPerYear;
+				return new TileInfoEntry("板块运动",
+					$"{KindName(boundary.Kind[cellIndex])} · {speedCmPerYear:F1} cm/yr");
+			}
+			return new TileInfoEntry("板块运动",
+				$"距最近板缘 {distance} 格 · {KindName(boundary.NearestBoundaryKind[cellIndex])}");
+		}
+
+		// km/My → cm/yr 换算（1 km/My = 0.1 cm/yr；02 §2 同一换算）。
+		const float KmPerMyToCmPerYear = 0.1f;
+
+		// 运动学分类文案（推导自 PlateBoundaryKind；勿与 shader/坞文案混用——那是地图模式的 Name）。
+		static string KindName(PlateBoundaryKind kind) => kind switch
+		{
+			PlateBoundaryKind.Convergent => "汇聚",
+			PlateBoundaryKind.Divergent => "离散",
+			PlateBoundaryKind.Transform => "转换",
+			_ => "惰性",
+		};
 	}
 }

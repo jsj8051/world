@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>大陆架为什么在 200 m 深：两个尺度（壳 vs 水）</title>
+<style>
+  body{margin:0;background:#0e1116;color:#b7c3d4;
+       font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;padding:18px;}
+  h1{font-size:17px;color:#e8eef7;margin:0 0 4px;font-weight:600;}
+  .sub{font-size:12px;color:#7d8ba0;margin:0 0 16px;line-height:1.6;}
+  .panel{background:#151a23;border:1px solid #2a3342;border-radius:10px;
+         padding:12px 14px;margin-bottom:14px;}
+  .ptitle{font-size:14px;color:#cfe0ff;margin:2px 0 8px;font-weight:600;}
+  .ptitle .tag{display:inline-block;font-size:11px;font-weight:500;color:#0e1116;
+    border-radius:4px;padding:1px 7px;margin-left:8px;vertical-align:2px;}
+  .t1{background:#f7b84a;} .t2{background:#7ee081;} .t3{background:#4da6ff;} .t4{background:#c792ea;}
+  .t5{background:#ff9a9a;}
+  text{font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;}
+  .cap{font-size:11.5px;color:#7d8ba0;margin:8px 2px 0;line-height:1.7;}
+  code{background:#1d232e;padding:1px 5px;border-radius:4px;color:#9fc4ff;font-size:11.5px;}
+  table{border-collapse:collapse;font-size:12px;margin-top:6px;width:100%;}
+  th,td{border:1px solid #2a3342;padding:5px 8px;text-align:left;vertical-align:top;}
+  th{background:#1d232e;color:#cfe0ff;font-weight:600;}
+  td.n{color:#f7b84a;white-space:nowrap;}
+</style>
+</head>
+<body>
+<h1>大陆架为什么在 200 m 深：两个尺度（壳 vs 水）</h1>
+<p class="sub">一句话：<b>大陆架不是"海底的一个台阶"，是被海水淹没的陆地（沿海平原）</b>；坡折那个 130–200 m 不是地壳的性质，而是<b>上一次冰期最低海平面的位置</b>被记住了。</p>
+
+<!-- ══════════ ① 冰期剖面 ══════════ -->
+<div class="panel">
+  <div class="ptitle">① 主机制：现在的陆架 = 两万年前露在水面的沿海平原<span class="tag t1">贡献 ~120–130 m</span></div>
+  <svg viewBox="0 0 880 470" width="100%">
+    <!-- 海水：现代水面(y=98) 到 剖面 -->
+    <path d="M60,98 L153,98 L434,109 L465,249 L606,325 L840,400 L840,98 Z" fill="rgba(77,166,255,0.22)"/>
+    <!-- 海底剖面 -->
+    <path d="M60,83 L153,98 L434,109 L465,249 L606,325 L840,400"
+          fill="none" stroke="#c7915a" stroke-width="2.6"/>
+    <!-- 现代海平面 -->
+    <line x1="40" y1="98" x2="850" y2="98" stroke="#4da6ff" stroke-width="2"/>
+    <text x="700" y="92" fill="#8fc4ff" font-size="11.5">现在海平面  0 m</text>
+    <!-- LGM 海平面 -->
+    <line x1="40" y1="107" x2="850" y2="107" stroke="#f7b84a" stroke-width="2" stroke-dasharray="6,4"/>
+    <text x="700" y="121" fill="#f7b84a" font-size="11.5">LGM 海平面  −120 m</text>
+    <!-- 当时露出水面的带 -->
+    <rect x="153" y="98" width="281" height="9" fill="rgba(247,184,74,0.55)"/>
+    <text x="176" y="140" fill="#f7b84a" font-size="11.5">↑ 这一段当年是陆地：有河流、沙丘、沼泽、海岸悬崖</text>
+    <text x="176" y="156" fill="#7d8ba0" font-size="11">（澳大利亚陆架在 −125 m 处测到 LGM 期的海岸悬崖）</text>
+    <!-- 分带标注 -->
+    <g font-size="11.5">
+      <text x="86" y="76" fill="#c7915a">大陆 +200 m</text>
+      <line x1="60" y1="109" x2="434" y2="113" stroke="#3a4657" stroke-width="1"/>
+      <text x="230" y="126" fill="#8fc4ff">陆架：坡度极缓（0.01°–0.1°）</text>
+
+      <line x1="465" y1="249" x2="465" y2="118" stroke="#ff6b6b" stroke-width="1.4" stroke-dasharray="4,3"/>
+      <text x="392" y="238" fill="#ff9a9a">坡折（shelf break）</text>
+      <text x="392" y="254" fill="#ff9a9a">全球平均 ≈130–140 m</text>
+      <text x="500" y="220" fill="#b7c3d4">陆坡  平均 ~3°（1–10°）</text>
+      <text x="620" y="345" fill="#b7c3d4">陆隆 → 深海平原</text>
+    </g>
+    <!-- 深度刻度 -->
+    <g fill="#7d8ba0" font-size="10.5">
+      <text x="14" y="101">0</text>
+      <text x="2" y="252">-2000</text>
+      <text x="2" y="328">-3000</text>
+      <text x="2" y="403">-4000</text>
+    </g>
+    <line x1="60" y1="98" x2="60" y2="420" stroke="#3a4657" stroke-width="1"/>
+  </svg>
+  <p class="cap">末次盛冰期（LGM，约 2 万年前）海平面比现在低 <b>120–130 m</b>（Fairbanks 1989 等）。那时现在的大陆架<b>大部分是干燥的陆地</b>——河流一直延伸到今天的坡折附近，把陆架面刨出河谷。冰盖融化后海水淹上来，<b>淹到哪儿，陆架的外缘就停在哪儿</b>。<br>
+  所以全球坡折深度"惊人的一致"（海沟之外，坡折平均 ~130 m，Wikipedia/Shepard 1973）——<b>这是冰期海平面的指纹，不是地壳的性质</b>。陆架浅，不是因为它填高了，而是因为它<b>本来是高处，只是刚被淹了两万年</b>。</p>
+</div>
+
+<!-- ══════════ ② 两个尺度 ══════════ -->
+<div class="panel">
+  <div class="ptitle">② 别把两个尺度混起来：4.5 km 的落差来自"壳"，200 m 来自"水"</div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <!-- 左：壳柱 -->
+    <text x="40" y="22" fill="#cfe0ff" font-size="12.5" font-weight="600">尺度一：为什么陆架能高出洋盆 ~4.5 km —— 壳类型（Airy 均衡）</text>
+    <rect x="60" y="40" width="230" height="110" fill="rgba(199,145,90,0.45)" stroke="#c7915a"/>
+    <text x="90" y="100" fill="#0e1116" font-size="12" font-weight="600">陆壳 35 km</text>
+    <text x="96" y="120" fill="#3a2a18" font-size="11">ρ ≈ 2700 kg/m³</text>
+    <rect x="330" y="110" width="180" height="40" fill="rgba(120,140,160,0.45)" stroke="#7890a0"/>
+    <text x="352" y="135" fill="#0e1116" font-size="12" font-weight="600">洋壳 7 km</text>
+    <line x1="60" y1="185" x2="560" y2="185" stroke="#7d8ba0" stroke-width="2" stroke-dasharray="6,4"/>
+    <text x="568" y="189" fill="#7d8ba0" font-size="11"><tspan x="568" dy="0">补偿深度（Moho / 天平底座）</tspan><tspan x="568" dy="14">ρ_mantle ≈ 3300 kg/m³</tspan></text>
+    <text x="60" y="212" fill="#f7b84a" font-size="11.5">Δh ≈ Δt ·(1 − ρc/ρm)：35 km 陆壳比 7 km 洋壳浮高约 4.5–5 km —— 这才是大陆/洋盆的落差来源</text>
+    <text x="60" y="232" fill="#7d8ba0" font-size="11">（海沟 −8~−11 km 是例外：挠曲下弯 + slab pull，纯 Airy 到不了）</text>
+
+    <!-- 右：放大镜 -->
+    <text x="60" y="262" fill="#4da6ff" font-size="12.5" font-weight="600">尺度二：把那 0 ~ −200 m 放大 20 倍 ← 全是"水"在动，与壳无关</text>
+    <line x1="620" y1="60" x2="700" y2="150" stroke="#3a4657" stroke-width="1" stroke-dasharray="3,3"/>
+    <line x1="712" y1="60" x2="712" y2="240" stroke="#4da6ff" stroke-width="1.4"/>
+    <text x="718" y="66" fill="#8fc4ff" font-size="11">间冰期（现在）水位</text>
+    <line x1="740" y1="150" x2="740" y2="240" stroke="#f7b84a" stroke-width="1.4" stroke-dasharray="5,4"/>
+    <text x="746" y="150" fill="#f7b84a" font-size="11">冰期水位 −120 m</text>
+    <line x1="770" y1="238" x2="770" y2="240" stroke="#c7915a" stroke-width="2"/>
+    <text x="700" y="256" fill="#c7915a" font-size="11">坡折 / 陆架面</text>
+    <path d="M712,60 L712,240 L800,240" fill="none" stroke="#2a3342"/>
+    <text x="640" y="110" fill="#7d8ba0" font-size="10.5">水面在这里上下</text>
+    <text x="640" y="126" fill="#7d8ba0" font-size="10.5">摆了 120 m</text>
+    <text x="640" y="150" fill="#7d8ba0" font-size="10.5">陆架面基本不动</text>
+  </svg>
+</div>
+
+<!-- ══════════ ③ 机制与证据 ══════════ -->
+<div class="panel">
+  <div class="ptitle">③ 四个机制，按贡献排序（不是单选）</div>
+  <table>
+    <tr><th>机制</th><th>贡献</th><th>证据 / 为什么</th></tr>
+    <tr>
+      <td><b>冰川型海平面升降</b><br>（主导）</td>
+      <td class="n">~120–130 m<br><span style="color:#7d8ba0">定"坡折在哪"</span></td>
+      <td>LGM 低海平面 120–130 m ≈ 全球坡折平均深度；陆架上测到 LGM 岸线悬崖、沙丘、河流下切谷——<b>60–70% 的陆架沉积物是冰期残留沉积</b>（不是现在的河流带来的）</td>
+    </tr>
+    <tr>
+      <td><b>热沉降 + 沉积进积</b><br>（修正项）</td>
+      <td class="n">0 ~ +100 m<br><span style="color:#7d8ba0">把 130 推到 200+</span></td>
+      <td>被动陆缘持续沉降、河流把沉积物堆在陆架外缘 → 坡折被推得更深更远。北海/英吉利海峡坡折 ~200 m，大西洋中部 ~130–150 m（离散范围 &lt;100 m 到 &gt;200 m）</td>
+    </tr>
+    <tr>
+      <td><b>波浪面削平</b><br>（把它磨平）</td>
+      <td class="n">形态<br><span style="color:#7d8ba0">坡度 0.01°–0.1°</span></td>
+      <td>波基面以上反复搅动/再悬浮 → 陆架面保持平坦。但波基面单独解释不了持续水深（PNAS 2019：需要极长稳定期），所以它是"配合项"而非主因</td>
+    </tr>
+    <tr>
+      <td><b>陆架下面是陆壳</b><br>（前提）</td>
+      <td class="n">~4.5 km<br><span style="color:#7d8ba0">定"它凭什么存在"</span></td>
+      <td>陆架 = 大陆的延伸（减薄陆壳 25–35 km），洋盆 = 洋壳（7 km）。坡折只是"水线与壳类型过渡带"的交叉。<b>主动陆缘（俯冲）没有宽陆架</b>——沉积被海沟吞掉、地形被构造切碎</td>
+    </tr>
+  </table>
+  <p class="cap">所以"200 m"是 <b>冰期水位 + 一点沉降/沉积</b> 的合成值：能到 200 m 是因为被动陆缘一直在沉、一直在堆；只有 130 m 是因为冰期能挪动的水只有那么多（冰盖体积上限）。<b>它是地史的偶然，不是物理常数</b>——地史上多数时期并没有这么宽的陆架。</p>
+</div>
+
+<!-- ══════════ ④ 我们项目的现状 ══════════ -->
+<div class="panel">
+  <div class="ptitle">④ 对回 world 项目：我们现在的场<b>生不出陆架</b><span class="tag t5">真实的架构空洞</span></div>
+  <svg viewBox="0 0 880 300" width="100%">
+    <g font-size="11.5">
+      <!-- A 现状 -->
+      <text x="30" y="20" fill="#cfe0ff" font-weight="600">A. 现在（01 两级初值）</text>
+      <rect x="30" y="110" width="180" height="26" fill="rgba(199,145,90,0.45)" stroke="#c7915a"/>
+      <text x="40" y="128" fill="#0e1116" font-size="11">陆 +800 m</text>
+      <rect x="210" y="126" width="8" height="120" fill="#ff6b6b"/>
+      <rect x="218" y="246" width="180" height="26" fill="rgba(120,140,160,0.45)" stroke="#7890a0"/>
+      <text x="228" y="264" fill="#0e1116" font-size="11">洋 −3700 m</text>
+      <text x="30" y="290" fill="#ff9a9a" font-size="11">一格硬跳 4500 m ｜ 陆架宽度 = 0 格</text>
+
+      <!-- B 02 设计 -->
+      <text x="430" y="20" fill="#cfe0ff" font-weight="600">B. 02 设计的"被动陆缘"</text>
+      <rect x="430" y="110" width="160" height="26" fill="rgba(199,145,90,0.45)" stroke="#c7915a"/>
+      <text x="440" y="128" fill="#0e1116" font-size="11">陆 +800 m</text>
+      <rect x="590" y="122" width="120" height="14" fill="rgba(199,146,234,0.45)" stroke="#c792ea"/>
+      <text x="596" y="133" fill="#0e1116" font-size="10">陆缘低地 −291 m</text>
+      <rect x="710" y="136" width="8" height="110" fill="#ff6b6b"/>
+      <rect x="718" y="246" width="130" height="26" fill="rgba(120,140,160,0.45)" stroke="#7890a0"/>
+      <text x="726" y="264" fill="#0e1116" font-size="11">洋底 热沉降 −2500~</text>
+      <text x="430" y="290" fill="#f7b84a" font-size="11">减薄 6 km → Airy 下沉，但仍是"陆"（felsic &gt; 0）｜ 落差仍有 ~2200 m 的崖</text>
+
+      <!-- C 缺口 -->
+      <rect x="30" y="46" width="808" height="44" rx="7" fill="rgba(255,107,107,0.10)" stroke="#ff6b6b"/>
+      <text x="42" y="64" fill="#ff9a9a" font-weight="600">C. 缺的那一层：我们的模型里没有"水"——只有"海拔 &lt; 0 就是海"这个颜色判定</text>
+      <text x="42" y="80" fill="#7d8ba0">没有 SeaLevel 标量、没有水量守恒、没有沉积进积、没有波基面削平 ⟹ 0 ~ −200 m 的浅水台地在场里<b>无法表达</b>。</text>
+    </g>
+  </svg>
+  <p class="cap">陆架的本质是<b>"陆地 + 海平面"的交互</b>；只要模型里水位是个隐含的 0、且陆→洋是硬跳变，陆架就永远生不出来。<br>
+  三条可选路线（等你拍板，不擅自选）：<b>①</b> 引入 <code>SeaLevelM</code> 一个全局标量（陆架 = 陆壳区里低于水位的那部分，最省但要多一个概念）；<b>②</b> 把被动陆缘生成器写成"陆架台地 → 坡折 → 陆坡 → 陆隆"的参数化剖面（无新概念、立刻可见，但是"按形态生成"而非"由水位算出"）；<b>③</b> 都不做，留给将来的气候/水文模块（有水循环/水量/水位时统一解决）。</p>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/Diagnostics/HexCellProbeDiag.cs" id="1_cellprobe"]
+
+[node name="HexCellProbeDiag" type="Node"]
+script = ExtResource("1_cellprobe")
