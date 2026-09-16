@@ -79,7 +79,7 @@ public partial class HexDynamicDiag : Node
 		// 全程平均口径（04 批次 6 治乱用）：逐步快照的抽样噪声太大（起跳相位使计数在 0 与数百间跳），
 		// 改/不改的对照必须看**每步平均**——否则两个不同动力学轨迹的抽样点没法比。
 		double sumHole = 0, sumMixed = 0, sumOverflow = 0, sumHoleFill = 0, sumOverflowAvg = 0,
-			sumNewCrust = 0, sumStray = 0, sumMinority = 0, sumIsolated = 0, sumSpilled = 0;
+			sumNewCrust = 0, sumStray = 0, sumMinority = 0, sumIsolated = 0, sumSpilled = 0, sumSpreading = 0;
 		int sumAbove3Km = 0, sumLandCells = 0;
 		for (int s = 0; s < steps; s++)
 		{
@@ -91,6 +91,7 @@ public partial class HexDynamicDiag : Node
 			sumOverflowAvg += sim.Advection.OverflowAveragedCells;
 			sumSpilled += sim.Advection.OverflowSpilledMass;
 			sumNewCrust += sim.Advection.NewCrustFilledCount;
+			sumSpreading += sim.Advection.SpreadingFilledCount;
 			sumStray += sim.StrayFragmentCellsLastStep;
 			sumMinority += sim.LocalMinorityCellsLastStep;
 			sumIsolated += sim.IsolatedPlateCellsLastStep;
@@ -105,6 +106,7 @@ public partial class HexDynamicDiag : Node
 		GD.Print($"[全程平均/步] 空洞={sumHole / steps:F1} 异板混合={sumMixed / steps:F1} 同板多源={sumOverflow / steps:F1} "
 			+ $"｜ 治乱 空洞加权平均填充={sumHoleFill / steps:F1} 多源加权平均={sumOverflowAvg / steps:F1} "
 			+ $"差额摊出={sumSpilled / steps:E2} 填新壳兜底={sumNewCrust / steps:F2} 碎片并入={sumStray / steps:F2} "
+			+ $"｜ 扩张 洋底注壳={sumSpreading / steps:F2}"
 			+ $"｜ 归属 孤立格={sumIsolated / steps:F2} 强少数格={sumMinority / steps:F1} "
 			+ $"｜ 陆格 >3km={sumLandCells / (double)steps:F1} 中 {(sumLandCells > 0 ? sumAbove3Km / (double)sumLandCells : 0):P1}");
 		ReportEmbeddedClusters($"终态({steps * _step:F0}My)", ball, sim, traceHistory: true);

@@ -65,6 +65,30 @@ namespace World.NewHexWorld.Plate
 		/// <summary>本步加权平均差额里摊不出去、只能记回地幔的部分（并入 RecycledToMantleMass）。</summary>
 		public double OverflowToMantleMass { get; private set; }
 		public double RecycledToMantleMass { get; private set; }
+		// ── 俯冲再循环旋钮（v1.14 陆增棘轮对冲，2026-09-15 用户拍板方案②；持有方 = H3DynamicTectonics，每步推入）──
+		/// <summary>埋入层**沉积类**（sediment/sedimentary）随俯冲回地幔的比例。1 = 全额——侵蚀搬进
+		/// 海沟的沉积物随板回收（地球沉积物再循环主通道）；0 = 老口径（守恒组永远埋进上盘，
+		/// 陆化只进不出 = 陆增棘轮的根因之一）。只作用于"真混合"格（有上盘顶层压着）；全埋入格
+		/// （唯一落位 = 埋入层，无俯冲消费）整柱保留，与 buriedLoss 口径一致。</summary>
+		public float RecycleSedimentFraction = 1f;
+		/// <summary>埋入层**长英质类**（metamorphic/felsic×2）随俯冲回地幔的刮削比例。只作用于被
+		/// 俯冲板驮着的薄层长英质（陆源尘）；陆壳本体浮力大、罕被俯冲（密度裁决天然豁免）。</summary>
+		public float RecycleFelsicFraction = 0.2f;
+		/// <summary>本步随俯冲回地幔的**守恒组**质量（判读口；与 mafic 消减分账，量已并入
+		/// <see cref="RecycledToMantleMass"/> 与质量账本）。</summary>
+		public double RecycledConservedMass { get; private set; }
+
+		// ── 洋底扩张旋钮（v1.15 陆增棘轮的结构性对冲，2026-09-15 用户拍板方案①；威尔逊旋回引擎）──
+		/// <summary>离散边界注新洋壳开关：空洞若位于正在撕开的板块边界（相对速度法向负收敛超阈值），
+		/// 不走"多数相加权平均"而直接注 age=0 脊轴新洋壳——洋中脊持续造洋、大陆裂谷长出窄洋
+		/// （新洋格由此诞生，陆占比被稀释）。0 龄壳位移 −2500 m，在修正后的海平面（≈ −2.2 km）下
+		/// 位于水下 ~300 m，不再有 v1.12 治乱时的"假浅滩"问题。</summary>
+		public bool EnableSpreading = true;
+		/// <summary>离散发育阈值（km/My）：空洞处本板与异板的相对速度法向**分离**分量超过它才注壳
+		/// （真实慢速洋脊半速率 ~0.5 cm/yr = 0.05 km/My 量级）。汇聚/走滑边（正收敛/近零）不注。</summary>
+		public float SpreadingSpeedKmPerMy = 0.05f;
+		/// <summary>本步在离散边界注入的新洋壳格数（判读口——扩张系统是否在工作的直接读数）。</summary>
+		public int SpreadingFilledCount { get; private set; }
 		/// <summary>本步**新增**地壳质量（kg/m² 口径总量；04 批次 0 守恒对账口）：洋中脊/兜底填新洋壳
 		/// + 陆内重采样复制的整格质量。与 RecycledToMantleMass（消减）一起构成质量进出仅有的两户。</summary>
 		public double CrustCreatedMass { get; private set; }
@@ -107,6 +131,7 @@ namespace World.NewHexWorld.Plate
 		readonly Queue<int> _settledQueue;     // 已结算格队列（供前驱链式补位）
 		readonly int[] _holePlate;             // 空洞的链尾板（恒等填充的归属来源）
 		readonly float[] _sumScratch;          // 逐格八场求和暂存
+		readonly float[] _buriedConserved = new float[5];      // 埋入层守恒组暂存（再循环回收扣减用，逐格重置）
 		readonly float[] _averageScratch = new float[8];       // 加权平均柱暂存（同板多源写出）
 		readonly List<int> _spillCells = new();                // 待摊差额的格（Step 末尾统一摊给邻域）
 		readonly List<float[]> _spillExcess = new();           // 对应七场差额（数组走池复用，避免每步分配）
@@ -159,6 +184,7 @@ namespace World.NewHexWorld.Plate
 			ResampledCellCount = 0; RecycledToMantleMass = 0; JamCellCount = 0; CrustCreatedMass = 0;
 			HoleFillAveragedCount = 0; NewCrustFilledCount = 0;
 			OverflowAveragedCells = 0; OverflowSpilledMass = 0; OverflowToMantleMass = 0;
+			RecycledConservedMass = 0;
 			ContinentalJamCellCount = 0;
 			_jamCellsPerPlate.Clear();
 			_slabInflow.Clear();
@@ -312,6 +338,7 @@ namespace World.NewHexWorld.Plate
 				}
 
 				for (int k = 0; k < 8; k++) _sumScratch[k] = 0f;
+				for (int k = 0; k < 5; k++) _buriedConserved[k] = 0f;
 				float ageMax = 0f;
 				float topDensity = float.MaxValue;
 				int topPlate = -1;
@@ -332,6 +359,7 @@ namespace World.NewHexWorld.Plate
 					if (_depositBuried[d])
 					{
 						buriedLoss += srcPools[5][d] + srcPools[6][d];     // 埋入暂存（全埋入格不记销毁，见下）
+						for (int k = 0; k < 5; k++) _buriedConserved[k] += srcPools[k][d];   // 再循环回收基数
 						continue;                                          // 不参与顶层裁决
 					}
 
@@ -344,7 +372,7 @@ namespace World.NewHexWorld.Plate
 						if (topPlate >= 0)
 						{
 							RecycledToMantleMass += topMaficVolcanic + topMaficPlutonic;
-							}
+						}
 						topDensity = density;
 						topPlate = dp;
 						topMaficVolcanic = srcPools[5][d];
@@ -370,7 +398,29 @@ namespace World.NewHexWorld.Plate
 				// 旧写法"记销毁 + 写出"重复记账，实测账面多计 8.9e8）。
 				bool allBuried = false;
 				if (mixed && topPlate < 0) { mixed = false; allBuried = true; }
-				if (!allBuried) RecycledToMantleMass += buriedLoss;
+				if (!allBuried)
+				{
+					RecycledToMantleMass += buriedLoss;
+
+					// v1.14 俯冲再循环（陆增棘轮对冲）：埋入层守恒组按比例回地幔——沉积类全额、
+					// 长英质类按刮削比例；从写出量里逐池扣掉。仅"真混合"（有上盘顶层压着）生效，
+					// 全埋入格整柱保留不回收，与 buriedLoss 同一口径。
+					double recycled = _buriedConserved[0] * (double)RecycleSedimentFraction
+						+ _buriedConserved[1] * (double)RecycleSedimentFraction
+						+ _buriedConserved[2] * (double)RecycleFelsicFraction
+						+ _buriedConserved[3] * (double)RecycleFelsicFraction
+						+ _buriedConserved[4] * (double)RecycleFelsicFraction;
+					if (recycled > 0)
+					{
+						RecycledToMantleMass += recycled;
+						RecycledConservedMass += recycled;
+						_sumScratch[0] -= (float)(_buriedConserved[0] * RecycleSedimentFraction);
+						_sumScratch[1] -= (float)(_buriedConserved[1] * RecycleSedimentFraction);
+						_sumScratch[2] -= (float)(_buriedConserved[2] * RecycleFelsicFraction);
+						_sumScratch[3] -= (float)(_buriedConserved[3] * RecycleFelsicFraction);
+						_sumScratch[4] -= (float)(_buriedConserved[4] * RecycleFelsicFraction);
+					}
+				}
 
 				// 同板多源（= 压缩增厚格）改**质量加权平均**写出 + 差额摊给邻域（04 批次 6 治乱；
 				// 用户 2026-09-15 口径）。旧口径是八场直接求和 ⇒ 一个格瞬间堆出两格料 ⇒ 尖峰
@@ -543,18 +593,20 @@ namespace World.NewHexWorld.Plate
 		/// 有本板陆邻居则重采样本板陆壳（陆内拉伸接续），否则填本板新洋壳（洋中脊生长）。
 		/// 兜底：被异板完全包围的孤立空洞按多数邻居并入。**填充永不改变归属**。
 		/// 多遍填充：一遍只够得着"有料邻居"的空洞；2 格以上的空洞簇要下一遍才够得着。</summary>
-		public int FillHolesWithNewOceanicCrust(Ball ball, H3PlateFields fields, float maficMassPerArea)
+		public int FillHolesWithNewOceanicCrust(Ball ball, H3PlateFields fields, H3PlateMotion motion,
+			float maficMassPerArea)
 		{
+			SpreadingFilledCount = 0;
 			int filled = 0;
 			while (true)                                                   // 第一级：恒等填充
 			{
-				int pass = FillOneHoleLayer(ball, fields, maficMassPerArea, false);
+				int pass = FillOneHoleLayer(ball, fields, motion, maficMassPerArea, false);
 				filled += pass;
 				if (pass == 0) break;
 			}
 			while (true)                                                   // 第二级：孤立空洞并入多数邻居
 			{
-				int pass = FillOneHoleLayer(ball, fields, maficMassPerArea, true);
+				int pass = FillOneHoleLayer(ball, fields, motion, maficMassPerArea, true);
 				filled += pass;
 				if (pass == 0) break;
 			}
@@ -572,7 +624,12 @@ namespace World.NewHexWorld.Plate
 		// 现口径：取同板料邻居里**多数相**（陆多 → 陆；洋多 → 洋）的那一批，按 **1/d² 权重**加权
 		// 平均八场写入 —— 厚度/年龄/密度都与周边连续过渡，既不出水也不留块斑。
 		// 质量账：写入的质量记创建账（与复制同口径：填充本就是"自地幔新增"）。
-		int FillOneHoleLayer(Ball ball, H3PlateFields fields, float maficMassPerArea, bool annexFallback)
+		// ⚠️ v1.15 洋底扩张（方案①）：**离散边界的空洞先于多数相判定**——空洞任一异板邻居与本板的
+		// 相对速度沿边界法向的分离分量超阈值（正在撕开）⇒ 直接注 age=0 脊轴新洋壳（威尔逊旋回引擎）。
+		// 当时的"假浅滩"顾虑已随海平面分母修正消失（−2500 m 壳如今在水下 ~300 m）。陆内裂谷由此
+		// 长出窄洋——大陆被撕开、新洋格稀释陆占比，这是对陆增棘轮的结构性对冲。
+		int FillOneHoleLayer(Ball ball, H3PlateFields fields, H3PlateMotion motion, float maficMassPerArea,
+			bool annexFallback)
 		{
 			int n = ball.CellIds.Length;
 			var neighbors = ball.CellNeighbors;
@@ -587,6 +644,18 @@ namespace World.NewHexWorld.Plate
 				// 链尾板明确 → 恒等填充（归属永不因填充改变）
 				if (holePlate >= 0)
 				{
+					// v1.15 洋底扩张：离散边界的空洞注 age=0 脊轴新洋壳（归属仍 = 链尾板）。
+					// 相变在这里是**有意为之**：陆内裂谷长出窄洋 = 威尔逊旋回的起点。
+					if (EnableSpreading && IsDivergentHole(ball, fields, motion, t, holePlate))
+					{
+						fields.SetNewOceanicCrust(t, maficMassPerArea, holePlate);
+						CrustCreatedMass += maficMassPerArea;
+						SpreadingFilledCount++;
+						ChangeEvents.Add((_currentStep, t, -1, holePlate, 5));   // kind 5 = 洋底扩张注壳
+						filled++;
+						continue;
+					}
+
 					int landCount = 0, oceanCount = 0;
 					float landInverseDistance = 0f, oceanInverseDistance = 0f;
 					foreach (int neighbor in neighbors[t])
@@ -644,6 +713,42 @@ namespace World.NewHexWorld.Plate
 				filled++;
 			}
 			return filled;
+		}
+
+		// 空洞的离散发育判定（v1.15 洋底扩张）：存在异板邻居 nb，使（本板速度 − nb 速度）沿
+		// t→nb 边界法向的分量为负且幅值超 <see cref="SpreadingSpeedKmPerMy"/> = 两板正在撕开。
+		// 符号约定与 H3PlateBoundary 同源（v_i − v_j、n̂ = i→j，v_n > 0 ⟺ 汇聚）。本板速度取
+		// 空洞同板料邻居的速度均值（空洞自身无料，速度场无意义）。遍历序固定 ⇒ 确定性。
+		bool IsDivergentHole(Ball ball, H3PlateFields fields, H3PlateMotion motion, int t, int holePlate)
+		{
+			var neighbors = ball.CellNeighbors;
+			var centers = ball.CellCenters;
+			Vector3 vSelf = Vector3.Zero;
+			int samePlateCount = 0;
+			foreach (int nb in neighbors[t])
+			{
+				if (fields.TotalMass(nb) <= 0f || fields.PlateId[nb] != holePlate) continue;
+				vSelf += motion.Velocity[nb];
+				samePlateCount++;
+			}
+			if (samePlateCount == 0) return false;
+			vSelf /= samePlateCount;
+
+			foreach (int nb in neighbors[t])
+			{
+				int nbPlate = fields.PlateId[nb];
+				if (nbPlate < 0 || nbPlate == holePlate) continue;
+				if (fields.TotalMass(nb) <= 0f) continue;
+				Vector3 delta = centers[nb] - centers[t];
+				Vector3 radial = centers[t].Normalized();
+				Vector3 tangential = delta - radial * delta.Dot(radial);
+				if (tangential.LengthSquared() <= 1e-12f) continue;
+				Vector3 normal = tangential.Normalized();              // t → nb（空洞板 → 异板）
+				Vector3 relative = vSelf - motion.Velocity[nb];
+				float convergenceKmPerMy = relative.Dot(normal) * H3PlateBoundary.EarthRadiusKm;
+				if (convergenceKmPerMy < -SpreadingSpeedKmPerMy) return true;   // 负收敛 = 撕开
+			}
+			return false;
 		}
 
 		// 权重 = 1/d²（球面弦距平方；d → 0 时取一个有限大值，防除零——空洞与邻居格心必不重合）。

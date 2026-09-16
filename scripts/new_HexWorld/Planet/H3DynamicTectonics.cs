@@ -34,6 +34,14 @@ namespace World.NewHexWorld.Plate
 //   原版 = Crust.js model_*）——`H3SurfaceProcesses` 四步：侵蚀（沿边下坡搬运守恒组）/ 风化（基岩→沉积物）/
 //   成岩（>2.2 MPa）/ 变质（>300 MPa）；delta 制、组内守恒、零审计记账。流水线插 8b（均衡+海平面之后，
 //   侵蚀后重算位移与海平面——老实现同款两遍）。
+// v1.14：**俯冲再循环**（2026-09-15 用户拍板方案②，陆增棘轮对冲）——埋入层守恒组按比例随俯冲回地幔
+//   （沉积类全额 + 长英质类刮削比例，`RecycleSedimentFraction`/`RecycleFelsicFraction`），只作用于
+//   真混合格；质量并入既有消减账（RecycledToMantle），判读口 = `H3PlateAdvection.RecycledConservedMass`。
+//   动机：长英质"只进不出"（俯冲只回收 mafic + 厚度帽溢流变性成长英质）⇒ 陆占比 600 My 棘轮到 95%+。
+// v1.15：**洋底扩张**（2026-09-15 用户拍板方案①，威尔逊旋回引擎）——离散边界上的空洞直接注 age=0
+//   脊轴新洋壳（`EnableSpreading`/`SpreadingSpeedKmPerMy`，判读口 = SpreadingFilledCount）：
+//   洋中脊持续造洋更新洋底年龄剖面、陆内裂谷长出窄洋稀释陆占比。v1.12 治乱的"假浅滩"顾虑已随
+//   海平面分母修正消失（0 龄壳 −2500 m 在海平面 −2.2 km 下位于水下）。
 // 与老实现的结构差异（03 §3）：没有"每板一份网格副本 + Voronoi 重采样"，也没有老实现每步 3 次
 // MergePlatesToMaster —— 在老模型里"合并"是把 N 份局部场收敛成一份全局场的手续；在 H3 原生模型里
 // 平流本身就是全局场对全局场，合并语义（守恒组相加 / 顶层裁决）内建在 H3PlateAdvection 的单遍里。
@@ -52,6 +60,22 @@ namespace World.NewHexWorld.Plate
 		public bool EnableErosion = true;
 		/// <summary>侵蚀/风化强度倍率（老 TectonicsSimulation.ErosionScale 口径：0.5 温和 ~ 2 剧烈）。</summary>
 		public float ErosionScale = 1f;
+		/// <summary>洋底扩张开关（v1.15 陆增棘轮的结构性对冲，2026-09-15 用户拍板方案①）：离散边界上
+		/// 的空洞直接注 age=0 脊轴新洋壳——洋中脊持续造洋、陆内裂谷长出窄洋（威尔逊旋回引擎）。
+		/// 关掉即回到"空洞一律多数相加权平均"的 v1.12 治乱口径。</summary>
+		public bool EnableSpreading = true;
+		/// <summary>离散发育阈值（km/My）：空洞处两板相对速度的法向分离分量超过它才注新洋壳。
+		/// 真实慢速洋脊半速率 ~0.05 km/My 量级；调高 = 只有撕得更快的边界才出洋。</summary>
+		public float SpreadingSpeedKmPerMy = 0.05f;
+		/// <summary>俯冲再循环（v1.14 陆增棘轮对冲，2026-09-15 用户拍板方案②）：埋入层**沉积类**
+		/// （sediment/sedimentary）随俯冲回地幔的比例。1 = 全额——侵蚀搬进海沟的沉积物随板回收，
+		/// 地球沉积物再循环主通道；0 = 老口径（守恒组永远埋进上盘，陆化只进不出）。只作用于真混合格
+		/// （有上盘顶层）；全埋入格整柱保留。</summary>
+		public float RecycleSedimentFraction = 1f;
+		/// <summary>俯冲再循环：埋入层**长英质类**（metamorphic/felsic×2）的刮削比例。只作用于被
+		/// 俯冲板驮着的薄层长英质（陆源尘）；陆壳本体浮力大、罕被俯冲（密度裁决天然豁免），
+		/// 所以碰不塌大陆。0 = 老口径。</summary>
+		public float RecycleFelsicFraction = 0.2f;
 		/// <summary>地壳厚度上限（超出部分按体积记账进增生楔，改进 4）。**它直接决定碰撞造山的高原面高度**：
 		/// 陆格海拔 = `LandBaselineM` + kAiry×(厚 − `LandReferenceThicknessM`) ⇒ 帽 65 km → 高原面 ≈ +5.4 km
 		/// （= 02 §5.2 用户拍板的设计峰值 +5.3 km / 峰值壳厚 60 km；知识库碰撞带 60–75 km 落在区间内）。
@@ -432,7 +456,7 @@ namespace World.NewHexWorld.Plate
 		}
 
 
-		/// <summary>走一个时间步（流水线 1–8；缝合/裂解见下方 TODO）。</summary>
+		/// <summary>走一个时间步（流水线 1–8b；缝合/裂解见下方 TODO）。</summary>
 		public void Step()
 		{
 			// 1 洋壳老化（陆壳年龄不变——陆壳不是热沉降链的输入）
@@ -455,6 +479,9 @@ namespace World.NewHexWorld.Plate
 			// 3 平流（搬**物质**：累积旋转精确落格；一格多源 = 汇聚堆叠/俯冲，一格无源 = 离散；
 			//    归属 = 顶层物质的板号）+ 板片账户入账（04 批次 2：俯冲质量×流向记给来料板，
 			//    下步力平衡把"已俯冲的板片"算成持续拉力）
+			//    v1.14：俯冲再循环随板推入——埋入层沉积/长英质按比例回地幔（陆增棘轮对冲）。
+			_advection.RecycleSedimentFraction = RecycleSedimentFraction;
+			_advection.RecycleFelsicFraction = RecycleFelsicFraction;
 			_advection.Step(_ball, _fields, _motion, _scratch, _material, StepCount);
 			foreach (var kv in _advection.SlabInflow)
 				_motion.AddSlab(kv.Key, kv.Value.mass, kv.Value.dir);
@@ -467,9 +494,13 @@ namespace World.NewHexWorld.Plate
 			JammedCellsLastStep = _advection.JamCellCount;
 			ContinentalJamCellsLastStep = _advection.ContinentalJamCellCount;
 
-			// 4 裂谷：离散链尾空洞恒等填充（洋链尾 = 本板新洋壳 = 洋中脊；陆链尾 = 重采样接续）
+			// 4 裂谷：离散链尾空洞恒等填充（洋链尾 = 本板新洋壳 = 洋中脊；陆链尾 = 重采样接续）。
+			// v1.15 洋底扩张（方案①）：正在撕开的板块边界上的空洞改注 age=0 脊轴新洋壳——
+			// 洋中脊持续造洋、陆内裂谷长出窄洋（威尔逊旋回引擎，陆占比的结构性稀释通道）。
+			_advection.EnableSpreading = EnableSpreading;
+			_advection.SpreadingSpeedKmPerMy = SpreadingSpeedKmPerMy;
 			if (EnableRifting)
-				_advection.FillHolesWithNewOceanicCrust(_ball, _fields, 2890f * 7100f);
+				_advection.FillHolesWithNewOceanicCrust(_ball, _fields, _motion, 2890f * 7100f);
 			CrustCreatedTotal += _advection.CrustCreatedMass;
 			CrustDestroyedTotal += RecycledToMantleLastStep;
 
@@ -666,7 +697,7 @@ namespace World.NewHexWorld.Plate
 				{
 					if (k == 7) continue;                     // Age 不是质量，不缩
 					removed += pools[k][i] * (1f - scale);
-				}
+					}
 				for (int k = 0; k < 8; k++)
 				{
 					if (k == 7) continue;

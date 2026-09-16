@@ -76,11 +76,11 @@ namespace World.NewHexWorld.Plate
 			float stepMy, float erosionScale)
 		{
 			int n = fields.Count;
-			for (int k = 0; k < 5; k++) Array.Clear(_delta[k], 0, n);
-			ErosionMovedMassLastStep = 0;
-			WeatheredMassLastStep = 0;
-			LithifiedMassLastStep = 0;
-			MetamorphosedMassLastStep = 0;
+		for (int k = 0; k < 5; k++) Array.Clear(_delta[k], 0, n);
+		ErosionMovedMassLastStep = 0;
+		WeatheredMassLastStep = 0;
+		LithifiedMassLastStep = 0;
+		MetamorphosedMassLastStep = 0;
 
 			float seconds = stepMy * Units.MEGAYEAR;               // My → 秒（老 Units 口径）
 			ModelErosion(fields, surfaceHeight, seconds, material, erosionScale);
