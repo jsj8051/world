@@ -74,7 +74,7 @@ namespace World.NewHexWorld.Plate
 			// ── ① 逐边通量裁决与份额（对无向边一次）──
 			// f[i][k] = 格 i 沿第 k 邻边流出给 j 的柱份额（0 = 无/阻断/俯冲汇另行记账）
 			var frac = new float[n][];
-			var subductMass = new double[n];          // 每格被俯冲销毁的柱份额累计（按池比例分账）
+			var subductEntries = new List<(int from, int to, float fraction)>();   // 俯冲边：来料格→上盘格
 			for (int i = 0; i < n; i++) frac[i] = new float[neighbors[i].Length];
 
 			for (int i = 0; i < n; i++)
@@ -89,9 +89,8 @@ namespace World.NewHexWorld.Plate
 					float dl = t.Length();
 					if (dl <= 1e-12f) continue;
 					t /= dl;
-					Vector3 midRadial = radial;
-					float vi = TangentialSpeed(velocityRadPerMy[i], midRadial, t);   // i 的物质流向 j 的速度分量
-					float vj = TangentialSpeed(velocityRadPerMy[j], midRadial, t);
+					float vi = TangentialSpeed(velocityRadPerMy[i], radial, t);   // i 的物质流向 j 的速度分量
+					float vj = TangentialSpeed(velocityRadPerMy[j], radial, t);
 					float dPhys = (centers[j] - centers[i]).Length() * sceneToM;
 					// rad/My → 弧长 m/My（×R）；份额 = 本步位移 / 格距
 					float f = MathF.Abs(vi) * radiusM * stepMy / dPhys;
@@ -102,31 +101,26 @@ namespace World.NewHexWorld.Plate
 					if (foreign && vi > 0f)
 					{
 						// i 的来料撞 j：密度裁决——顶死 = 阻断（物质堆在 i = 造山）；否则俯冲汇
-						bool jam = H3PlateContact.JamsInto(
-							source.Density(i, material),
-							source.Density(j, material),
-							source.IsLand(i),
-							source.IsLand(j))
-							|| (source.IsLand(j) && !source.IsLand(i) && source.Density(j, material) >= source.Density(i, material));
-						if (jam) f = 0f;
+						if (H3PlateContact.JamsInto(
+								source.Density(i, material), source.Density(j, material),
+								source.IsLand(i), source.IsLand(j)))
+							f = 0f;
 						else
 						{
-							// 俯冲汇：i 的流出份额入俯冲账（销毁 + 板片），不落到 j
-							subductMass[i] += f;
+							subductEntries.Add((i, j, f));                        // 俯冲汇：不落到 j，见 ③
 							SubductEdgesLastStep++;
 							f = 0f;
 						}
 					}
 					if (foreign && vj > 0f)
 					{
-						bool jam = H3PlateContact.JamsInto(
-							source.Density(j, material), source.Density(i, material),
-							source.IsLand(j), source.IsLand(i))
-							|| (source.IsLand(i) && !source.IsLand(j) && source.Density(i, material) >= source.Density(j, material));
-						if (jam) fj = 0f;
+						if (H3PlateContact.JamsInto(
+								source.Density(j, material), source.Density(i, material),
+								source.IsLand(j), source.IsLand(i)))
+							fj = 0f;
 						else
 						{
-							subductMass[j] += fj;
+							subductEntries.Add((j, i, fj));
 							SubductEdgesLastStep++;
 							fj = 0f;
 						}
@@ -167,31 +161,37 @@ namespace World.NewHexWorld.Plate
 				}
 			}
 
-			// ── ③ 俯冲记账：被俯冲份额按池比例分账（沉积/长英质回地幔份额、其余销毁）+ 板片 + 弧回流 ──
-			for (int i = 0; i < n; i++)
+			// ── ③ 俯冲三分账（合账必平）：来料格按份额 f 移除柱 →
+			//      弧回流（ArcFelsicReturn 份额，长英质落到上盘格）
+			//    + 回地幔（沉积/长英质按再循环份额、镁铁质全额）
+			//    + 增生（余额落到上盘格）。
+			//    板片账户按全部移除质量入账（来料板名下，方向 = 来料流速）。
+			float[] rem = new float[7];
+			foreach (var (from, to, f) in subductEntries)
 			{
-				if (subductMass[i] <= 0f) continue;
-				float f = (float)Math.Clamp(subductMass[i], 0.0, 1.0);
-				double total = 0, recycled = 0;
-				total += Accumulate(source, target, i, f, p => p.Sediment, material.Sediment, RecycleSedimentFraction, ref recycled);
-				total += Accumulate(source, target, i, f, p => p.Sedimentary, material.Sedimentary, RecycleSedimentFraction, ref recycled);
-				total += Accumulate(source, target, i, f, p => p.Metamorphic, material.Metamorphic, RecycleFelsicFraction, ref recycled);
-				total += Accumulate(source, target, i, f, p => p.FelsicPlutonic, material.FelsicPlutonic, RecycleFelsicFraction, ref recycled);
-				total += Accumulate(source, target, i, f, p => p.FelsicVolcanic, material.FelsicVolcanic, RecycleFelsicFraction, ref recycled);
-				total += Accumulate(source, target, i, f, p => p.MaficVolcanic, material.MaficVolcanicMin, 1f, ref recycled);
-				total += Accumulate(source, target, i, f, p => p.MaficPlutonic, material.MaficVolcanicMin, 1f, ref recycled);
-				RecycledToMantleLastStep += recycled;
-
-				// 板片账户：质量 × 流向（格 i 的流速方向）；弧回流给本格（上盘判定接线批次细化）
-				Vector3 dir = velocityRadPerMy[i];
-				if (dir.LengthSquared() > 1e-18f)
-					SlabInflow.Add((source.PlateId[i], total, dir.Normalized()));
-				float arc = (float)(total * ArcFelsicReturnFraction);
-				if (arc > 0f)
+				double total = 0;
+				var pools = new[] { target.Sediment, target.Sedimentary, target.Metamorphic,
+					target.FelsicPlutonic, target.FelsicVolcanic, target.MaficVolcanic, target.MaficPlutonic };
+				for (int k = 0; k < 7; k++)
 				{
-					target.FelsicVolcanic[i] += arc;
-					ArcFelsicReturnedMassLastStep += arc;
+					rem[k] = pools[k][from] * f;
+					total += rem[k];
+					pools[k][from] -= rem[k];
 				}
+				float arc = (float)(total * ArcFelsicReturnFraction);
+				target.FelsicVolcanic[to] += arc;
+				ArcFelsicReturnedMassLastStep += arc;
+				float[] recycleShares = { RecycleSedimentFraction, RecycleSedimentFraction, RecycleFelsicFraction,
+					RecycleFelsicFraction, RecycleFelsicFraction, 1f, 1f };
+				for (int k = 0; k < 7; k++)
+				{
+					float toMantle = rem[k] * recycleShares[k];
+					RecycledToMantleLastStep += toMantle;
+					pools[k][to] += rem[k] - toMantle;    // 余额增生到上盘格
+				}
+				Vector3 dir = velocityRadPerMy[from];
+				if (dir.LengthSquared() > 1e-18f)
+					SlabInflow.Add((source.PlateId[from], total, dir.Normalized()));
 			}
 
 			// ── ④ 薄柱注壳：柱厚低于阈值 → 注 age=0 新洋壳至参考厚（创建账）──
@@ -244,16 +244,6 @@ namespace World.NewHexWorld.Plate
 				target.MaficPlutonic[to] += m;
 				target.MaficPlutonic[from] -= m;
 			}
-		}
-
-		// 从 target 格 i 按份额 f 移除池 p 的质量 → 返回该池被俯冲的质量（kg/m²），recycleShare 部分回地幔
-		double Accumulate(H3PlateFields source, H3PlateFields target, int i, float f,
-			Func<H3PlateFields, float[]> pool, float density, float recycleShare, ref double recycled)
-		{
-			double mass = pool(target)[i] * f;             // 该池被俯冲的质量（kg/m²）
-			pool(target)[i] -= pool(target)[i] * f;
-			recycled += mass * recycleShare;
-			return mass;
 		}
 
 		static void CopyInto(H3PlateFields from, H3PlateFields to)

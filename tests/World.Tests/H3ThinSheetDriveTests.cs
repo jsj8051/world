@@ -91,13 +91,51 @@ public class H3ThinSheetDriveTests
         Assert.Greater(flow / cnt, 0, $"高压格速度应指向低 GPE 侧（实测均流 {flow / cnt:E3} cm/yr 口径）");
     }
 
-    static H3DynamicTectonics NewDrivenSim(bool thinSheet)
+    static H3DynamicTectonics NewDrivenSim(bool thinSheet, bool flux = false)
     {
         var splitter = new H3Plate(Ball);
         int[] plateOfCell = splitter.SplitIntoPlates(6, 42);
-        var sim = new H3DynamicTectonics(Ball) { EnableThinSheetDriving = thinSheet };
+        var sim = new H3DynamicTectonics(Ball)
+        {
+            EnableThinSheetDriving = thinSheet,
+            EnableFluxTransport = thinSheet && flux,   // 通量吃薄席驱动场，单独开无意义
+        };
         sim.Initialize(plateOfCell, 42);
         return sim;
+    }
+
+    [Test]
+    public void FluxTransport_MassAuditCloses_AndDrivesMotion()
+    {
+        var sim = NewDrivenSim(true, flux: true);
+        for (int s = 0; s < 6; s++)
+        {
+            sim.Step();
+            double dbg = sim.TotalCrustMass()
+                - (sim.InitialCrustMass + sim.CrustCreatedTotal - sim.CrustDestroyedTotal);
+            Console.WriteLine($"[FLUXDBG] step={s} audit={dbg:E3} created={sim.CrustCreatedTotal:E3} " +
+                $"destroyed={sim.CrustDestroyedTotal:E3} mass={sim.TotalCrustMass():E3}");
+        }
+
+        double audit = sim.TotalCrustMass()
+            - (sim.InitialCrustMass + sim.CrustCreatedTotal - sim.CrustDestroyedTotal);
+        Assert.Less(Math.Abs(audit), sim.InitialCrustMass * 1e-6,
+            "质量守恒对账（通量运输：注壳/俯冲两户台账经 CrustCreated/Destroyed 闭账）");
+
+        bool anyMotion = false;
+        for (int i = 0; i < sim.Motion.Velocity.Length && !anyMotion; i++)
+            anyMotion = sim.Motion.Velocity[i].Length() > 0f;
+        Assert.IsTrue(anyMotion, "薄席驱动应产生非零速度场");
+    }
+
+    [Test]
+    public void FluxTransport_Deterministic()
+    {
+        var a = NewDrivenSim(true, flux: true);
+        var b = NewDrivenSim(true, flux: true);
+        for (int s = 0; s < 3; s++) { a.Step(); b.Step(); }
+        Assert.AreEqual(a.TotalCrustMass(), b.TotalCrustMass(), "同 seed 两跑逐位一致（质量）");
+        Assert.AreEqual(a.Motion.Velocity[10].X, b.Motion.Velocity[10].X, "同 seed 两跑逐位一致（速度场）");
     }
 
     [Test]

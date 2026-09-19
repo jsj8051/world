@@ -37,6 +37,8 @@ public partial class HexDynamicDiag : Node
 	bool _shadow;
 	// 薄席驱动（设计-07 P2）：--sheet=1 开启——平流方向/节拍改吃薄席，旧力平衡退位。
 	bool _sheetDriving;
+	// 通量化运输（设计-07 P3）：--flux=1 开启——跳格平流/空洞填充退位，改走 upwind 通量。
+	bool _fluxTransport;
 	H3ThinSheet? _shadowSheet;
 	float[]? _shadowGpe, _shadowElev;
 	double _shadowSumOld, _shadowSumNew, _shadowSumAgree;
@@ -62,6 +64,8 @@ public partial class HexDynamicDiag : Node
 		if (args.TryGetValue("shadow", out value)) _shadow = value != "0";
 		// 薄席驱动（设计-07 P2）：--sheet=1 切驱动（默认关）。
 		if (args.TryGetValue("sheet", out value)) _sheetDriving = value != "0";
+		// 通量化运输（设计-07 P3）：--flux=1 开启（默认关；须与 --sheet 同开）。
+		if (args.TryGetValue("flux", out value)) _fluxTransport = value != "0";
 
 		var ball = new Ball(_res, 1f);
 		GD.Print($"=== HexDynamicDiag res={_res} P={_plates} seed={_seed} N={ball.CellIds.Length} "
@@ -84,6 +88,7 @@ public partial class HexDynamicDiag : Node
 		if (_flexureIterations >= 0) sim.FlexureIterations = _flexureIterations;
 		sim.PrecipitationScale = _precipScale;
 		sim.EnableThinSheetDriving = _sheetDriving;
+		sim.EnableFluxTransport = _fluxTransport;
 		// 周期重启的重分板委托（05 §6.3）：与生产路径 `H3Plate.BeginCreatePlates` 同款注入——
 		// 不注入则重启**自动旁路**（04 批次 4 的设计），诊断就看不到 platec 式周期重启。
 		sim.Repartition = k => plateSplitter.SplitIntoPlates(k, _seed + 977 * sim.RestartCount);

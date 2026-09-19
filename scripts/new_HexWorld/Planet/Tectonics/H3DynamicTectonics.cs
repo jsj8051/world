@@ -84,6 +84,10 @@ namespace World.NewHexWorld.Plate
 		/// （板级 GPE 净力 → 底层拖曳平衡板速），旧力平衡连同幻影力退位。过渡语义：跳格搬运与
 		/// 俯冲裁决仍走旧平流（P3 退休），方向与节拍已全部来自薄席力源。默认 false（行为基线不变）。</summary>
 		public bool EnableThinSheetDriving = false;
+		/// <summary>P3 通量化运输（设计-07 §5）：true = 物质运输改走 H3FluxTransport（速度场欧拉
+		/// upwind 通量；俯冲 = 通量汇、加厚 = 收敛堆积、薄柱注壳内建）。跳格平流/起跳相位/空洞填充
+		/// 退位。须与 EnableThinSheetDriving 同开（通量吃驱动速度场）。默认 false。</summary>
+		public bool EnableFluxTransport = false;
 
 		// ── 板块生命周期旋钮（缝合/裂解/重启循环；借鉴 platec P1/P2/P4）──
 		/// <summary>缝合触发：板对顶死接触数 / 该对边界边数 ≥ 此比例（platec aggr_overlap_rel 口径）。</summary>
@@ -202,6 +206,7 @@ namespace World.NewHexWorld.Plate
 		H3PlateFields _scratch;
 		float[]? _sheetGpe, _sheetElev;                       // 薄席工作缓冲（GPE / 海拔）
 		Vector3[]? _sheetDriveRadPerMy;                       // 板级刚体驱动场（rad/My，喂运动学外部覆写口）
+		H3FluxTransport? _flux;                               // 通量化运输（P3，懒建）
 		readonly bool[] _topologyVisited;               // 连通分量 BFS 用（复用，避免每步分配）
 		readonly int[] _topologyStack;
 		readonly int[] _topologyComp;                   // 每格连通分量号（只记号+尺寸，免逐分量 List）
@@ -318,6 +323,8 @@ namespace World.NewHexWorld.Plate
 		/// <summary>本步**陆-陆碰撞**格数（顶死且两侧皆陆；platec `continental_collisions` 口径）——
 		/// 周期重启触发③"久无陆-陆碰撞"的输入。</summary>
 		public int ContinentalJamCellsLastStep { get; private set; }
+		/// <summary>本步通量化运输的俯冲边数（P3 判读口；跳格路径恒 0）。</summary>
+		public int FluxSubductEdgesLastStep { get; private set; }
 		public IReadOnlyDictionary<int, int> JamCellsPerPlateLastStep => _advection.JamCellsPerPlate;
 		public int JamContactCellsLastStep { get; private set; }       // 运动学预测：顶死接触剔除出净驱动的板缘格数
 		public float PhantomForceFractionLastStep { get; private set;}// 幻影驱动力占比 = 被剔除 F / 毛 F（0 = 无顶死接触）
@@ -551,32 +558,61 @@ namespace World.NewHexWorld.Plate
 			PhantomForceFractionLastStep = _motion.PhantomForceFraction;
 			MeasureSpeedTiers();
 
-			// 3 平流：搬物质（一格多源 = 汇聚堆叠/俯冲，一格无源 = 离散；归属 = 顶层物质的板号）。
-			//   俯冲质量×流向记给来料板，下步力平衡把它算成持续拉力；埋入层沉积/长英质按比例回地幔。
-			_advection.RecycleSedimentFraction = RecycleSedimentFraction;
-			_advection.RecycleFelsicFraction = RecycleFelsicFraction;
-			_advection.ArcFelsicReturnFraction = ArcFelsicReturnFraction;
-			_advection.Step(_ball, _fields, _motion, _scratch, _material, StepCount);
-			FelsicScrapedCum += _advection.FelsicScrapedMassLastStep;
-			FelsicArcReturnedCum += _advection.ArcFelsicReturnedMassLastStep;
-			RecycledConservedTotal += _advection.RecycledConservedMass;
-			foreach (var kv in _advection.SlabInflow)
-				_motion.AddSlab(kv.Key, kv.Value.mass, kv.Value.dir);
-			(_fields, _scratch) = (_scratch, _fields);
-			HoleCellsLastStep = _advection.HoleCount;
-			MixedCellsLastStep = _advection.MixedCellCount;
-			OverflowCellsLastStep = _advection.OverflowCellCount;
-			ResampledCellsLastStep = _advection.ResampledCellCount;
-			RecycledToMantleLastStep = _advection.RecycledToMantleMass;
-			JammedCellsLastStep = _advection.JamCellCount;
-			ContinentalJamCellsLastStep = _advection.ContinentalJamCellCount;
+			// 3 物质运输：两套机制按 EnableFluxTransport 切换（设计-07 P3）。
+			//   · 跳格平流（旧）：起跳相位 + 链头裁决（俯冲/顶死）+ 空洞填充；
+			//   · 通量化运输（P3 新）：速度场的欧拉 upwind 通量——俯冲 = 通量汇、加厚 = 收敛堆积、
+			//     薄柱注壳内建（创建账）。台账两式同构：Created/Recycled/SlabInflow/弧回流。
+			if (EnableFluxTransport)
+			{
+				_flux ??= new H3FluxTransport(_ball)
+				{
+					RecycleSedimentFraction = RecycleSedimentFraction,
+					RecycleFelsicFraction = RecycleFelsicFraction,
+					ArcFelsicReturnFraction = ArcFelsicReturnFraction,
+				};
+				_flux.Step(_fields, _scratch, _motion.Velocity, _material, StepMy, StepCount);
+				// 创建账两户：薄柱注壳 + 弧回流（"从地幔新生长英质"= 净增质量，必须记创建——
+				// 漏记则质量审计逐步多出弧回流量，实测 1.8e9 kg/步）。
+				CrustCreatedTotal += _flux.CreatedMassLastStep + _flux.ArcFelsicReturnedMassLastStep;
+				FelsicArcReturnedCum += _flux.ArcFelsicReturnedMassLastStep;  // 弧回流（伺服账同源）
+				foreach (var entry in _flux.SlabInflow)
+					_motion.AddSlab(entry.plate, entry.massPerArea, entry.dir);
+				(_fields, _scratch) = (_scratch, _fields);
+				RecycledToMantleLastStep = _flux.RecycledToMantleLastStep;
+				FluxSubductEdgesLastStep = _flux.SubductEdgesLastStep;
+				HoleCellsLastStep = 0; MixedCellsLastStep = 0; OverflowCellsLastStep = 0;
+				ResampledCellsLastStep = 0; JammedCellsLastStep = 0; ContinentalJamCellsLastStep = 0;
+			}
+			else
+			{
+				_advection.RecycleSedimentFraction = RecycleSedimentFraction;
+				_advection.RecycleFelsicFraction = RecycleFelsicFraction;
+				_advection.ArcFelsicReturnFraction = ArcFelsicReturnFraction;
+				_advection.Step(_ball, _fields, _motion, _scratch, _material, StepCount);
+				FelsicScrapedCum += _advection.FelsicScrapedMassLastStep;
+				FelsicArcReturnedCum += _advection.ArcFelsicReturnedMassLastStep;
+				RecycledConservedTotal += _advection.RecycledConservedMass;
+				foreach (var kv in _advection.SlabInflow)
+					_motion.AddSlab(kv.Key, kv.Value.mass, kv.Value.dir);
+				(_fields, _scratch) = (_scratch, _fields);
+				HoleCellsLastStep = _advection.HoleCount;
+				MixedCellsLastStep = _advection.MixedCellCount;
+				OverflowCellsLastStep = _advection.OverflowCellCount;
+				ResampledCellsLastStep = _advection.ResampledCellCount;
+				RecycledToMantleLastStep = _advection.RecycledToMantleMass;
+				JammedCellsLastStep = _advection.JamCellCount;
+				ContinentalJamCellsLastStep = _advection.ContinentalJamCellCount;
+			}
 
-			// 4 裂谷/洋底扩张：离散边界上的空洞注 age=0 脊轴新洋壳——洋中脊持续造洋、陆内裂谷长出窄洋。
-			_advection.EnableSpreading = EnableSpreading;
-			_advection.SpreadingSpeedKmPerMy = SpreadingSpeedKmPerMy;
-			if (EnableRifting)
-				_advection.FillHolesWithNewOceanicCrust(_ball, _fields, _motion, _material.MaficVolcanicMin * H3Isostasy.OceanReferenceThicknessM);
-			CrustCreatedTotal += _advection.CrustCreatedMass;
+			// 4 裂谷/洋底扩张：跳格路径的空洞注壳（通量化路径无空洞概念——注壳已内建于 ③ 薄柱阈值）。
+			if (!EnableFluxTransport)
+			{
+				_advection.EnableSpreading = EnableSpreading;
+				_advection.SpreadingSpeedKmPerMy = SpreadingSpeedKmPerMy;
+				if (EnableRifting)
+					_advection.FillHolesWithNewOceanicCrust(_ball, _fields, _motion, _material.MaficVolcanicMin * H3Isostasy.OceanReferenceThicknessM);
+				CrustCreatedTotal += _advection.CrustCreatedMass;
+			}
 			CrustDestroyedTotal += RecycledToMantleLastStep;
 
 			// 4b 归属清理：平流绕出的小残块终身带异板色（渲染毛刺），并入包围板——只改标签、不动物质。
