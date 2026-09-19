@@ -16,7 +16,10 @@ namespace World.NewHexWorld
 		ulong[] _vertexIds;                     // 全部唯一顶点 id（角，长度 2N−4，排序 → 确定性）
 		Vector3[] _vertexPositions;             // 顶点坐标（与 _vertexIds 一一对应）
 		Vector3[] _cellCenters;                 // 格心坐标（与 _cellIds 一一对应）
+		Vector3[] _cellDirs;                    // 格心单位方向（= 格心归一化；构造期算一次共享，见 BuildCellDirs）
 		int[][] _cellNeighbors;                 // 邻接表：每格一串邻居下标（六边形 6 / 五边形 5）
+		Vector3[][] _cellNeighborDirs;          // 逐邻居切向单位方向（i→nb 投影到 i 的切平面后归一；
+		                                        // 与 _cellNeighbors 同构；热路径免逐邻居投影+归一化）
 		Dictionary<ulong, int> _vertexIdToIndex;   // 顶点 id → 顶点数组下标
 		Dictionary<ulong, int> _cellIdToIndex;     // 格 id → 格数组下标
 
@@ -25,12 +28,11 @@ namespace World.NewHexWorld
 		public ulong[] VertexIds => _vertexIds;
 		public Vector3[] VertexPositions => _vertexPositions;
 		public Vector3[] CellCenters => _cellCenters;
+		public Vector3[] CellDirs => _cellDirs;
 		public int[][] CellNeighbors => _cellNeighbors;
+		public Vector3[][] CellNeighborDirs => _cellNeighborDirs;
 		public int Res { get; }   // 分辨率档（拾取 LatLngToCell / 重染用，构造即定）
 		public float Radius { get; }   // 球半径（格心/顶点坐标同尺度；边界链浮起等派生几何用）
-
-		// 格 id → 下标（显示层按 cell id 查内容场用，见 CellIndexOf/VertexIndexOf；未命中返回 -1 的
-		// 旧口已删——v1.7 平流改一步一格 CA 后无调用者，查不到即抛的 CellIndexOf 是唯一正口）。
 
 		public Ball(int res, float radius)
 		{
@@ -40,9 +42,11 @@ namespace World.NewHexWorld
 			BuildVertexIds();
 			BuildVertexPositions(radius);
 			BuildCellCenters(radius);
+			BuildCellDirs();
 			BuildVertexIdToIndex();
 			BuildCellIdToIndex();
 			BuildNeighbors();      // 依赖格 id → 下标字典，必须排在最后
+			BuildNeighborDirs();   // 依赖格心/方向/邻接表
 		}
 
 		// 全球取格：122 个基底格各自的子孙拼接（总数 = GetNumCells，H3ApiTests 已断言）。
@@ -62,6 +66,15 @@ namespace World.NewHexWorld
 		void BuildCellCenters(float radius) =>
 			_cellCenters = _cellIds
 				.Select(c => CoordUtil.LatLngToSphere(H3.CellToLatLng(c), radius)).ToArray();
+
+		// 格心单位方向：运动学边界法线 / 平流流向 / 降水纬度带等热路径每格都要"格心归一化"，
+		// 而半径是常量 ⇒ 方向永不变化，构造期归一一次全场共享。res5 下每步可省 ~2×10⁷ 次
+		// sqrt+除法（原先边界法线一处就对每个邻居重复归一化同一格心）。
+		void BuildCellDirs()
+		{
+			_cellDirs = new Vector3[_cellCenters.Length];
+			for (int i = 0; i < _cellCenters.Length; i++) _cellDirs[i] = _cellCenters[i].Normalized();
+		}
 
 		// 顶点 id → 顶点下标映射（BallMesh 画格子取角点坐标用）。
 		void BuildVertexIdToIndex() =>
@@ -84,6 +97,29 @@ namespace World.NewHexWorld
 					.OrderBy(n => n)
 					.Select(n => _cellIdToIndex[n])
 					.ToArray();
+			}
+		}
+
+		// 逐邻居切向单位方向：与 H3PlateContact.FlowNeighbor 的现场投影逐位同式
+		//（toNeighbor − radial·(toNeighbor·radial) 后归一）——预计算一份全场共享，运动学/平流的
+		// 流向落格查询每步免 6 次 sqrt+除法（res5 每步省 ~10⁷ 量级浮点）。退化邻居（理论不可达）
+		// 存零向量，消费方跳过（与现场版 continue 语义一致）。
+		void BuildNeighborDirs()
+		{
+			_cellNeighborDirs = new Vector3[_cellNeighbors.Length][];
+			for (int i = 0; i < _cellNeighbors.Length; i++)
+			{
+				var nbs = _cellNeighbors[i];
+				var dirs = new Vector3[nbs.Length];
+				Vector3 radial = _cellDirs[i];
+				for (int k = 0; k < nbs.Length; k++)
+				{
+					Vector3 toNeighbor = _cellCenters[nbs[k]] - _cellCenters[i];
+					Vector3 tangential = toNeighbor - radial * toNeighbor.Dot(radial);
+					float length = tangential.Length();
+					dirs[k] = length >= 1e-12f ? tangential / length : Vector3.Zero;
+				}
+				_cellNeighborDirs[i] = dirs;
 			}
 		}
 

@@ -1,5 +1,5 @@
 using Godot;
-using World.Camera;                          // OrbitalCamera（老树轨道相机，单源复用）
+using World.Camera;                          // OrbitalCamera（轨道相机）
 using World.NewHexWorld.Planet;              // H3PlateManager
 using World.NewHexWorld.UI;                  // HexDock / HexInfoPanel
 using World.NewHexWorld.UI.Modes;            // 地图模式策略 + 注册表
@@ -18,10 +18,10 @@ namespace World.NewHexWorld
 	}
 
 	// 场景根 = 组装器 + 输入路由（设计入口 §2.2/§2.4）：构造全部逻辑层对象（Ball → H3PlateManager
-	// 静态生成）→ 建 MapModeRegistry（两模式策略注入 Model）→ 建各视图 VM（注入 Model/当前模式）→
+	// 动态生成）→ 建 MapModeRegistry（模式策略注入 Model）→ 建各视图 VM（注入 Model/当前模式）→
 	// 下行注入 View（BallView.Init/Bind、HexDock.BindModes、信息面板事件接线）→ 承担点击拾取输入路由。
-	// 相机 = OrbitalCamera（老树单源复用：左键拖转/滚轮缩放/WASD）；本类不承载业务数据
-	// （只留场景调参旋钮 ResLevel/Radius/NumPlates/Seed/OceanFraction/LandOceanNoiseBlend）；数据流 = Model → VM 派生 → View。
+	// 相机 = OrbitalCamera（左键拖转/滚轮缩放/WASD）；本类不承载业务数据
+	// （只留场景调参旋钮）；数据流 = Model → VM 派生 → View。
 	public partial class BallManager : Node3D
 	{
 		[Export] public HexResLevel ResLevel = HexResLevel.Res3;   // H3 分辨率档（Ball 单一事实源；相机/视图全由此推导）
@@ -30,21 +30,22 @@ namespace World.NewHexWorld
 		[Export] public int Seed = 42;           // 星球种子（定胞心抽取/生长/陆性，同 seed 全球同局）
 		[Export] public float OceanFraction = 0.6f;  // 海洋占比（逐格分位数钉住；1−此值 ≈ 陆地占比）
 		[Export] public float LandOceanNoiseBlend = 0.7f;  // 初始陆洋混合：0=整板陆/洋（海岸线=板块边界），1=纯噪声斑块（与板块解耦）
+		[Export] public float RunMy = World.NewHexWorld.Plate.H3DynamicTectonics.DefaultRunMy; // 模拟总时长（My；默认 = 3000，5 个重启周期；生成耗时随时长线性涨）
 		[Export] public float OutlineWidthFrac = 0.18f;   // 板块边界线半宽（× 格平均内切半径）
 		[Export] public Color OutlineColor = new Color(0f, 0f, 0f, 0.55f); // 板块边界线色（含透明度；两遍深度预写渲染，半透明也不叠加变深）
-		[Export] public int StepsPerFrame = 12;   // 分帧生成：每帧推进的模拟步数（04 批次 5；0 = 同步一次跑完）
+		[Export] public int StepsPerFrame = 12;   // 分帧生成：每帧推进的模拟步数（0 = 同步一次跑完）
 
 		Ball _ball;                              // 网格数据层（分帧装配期需跨方法引用）
 		OrbitalCamera _orbitalCamera;            // 子节点：轨道相机（拖转/缩放/拾取射线源）
 		BallView _ballView;                      // 子节点：球视图（View）
-		H3PlateManager _plates;                  // 逻辑层：静态地壳场 + 板统计（唯一权威）
+		H3PlateManager _plates;                  // 逻辑层：地壳场 + 板统计（唯一权威）
 		HexDock _dock;                           // 坞（View；模式按钮 + 坞动画）
 		HexInfoPanel _infoPanel;                 // 格信息面板（View）
 		DockViewModel _dockVm;                   // 坞 VM：模式列表 + 当前模式（交互状态）
 		HexWorldViewModel _worldVm;              // 球视图 VM：颜色投影/边界描边/统计
 		CellInfoViewModel _cellInfoVm;           // 格信息 VM：拾取格 → 条目
 
-		// 点击拾取判别（老树同款）：按下记位，释放时位移 <8px 且时长 <300ms 视为点击——
+		// 点击拾取判别：按下记位，释放时位移 <8px 且时长 <300ms 视为点击——
 		// 拖动旋转（OrbitalCamera 消费）不会误触发格信息拾取。
 		Vector2 _pickPressPos;
 		ulong _pickPressTime;
@@ -62,9 +63,9 @@ namespace World.NewHexWorld
 			_plates = new H3PlateManager();
 			_ball = ball;
 
-			// ①b 生成（04 批次 5）：StepsPerFrame = 0 → 同步一次跑完（拖住首帧）；
-			//     > 0 → 分帧推进（编辑器不再被 600 My 模拟卡住数秒），完成后再装配 UI。
-			_plates.BeginInit(ball, NumPlates, Seed, OceanFraction, LandOceanNoiseBlend);
+			// ①b 生成：StepsPerFrame = 0 → 同步一次跑完（拖住首帧）；
+			//     > 0 → 分帧推进（编辑器不再被整段模拟卡住），完成后再装配 UI。
+			_plates.BeginInit(ball, NumPlates, Seed, OceanFraction, LandOceanNoiseBlend, RunMy);
 			if (StepsPerFrame <= 0)
 			{
 				while (_plates.AdvanceInit(int.MaxValue)) { }
@@ -74,7 +75,7 @@ namespace World.NewHexWorld
 			else SetProcess(true);   // 交给 _Process 分帧推进
 		}
 
-		/// <summary>分帧推进生成（04 批次 5）：每帧 StepsPerFrame 步；完成即装配 UI 并关闭处理。</summary>
+		/// <summary>分帧推进生成：每帧 StepsPerFrame 步；完成即装配 UI 并关闭处理。</summary>
 		public override void _Process(double delta)
 		{
 			if (_plates == null) { SetProcess(false); return; }
@@ -87,12 +88,14 @@ namespace World.NewHexWorld
 		// UI 装配（生成完成后调用；Model 已就绪 = _plates.Crust/Boundary 全部可用）
 		void AssembleUi()
 		{
-			// ② 模式策略注册表（MapMode 注入 Model 只读引用；注册序 = 坞按钮序 = Id 0/1；
-			//    海陆模式 2026-09-09 删除——海陆观感由海拔色带 0m 硬台阶天然承载）
+			// ② 模式策略注册表（MapMode 注入 Model 只读引用；注册序 = 坞按钮序 = Id 0/1/2/3）。
+			//    河流不做独立模式——走走廊细分 + 海拔模式片元混水色（见 sphere_region_material 注释）。
 			var registry = new MapModeRegistry();
 			registry.Register(new ElevationMapMode(_plates.Plate.Crust));
 			registry.Register(new PlateMapMode(_plates.Plate.Crust,
 				_plates.NumPlates, _plates.PlateCounts));
+			registry.Register(new TemperatureMapMode(_plates.Plate.Crust));
+			registry.Register(new PrecipitationMapMode(_plates.Plate.Crust));
 
 			// ③ VM（注入 Model；初始模式 = 注册表首模式（海拔）——坞按钮默认高亮同由 HexDock._Ready 置位）
 			_worldVm = new HexWorldViewModel(_ball, _plates, registry.Modes[0]);
@@ -125,7 +128,7 @@ namespace World.NewHexWorld
 		}
 
 		// ── 输入路由：点击拾取 → 格信息 VM（不承载业务数据）──
-		// 点击判别 = 老树同款"按下记位/释放判点击"（位移 <8px 且时长 <300ms）：
+		// 点击判别 = "按下记位/释放判点击"（位移 <8px 且时长 <300ms）：
 		// 左键拖动已被 OrbitalCamera 消费为旋转，此处只放行真正的点击；空白处点击 → 隐藏面板。
 
 		public override void _UnhandledInput(InputEvent @event)

@@ -7,10 +7,8 @@ namespace World.NewHexWorld.Planet
 	// + 板统计（板格数 / 陆洋格数 / 板缘分类边数）；派生查询口供 UI/VM 使用。
 	// seed 决定整颗星球的板块格局与地形。
 	//
-	// ⚠️ 03 起两处口径变更：
-	//   ① 陆性不再是"板属性"——动态模型里一块板可以同时有陆有洋（碰撞/裂谷会改陆性），
-	//      所以 `LandCellCount` 按**逐格地壳**统计（`Crust.IsLand`），`IsPlateLand` 只作 UI 派生显示；
-	//   ② 地形派生口从"逐格地形省份"（02 的参数化带）换成"逐格板缘分类"（动态速度场口径）。
+	// 动态模型里一块板可以同时有陆有洋：LandCellCount 按逐格地壳统计（Crust.IsLand），
+	// IsPlateLand 只是 UI 派生显示。地形派生口 = 逐格板缘分类（动态速度场口径）。
 	public class H3PlateManager
 	{
 		H3Plate _plate;
@@ -39,7 +37,7 @@ namespace World.NewHexWorld.Planet
 		// 格归属板号（越界即抛：下标须来自 Ball 对齐）。
 		public int PlateOfCell(int cellIndex) => _plate.Crust.PlateId[cellIndex];
 
-		// ── 板缘派生口（03 §6：喂格信息面板 + 作后续"海沟/弧地形带"批次的挂载口）──
+		// ── 板缘派生口（喂格信息面板）──
 
 		// 该格主导板缘的运动学类型（0 = 非板缘格）。
 		public PlateBoundaryKind KindOfCell(int cellIndex) => _plate.Boundary.Kind[cellIndex];
@@ -58,22 +56,22 @@ namespace World.NewHexWorld.Planet
 
 		// 建板 + 初始分板 + 板块演化 + 六场写回 + 统计。seed 定初始分板与初始地壳，全局定局。
 		public void Init(Ball ball, int numPlates, int seed, float oceanFraction = 0.6f,
-			float landOceanNoiseBlend = 0.7f)
+			float landOceanNoiseBlend = 0.7f, float runMy = H3DynamicTectonics.DefaultRunMy)
 		{
 			NumPlates = numPlates;
-			_plate = new H3Plate(ball) { LandOceanNoiseBlend = landOceanNoiseBlend };
+			_plate = new H3Plate(ball) { LandOceanNoiseBlend = landOceanNoiseBlend, RunMy = runMy };
 			_plate.CreatePlates(numPlates, seed, oceanFraction);
 			CollectStatistics();
 		}
 
-		// ── 分帧生成（04 批次 5）：Begin → 每帧 Advance → Finish；产物与同步 Init 逐位一致 ──
+		// ── 分帧生成：Begin → 每帧 Advance → Finish；产物与同步 Init 逐位一致 ──
 
 		/// <summary>分帧阶段一：分板 + 模拟初始化（不跑时间步）。</summary>
 		public void BeginInit(Ball ball, int numPlates, int seed, float oceanFraction = 0.6f,
-			float landOceanNoiseBlend = 0.7f)
+			float landOceanNoiseBlend = 0.7f, float runMy = H3DynamicTectonics.DefaultRunMy)
 		{
 			NumPlates = numPlates;
-			_plate = new H3Plate(ball) { LandOceanNoiseBlend = landOceanNoiseBlend };
+			_plate = new H3Plate(ball) { LandOceanNoiseBlend = landOceanNoiseBlend, RunMy = runMy };
 			_plate.BeginCreatePlates(numPlates, seed, oceanFraction);
 		}
 
@@ -92,7 +90,7 @@ namespace World.NewHexWorld.Planet
 
 		void CollectStatistics()
 		{
-			// 表长按终态板表取（04 批次 4：裂解的新板号可 ≥ 初始板数；NumPlates 仍报初始板数）
+			// 表长按终态板表取（裂解的新板号可 ≥ 初始板数；NumPlates 仍报初始板数）
 			int tableLength = Math.Max(NumPlates, _plate.Plates.Length);
 			_plateCounts = new int[tableLength];
 			_landCellCount = 0;

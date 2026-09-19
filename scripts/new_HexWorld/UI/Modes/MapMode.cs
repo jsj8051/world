@@ -5,9 +5,9 @@ using World.MapView;   // TileInfoEntry（纯数据结构：标签/值/色块，
 
 namespace World.NewHexWorld.UI.Modes
 {
-	// 地图模式策略（设计入口 §2.5，照搬老树 MapLayer 策略形态，语义对齐"地图模式"）：
+	// 地图模式策略（设计入口 §2.5）：
 	// 每模式 = 一个策略类（UI 层，位于 VM 与 View 之间、由 VM 调用）——提供格信息条目与
-	// CellColorAt 取色（2026-09-09 材质覆盖方案后取色只喂信息面板色块；球面渲染改片元侧
+	// CellColorAt 取色（球面渲染改片元侧后，取色只喂信息面板色块；
 	// 按 region_data 数据纹理派生，不再逐格投影）。新增模式 = 新建策略类 + MapModeRegistry 注册一行
 	// + sphere_region_material.gdshader 加显示分支 + HexDock 坞场景加一个按钮，不碰 View/VM 主体。
 	// 数据流：本策略只【读】注入的逻辑层场（Crust/Ball/板统计）派生显示数据，绝不写。

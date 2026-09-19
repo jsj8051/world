@@ -624,7 +624,7 @@ public class TectonicsTests
         // age=0 → mafic 密度取最小值 2890
         c.MaficVolcanic[0] = 2890f * 10f;    // 10 m
         c.Sediment[0] = 1500f * 3f;          // 3 m
-        c.FelsicPlutonic[0] = 2600f * 5f;    // 5 m
+        c.FelsicPlutonic[0] = m.FelsicPlutonic * 5f;    // 5 m（走表：ρ_c 物理化 2700 后仍表 5 m）
         var t = c.GetThickness(m);
         Assert.AreEqual(18f, t[0], 1e-4f);
         Assert.AreEqual(0f, t[1], 1e-6f);

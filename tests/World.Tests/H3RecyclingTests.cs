@@ -173,10 +173,9 @@ public class H3RecyclingTests
         Assert.AreEqual(SedimentMass, target.Sediment[j], 1e-3f, "无上盘顶层 ⇒ 沉积不回收（整柱保留）");
         Assert.AreEqual(FelsicDustMass, target.FelsicPlutonic[j], 1e-3f, "无上盘顶层 ⇒ 长英质不回收");
         Assert.AreEqual(0.0, adv.RecycledConservedMass, "守恒组回收判读口 = 0");
-        // mafic 确有消减，但来自同板多源"加权平均差额摊不出去"（j 已陆化、k 是洋 → 无同相同板邻居
-        // 可摊，兜底回地幔）——用 OverflowToMantle 对账，证明它不是俯冲消费（04 批次 4/6 口径）。
-        Assert.AreEqual(adv.OverflowToMantleMass, adv.RecycledToMantleMass, 1e-6,
-            "mafic 消减应全部来自摊出兜底而非俯冲再循环");
+        // 求和口径（叠瓦堆厚）：同板多源整柱保留，没有"加权平均差额"这个销毁通道
+        // ⇒ 本步零销毁；超帽部分的再分配归屈服流（H3DynamicTectonics.Step 的第 5 步）。
+        Assert.AreEqual(0.0, adv.RecycledToMantleMass, 1e-6, "求和口径下本步零销毁");
         Assert.AreEqual(0, target.PlateId[j], "唯一落位 = 埋入层 ⇒ 归属 = 埋入板（04 批次 4 口径）");
     }
 

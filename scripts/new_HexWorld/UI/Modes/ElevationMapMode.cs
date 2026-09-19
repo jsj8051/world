@@ -6,20 +6,16 @@ using static World.Utils.ColorRamp;        // RampSampleSmooth（通用连续色
 
 namespace World.NewHexWorld.UI.Modes
 {
-	// 模式 0 海拔（默认模式；设计-01 §5A）：照搬老树 ElevationLayer（2026-08-31 ISO 9241-307 版色带）——
-	// 色带停点与分带函数迁至此文件内聚（新世界独立演进，老树零改动）；连续色带算法用
-	// World.Utils.ColorRamp.RampSampleSmooth（同位置双停点 = 0m 海陆硬台阶）。
-	// 数据源 = Crust.Elevation（米，0=海平面）。本阶段初值两级常量（陆 +800 / 洋 −3700）→
-	// 色带呈"两档主体色 + 0m 硬台阶"；将来要素生成器加起伏后自然出连续层次（同源无需改）。
-	// 老树海冰判据（温度 ≤−5°C）不搬——new_HexWorld 无温度场。
+	// 模式 0 海拔（默认模式；设计-01 §5A）：连续色带算法 = World.Utils.ColorRamp.RampSampleSmooth
+	//（同位置双停点 = 0m 海陆硬台阶）。数据源 = Crust.Elevation（米，0=海平面）。
+	// 海冰判据（温度 ≤−5°C）待冰冻圈立项后再回。
 	public sealed class ElevationMapMode : MapMode
 	{
-		/// <summary>海拔连续色带（位置=米，0=海平面；升序：海沟 → 海面 → 高山）。停点照搬老树
-		/// ElevationLayer.ElevationStops（2026-08-31 用户拍板版）：海洋冷色系越深越暗
-		/// （-8000 墨紫黑 / -6000 靛蓝 #172B4F / -2000 深蓝 #2F5B8A / -200 大陆架灰蓝 #7BA5C4 /
-		/// -50 潮间带 #C6DCEB / 0 海面青白 #E7F0F6）；0m 硬台阶色相切 → 天蓝 (0.45,0.75,0.90)；
-		/// 陆地暖色系越高越亮（500 浅绿 / 2000 金黄 / 5000 赭石 / 6000 白，>6000 恒白）。
-		/// 【改色带】= 编辑本表（同位置双停点 = 硬台阶，异位置 = 平滑渐变）。</summary>
+		/// <summary>海拔连续色带（位置=米，0=海平面；升序：海沟 → 海面 → 高山）。海洋冷色系越深越暗
+		///（-8000 墨紫黑 / -6000 靛蓝 / -2000 深蓝 / -200 大陆架灰蓝 / -50 潮间带 / 0 海面青白）；
+		/// 0m 硬台阶色相切 → 陆地浅绿（陆地色须与海洋蓝拉开——大量低地落在 0~500 m 段，太像会整片读成海）；
+		/// 陆地越高越暖越亮（500 黄绿 / 2000 金黄 / 5000 赭石 / 6000 白，>6000 恒白）。
+		/// 【改色带】= 编辑本表（同位置双停点 = 硬台阶，异位置 = 平滑渐变；画面纹理与信息面板同源）。</summary>
 		public static readonly ColorStop[] ElevationStops =
 		{
 			new(-8000f, new Color(0.043f, 0.055f, 0.133f)),  // 海沟/深渊最暗（墨紫黑）
@@ -28,8 +24,8 @@ namespace World.NewHexWorld.UI.Modes
 			new(-200f,  new Color(0.482f, 0.647f, 0.769f)),  // 大陆架（灰蓝 #7BA5C4）
 			new(-50f,   new Color(0.776f, 0.863f, 0.922f)),  // 潮间带（浅灰蓝 #C6DCEB）
 			new(0f,     new Color(0.906f, 0.941f, 0.965f)),  // 海面（青白 #E7F0F6——低饱和灰蓝）
-			new(0f,     new Color(0.45f, 0.75f, 0.90f)),     // └ 0m 硬台阶：海洋青白 → 陆地天蓝（色相切）
-			new(500f,   new Color(0.58f, 0.78f, 0.32f)),     // 浅绿（低海拔末端 / 中海拔起点）
+			new(0f,     new Color(0.50f, 0.79f, 0.42f)),     // └ 0m 硬台阶：海洋青白 → 陆地浅绿（色相切）
+			new(500f,   new Color(0.58f, 0.78f, 0.32f)),     // 黄绿（低海拔末端 / 中海拔起点）
 			new(2000f,  new Color(0.93f, 0.78f, 0.25f)),     // 金黄（中海拔末端）
 			new(5000f,  new Color(0.55f, 0.36f, 0.20f)),     // 赭石（高海拔末端）
 			new(6000f,  new Color(0.98f, 0.99f, 1.00f)),     // 纯白（极高山区高光；>6000m 恒白）
@@ -50,7 +46,7 @@ namespace World.NewHexWorld.UI.Modes
 		public override Color CellColorAt(int cellIndex)
 			=> RampSampleSmooth(ElevationStops, _crust.Elevation[cellIndex]);
 
-		/// <summary>海拔分带名（与停点断点同源，照搬老树 ElevationLayer.ElevationZoneName）：海
+		/// <summary>海拔分带名（与停点断点同源）：海
 		/// &lt;-6000 海沟 / -2000~-6000 深海平原 / -200~-2000 大陆坡 / -50~-200 大陆架 / 0~-50 潮间带；
 		/// 陆 0~500 低海拔 / 500~2000 中海拔 / 2000~5000 高海拔 / &gt;5000 极高山区。
 		/// 边界归属右侧段（与色带半开区间一致）。</summary>

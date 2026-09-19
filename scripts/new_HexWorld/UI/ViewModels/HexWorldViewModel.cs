@@ -9,11 +9,10 @@ using World.NewHexWorld.UI.Modes;
 namespace World.NewHexWorld.UI.ViewModels
 {
 // 球视图 VM（设计入口 §2.2）：只读派生 = 当前显示模式（uniform 值 = MapMode.Id）、描边开关、
-// 边界格边集/边界线顶点对（2026-09-10 起供几何描边采点——弃片元解析边距的旗标记账用途）、
-// 逐格区域数据派生口（海拔/板号/陆性——View 烘 region_data 数据纹理用，2026-09-09 材质覆盖方案）、
+// 边界线顶点对（几何描边采点）、
+// 逐格区域数据派生口（海拔/板号/陆性——View 烘 region_data 数据纹理用）、
 // 全局统计（陆/洋占比、板格数/板属性）。View（BallView）订阅 Changed 后拉取刷新；本 VM 不直接
 // 持有/修改 Model 数组（区域数据经此处派生口转交，不另存副本——禁令 2 合规）。
-// 旧逐格颜色投影缓存已删（2026-09-09 取色下沉片元侧，VM 不再逐格算色）。
 	public sealed class HexWorldViewModel
 	{
 		readonly Ball _ball;
@@ -46,7 +45,26 @@ namespace World.NewHexWorld.UI.ViewModels
 		public int CellCount => _plates.CellCount;
 		public float[] CellElevations => _plates.Plate.Crust.Elevation;   // 海拔（米，0=海平面）
 		public int[] CellPlateIds => _plates.Plate.Crust.PlateId;         // 每格归属板号
+		public float[] CellTemperatures => _plates.Plate.Crust.TemperatureC;   // 年均温（°C）
+		public float[] CellPrecipMmYear => _plates.Plate.Crust.PrecipMmYear;   // 年降水（mm/yr）
 		public int PlateCount => _plates.NumPlates;
+
+		// 降水自适应配色域（陆地 min-max）：View 烘 region_data2 用同一域。
+		public (float Min, float Max) PrecipLandRange
+			=> PrecipitationMapMode.LandRange(_plates.Plate.Crust);
+
+		// 河流走廊（懒构建一次）：View 重建显示网格（走廊格细分）
+		// 与烘焙河档共用同一口。
+		H3Rivers.Corridors _riverCorridors;
+		public H3Rivers.Corridors RiverCorridors
+		{
+			get
+			{
+				if (_riverCorridors == null)
+					_riverCorridors = H3Rivers.Build(_ball, _plates.Plate.Crust, _plates.Plate.WaterCycle);
+				return _riverCorridors;
+			}
+		}
 
 		// 统一判陆口（Crust.IsLand：长英质厚 > 0；渲染数据位与信息面板同一口径）。
 		public bool IsLand(int cellIndex) => _plates.Plate.Crust.IsLand(cellIndex);
@@ -63,7 +81,7 @@ public HashSet<(ulong cell, ulong va, ulong vb)> BoundaryCellEdges
 	}
 }
 
-// 边界线顶点对全集（2026-09-10 几何描边口）：BoundaryCellEdges 去重（每边两侧格各记一条 →
+// 边界线顶点对全集（几何描边口）：BoundaryCellEdges 去重（每边两侧格各记一条 →
 // 只留一条）+ 排序（确定性几何纪律），BallView 换算成世界坐标点串喂 SphereLines 逐边采点成线带。
 List<(ulong va, ulong vb)> _boundaryVertEdges;   // 不随模式变；首访懒构建一次
 public IReadOnlyList<(ulong va, ulong vb)> BoundaryVertexEdges

@@ -8,52 +8,50 @@ using World.Utils.H3;
 namespace World.NewHexWorld.Plate
 {
 	// 板表行（设计入口 §3.2）：每板 = Id、种子格心方向（SeedDir）、陆性标记 IsLand、欧拉极 Ω。
-	// ⚠️ 03 起语义变更：板表的陆性不再是"板属性"（动态模型里**一块板可以同时有陆有洋**，
-	// 陆性由逐格地壳决定）——`IsLand` 改报"该板过半格为陆"的**派生统计**，仅供 UI 显示；
-	// `Omega` 改报该板**最后一步的旋转向量**（rad/My，诊断/判读用），不再是"抽出来的欧拉极"。
+	// 动态模型里一块板可以同时有陆有洋：IsLand 是"该板过半格为陆"的派生统计，仅供 UI 显示；
+	// Omega = 该板最后一步的旋转向量（rad/My，诊断/判读用）。
 	public sealed class PlateRecord
 	{
 		public int Id;            // 板块号（下标 = Plates 数组位）
 		public Vector3 SeedDir;   // 种子格心方向（单位向量；诊断/将来扩展用）
-		public bool IsLand;       // 陆性标记——海陆 = 板块属性（陆性板 → 大陆块，二元跳变）
-		public Vector3 Omega;     // 欧拉极（rad/My）；v = Ω × r，地形只依赖板间 Ω 之差（02 §2.2）
+		public bool IsLand;       // 过半格为陆的派生统计（仅供 UI 显示）
+		public Vector3 Omega;     // 最后一步的旋转向量（rad/My）；v = Ω × r
 	}
 
-// H3 球面地壳生成（**03 起改走动态路线**）：初始分板（抽种子格 + **加权随机生长**，
-// 2026-09-15 拍板：泛洪式，边界有机——弃撒点-合并 Voronoi 的细胞感）→ 交给 `H3DynamicTectonics` 跑 600 My 板块演化
-// （浮力驱动运动 → 物质层阻挡平流 → 裂谷 → 俯冲 → 均衡 → 水量守恒海平面）→ 结果写回 Crust 六场。
-// ⚠️【演化暂停 2026-09-15】板块演化先注释（BeginCreatePlates 内 _totalSteps = 0），
-// 生成 = 初始分板 + 初始地壳 + 写回；恢复演化还原那一行即可。
-// 三个类（PlateMotion / PlateBoundary / LandformGenerator）已删；H3PlateTerritory（领土场）
-// v1.4 删——**归属随物质走**（用户拍板"想象的方法不需要归属判断"），`PlateId` = 格内顶层物质的板号。
+// H3 球面地壳生成（动态路线）：初始分板（抽种子格 + 加权随机生长，边界有机）
+// → 交给 H3DynamicTectonics 跑板块演化（浮力驱动运动 → 物质层阻挡平流 → 裂谷 → 俯冲 →
+// 均衡 → 水量守恒海平面）→ 结果写回 Crust 六场 + 气候层（两遍定稿：温度/降水/水循环，
+// 海水+云+河 = 定值总水量；第一遍产预留、海平面重解后第二遍按终态海拔定稿）。
 // 输出：Crust 六场（与 Ball.CellIds 对齐）+ Plates 板表 + H3PlateBoundary 板缘分类；
 // 另附边界提取静态口（01 §4，渲染派生数据）：链（ExtractBoundaryChains，诊断/对账基准）
-// 与描边格边集（ExtractBoundaryCellEdges，渲染在用）—— 两者只依赖 plateId，与路线无关。
+// 与描边格边集（ExtractBoundaryCellEdges，渲染在用）——两者只依赖 plateId，与路线无关。
 	public class H3Plate
 	{
-		// ── 常量（设计入口 §3.3；判读后按需调）──
-		public const float LandFelsicThicknessM = 35000f;   // 陆性板长英质厚（m）
-		public const float OceanMaficThicknessM = 7000f;    // 洋性板镁铁质厚（m）
-		public const float LandElevationM = 800f;           // 陆性板海拔初值（m，≈地球大陆平均 ~840 取整）
-		public const float OceanDepthM = 3700f;             // 洋性板水深（海拔存负值；≈地球海洋平均 ~3688）
-		public const float ContinentalAgeMy = 1000f;        // 陆壳年龄（My 占位标记；无演化）
-		public const float OceanicAgeMy = 0f;               // 洋壳年龄初值（01 两级模板；02 §4 起洋区随即被热沉降年龄覆盖）
-
-		// ── 模拟旋钮（判读后按需调；默认 = 老实现默认档）──
-		public float RunMy = 600f;             // 总时长（My）
+		// ── 模拟旋钮（默认档）──
+		public float RunMy = H3DynamicTectonics.DefaultRunMy;   // 总时长（My；默认引用模拟类单一出处）
 		public float StepMy = 4f;              // 时间步（My）
-		public float OceanScale = 1f;          // 水量系数（× 2000 m 全球平均水深基准）
+		public float OceanScale = 1f;          // 水量系数（× 全球等效水层）
 		public float LandOceanNoiseBlend = 0.7f;   // 初始陆洋混合（0=整板陆/洋、1=纯噪声斑块；语义见 H3DynamicTectonics）
+		public float AxialTiltDeg = 23.4f;     // 轴向倾角（度；23.4 = 地球档 → 温度修正 = 0）
+		public float Insolation = 1f;          // 恒星辐照度（相对地球 1AU = 1.0）
+		public bool ProgradeRotation = H3Wind.DefaultPrograde;    // 自转方向（true = 顺转地球式）
+		public float RotationSpeed = H3Wind.DefaultRotationSpeed; // 自转速度（相对地球 24h = 1.0）
 
 		/// <summary>分板生长率幂指数（加权随机生长）：每板生长率 = 0.05 + 0.95·u^此值（u ~ U(0,1)，逐板一掷）。
-		/// 0 = 全板近等速（只剩随机漂移的温和大小差）；越大 = 板块大小越悬殊（"巨板 + 一串小板"）。
-		/// 默认 1.5 = 明显悬殊档。0.05 地板防"一步没长就被围死"的单格微型板。</summary>
+		/// 0 = 全板近等速；越大 = 板块大小越悬殊（"巨板 + 一串小板"）。0.05 地板防单格微型板。</summary>
 		public float GrowthRateExponent = 1.5f;
+		/// <summary>最小份额重采样次数上限：生长结果任一板份额 &lt; 公平份额一半就换种子重长。
+		/// 每次重长 O(N)；仅在初始化/重启时发生，正常一两次内达标。</summary>
+		public const int GrowthMinShareAttempts = 8;
+		/// <summary>生长防饿死地板：每轮拾取权重下限 = 本轮平均权重 × 此值（仅非空前沿）。
+		/// 杜绝"前沿一缩权重就塌"的围死螺旋；确定性不受影响。</summary>
+		public float GrowthStarveFloorFraction = 0.1f;
 
-		public Crust Crust { get; private set; }        // 六场（生成后只读；UI 经 MapMode 派生，逻辑层唯一权威）
+		public Crust Crust { get; private set; }        // 六场+温度/降水场（生成后只读；UI 经 MapMode 派生，逻辑层唯一权威）
+		public H3WaterCycle WaterCycle { get; private set; }   // 水循环账本（海+云+河=定值，测试对账/诊断用）
 		public PlateRecord[] Plates { get; private set; }   // 板表（下标 = 板 Id）
 		public H3PlateBoundary Boundary { get; private set; }  // 逐格板缘分类（动态速度场口径；UI 行 + 后续地形带挂载口）
-		public H3DynamicTectonics Simulation { get; private set; }   // 动态模拟本体（诊断/后续批次取数口）
+		public H3DynamicTectonics Simulation { get; private set; }   // 动态模拟本体（诊断取数口）
 		public int NumPlates { get; private set; }
 		public float InitialOceanFraction { get; private set; }   // 初始地壳的海洋格占比（老 landFrac 的对应物）
 
@@ -64,10 +62,10 @@ namespace World.NewHexWorld.Plate
 			_ball = ball;
 		}
 
-		/// <summary>生成全球地壳场（**动态路线**，设计-03 §2.2）：初始分板 → 板块演化 → 写回六场 + 板缘分类。
+		/// <summary>生成全球地壳场（动态路线，设计-03 §2.2）：初始分板 → 板块演化 → 写回六场 + 板缘分类。
 		/// 同 seed 同参数逐位一致（模拟各步的遍历序与浮点累加序都固定）。
-		/// 04 批次 5：内部走 Begin/Advance/Finish 三段——同步调用与分帧调用**同一路径**（产物一致）。</summary>
-		/// <param name="oceanFraction">初始地壳的海洋格占比（老 landFrac 的对应物；默认 0.6）。</param>
+		/// 内部走 Begin/Advance/Finish 三段——同步调用与分帧调用同一路径（产物一致）。</summary>
+		/// <param name="oceanFraction">初始地壳的海洋格占比（默认 0.6）。</param>
 		public void CreatePlates(int numPlates, int seed, float oceanFraction = 0.6f)
 		{
 			BeginCreatePlates(numPlates, seed, oceanFraction);
@@ -75,7 +73,7 @@ namespace World.NewHexWorld.Plate
 			FinishCreatePlates();
 		}
 
-		// ── 分帧生成三段口（04 批次 5；编辑期不再一次阻塞数秒）──
+		// ── 分帧生成三段口（编辑期不再一次阻塞数秒）──
 
 		/// <summary>阶段一：参数校验 + 初始分板 + 模拟初始化（时间步不在此跑）。</summary>
 		public void BeginCreatePlates(int numPlates, int seed, float oceanFraction = 0.6f)
@@ -88,16 +86,15 @@ namespace World.NewHexWorld.Plate
 
 			NumPlates = numPlates;
 			InitialOceanFraction = oceanFraction;
+			_seed = seed;
 
-			// 【演化恢复 2026-09-15】此前暂停演化只留初始化（_totalSteps = 0），现按用户要求恢复，
-			// 并已并入自旧项目移植的侵蚀/沉积步（见 H3DynamicTectonics.Step 流水线）。
 			_totalSteps = Math.Max(1, (int)(RunMy / StepMy));
 			_stepsDone = 0;
 
-			// 1. 初始分板（抽种子格 + 加权随机生长；03 §5 改进 7 的复用口）
+			// 1. 初始分板（抽种子格 + 加权随机生长）
 			int[] plateOfCell = SplitIntoPlates(numPlates, seed);
 
-			// 2. 板块演化准备（03 §2.2 流水线：老化 → 运动 → 阻挡平流 → 裂谷 → 俯冲记账 → 均衡 → 挠曲 → 海平面）
+			// 2. 板块演化准备（03 §2.2 流水线）
 			Simulation = new H3DynamicTectonics(_ball)
 			{
 				RunMy = RunMy,
@@ -105,14 +102,18 @@ namespace World.NewHexWorld.Plate
 				OceanScale = OceanScale,
 				OceanFraction = oceanFraction,
 				LandOceanNoiseBlend = LandOceanNoiseBlend,
-				// 重启循环的重分板口（04 批次 4）：僵局触发时全部重分板、物质场保留（seed 派生自
-				// RestartCount，同种子可复现）；超大陆旋回的兜底生成器。
+				AxialTiltDeg = AxialTiltDeg,       // 每步降水场与终态气候同源下行
+				Insolation = Insolation,
+				ProgradeRotation = ProgradeRotation,
+				RotationSpeed = RotationSpeed,
+				// 重启循环的重分板口：僵局触发时全部重分板、物质场保留（seed 派生自 RestartCount，可复现）
 				Repartition = k => SplitIntoPlates(k, seed + 977 * Simulation.RestartCount),
 			};
 			Simulation.Initialize(plateOfCell, seed);
 		}
 
 		int _totalSteps, _stepsDone;
+		int _seed;   // 生成种子（BeginCreatePlates 记下，终态气候温度场复用同一 seed——噪声盐见 H3Climate）
 
 		/// <summary>阶段二：推进至多 <paramref name="maxSteps"/> 步；返回是否**仍未完成**（true = 还要继续）。</summary>
 		public bool AdvanceCreation(int maxSteps = 8)
@@ -133,7 +134,7 @@ namespace World.NewHexWorld.Plate
 		/// <summary>阶段三：板缘分类 + 构造地形带 + 写回六场 + 板表。</summary>
 		public void FinishCreatePlates()
 		{
-			// 3. 板缘分类（逐格主导边；UI 行 + 地形带的速率口径）→ 构造地形带（海沟/弧，04 批次 3）
+			// 3. 板缘分类（逐格主导边）→ 构造地形带（海沟/弧）
 			int n = _ball.CellIds.Length;
 			Boundary = new H3PlateBoundary(n);
 			Boundary.Build(_ball, Simulation.Fields, Simulation.Motion.Velocity);
@@ -151,10 +152,28 @@ namespace World.NewHexWorld.Plate
 			};
 			Simulation.WriteToCrust(Crust);
 
-			// 5. 板表：SeedDir = 该板格心均值方向；IsLand = 过半格为陆的**派生统计**（动态模型里
-			//    一块板可以同时有陆有洋，这里只为 UI 显示）；Omega = 最后一步的旋转向量（诊断用）。
-			//    ⚠️ 04 批次 4：缝合/裂解/重启会改变板数与板号（裂解的新板号 ≥ 初始板数）——
-			//    表长按**终态最大板号 + 1**取（NumPlates 仍报初始板数；空位 totalCount = 0）。
+			// 4b. 气候层第一遍：温度 + 降水结构 + 水循环账本，产出云/河库存的预留体积
+			var precipRaw = H3Precipitation.Compute(_ball, Crust, _seed, AxialTiltDeg, Insolation, ProgradeRotation, RotationSpeed);
+			var estimate = H3WaterCycle.Run(_ball, Crust,
+				Crust.TemperatureC = H3Climate.Compute(_ball, Crust, _seed, AxialTiltDeg, Insolation),
+				precipRaw);
+
+			// 4c. 水量均衡落地（海水 + 云 + 河 = 定值总水量）：云/河库存（体积口径）从总水量中
+			//     预留 → 重解海平面（容器含被淹没的陆壳）→ 重写渲染海拔
+			Simulation.ApplyEndStateWaterReservation(estimate.ReservedVolumeM);
+			Simulation.WriteToCrust(Crust);
+
+			// 4d. 气候层第二遍（终态海拔定稿）：4c 只动了海平面与陆格基准，露出海面的火山岛
+			//     海拔有微变——温度/降水/账本按终态海拔重算，场与画面严格一致；
+			//     账本"海+云+河 = 总水量"仍闭合（测试容差内）。
+			WaterCycle = H3WaterCycle.Run(_ball, Crust,
+				Crust.TemperatureC = H3Climate.Compute(_ball, Crust, _seed, AxialTiltDeg, Insolation),
+				H3Precipitation.Compute(_ball, Crust, _seed, AxialTiltDeg, Insolation, ProgradeRotation, RotationSpeed));
+			Crust.PrecipMmYear = WaterCycle.PrecipMmYear;
+
+			// 5. 板表：SeedDir = 该板格心均值方向；IsLand = 过半格为陆（仅供 UI 显示）；
+			//    Omega = 最后一步的旋转向量。表长按终态最大板号 + 1 取（缝合/裂解/重启会改板号；
+			//    NumPlates 仍报初始板数，空位 totalCount = 0）。
 			int maxPlateId = -1;
 			for (int i = 0; i < n; i++)
 			{
@@ -188,89 +207,124 @@ namespace World.NewHexWorld.Plate
 
 		// ── 生成内部步骤 ──────────────────────────────────────────────
 
-		/// <summary>初始分板（用户 2026-09-15 拍板改**加权随机生长**，替换 09-12 的撒点-合并式——
-		/// Voronoi 细胞感太重）：
+		/// <summary>初始分板（加权随机生长）：
 		/// ① 随机抽 <paramref name="numPlates"/> 个种子格（板号 = 种子下标，天然 0..P-1 且无空板）；
-		/// ② 每板掷一个生长率 rate = u^<see cref="GrowthRateExponent"/>（u ~ U(0,1)；指数 0 = 等速，
-		///    越大大小越悬殊）；
-		/// ③ 加权前沿生长：反复"按 rate×前沿格数 抽板 → 该板从前沿随机抽一格**贴邻认领**"，铺满全球为止。
-		///    前沿越长的板越常被抽中 = 富者愈富，大小悬殊与蜿蜒边界自然涌现；
+		/// ② 每板掷一个生长率 rate = u^<see cref="GrowthRateExponent"/>（指数 0 = 等速，越大大小越悬殊）；
+		/// ③ 加权前沿生长：反复"按 rate×前沿格数 抽板 → 该板从前沿随机抽一格贴邻认领"，铺满全球为止；
 		/// ④ 逐格贴邻认领 ⇒ 每板天然单连通——不需要板号重排、多数决平滑、连通性清理。
-		/// 全程确定性（rng 消耗序固定、前沿出入序固定）。
-		/// **动态板块模拟的初始条件复用口**（03 §5 改进 7）；只返回每格归属板，不跑静态地形管线。</summary>
-	public int[] SplitIntoPlates(int numPlates, int seed)
-	{
-		NumPlates = numPlates;
-		var rng = new DeterministicRandom(seed);
-		int[] seeds = PickSeedCells(rng, cellCount: _ball.CellIds.Length, count: numPlates);
-
-		var rates = new float[numPlates];
-		for (int p = 0; p < numPlates; p++)
+		/// 全程确定性。动态板块模拟的初始条件复用口；只返回每格归属板，不跑静态地形管线。</summary>
+		public int[] SplitIntoPlates(int numPlates, int seed)
 		{
-			float u = MathF.Max((float)rng.NextDouble(), 1e-4f);   // 防下溢出 0（0 的幂 = 恒零生长率）
-			rates[p] = 0.05f + 0.95f * MathF.Pow(u, GrowthRateExponent);   // 地板 0.05：最衰的板也有可见体量
-		}
-		return GrowPlates(seeds, rates, rng);
-	}
-
-	// 加权前沿生长本体。frontiers[p] = 板 p 的候选格表（贴邻本板已认领格的未认领格；含**过期项**——
-	// 格被别板抢先认领后残留的条目，弹出时惰性丢弃，免去实时去重）。每轮：
-	// ① 按 weight_p = rate_p × 前沿长度 加权抽板（前沿长 = 边界多 = 长得快，富者愈富）；
-	// ② 抽中板从前沿随机抽一格：已认领 → 丢弃重抽；未认领 → 认领，其未认领邻居入列。
-	// "全板前沿同空而未铺满"在球面连通图上不可达（已认领区恒连通 ⇒ 未认领区必邻某板前沿）；
-	// total ≤ 0 的防御出口只保不崩（留无主格让测试抓），不保铺满。
-	int[] GrowPlates(int[] seeds, float[] rates, DeterministicRandom rng)
-	{
-		int n = _ball.CellIds.Length;
-		var neighbors = _ball.CellNeighbors;
-		var plateOfCell = new int[n];
-		Array.Fill(plateOfCell, -1);
-		var frontiers = new List<int>[seeds.Length];
-		for (int p = 0; p < seeds.Length; p++)
-		{
-			plateOfCell[seeds[p]] = p;
-			frontiers[p] = new List<int>();
-			foreach (int nb in neighbors[seeds[p]])
-				if (plateOfCell[nb] < 0) frontiers[p].Add(nb);
-		}
-
-		int claimed = seeds.Length;
-		while (claimed < n)
-		{
-			double total = 0;
-			for (int p = 0; p < frontiers.Length; p++) total += (double)rates[p] * frontiers[p].Count;
-			if (total <= 0) break;                                 // 防御（不可达）：无处可长
-			double pick = rng.NextDouble() * total;
-			double acc = 0;
-			int chosen = frontiers.Length - 1;                     // fp 兜底：pick 贴 total 上界时归末板
-			for (int p = 0; p < frontiers.Length; p++)
+			NumPlates = numPlates;
+			// 退化碎片重采样：防饿死地板把最小份额抬到千分之几量级——那已是真实的小板块，
+			// 不是病理。重采样只拦退化：任一板 < 公平份额 × 5% 就换种子重长
+			//（最多 GrowthMinShareAttempts 次、取"最小份额最大"那次）。初始分板与周期重启共用本口。
+			int[] best = null;
+			double bestMinShare = -1.0;
+			int n = _ball.CellIds.Length;
+			double threshold = 0.05 / Math.Max(numPlates, 1);      // 公平份额 × 5%（只拦退化碎片）
+			for (int attempt = 0; attempt < GrowthMinShareAttempts; attempt++)
 			{
-				acc += (double)rates[p] * frontiers[p].Count;
-				if (pick < acc) { chosen = p; break; }
+				var rng = new DeterministicRandom(seed + 31 * attempt);
+				int[] seeds = PickSeedCells(rng, cellCount: n, count: numPlates);
+
+				var rates = new float[numPlates];
+				for (int p = 0; p < numPlates; p++)
+				{
+					float u = MathF.Max((float)rng.NextDouble(), 1e-4f);   // 防下溢出 0（0 的幂 = 恒零生长率）
+					rates[p] = 0.05f + 0.95f * MathF.Pow(u, GrowthRateExponent);   // 地板 0.05：最衰的板也有可见体量
+				}
+				int[] plateOfCell = GrowPlates(seeds, rates, rng);
+
+				var counts = new int[numPlates];
+				foreach (int p in plateOfCell) if (p >= 0 && p < numPlates) counts[p]++;
+				double minShare = double.MaxValue;
+				foreach (int c in counts) minShare = Math.Min(minShare, c / (double)n);
+				if (best == null || minShare > bestMinShare)
+				{
+					best = plateOfCell;
+					bestMinShare = minShare;
+				}
+				if (bestMinShare >= threshold) return best;                // 达标即收（通常一两次内）
+			}
+			return best;
+		}
+
+		// 加权前沿生长本体。frontiers[p] = 板 p 的候选格表（贴邻本板已认领格的未认领格；含过期项——
+		// 格被别板抢先认领后残留的条目，弹出时惰性丢弃）。每轮：
+		// ① 按 weight_p = rate_p × 前沿长度 加权抽板（前沿长 = 边界多 = 长得快，富者愈富）；
+		// ② 抽中板从前沿随机抽一格：已认领 → 丢弃重抽；未认领 → 认领，其未认领邻居入列。
+		// "全板前沿同空而未铺满"在球面连通图上不可达；total ≤ 0 的防御出口只保不崩。
+		int[] GrowPlates(int[] seeds, float[] rates, DeterministicRandom rng)
+		{
+			int n = _ball.CellIds.Length;
+			var neighbors = _ball.CellNeighbors;
+			var plateOfCell = new int[n];
+			Array.Fill(plateOfCell, -1);
+			var frontiers = new List<int>[seeds.Length];
+			for (int p = 0; p < seeds.Length; p++)
+			{
+				plateOfCell[seeds[p]] = p;
+				frontiers[p] = new List<int>();
+				foreach (int nb in neighbors[seeds[p]])
+					if (plateOfCell[nb] < 0) frontiers[p].Add(nb);
 			}
 
-			var frontier = frontiers[chosen];
-			int cell = -1;
-			while (frontier.Count > 0)
+			int claimed = seeds.Length;
+			var weights = new double[seeds.Length];                // 本轮拾取权重（含防饿死地板）
+			while (claimed < n)
 			{
-				int idx = rng.Next(frontier.Count);
-				cell = frontier[idx];
-				frontier[idx] = frontier[frontier.Count - 1];      // swap-remove：O(1) 弹随机位
-				frontier.RemoveAt(frontier.Count - 1);
-				if (plateOfCell[cell] < 0) break;                  // 活格 → 认领
-				cell = -1;                                         // 过期项 → 丢弃重抽
+				// 防饿死地板：前沿一缩权重就塌——"富者愈富"的死螺旋把慢板围死成碎片
+				//（碎片随后被 MergeStrayFragments 喂给包围板 ⇒ 棘轮造巨板）。
+				// 每轮给所有非空前沿 ≥ 平均权重 × GrowthStarveFloorFraction 的地板。
+				double totalRaw = 0;
+				int aliveFrontiers = 0;
+				for (int p = 0; p < frontiers.Length; p++)
+				{
+					totalRaw += (double)rates[p] * frontiers[p].Count;
+					if (frontiers[p].Count > 0) aliveFrontiers++;
+				}
+				if (totalRaw <= 0 || aliveFrontiers == 0) break;   // 防御（不可达）：无处可长
+				double floorW = GrowthStarveFloorFraction * totalRaw / aliveFrontiers;
+				double total = 0;
+				for (int p = 0; p < frontiers.Length; p++)
+				{
+					weights[p] = frontiers[p].Count > 0
+						? Math.Max((double)rates[p] * frontiers[p].Count, floorW)
+						: 0.0;
+					total += weights[p];
+				}
+				double pick = rng.NextDouble() * total;
+				double acc = 0;
+				int chosen = frontiers.Length - 1;                     // 兜底：pick 贴 total 上界时归末板
+				for (int p = 0; p < frontiers.Length; p++)
+				{
+					acc += weights[p];
+					if (pick < acc) { chosen = p; break; }
+				}
+
+				var frontier = frontiers[chosen];
+				int cell = -1;
+				while (frontier.Count > 0)
+				{
+					int idx = rng.Next(frontier.Count);
+					cell = frontier[idx];
+					frontier[idx] = frontier[frontier.Count - 1];      // swap-remove：O(1) 弹随机位
+					frontier.RemoveAt(frontier.Count - 1);
+					if (plateOfCell[cell] < 0) break;                  // 活格 → 认领
+					cell = -1;                                         // 过期项 → 丢弃重抽
+				}
+				if (cell < 0) continue;                                // 前沿全过期 → 下轮重抽板
+
+				plateOfCell[cell] = chosen;
+				claimed++;
+				foreach (int nb in neighbors[cell])
+					if (plateOfCell[nb] < 0) frontiers[chosen].Add(nb);
 			}
-			if (cell < 0) continue;                                // 前沿全过期 → 下轮重抽板
-
-			plateOfCell[cell] = chosen;
-			claimed++;
-			foreach (int nb in neighbors[cell])
-				if (plateOfCell[nb] < 0) frontiers[chosen].Add(nb);
+			return plateOfCell;
 		}
-		return plateOfCell;
-	}
 
-	// 无重复抽 count 个撒点格：partial Fisher-Yates 洗前 count 位（rng 消耗固定 count 次 → 确定性）。
+		// 无重复抽 count 个撒点格：partial Fisher-Yates 洗前 count 位（rng 消耗固定 count 次 → 确定性）。
 		int[] PickSeedCells(DeterministicRandom rng, int cellCount, int count)
 		{
 			var deck = new int[cellCount];
@@ -287,12 +341,11 @@ namespace World.NewHexWorld.Plate
 
 	// ── 边界提取（01 §4，纯几何渲染派生口；两个出口共用同一异板共享边收集）──
 
-	/// <summary>提取板块边界【格边】集（描边渲染用，2026-09-09 v2 拍板，替代旧角点集）：遍历异板
-	/// 格邻居对 → 共享边两端顶点在边界两侧【各格】名下记账 (格 id, 顶点对)。View 按此把每格
-	/// 【每条格边】的边界旗（UV2.y）置 1，片元只压暗旗标边成轮廓带——粒度 = 边而非角点：同板边
-	/// 即使两端角点都贴邻边界边（如五边贴异板的格）也绝不被误描（角点粒度旧账法整条误描，
-	/// 2026-09-09 用户报告）。顶点对规范化序（va&lt;vb）——查找端（BallMesh 逐格取角点对）顺序
-	/// 不定，集合必须 canonical。与 ExtractBoundaryChains 同一边集，无遗漏无重复。</summary>
+	/// <summary>提取板块边界【格边】集（描边渲染用）：遍历异板格邻居对 → 共享边两端顶点在边界
+	/// 两侧【各格】名下记账 (格 id, 顶点对)。View 按此把每格每条格边的边界旗（UV2.y）置 1，
+	/// 片元只压暗旗标边成轮廓带——粒度 = 边而非角点：同板边即使两端角点都贴邻边界边也绝不被误描。
+	/// 顶点对规范化序（va&lt;vb）——查找端顺序不定，集合必须 canonical。
+	/// 与 ExtractBoundaryChains 同一边集，无遗漏无重复。</summary>
 	public static HashSet<(ulong cell, ulong va, ulong vb)> ExtractBoundaryCellEdges(Ball ball, int[] plateId)
 	{
 		var edges = new HashSet<(ulong cell, ulong va, ulong vb)>();
@@ -306,10 +359,10 @@ namespace World.NewHexWorld.Plate
 		return edges;
 	}
 
-	/// <summary>提取板块边界链集合（01 §4 派生口，测试锚定）：异板共享边按端点连通成链；端点度 ≥3
+	/// <summary>提取板块边界链集合（派生口，测试锚定）：异板共享边按端点连通成链；端点度 ≥3
 	/// （三板块交汇）断链、各成独立链段；闭合环/开放链各成一条。每条链 = 一串球面点列
-	/// （六边形胞边锯齿，不做样条平滑——用户拍板默认）。链段无重叠无遗漏（可单测对账）。
-	/// ⚠️ 渲染已改描边方案（ExtractBoundaryVerts），本口保留为设计派生口 + 诊断/对账基准。</summary>
+	/// （六边形胞边锯齿，不做样条平滑）。链段无重叠无遗漏（可单测对账）。
+	/// 渲染走 ExtractBoundaryCellEdges；本口保留为诊断/对账基准。</summary>
 	public static List<Vector3[]> ExtractBoundaryChains(Ball ball, int[] plateId)
 	{
 		// 1) 异板格对 → 共享边（每条邻居对只处理一次：j > i 下标判重）
@@ -359,9 +412,9 @@ namespace World.NewHexWorld.Plate
 			return chains;
 		}
 
-		// 异板格邻居对 → 共享边全集（每条邻居对只处理一次：j > i 下标判重）。输出格【下标】对 +
-	// 共享边两端顶点 id——链提取与描边角点集两出口共用同一边集（单一事实源，防两路口径漂移）。
-	static List<(int ci, int cj, ulong a, ulong b)> CollectBoundaryEdges(Ball ball, int[] plateId)
+			// 异板格邻居对 → 共享边全集（每条邻居对只处理一次：j > i 下标判重）。输出格【下标】对 +
+		// 共享边两端顶点 id——链提取与描边两出口共用同一边集（单一事实源，防口径漂移）。
+		static List<(int ci, int cj, ulong a, ulong b)> CollectBoundaryEdges(Ball ball, int[] plateId)
 	{
 		var edges = new List<(int ci, int cj, ulong a, ulong b)>();
 		int n = plateId.Length;

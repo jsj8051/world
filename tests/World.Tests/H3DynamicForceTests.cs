@@ -95,7 +95,7 @@ public class H3DynamicForceTests
             "年轻洋板洋脊推力 ∝ sqrt(0/80) ≈ 0，板片应主导");
         Assert.Greater(motion.PlateOmega[0].Length(), 1f / H3PlateMotion.EarthRadiusKm,
             "仅凭板片账户应解出超拟合门槛的速度（≥ 0.1 cm/yr）");
-        Assert.Less(motion.SlabMass[0], Material.MaficVolcanicMin * 7100f * 100f,
+        Assert.Less(motion.SlabMassOf(0), Material.MaficVolcanicMin * 7100f * 100f,
             "一步衰减后账户应已缩小（记忆 33 My，步长 4 My）");
     }
 
@@ -118,14 +118,17 @@ public class H3DynamicForceTests
         double cap = H3PlateMotion.SlabCapFractionOfPlateCrust * crustMass;
 
         motion.AddSlab(0, cap * 100.0, new Vector3(0, 1, 0));   // 远超上限的入账
-        Assert.AreEqual(cap, motion.SlabMass[0], cap * 1e-3, "账户应被封顶在 板内地壳总量 × SlabCapFraction");
+        Assert.AreEqual(cap, motion.SlabMassOf(0), cap * 1e-3, "账户应被封顶在 板内地壳总量 × SlabCapFraction");
     }
 
     [Test]
     public void SolvePlateSpeeds_OrogenResistance_MakesJamWorldSlowerThanAccountOnly()
     {
-        // 顶死世界（两板等密老洋壳，v1.8 的幻影剔除已生效）：阻力项 R = μ×幻影力 应让它比
-        // "幻影力为零但其余同款"的对照更慢——顶死段开始真实做负功，而不是只被剔除。
+        // 顶死世界（v1.17）：北板**南缘接触带改陆壳**（陆-陆汇聚 = 03 §3.5 "两侧都停"）⇒ 该段板缘
+        // 被锁定 ⇒ 幻影力（空转的那一份）非零、造山阻力 R = μ×幻影力 非零，世界比对照慢。
+        // 对照世界：几何全同，**只把北板接触带从陆壳换成年轻洋壳** ⇒ 洋-洋汇聚一律俯冲（v1.17）
+        //   ⇒ 无锁定、R = 0。两世界那些格都不驱动（陆壳无拉力、age=0 年轻洋壳 `_drives` 亦为假）
+        //   ⇒ 板缘驱动力口径一致，差异只来自锁定。
         var centers = Ball.CellCenters;
         var fieldsJam = new H3PlateFields(Ball.CellIds.Length);
         var fieldsFree = new H3PlateFields(Ball.CellIds.Length);
@@ -140,19 +143,34 @@ public class H3DynamicForceTests
                 f.Age[c] = OldAgeMy;
             }
         }
-        // fieldsJam：等密 → 板缘全顶死（幻影剔除 + 阻力）。fieldsFree：南板换年轻（浮力 0）→
-        // 北板板缘不顶死、有净板缘驱动——两世界的北板账户/洋龄/面积同款。
-        for (int c = 0; c < fieldsFree.Count; c++)
-            if (fieldsFree.PlateId[c] == 1) fieldsFree.Age[c] = YoungAgeMy;
+        for (int c = 0; c < fieldsJam.Count; c++)
+        {
+            // ⚠️ 只改 **X>0 那半**边界带：板 0 在 X<0 那半仍是致密老洋壳 ⇒ 驱动力非零
+            // （否则整环换陆壳 = 板 0 毛力归零 = 阻力项恒 0，测试自我失效——v1.17 踩过）。
+            if (fieldsJam.PlateId[c] != 0 || centers[c].X <= 0f) continue;
+            bool contact = false;
+            foreach (int nb in Ball.CellNeighbors[c])
+                if (fieldsJam.PlateId[nb] == 1) { contact = true; break; }
+            if (!contact) continue;
+            fieldsJam.ClearCell(c);
+            fieldsJam.FelsicPlutonic[c] = Material.FelsicPlutonic * 35000f;
+            fieldsJam.Age[c] = 0f;    // 热年龄 0：陆壳热稳态（v1.18 语义）
+            fieldsJam.PlateId[c] = 0;
+
+            fieldsFree.ClearCell(c);
+            fieldsFree.MaficVolcanic[c] = Material.MaficVolcanicMin * 7100f;
+            fieldsFree.Age[c] = YoungAgeMy;
+            fieldsFree.PlateId[c] = 0;
+        }
 
         var motionJam = new H3PlateMotion(Ball.CellIds.Length);
         var motionFree = new H3PlateMotion(Ball.CellIds.Length);
         motionJam.Step(Ball, fieldsJam, Material, 9.8f, 4f);
         motionFree.Step(Ball, fieldsFree, Material, 9.8f, 4f);
 
-        Assert.Greater(motionJam.PlateOrogenResistN[0], 0f, "顶死世界北板应有造山阻力（R = μ×幻影力）");
-        Assert.AreEqual(0f, motionFree.PlateOrogenResistN[0], 1e-6f, "无顶死 → 无阻力");
+        Assert.Greater(motionJam.PlateOrogenResistN[0], 0f, "陆-陆锁定段应给北板带来造山阻力（R = μ×幻影力）");
+        Assert.AreEqual(0f, motionFree.PlateOrogenResistN[0], 1e-6f, "无锁定 → 无阻力");
         Assert.Less(motionJam.PlateOmega[0].Length(), motionFree.PlateOmega[0].Length(),
-            "顶死 + 阻力的板速必须低于净板缘驱动的对照");
+            "锁定 + 阻力的板速必须低于自由汇聚的对照");
     }
 }

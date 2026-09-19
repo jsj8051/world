@@ -5,6 +5,7 @@ using System.Linq;
 using Godot;
 using World.NewHexWorld;
 using World.NewHexWorld.Plate;
+using World.Tectonics;               // MaterialDensity（判读换算走表）
 
 namespace World.Diagnostics;
 
@@ -13,14 +14,16 @@ namespace World.Diagnostics;
 ///   Godot --headless --path E:/godotGames/world --quit-after 400000 res://scenes/diag/HexDynamicDiag.tscn
 ///       -- --res=3 --seed=42 --plates=8 --run=600 --step=4
 /// 报告项（对照判读，不设"算完成"门槛）：陆占比 / 海平面 / 位移极值 / 板数演化 /
-/// 空洞·异板混合·同板多源·被钳制格数 / 顶死实测·顶死预测·幻影F占比（v1.8 碰撞减速缺口量测）/
+/// 空洞·异板混合·同板多源·被钳制格数 / 顶死实测·顶死预测·幻影F占比（碰撞减速缺口量测）/
 /// 平流离散化残差与俯冲回地幔质量（对账）/ 增生楔记账 / 最大板占比（超大陆讨论输入）/ 耗时。</summary>
 public partial class HexDynamicDiag : Node
 {
+	/// <summary>判读换算用的密度表（质量↔厚度换算统一走表，不再散落硬编码）。</summary>
+	static readonly MaterialDensity DiagMaterial = new MaterialDensity();
 	int _res = 3;
 	int _plates = 8;
 	int _seed = 42;
-	float _run = 600f;
+	float _run = H3DynamicTectonics.DefaultRunMy;
 	float _step = 4f;
 	float _oceanScale = 1f;
 	// 初始起伏旋钮：null = **不覆盖**（用 H3DynamicTectonics 的默认档）——诊断里不复制魔数，
@@ -28,6 +31,16 @@ public partial class HexDynamicDiag : Node
 	float? _landRelief;
 	float? _oceanRelief;
 	float? _reliefWaveKm;
+	int _flexureIterations = -1;      // <0 = 用产品默认（24）；0 = 关闭挠曲（A/B 对照）
+	float _precipScale = 1f;          // 降水倍率（0 = 无水世界：水蚀/输沙归零，只剩风+重力）
+	// 影子薄席（设计-07 P1）：--shadow=1 开启——旧运动学旁并行解薄席速度场，只记不改。
+	bool _shadow;
+	// 薄席驱动（设计-07 P2）：--sheet=1 开启——平流方向/节拍改吃薄席，旧力平衡退位。
+	bool _sheetDriving;
+	H3ThinSheet? _shadowSheet;
+	float[]? _shadowGpe, _shadowElev;
+	double _shadowSumOld, _shadowSumNew, _shadowSumAgree;
+	int _shadowSamples;
 
 	public override void _Ready()
 	{
@@ -41,10 +54,18 @@ public partial class HexDynamicDiag : Node
 		if (args.TryGetValue("landRelief", out value)) _landRelief = float.Parse(value);
 		if (args.TryGetValue("oceanRelief", out value)) _oceanRelief = float.Parse(value);
 		if (args.TryGetValue("reliefWave", out value)) _reliefWaveKm = float.Parse(value);
+		// 挠曲开关（06 §3 批次 B 的 A/B 对照）：--flexure=0 关掉（位移 = 纯 Airy），默认开。
+		if (args.TryGetValue("flexure", out value)) _flexureIterations = int.Parse(value);
+		// 降水倍率（v1.20 四介质侵蚀）：--precip=0 = **无水世界**（干世界 ⇒ 水蚀严格 0、只剩风+重力）。
+		if (args.TryGetValue("precip", out value)) _precipScale = float.Parse(value);
+		// 影子薄席（设计-07 P1）：--shadow=1 开启（默认关）。
+		if (args.TryGetValue("shadow", out value)) _shadow = value != "0";
+		// 薄席驱动（设计-07 P2）：--sheet=1 切驱动（默认关）。
+		if (args.TryGetValue("sheet", out value)) _sheetDriving = value != "0";
 
 		var ball = new Ball(_res, 1f);
 		GD.Print($"=== HexDynamicDiag res={_res} P={_plates} seed={_seed} N={ball.CellIds.Length} "
-			+ $"run={_run}My step={_step}My ocean={_oceanScale}（水量守恒：全球平均水深 = {H3Isostasy.BaseMeanOceanDepthM * _oceanScale:F0} m）===");
+			+ $"run={_run}My step={_step}My ocean={_oceanScale}（水量 = 全球等效水层 {H3Isostasy.GlobalWaterLayerM * _oceanScale:F0} m）===");
 
 		var stopwatchSplit = Stopwatch.StartNew();
 		var plateSplitter = new H3Plate(ball);
@@ -60,11 +81,14 @@ public partial class HexDynamicDiag : Node
 		if (_landRelief.HasValue) sim.LandReliefAmplitudeM = _landRelief.Value;
 		if (_oceanRelief.HasValue) sim.OceanReliefAmplitudeM = _oceanRelief.Value;
 		if (_reliefWaveKm.HasValue) sim.ReliefBaseWavelengthKm = _reliefWaveKm.Value;
+		if (_flexureIterations >= 0) sim.FlexureIterations = _flexureIterations;
+		sim.PrecipitationScale = _precipScale;
+		sim.EnableThinSheetDriving = _sheetDriving;
 		// 周期重启的重分板委托（05 §6.3）：与生产路径 `H3Plate.BeginCreatePlates` 同款注入——
 		// 不注入则重启**自动旁路**（04 批次 4 的设计），诊断就看不到 platec 式周期重启。
 		sim.Repartition = k => plateSplitter.SplitIntoPlates(k, _seed + 977 * sim.RestartCount);
 		GD.Print($"[参数] 初始起伏 陆±{sim.LandReliefAmplitudeM:F0}m 洋±{sim.OceanReliefAmplitudeM:F0}m "
-			+ $"基波长 {sim.ReliefBaseWavelengthKm:F0}km / {sim.ReliefOctaves} 层（陆自由板 {H3Isostasy.LandBaselineM:F0}m）");
+			+ $"基波长 {sim.ReliefBaseWavelengthKm:F0}km / {sim.ReliefOctaves} 层（水量 = 全球等效水层 {H3Isostasy.GlobalWaterLayerM * sim.OceanScale:F0}m）");
 		var stopwatch = Stopwatch.StartNew();
 		sim.Initialize(plateOfCell, _seed);
 		{
@@ -73,13 +97,21 @@ public partial class HexDynamicDiag : Node
 			GD.Print($"[探针] 初始化后归属格数 = {assigned} / {sim.Fields.Count}");
 		}
 		ReportInitialRelief(ball, sim);
-		Report("初始", sim);
+		Report("初始", ball, sim);
 		ReportEmbeddedClusters("初始(运动前)", ball, sim);
+		if (_shadow)
+		{
+			_shadowGpe = new float[ball.CellIds.Length];
+			_shadowElev = new float[ball.CellIds.Length];
+			_shadowSheet = new H3ThinSheet(ball);
+			GD.Print("[影子薄席] 已启用：每 25 步采样，与旧运动学只比不改（设计-07 P1）");
+		}
 		int steps = Math.Max(1, (int)(_run / _step));
 		// 全程平均口径（04 批次 6 治乱用）：逐步快照的抽样噪声太大（起跳相位使计数在 0 与数百间跳），
 		// 改/不改的对照必须看**每步平均**——否则两个不同动力学轨迹的抽样点没法比。
-		double sumHole = 0, sumMixed = 0, sumOverflow = 0, sumHoleFill = 0, sumOverflowAvg = 0,
-			sumNewCrust = 0, sumStray = 0, sumMinority = 0, sumIsolated = 0, sumSpilled = 0, sumSpreading = 0;
+		double sumHole = 0, sumMixed = 0, sumOverflow = 0, sumHoleFill = 0,
+			sumNewCrust = 0, sumStray = 0, sumMinority = 0, sumIsolated = 0, sumSpreading = 0,
+			sumYieldBled = 0, sumYieldToMantle = 0, sumArcReturned = 0, sumFelsicScraped = 0;
 		int sumAbove3Km = 0, sumLandCells = 0;
 		for (int s = 0; s < steps; s++)
 		{
@@ -88,8 +120,10 @@ public partial class HexDynamicDiag : Node
 			sumMixed += sim.MixedCellsLastStep;
 			sumOverflow += sim.OverflowCellsLastStep;
 			sumHoleFill += sim.Advection.HoleFillAveragedCount;
-			sumOverflowAvg += sim.Advection.OverflowAveragedCells;
-			sumSpilled += sim.Advection.OverflowSpilledMass;
+			sumYieldBled += sim.YieldBledMassLastStep;
+			sumYieldToMantle += sim.YieldToMantleMassLastStep;
+			sumArcReturned += sim.FelsicArcReturnedCum;
+			sumFelsicScraped += sim.FelsicScrapedCum;
 			sumNewCrust += sim.Advection.NewCrustFilledCount;
 			sumSpreading += sim.Advection.SpreadingFilledCount;
 			sumStray += sim.StrayFragmentCellsLastStep;
@@ -101,14 +135,33 @@ public partial class HexDynamicDiag : Node
 					sumLandCells++;
 					if (sim.Displacement[i] - sim.SeaLevel > 3000f) sumAbove3Km++;
 				}
-			if (s % 25 == 0 || s == steps - 1) Report($"step {s + 1}/{steps} ({(s + 1) * _step:F0}My)", sim);
+			if (s % 25 == 0 || s == steps - 1) Report($"step {s + 1}/{steps} ({(s + 1) * _step:F0}My)", ball, sim);
+
+			// 影子薄席采样：GPE（当时位移-海平面）→ 解算 → 与旧运动学对比（只记不改）
+			if (_shadow && s % 25 == 0)
+			{
+				for (int i = 0; i < _shadowElev!.Length; i++)
+					_shadowElev[i] = sim.Displacement[i] - sim.SeaLevel;
+				H3Gpe.ComputeInto(sim.Fields, _shadowElev, DiagMaterial, _shadowGpe!);
+				_shadowSheet!.Solve(_shadowGpe);
+				var stats = H3ThinSheet.CompareWithKinematics(sim.Motion.Velocity, _shadowSheet.Velocity);
+				_shadowSumOld += stats.MeanSpeedOldCmPerYr;
+				_shadowSumNew += stats.MeanSpeedNewCmPerYr;
+				_shadowSumAgree += stats.DirectionAgreement;
+				_shadowSamples++;
+				GD.Print($"[影子薄席 step {s + 1}] 旧 {stats.MeanSpeedOldCmPerYr:F2} cm/yr ｜ 薄席 {stats.MeanSpeedNewCmPerYr:F2} cm/yr ｜ 方向一致率 {stats.DirectionAgreement:P0}（对比格 {stats.ComparedCells}）");
+			}
 		}
 		GD.Print($"[全程平均/步] 空洞={sumHole / steps:F1} 异板混合={sumMixed / steps:F1} 同板多源={sumOverflow / steps:F1} "
-			+ $"｜ 治乱 空洞加权平均填充={sumHoleFill / steps:F1} 多源加权平均={sumOverflowAvg / steps:F1} "
-			+ $"差额摊出={sumSpilled / steps:E2} 填新壳兜底={sumNewCrust / steps:F2} 碎片并入={sumStray / steps:F2} "
+			+ $"｜ 治乱 空洞加权平均填充={sumHoleFill / steps:F1} 屈服流出={sumYieldBled / steps:E2}（回地幔 {sumYieldToMantle / steps:E2}）"
+			+ $"填新壳兜底={sumNewCrust / steps:F2} 碎片并入={sumStray / steps:F2} "
 			+ $"｜ 扩张 洋底注壳={sumSpreading / steps:F2}"
 			+ $"｜ 归属 孤立格={sumIsolated / steps:F2} 强少数格={sumMinority / steps:F1} "
 			+ $"｜ 陆格 >3km={sumLandCells / (double)steps:F1} 中 {(sumLandCells > 0 ? sumAbove3Km / (double)sumLandCells : 0):P1}");
+		if (_shadow && _shadowSamples > 0)
+			GD.Print($"[影子薄席均值 / {_shadowSamples} 样本] 旧运动学 {_shadowSumOld / _shadowSamples:F2} cm/yr ｜ "
+				+ $"薄席 {_shadowSumNew / _shadowSamples:F2} cm/yr ｜ 方向一致率 {_shadowSumAgree / _shadowSamples:P0}"
+				+ $"——P2 切驱动的基线读数（判读口，不设门槛）");
 		ReportEmbeddedClusters($"终态({steps * _step:F0}My)", ball, sim, traceHistory: true);
 		stopwatch.Stop();
 
@@ -166,7 +219,7 @@ public partial class HexDynamicDiag : Node
 		GD.Print($"[初始地形] 相邻同板格海拔差（连续性判据，v1.10 fBm 起伏）｜ p50={p50:F0}m p90={p90:F0}m max={worst:F0}m");
 	}
 
-	void Report(string label, H3DynamicTectonics sim)
+	void Report(string label, Ball ball, H3DynamicTectonics sim)
 	{
 		float[] displacement = sim.Displacement;
 		float min = float.MaxValue, max = float.MinValue;
@@ -174,6 +227,81 @@ public partial class HexDynamicDiag : Node
 		{
 			if (d < min) min = d;
 			if (d > max) max = d;
+		}
+		// 陆格均值（介质率/降水的读数用）：海平面以上才算陆
+		float MeanOverLand(float[] field)
+		{
+			double sum = 0;
+			int cnt = 0;
+			for (int i = 0; i < field.Length; i++)
+			{
+				if (!sim.Fields.IsLand(i)) continue;
+				sum += field[i];
+				cnt++;
+			}
+			return cnt > 0 ? (float)(sum / cnt) : 0f;
+		}
+		// 相邻同板同相格海拔差（连续性判据；与 [初始地形] 同一口径 —— 逐步看"台阶"长没长出来）
+		// + 挠曲读数（06 §3 批次 B）：区域支撑的直接量测（削低/抬升/残差）。
+		var steps = new List<float>();
+		int worstA = -1, worstB = -1;
+		float worstDiff = -1f;
+		for (int i = 0; i < sim.Fields.Count; i++)
+			foreach (int nb in ball.CellNeighbors[i])
+			{
+				if (nb <= i || sim.Fields.PlateId[nb] != sim.Fields.PlateId[i]) continue;
+				if (sim.Fields.IsLand(nb) != sim.Fields.IsLand(i)) continue;
+				float diff = MathF.Abs(displacement[nb] - displacement[i]);
+				steps.Add(diff);
+				if (diff > worstDiff) { worstDiff = diff; worstA = i; worstB = nb; }
+			}
+		if (steps.Count > 0)
+		{
+			steps.Sort();
+			GD.Print($"[{label}] 相邻差 ｜ p50={steps[steps.Count / 2]:F0} p90={steps[(int)(steps.Count * 0.9f)]:F0} "
+				+ $"max={steps[^1]:F0} m ｜ 挠曲 削低={sim.FlexurePeakReductionM:F0} 抬升={sim.FlexurePeakUpliftM:F0} "
+				+ $"残差={sim.FlexureResidualM:F2} m");
+			// 三介质侵蚀（v1.23：水蚀退役归河道）+ 风沙/河流两条搬运链的读数
+			var sf = sim.Surface;
+			double movedTotal = sf.WindMovedMassLastStep
+				+ sf.GravityMovedMassLastStep + sf.GlacierMovedMassLastStep;
+			if (movedTotal > 0)
+				GD.Print($"[{label}] 侵蚀介质 ｜ 风={sf.WindMovedMassLastStep / movedTotal:P0}"
+					+ $" 重力={sf.GravityMovedMassLastStep / movedTotal:P0}"
+					+ $" 冰川={sf.GlacierMovedMassLastStep / movedTotal:P0}"
+					+ $" ｜ 风化={sf.WeatheredMassLastStep:E2}（门=水+风+冰）"
+					+ $" ｜ 介质率（陆格均值）水={MeanOverLand(sf.WaterRatePerCell):F2}"
+					+ $" 风={MeanOverLand(sf.WindRatePerCell):F2} 冰={MeanOverLand(sf.GlacierRatePerCell):F2}"
+					+ $" K={MeanOverLand(sf.RockErodibilityPerCell):F3}"
+					+ $" ｜ 闭合 λ={sim.PrecipitationClosureFactor:F2}"
+					+ $" 降水={sf.PrecipDomainMeanMmYearLastStep:F0}mm/yr 产流={sf.RunoffDomainMeanMmYearLastStep:F0}"
+					+ $" AI={sf.AridityIndexDomainMeanLastStep:F2} 零产流格={sf.ZeroRunoffCellFractionLastStep:P0}");
+			if (sim.EnableAeolian && sim.Aeolian.ErodedMassLastStep > 0)
+				GD.Print($"[{label}] 风沙 ｜ 蚀={sim.Aeolian.ErodedMassLastStep:E2} 淤={sim.Aeolian.DepositedMassLastStep:E2}"
+					+ $" 入海={sim.Aeolian.DeliveredToOceanLastStep:E2}");
+			if (sim.EnableFluvial && sim.Fluvial.ErodedMassLastStep > 0)
+				GD.Print($"[{label}] 河流 ｜ 蚀={sim.Fluvial.ErodedMassLastStep:E2} 淤={sim.Fluvial.DepositedMassLastStep:E2}"
+					+ $" 入海={sim.Fluvial.DeliveredToOceanLastStep:E2}"
+					+ $" 流速均值={MeanOverLand(sim.Fluvial.VelocityPerCell):F2}m/s 剪切均值={MeanOverLand(sim.Fluvial.ShearPerCell):F0}Pa");
+			if (worstDiff > 1500f)
+			{
+				var material = new World.Tectonics.MaterialDensity();
+				GD.Print($"[{label}] 最大台阶明细 ｜ 格{worstA}({(sim.Fields.IsLand(worstA) ? "陆" : "洋")},"
+					+ $"板{sim.Fields.PlateId[worstA]},位移{displacement[worstA]:F0},厚{sim.Fields.Thickness(worstA, material):F0},"
+					+ $"长英质{(sim.Fields.FelsicPlutonic[worstA] + sim.Fields.FelsicVolcanic[worstA]) / material.FelsicPlutonic:F0},"
+					+ $"镁铁质{(sim.Fields.MaficVolcanic[worstA] + sim.Fields.MaficPlutonic[worstA]) / material.MaficVolcanicMin:F0},"
+					+ $"age{sim.Fields.Age[worstA]:F0})"
+					+ $" ↔ 格{worstB}({(sim.Fields.IsLand(worstB) ? "陆" : "洋")},板{sim.Fields.PlateId[worstB]},"
+					+ $"位移{displacement[worstB]:F0},厚{sim.Fields.Thickness(worstB, material):F0},"
+					+ $"长英质{(sim.Fields.FelsicPlutonic[worstB] + sim.Fields.FelsicVolcanic[worstB]) / material.FelsicPlutonic:F0},"
+					+ $"镁铁质{(sim.Fields.MaficVolcanic[worstB] + sim.Fields.MaficPlutonic[worstB]) / material.MaficVolcanicMin:F0},"
+					+ $"age{sim.Fields.Age[worstB]:F0})"
+					+ $" ｜ Δ={worstDiff:F0} m"
+					// 三个低密度池的厚度（"凭空 80 km 柱"的定位用：只有它们能在总厚度里藏出巨量）
+					+ $"\n[{label}]   低密度池厚度 ｜ 格{worstB}: 沉积={sim.Fields.Sediment[worstB] / material.Sediment:F0}"
+					+ $" 沉积岩={sim.Fields.Sedimentary[worstB] / material.Sedimentary:F0}"
+					+ $" 变质={sim.Fields.Metamorphic[worstB] / material.Metamorphic:F0} m");
+			}
 		}
 		// 地形高度分布（判读"碰撞造山是不是都顶在厚度帽上"）：陆海拔分位 + 高山格占比
 		var landElev = new List<float>();
@@ -205,14 +333,15 @@ public partial class HexDynamicDiag : Node
 		GD.Print($"[{label}] 板={sim.PlateCount} 陆={sim.LandFractionLastStep * 100f:F1}% 海平面={sim.SeaLevel:F0}m "			+ $"位移[{min:F0},{max:F0}]m ｜ 空洞={sim.HoleCellsLastStep} 异板混合={sim.MixedCellsLastStep} "
 			+ $"同板多源={sim.OverflowCellsLastStep} 速度钳制={sim.ClampedCellsLastStep} 陆内补料={sim.ResampledCellsLastStep} "
 			+ $"｜ 治乱 空洞加权平均填充={sim.Advection.HoleFillAveragedCount} 填新壳兜底={sim.Advection.NewCrustFilledCount} "
-			+ $"多源加权平均={sim.Advection.OverflowAveragedCells} 差额摊出={sim.Advection.OverflowSpilledMass:E2}"
-			+ $"（回地幔 {sim.Advection.OverflowToMantleMass:E2}）碎片并入={sim.StrayFragmentCellsLastStep} ｜ "
+			+ $"屈服流 超帽格={sim.YieldCellsLastStep} 流出={sim.YieldBledMassLastStep:E2}（回地幔 {sim.YieldToMantleMassLastStep:E2}）碎片并入={sim.StrayFragmentCellsLastStep} ｜ "
 			+ $"速度 规定={sim.MeanPrescribedSpeedKmPerMyLastStep * 0.1f:F2} 实到={sim.MeanRealizedSpeedKmPerMyLastStep * 0.1f:F2} "
 			+ $"拟合ω={sim.MeanPlateSpeedKmPerMyLastStep * 0.1f:F2} cm/yr ｜ "
 			+ $"顶死实测={sim.JammedCellsLastStep} 顶死预测={sim.JamContactCellsLastStep} "
 			+ $"幻影F={sim.PhantomForceFractionLastStep:P0} 均速={sim.MeanPlateSpeedKmPerMyLastStep * 0.1f:F2}cm/yr ｜ "
 			+ $"回地幔={sim.RecycledToMantleLastStep:E2} "
-			+ $"增生楔={sim.AccretionMassLastStep:E2}({sim.AccretionCellsLastStep}格,堆回{sim.AccretionDepositedLastStep:E2}) "
+			+ $"屈服={sim.YieldBledMassLastStep:E2}(落{sim.YieldPlacedMassLastStep:E2}) "
+			+ $"陆壳收支 刮削累计={sim.FelsicScrapedCum:E2} 弧回流累计={sim.FelsicArcReturnedCum:E2} "
+			+ $"守恒销毁累计={sim.RecycledConservedTotal + sim.ConservedYieldToMantleCum:E2}（伺服本步 {sim.ContinentalServoPlacedLastStep:E2}） "
 			+ $"最大板占比={sim.LargestPlateFractionLastStep * 100f:F1}% ｜ "
 			+ $"生命周期 缝合={sim.SutureCount} 裂解={sim.SplitCount} 重启={sim.RestartCount}"
 			+ $"（周期步={sim.CycleStepCount} 距陆碰撞={sim.StepsSinceContinentalCollision}步 "
@@ -224,7 +353,7 @@ public partial class HexDynamicDiag : Node
 			+ $"强少数格={sim.LocalMinorityCellsLastStep} 连通分量={sim.PlateComponentCountLastStep}（板数 {sim.PlateCount}）"
 			+ $" 最大分量占比={sim.LargestComponentFractionLastStep * 100f:F1}%");
 
-		// 逐板顶死明细（v1.8 缺口量测：谁在顶着等密碰撞带、幻影力占比、真实板速还剩多少）
+		// 逐板顶死明细（缺口量测：谁在顶着等密碰撞带、幻影力占比、真实板速还剩多少）
 		var motion = sim.Motion;
 		if (motion?.PlateJamContacts == null) return;
 		var parts = new List<string>();
@@ -260,9 +389,9 @@ public partial class HexDynamicDiag : Node
 			float ridge = motion.PlateRidgePushN[p];
 			float resist = motion.PlateOrogenResistN[p];
 			if (edge <= 0f && slab <= 0f && ridge <= 0f && resist <= 0f) continue;
-			slabAccountTotal += motion.SlabMass != null && p < motion.SlabMass.Length ? motion.SlabMass[p] : 0;
+			slabAccountTotal += motion.SlabMassOf(p);
 			float speedCmPerYr = motion.PlateOmega[p].Length() * H3PlateMotion.EarthRadiusKm / 10f;
-			forceParts.Add($"板{p} 板缘{edge:E1} 板片{slab:E1}(m={(motion.SlabMass != null && p < motion.SlabMass.Length ? motion.SlabMass[p] : 0):E1},|d|={(motion.SlabDir != null && p < motion.SlabDir.Length ? motion.SlabDir[p].Length() : 0):E1}) 洋脊{ridge:E1} 阻力{resist:E1} 速{speedCmPerYr:F2}");
+			forceParts.Add($"板{p} 板缘{edge:E1} 板片{slab:E1}(m={motion.SlabMassOf(p):E1},|d|={motion.SlabDirOf(p).Length():E1}) 洋脊{ridge:E1} 阻力{resist:E1} 速{speedCmPerYr:F2}");
 		}
 		if (forceParts.Count > 0)
 			GD.Print($"[{label}] 力分解[N] ｜ {string.Join("｜", forceParts)}（板片账户Σ={slabAccountTotal:E1} kg/m²口径）");
@@ -318,8 +447,8 @@ public partial class HexDynamicDiag : Node
 				int c = stack[^1];
 				stack.RemoveAt(stack.Count - 1);
 				size++;
-				felsic += (fields.FelsicPlutonic[c] + fields.FelsicVolcanic[c]) / 2700f;
-				mafic += (fields.MaficVolcanic[c] + fields.MaficPlutonic[c]) / 2890f;
+				felsic += (fields.FelsicPlutonic[c] + fields.FelsicVolcanic[c]) / DiagMaterial.FelsicPlutonic;
+				mafic += (fields.MaficVolcanic[c] + fields.MaficPlutonic[c]) / DiagMaterial.MaficVolcanicMin;
 				age += fields.Age[c];
 				foreach (int nb in neighbors[c])
 				{
@@ -347,7 +476,10 @@ public partial class HexDynamicDiag : Node
 		if (!traceHistory) return;
 		var events = sim.ChangeEvents;
 		var kindNames = new[] { "arrival翻色", "填新壳", "陆内重采样", "海底连续填充" };
-		var histogram = events.GroupBy(e => e.kind).Select(g => $"{kindNames[g.Key]}×{g.Count()}");
+		// ⚠️ `kind` 是新事件种类就继续加：表没跟上时**退化成 kindN** 而不是抛 IndexOutOfRange
+		//（2026-09-18 实测：第 5 类事件让整段终态溯源报告崩掉，连带后面的读数一起没了）。
+		var histogram = events.GroupBy(e => e.kind).Select(g =>
+			$"{(g.Key >= 0 && g.Key < kindNames.Length ? kindNames[g.Key] : $"kind{g.Key}")}×{g.Count()}");
 		int totalSteps = events.Count == 0 ? 1 : events.Max(e => e.step) + 1;
 		GD.Print($"[溯源] 全程换色事件共 {events.Count} 条（平均 {events.Count / (double)totalSteps:F2} 条/步）：{string.Join("，", histogram)}");
 		foreach (var c in clusters.Take(6))

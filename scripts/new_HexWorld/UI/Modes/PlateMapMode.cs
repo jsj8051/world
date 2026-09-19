@@ -6,7 +6,7 @@ using World.NewHexWorld.Plate;             // Crust
 namespace World.NewHexWorld.UI.Modes
 {
 	// 模式 1 板块（设计入口 §2.5 清单）：板色 = 板号 HSV 均布色相，纯色铺满。
-	// 边界观感（2026-09-09 用户拍板）：弃旧"边界格整格暗化 ×0.45"（暗带一格一格），
+	// 边界观感：板块边界由独立描边带呈现（不用"边界格整格暗化"的暗带），
 	// 改叠加边界描边带（ShowPlateBoundaries = true，与其他模式同一套骑缝细线）。
 	public sealed class PlateMapMode : MapMode
 	{
@@ -23,7 +23,7 @@ namespace World.NewHexWorld.UI.Modes
 
 		public override int Id => 1;
 		public override string Name => "板块";
-		public override bool ShowPlateBoundaries => true;   // 边界描边带（09-09 拍板，弃板色自带界）
+		public override bool ShowPlateBoundaries => true;   // 边界描边带
 
 		/// <summary>板号 → 基准色：HSV 均布色相（照旧实现；供本模式与格信息面板通用行共用）。</summary>
 		public static Color PlateColor(int plate, int plateCount)

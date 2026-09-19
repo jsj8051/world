@@ -5,8 +5,7 @@ namespace World.NewHexWorld.Plate
 	// 地幔热状态（设计-05 §3）：**势温 Tp 随时间的演化** + 热收支诊断口。
 	//
 	// 这是"发动机缓慢熄火"的源项：地幔势温单调下降 ⇒ ① 热柱的 α·T_m 项变小（驱动变弱）
-	// ② Arrhenius 黏度上升（同样力的响应变慢）。在此之前的模型里 Tp 不存在——地幔密度、
-	// 黏度、年龄-密度链全是常量，所以驱动只能"饱和"、不能"衰减"（用户 2026-09-15 判读提出的质疑）。
+	// ② Arrhenius 黏度上升（同样力的响应变慢）。
 	//
 	// 演化律：净散热随放射性生热同比衰减（同一批燃料）：
 	//   生热   H_rad(t)  = 13 TW × Σ f_i·2^(−t/τ_i)        （U238/U235/Th232/K40，现值份额归一）
@@ -34,7 +33,7 @@ namespace World.NewHexWorld.Plate
 		public const float TargetDeclineKPerGa = 70f;
 		/// <summary>Arrhenius 激活能（J/mol）：橄榄石蠕变实测 300–500 kJ/mol。</summary>
 		public const float ActivationEnergyJPerMol = 400e3f;
-		/// <summary>参考黏度（t = 0 时；= `MaterialDensity.MantleViscosity`，保证初态与旧口径逐位一致）。</summary>
+		/// <summary>参考黏度（t = 0 时；= MaterialDensity.MantleViscosity）。</summary>
 		public const float ReferenceViscosityPaS = 1.57e20f;
 		/// <summary>陆壳地表热流（W/m²）：地球实测 ~65 mW/m²（陆壳自身生热 + 地幔供给）。只作收支审计的常数项。</summary>
 		public const float ContinentalHeatFlowWPerM2 = 0.065f;
@@ -53,9 +52,11 @@ namespace World.NewHexWorld.Plate
 		/// <summary>瞬时降温率（K/Ga）——判读口：这个数随时间缓慢变小（燃料衰减）。</summary>
 		public double DeclineKPerGa { get; private set; }
 		/// <summary>洋岩石圈散热（TW，由逐格年龄经热柱解析式算出）——诊断用。</summary>
-		public float OceanHeatFlowTW { get; private set; }
+		public float OceanHeatFlowTW { get { EnsureHeatFlow(); return _oceanHeatFlowTW; } }
+		float _oceanHeatFlowTW;
 		/// <summary>陆壳散热（TW，常数通量 × 陆面积）。</summary>
-		public float ContinentalHeatFlowTW { get; private set; }
+		public float ContinentalHeatFlowTW { get { EnsureHeatFlow(); return _continentalHeatFlowTW; } }
+		float _continentalHeatFlowTW;
 		/// <summary>地表总散热（TW）= 洋 + 陆。</summary>
 		public float HeatLossTW => OceanHeatFlowTW + ContinentalHeatFlowTW;
 		/// <summary>热源合计（TW）= 放射性生热 + 标定净散热。</summary>
@@ -65,7 +66,8 @@ namespace World.NewHexWorld.Plate
 		/// 而真实地球地表散热 47 TW。缺口 ≈ −TW 说明模型的散热与源是自洽的（审计通过），
 		/// 而"总功率只有地球的 ~40%"这件事**就是板速长期低于地球的原因**，也是 05 §开放点的那个自由度
 		/// （想要地球级板速，就必须提高热机功率，而那会与"地质观测的慢降温"冲突——Urey 比悖论）。</summary>
-		public double HeatBalanceGapTW { get; private set; }
+		public double HeatBalanceGapTW { get { EnsureHeatFlow(); return _heatBalanceGapTW; } }
+		double _heatBalanceGapTW;
 		/// <summary>当前地幔黏度（Pa·s；由 Tp 经 Arrhenius 算出，t = 0 时 = 参考值）。</summary>
 		public float MantleViscosityPaS { get; private set; }
 
@@ -76,15 +78,47 @@ namespace World.NewHexWorld.Plate
 			ElapsedMy = 0f;
 			PotentialTemperatureK = ReferencePotentialTemperatureK;
 			Refresh(0f);
+			_heatFlowDirty = false;    // 散热读数冻结为上一周期值（与原"Reset 不重算散热"同语义）
 		}
 
-		/// <summary>推进一个时间步：势温按热收支下降，随后刷新诊断口（生热/散热/黏度/缺口）。
-		/// `fields` 只用于**诊断**（洋岩石圈散热需要逐格年龄）——势温演化与场无关（见类注释的标定口径）。</summary>
+		/// <summary>推进一个时间步：势温按热收支下降，随后刷新与场无关的诊断项（生热/降温率/黏度）。
+		/// 地表散热诊断（逐格 O(N) sqrt 扫描）**懒算**：只记脏标记，首次读判读口时才扫
+		/// ——模拟热路径每步免一次 O(N) 诊断扫描，读数语义不变（步末读 = 本步值）。</summary>
 		public void Step(H3PlateFields fields, float stepMy)
 		{
 			ElapsedMy += stepMy;
 			Refresh(stepMy);
-			UpdateHeatFlowDiagnostics(fields);
+			_fieldsForHeatFlow = fields;
+			_heatFlowDirty = true;
+		}
+
+		// ── 地表散热诊断（懒算；每步第一次访问任一读数口时算一次）──
+		H3PlateFields _fieldsForHeatFlow;
+		bool _heatFlowDirty;
+
+		void EnsureHeatFlow()
+		{
+			if (!_heatFlowDirty) return;
+			_heatFlowDirty = false;
+			UpdateHeatFlowDiagnostics(_fieldsForHeatFlow);
+		}
+
+		// 地表散热诊断：洋格走热柱 q(age)，陆格走常数通量（只算面积，不算陆壳生热细节）
+		void UpdateHeatFlowDiagnostics(H3PlateFields fields)
+		{
+			if (fields == null) return;
+			int n = fields.Count;
+			double cellAreaM2 = 4.0 * Math.PI
+				* (H3PlateMotion.EarthRadiusKm * 1000.0) * (H3PlateMotion.EarthRadiusKm * 1000.0) / n;
+			double oceanWatts = 0, landCells = 0;
+			for (int i = 0; i < n; i++)
+			{
+				if (fields.IsLand(i)) { landCells++; continue; }
+				oceanWatts += H3ThermalColumn.HeatFlowWPerM2(fields.Age[i]) * cellAreaM2;
+			}
+			_oceanHeatFlowTW = (float)(oceanWatts / 1e12);
+			_continentalHeatFlowTW = (float)(landCells * cellAreaM2 * ContinentalHeatFlowWPerM2 / 1e12);
+			_heatBalanceGapTW = HeatLossTW - HeatSourceTW;
 		}
 
 		// 势温推进 + 与场无关的诊断项（生热/降温率/黏度）
@@ -108,23 +142,6 @@ namespace World.NewHexWorld.Plate
 		}
 
 		double _netCoolingTW;
-
-		// 地表散热诊断：洋格走热柱 q(age)，陆格走常数通量（只算面积，不算陆壳生热细节）
-		void UpdateHeatFlowDiagnostics(H3PlateFields fields)
-		{
-			int n = fields.Count;
-			double cellAreaM2 = 4.0 * Math.PI
-				* (H3PlateMotion.EarthRadiusKm * 1000.0) * (H3PlateMotion.EarthRadiusKm * 1000.0) / n;
-			double oceanWatts = 0, landCells = 0;
-			for (int i = 0; i < n; i++)
-			{
-				if (fields.IsLand(i)) { landCells++; continue; }
-				oceanWatts += H3ThermalColumn.HeatFlowWPerM2(fields.Age[i]) * cellAreaM2;
-			}
-			OceanHeatFlowTW = (float)(oceanWatts / 1e12);
-			ContinentalHeatFlowTW = (float)(landCells * cellAreaM2 * ContinentalHeatFlowWPerM2 / 1e12);
-			HeatBalanceGapTW = HeatLossTW - HeatSourceTW;
-		}
 
 		/// <summary>同位素衰变因子 Σ f_i·2^(−t/τ_i)（t 距今 My；t = 0 时为 1 = 现值）。</summary>
 		public static float IsotopeDecayFactor(float elapsedMy)

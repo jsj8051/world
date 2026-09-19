@@ -8,6 +8,7 @@
 
 [node name="Root" type="Node3D" unique_id=1452505373]
 script = ExtResource("1_mgr")
+RunMy = 3000.0
 
 [node name="OrbitalCamera" type="Node3D" parent="." unique_id=2004298144]
 script = ExtResource("5_cam")

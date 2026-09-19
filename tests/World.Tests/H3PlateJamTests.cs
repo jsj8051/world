@@ -13,7 +13,8 @@ namespace World.Tests;
 /// （堵住不动的接触不做功），判据与平流 Pass C 共用 H3PlateContact。
 /// 断言的测量项：
 ///   · FlowNeighbor 落点选择：切向投影最大者、纯径向邻居跳过、平局保先到者（确定性）；
-///   · JamsInto 判据：不比目标密才顶死（更密 = 俯冲）；foreign 前提由调用方保证；
+///   · JamsInto 判据：**需有长英质（陆壳）参与**（v1.17；洋-洋一律俯冲，03 §3.5）+ 不比目标密才顶死；
+///     foreign 前提由调用方保证；
 ///   · 运动学：顶死接触世界 vs 俯冲对照世界——顶死世界有幻影驱动力（毛 F > 净 F）且板速更低；
 ///   · 平流：真接触顶死计数（JamCellCount）只认 foreign——相位停驻不计；
 ///   · 全链路 smoke：判读口接线（JammedCells/JamContactCells/PhantomForceFraction）。
@@ -49,8 +50,63 @@ public class H3PlateJamTests
         fields.Age[cell] = OldAgeMy;
     }
 
-    /// <summary>全格铺统一成分的半区世界：Z≥0 为板 0，Z<0 为板 1（连续边界带，无无主格）。</summary>
-    static H3PlateFields HalfWorld(float agePlate0, float agePlate1)
+    /// <summary>年轻洋壳柱：纯 mafic、Age = 0 → 柱密度 = 2890（浮力恰 0，不驱动）。</summary>
+    static void FillYoungOceanic(H3PlateFields fields, int cell)
+    {
+        fields.ClearCell(cell);
+        fields.MaficVolcanic[cell] = Material.MaficVolcanicMin * 7100f;
+        fields.Age[cell] = YoungAgeMy;
+    }
+
+    /// <summary>陆壳柱：纯长英质 35 km → 柱密度 = 2600（浮，不驱动）；`IsLand` = true（物质口径）。</summary>
+    static void FillContinental(H3PlateFields fields, int cell)
+    {
+        fields.ClearCell(cell);
+        fields.FelsicPlutonic[cell] = Material.FelsicPlutonic * 35000f;
+        fields.Age[cell] = 0f;
+    }
+
+    /// <summary>把 <paramref name="plateA"/>/<paramref name="plateB"/> 的**接触带两侧**改写成陆壳
+    /// （v1.17：顶死/造山/缝合只在"有陆壳参与"的接触上成立——03 §3.5 只有陆-陆是"两侧都停 + 增厚"，
+    /// 洋-洋一律俯冲。旧 fixture 的"等密老洋壳双板 → 全边界顶死"前提在 v1.17 已作废）。
+    /// 只动接触带一格：板其余部分保持致密老洋壳 ⇒ 驱动力/洋龄/面积口径与旧 fixture 一致。</summary>
+    static void MakeContinentalContact(H3PlateFields fields, int plateA, int plateB)
+    {
+        int n = fields.Count;
+        var mark = new bool[n];
+        for (int c = 0; c < n; c++)
+        {
+            if (fields.PlateId[c] != plateA) continue;
+            foreach (int nb in Ball.CellNeighbors[c])
+                if (fields.PlateId[nb] == plateB) { mark[c] = true; break; }
+        }
+        for (int c = 0; c < n; c++)
+        {
+            if (fields.PlateId[c] != plateB) continue;
+            foreach (int nb in Ball.CellNeighbors[c])
+                if (fields.PlateId[nb] == plateA) { mark[c] = true; break; }
+        }
+        for (int c = 0; c < n; c++)
+            if (mark[c]) FillContinental(fields, c);
+    }
+
+    /// <summary>边界带改造方式（v1.17 对照实验用；见 <see cref="HalfWorld"/>）。</summary>
+    enum BandMode
+    {
+        /// <summary>不动（致密老洋壳 = 驱动）。</summary>
+        OldOcean,
+        /// <summary>改陆壳（可顶死；但陆壳无拉力 ⇒ 这些格退出驱动集）。</summary>
+        Continental,
+        /// <summary>改 age=0 年轻洋壳（**同样退出驱动集**，但不顶死）——顶死实验的对照必须用这一档：
+        /// 两个世界的驱动集逐格一致，唯一差异才是"锁定"，否则拟合出的 ω 差的是驱动图案而不是力。</summary>
+        YoungOcean,
+    }
+
+    /// <summary>全格铺统一成分的半区世界：Z≥0 为板 0，Z&lt;0 为板 1（连续边界带，无无主格）。
+    /// v1.17：顶死（造山）只在"有陆壳参与"的接触上成立（03 §3.5），故"顶死世界 vs 俯冲世界"的对照
+    /// 必须靠<see cref="BandMode"/> 且只在**板 0 边界带上 X&gt;0 那半**做文章——板 0 在 X&lt;0 那半
+    /// 保持致密老洋壳 ⇒ 驱动力非零（两世界同款），对照才可比。</summary>
+    static H3PlateFields HalfWorld(float agePlate0, float agePlate1, BandMode band = BandMode.OldOcean)
     {
         var fields = new H3PlateFields(Ball.CellIds.Length);
         var centers = Ball.CellCenters;
@@ -61,6 +117,29 @@ public class H3PlateJamTests
             fields.ClearCell(c);
             fields.MaficVolcanic[c] = Material.MaficVolcanicMin * 7100f;
             fields.Age[c] = north ? agePlate0 : agePlate1;
+        }
+        if (band != BandMode.OldOcean)
+        {
+            for (int c = 0; c < fields.Count; c++)
+            {
+                if (fields.PlateId[c] != 0 || centers[c].X <= 0f) continue;
+                bool touchesPlate1 = false;
+                foreach (int nb in Ball.CellNeighbors[c])
+                    if (fields.PlateId[nb] == 1) { touchesPlate1 = true; break; }
+                if (!touchesPlate1) continue;
+                fields.ClearCell(c);                                  // 板号不变（只换物质）
+                if (band == BandMode.Continental)
+                {
+                    fields.FelsicPlutonic[c] = Material.FelsicPlutonic * 35000f;
+                    fields.Age[c] = 1000f;
+                }
+                else
+                {
+                    fields.MaficVolcanic[c] = Material.MaficVolcanicMin * 7100f;
+                    fields.Age[c] = YoungAgeMy;
+                }
+                fields.PlateId[c] = 0;
+            }
         }
         return fields;
     }
@@ -105,21 +184,29 @@ public class H3PlateJamTests
     // ═══════════════════════════════════════════════════════════════
 
     [Test]
-    public void JamsInto_OnlyWhenNotDenserThanTarget()
+    public void JamsInto_RequiresContinentalContact_AndNotDenserThanTarget()
     {
-        var fields = new H3PlateFields(2);
-        FillOldOceanic(fields, 0);                       // 来料：3300（老洋壳）
-        FillOldOceanic(fields, 1);                       // 等密 → 顶死
-        Assert.IsTrue(H3PlateContact.JamsInto(fields, Material, 0, 1), "等密相撞 = 顶死（严格更密才俯冲）");
+        // ⚠️ v1.17 口径（03 §3.5 规则表 + 02 §5.2："洋洋/洋陆俯冲 = 下盘传送带消减"）：
+        //   顶死（= 造山）**只在有长英质（陆壳）参与的接触上**成立。旧判据只有密度比较
+        //   ⇒ 年轻洋壳撞老洋壳/同龄洋壳也顶死堆厚，在海底堆出 +3~4 km 假山系（永久定格，不进侵蚀）。
+        var oceans = new H3PlateFields(2);
+        FillOldOceanic(oceans, 0);                       // 老洋壳 3300（> 地幔 → 负浮力驱动）
+        FillYoungOceanic(oceans, 1);                     // 年轻洋壳 2890
+        Assert.IsFalse(H3PlateContact.JamsInto(oceans, Material, 0, 1), "老洋壳撞年轻洋壳 = 更密 ⇒ 俯冲");
+        Assert.IsFalse(H3PlateContact.JamsInto(oceans, Material, 1, 0), "年轻洋壳撞老洋壳 = 亦然俯冲（洋-洋不造山）");
+        FillOldOceanic(oceans, 1);
+        Assert.IsFalse(H3PlateContact.JamsInto(oceans, Material, 0, 1), "老洋壳撞老洋壳 = 等密仍俯冲（v1.17 关掉洋内造山）");
 
-        fields.ClearCell(1);                             // 目标换轻陆壳（2600）→ 俯冲
-        fields.FelsicPlutonic[1] = Material.FelsicPlutonic * 35000f;
-        Assert.IsFalse(H3PlateContact.JamsInto(fields, Material, 0, 1), "来料更密 = 俯冲，不顶死");
+        var pair = new H3PlateFields(2);                 // 0 = 老洋壳，1 = 陆壳
+        FillOldOceanic(pair, 0);
+        FillContinental(pair, 1);
+        Assert.IsFalse(H3PlateContact.JamsInto(pair, Material, 0, 1), "洋撞陆 = 目标更轻但来料更密 ⇒ 俯冲（下盘传送带）");
+        Assert.IsTrue(H3PlateContact.JamsInto(pair, Material, 1, 0), "陆撞洋 = 较浮的陆侧 = 上盘 = 顶死停驻（03 §3.5）");
 
-        fields.ClearCell(0);                             // 来料换轻陆壳（2600），目标老洋壳（3300）→ 顶死
-        fields.FelsicPlutonic[0] = Material.FelsicPlutonic * 35000f;
-        FillOldOceanic(fields, 1);
-        Assert.IsTrue(H3PlateContact.JamsInto(fields, Material, 0, 1), "轻料撞重料 = 顶死停驻");
+        var continents = new H3PlateFields(2);
+        FillContinental(continents, 0);
+        FillContinental(continents, 1);
+        Assert.IsTrue(H3PlateContact.JamsInto(continents, Material, 0, 1), "陆-陆等密相撞 = 顶死（两侧都停 + 增厚）");
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -129,27 +216,29 @@ public class H3PlateJamTests
     [Test]
     public void SolvePlateSpeeds_JamContactsExcludedFromNetForce_SlowsPlate()
     {
-        // 世界 A（顶死）：两板同为老洋壳 → 边界接触互为等密 → 全部顶死剔除。
-        // 世界 B（对照，俯冲）：板 0 老洋壳不动、板 1 换年轻洋壳（2890 < 来料）→ 板 0 全部俯冲、
-        // 无剔除。两世界几何与板 0 完全相同，唯一差异 = 接触目标密度 → 差值即剔除效果。
-        var fieldsJam = HalfWorld(OldAgeMy, OldAgeMy);
-        var fieldsSub = HalfWorld(OldAgeMy, YoungAgeMy);
+        // 世界 A（顶死）：板 0 边界带 X>0 那半是陆壳、板 1 是致密老洋壳 → 该段接触满足
+        //   "有陆壳参与 + 来料不比目标密" ⇒ 锁定（顶死）。世界 B（对照，俯冲）：同一批格改
+        //   **age=0 年轻洋壳** ⇒ 同样退出驱动集（age>0 才驱动）但不顶死 ⇒ 两世界驱动集**逐格一致**，
+        //   唯一差异是"锁定"。（⚠️ 不能用"全老洋壳"当对照：那样板 0 整个环都在驱动，驱动图案变了，
+        //   刚体拟合出的 ω 差的是图案不是力——v1.17 实测过这个坑。）
+        var fieldsJam = HalfWorld(OldAgeMy, OldAgeMy, BandMode.Continental);
+        var fieldsSub = HalfWorld(OldAgeMy, OldAgeMy, BandMode.YoungOcean);
         var motionJam = new H3PlateMotion(Ball.CellIds.Length);
         var motionSub = new H3PlateMotion(Ball.CellIds.Length);
 
         motionJam.Step(Ball, fieldsJam, Material, 9.8f, 4f);
         motionSub.Step(Ball, fieldsSub, Material, 9.8f, 4f);
 
-        // 顶死世界：剔除真实发生（存在接触带），幻影力占毛力一定比例；板 0 的幻影力非零
-        Assert.Greater(motionJam.JamContactCellCount, 0, "等密双板世界应有顶死接触格");
+        // 顶死世界：剔除真实发生（存在陆-洋接触带），幻影力占毛力一定比例；板 0 的幻影力非零
+        Assert.Greater(motionJam.JamContactCellCount, 0, "陆壳接触带应有顶死接触格");
         Assert.Greater(motionJam.PhantomForceFraction, 0f, "顶死格的拉力应计入幻影占比");
-        Assert.Greater(motionJam.PlateJamContacts[0], 0, "板 0 边界带应存在顶死格");
+        Assert.Greater(motionJam.PlateJamContacts[0], 0, "板 0 陆壳边界带应存在顶死格");
         Assert.Greater(motionJam.PlatePhantomForceN[0], 0f);
         Assert.LessOrEqual(motionJam.PlatePhantomForceN[0], motionJam.PlateGrossForceN[0] + 1e-6f,
             "幻影力不得超过毛力");
 
-        // 对照世界：目标全比来料轻 → 无顶死、无幻影力
-        Assert.AreEqual(0, motionSub.JamContactCellCount, "俯冲对照世界不应有顶死接触");
+        // 对照世界：全洋-洋汇聚（一律俯冲）→ 无顶死、无幻影力
+        Assert.AreEqual(0, motionSub.JamContactCellCount, "洋-洋俯冲对照世界不应有顶死接触");
         Assert.AreEqual(0f, motionSub.PhantomForceFraction, 1e-6f);
         Assert.AreEqual(0f, motionSub.PlatePhantomForceN[0], 1e-6f);
 
@@ -182,11 +271,13 @@ public class H3PlateJamTests
     [Test]
     public void Advection_ForeignJam_CountsAndStaysPut()
     {
+        // v1.17：顶死（造山）走**陆-陆**接触（03 §3.5）——旧 fixture 用"等密老洋壳异板"，
+        // 那条通道已按设计关闭（洋-洋一律俯冲），故本测试改用两块陆壳。
         var (i, j) = AdjacentPair();
         var source = new H3PlateFields(Ball.CellIds.Length);
-        FillOldOceanic(source, i);
+        FillContinental(source, i);
         source.PlateId[i] = 0;
-        FillOldOceanic(source, j);                       // 等密异板 → 顶死
+        FillContinental(source, j);                      // 等密（皆 2600）异板 → 顶死
         source.PlateId[j] = 1;
 
         var toJ = Ball.CellCenters[j] - Ball.CellCenters[i];
@@ -195,7 +286,7 @@ public class H3PlateJamTests
         var advection = new H3PlateAdvection(Ball.CellIds.Length);
         advection.Step(Ball, source, motion, target, Material, stepIndex: 0);
 
-        Assert.AreEqual(1, advection.JamCellCount, "等密异板相撞计 1 次顶死");
+        Assert.AreEqual(1, advection.JamCellCount, "陆-陆等密异板相撞计 1 次顶死");
         Assert.AreEqual(1, advection.JamCellsPerPlate[0], "顶死格按来料板记账");
         Assert.AreEqual(0, advection.HoleCount, "顶死驻留不产生空洞");
         Assert.AreEqual(0, advection.RecycledToMantleMass, 1e-6, "顶死不回地幔");

@@ -384,14 +384,16 @@ namespace World.Tectonics
     public class MaterialDensity
     {
         // 来源：docs/tectonics-ref/noncompiled/models/World.js material_density
-        public float Mantle = 3075f;         // 经验标定（isostatic 模型反推）
+        public float Mantle = 3075f;         // 经验标定（isostatic 模型反推）。v1.19 保留：换真值 3300 会放大
+                                             // 陆洋阶跃——Airy 缺"岩石圈浮力补偿"，此值实际承担该修正
         public float MaficVolcanicMin = 2890f;   // 年轻洋壳（Carlson & Raskin 1984）
         public float MaficVolcanicMax = 3300f;   // 老洋壳（冷却变密）
         public float Sediment = 1500f;
         public float Sedimentary = 2600f;
         public float Metamorphic = 2800f;
-        public float FelsicPlutonic = 2600f;
-        public float FelsicVolcanic = 2600f;
+        public float FelsicPlutonic = 2700f; // v1.19 物理化：实测上陆壳均值（granodiorite bulk 2670–2730）；
+                                             // 旧值 2600 偏轻 ⇒ 陆洋 Airy 阶跃虚大 ~1.1 km、大陆系统性偏高
+        public float FelsicVolcanic = 2700f; // 同上
         public float Ocean = 1026f;
         // 地幔粘度（World.js material_viscosity，单位 m/s per Pascal）
         public float MantleViscosity = 1.57e20f;

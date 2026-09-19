@@ -45,10 +45,15 @@ public class MapModeTests
         var theirs = ElevationLayer.ElevationStops;
         var ours = ElevationMapMode.ElevationStops;
         Assert.AreEqual(theirs.Length, ours.Length, "停点数须一致（照搬整表）");
+        // 唯一有意偏离：停点 6（0m 硬台阶陆侧）2026-09-17 用户拍板天蓝 → 浅绿——本世界陆地
+        // 起伏连续，大量低地落在 0~500 m 段，原天蓝与海洋蓝同族（见 ElevationMapMode 注）。
         for (int i = 0; i < theirs.Length; i++)
         {
             Assert.AreEqual(theirs[i].Pos, ours[i].Pos, $"停点 {i} 位置漂移");
-            Assert.AreEqual(theirs[i].C, ours[i].C, $"停点 {i} 颜色漂移");
+            if (i == 6)
+                Assert.AreEqual(new Color(0.50f, 0.79f, 0.42f), ours[i].C, "停点 6 = 陆侧浅绿（09-17 拍板，防回退）");
+            else
+                Assert.AreEqual(theirs[i].C, ours[i].C, $"停点 {i} 颜色漂移");
         }
     }
 

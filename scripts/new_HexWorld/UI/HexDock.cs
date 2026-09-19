@@ -10,7 +10,7 @@ namespace World.NewHexWorld.UI
 	// 模式按钮 = %ModeRow 场景预置按钮（代码自动收集）；按钮文案/数量由 BindModes 从模式注册表
 	// 同源下行（场景只保留按钮顺序职责：下标 = 模式 Id = 注册序）——加模式 = 注册表注册一行
 	// + 场景加一个无文案按钮，错位/漏加由 BindModes 当场暴露。
-	// 坞动画用显式状态模型（用户拍板）：current 实时读 offset，唯一路径 from=CurrentPos() → to=target。
+	// 坞动画用显式状态模型：current 实时读 offset，唯一路径 from=CurrentPos() → to=target。
 	public partial class HexDock : PanelContainer
 	{
 		// 模式选择信号（上行：点模式按钮 → 控制器订阅后切换显示）。
@@ -23,7 +23,7 @@ namespace World.NewHexWorld.UI
 		Vector2? _target;           // 动画目标坐标；null=已静止
 		Tween _tween;               // 动画（新动画前 Kill 旧的防串台）
 		const float HeadH = 30f;            // 标题条高（收起时唯一露出部分；场景 HeadRow 同值）
-		const float SlideDur = 0.25f;       // 滑出/滑入时长（匀速 Linear，用户拍板固定时间固定距离）
+		const float SlideDur = 0.25f;       // 滑出/滑入时长（匀速 Linear，固定时间固定距离）
 
 		public override void _Ready()
 		{
@@ -44,7 +44,7 @@ namespace World.NewHexWorld.UI
 			MoveDockTo(CollapsedPos(), instant: true);
 		}
 
-		// 每帧坞状态：指针在面板矩形内 → 展开；移出 → 收起（无防抖，用户拍板）。
+		// 每帧坞状态：指针在面板矩形内 → 展开；移出 → 收起（无防抖）。
 		// 动画中目标没变 → 不打扰；变了 → 从 current 折返；静止漂移且意图没变 → instant 补正。
 		public override void _Process(double delta) => UpdateDockByMouse();
 
@@ -144,7 +144,7 @@ namespace World.NewHexWorld.UI
 			_tween?.Kill();
 			var tw = CreateTween();
 			tw.SetProcessMode(Tween.TweenProcessMode.Physics);
-			tw.SetTrans(Tween.TransitionType.Linear);   // 匀速（用户拍板：固定时间固定距离，拒缓动）
+			tw.SetTrans(Tween.TransitionType.Linear);   // 匀速（固定时间固定距离）
 			tw.Parallel();
 			tw.TweenProperty(this, "offset_top", target.X, SlideDur);
 			tw.TweenProperty(this, "offset_bottom", target.Y, SlideDur);

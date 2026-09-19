@@ -80,11 +80,23 @@ public class H3BoundaryReliefTests
         relief.Apply(Ball, fields, velocity, isostasy, Material);
 
         Assert.Greater(relief.TrenchAxisCells, 0, "汇聚边洋侧应有海沟轴格");
+        // 断言用**datum 无关**的口径：海沟 = "相对周围洋底的额外下挖"。v1.18 单一 datum 取消了旧的
+        // 绝对大洋基准 −2500（参考洋柱 = 0），故不能再断言"最深位移 ≤ −4800"——那是旧 datum 的数。
+        // 本 fixture 全洋 age=0 ⇒ 未下挖格的位移就是洋底基准（≈0，挠曲会小幅扰动）。
+        double floorSum = 0;
+        int floorCells = 0;
         float deepest = float.MaxValue;
-        foreach (float d in isostasy.Displacement) if (d < deepest) deepest = d;
-        // 洋底基准 ≈ −2500 m（age=0）；轴率饱和（C=15 km/My ≥ 参考值 10）→ 轴深 −2500−2500 = −5000
-        Assert.LessOrEqual(deepest, -4800f,
-            $"最深位移 {deepest:F0} m 应达海沟量级（基准 −2500 − 轴深 2500；03 §5 改进 8 的闭环断言）");
+        foreach (float d in isostasy.Displacement)
+        {
+            if (d < deepest) deepest = d;
+            if (d < -500f) continue;                  // 跳过被下挖的沟带格
+            floorSum += d;
+            floorCells++;
+        }
+        float floorDisplacement = floorCells > 0 ? (float)(floorSum / floorCells) : 0f;
+        Assert.Greater(floorDisplacement - deepest, H3BoundaryRelief.TrenchDepthM * 0.9f,
+            $"最深位移 {deepest:F0} m 相对洋底基准 {floorDisplacement:F0} m 的下挖 "
+            + $"{floorDisplacement - deepest:F0} m 应达海沟量级（轴深 {H3BoundaryRelief.TrenchDepthM:F0} m）");
 
         Assert.Greater(relief.ArcCells, 0, "上盘内陆应有弧格");
         Assert.Greater(relief.ArcAddedMass, 0.0);

@@ -204,7 +204,7 @@ public class H3ThermalTests
         for (int i = 0; i < fields.Count; i++)
         {
             fields.FelsicPlutonic[i] = 2700f * 1000f;      // 全陆（IsLand = 长英质 > 0）
-            fields.Age[i] = 1000f;
+            fields.Age[i] = 0f;
         }
         var state = new H3ThermalState();
         state.Step(fields, 4f);

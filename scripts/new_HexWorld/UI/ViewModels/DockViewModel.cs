@@ -6,7 +6,7 @@ namespace World.NewHexWorld.UI.ViewModels
 {
 	// 坞 VM（设计入口 §2.2）：模式列表（注册表派生）+ 当前模式（坞的交互状态）。
 	// 模式切换 = Select(modeId) → ModeChanged 事件广播；组装器接线：球视图 VM 重投影 +
-	// 格信息 VM 换策略 + 坞按钮高亮下行。事件为 C# 轻量事件（无框架，用户拍板）。
+	// 格信息 VM 换策略 + 坞按钮高亮下行。事件为 C# 轻量事件（无框架）。
 	public sealed class DockViewModel
 	{
 		readonly MapModeRegistry _registry;

@@ -149,13 +149,15 @@ public class H3DynamicInitTests
     }
 
     [Test]
-    public void Initialize_LandElevation_AnchoredToBaselineAboveSea()
+    public void Initialize_LandElevation_EmergentFromFixedWaterVolume()
     {
-        // 陆格露出**锚在自由板高度**（`H3Isostasy.LandBaselineM` = 800 m）± fBm 起伏（01 §3.3 目标 ~+800 m）。
-        // ⚠️ 这条断言在 v1.10 前是 [200,3000] 的宽区间（"千 m 量级"），于是**放过了**一个真实缺陷：
-        //    d 同时被当"海拔"与"老 Init 山地模板曲线的输入"，曲线在 d=797 处已编码 36.7 km 陆壳
-        //    （比均衡参考厚 28.3 km 厚 8.4 km）→ 经 Airy 多抬 1.3 km，陆均值实测 **+2316 m**（偏目标 2.9 倍）。
-        //    现陆壳走 Airy 反解，基准即海拔；本断言收紧到目标邻域 + 陆格恒在海平面之上（海平面求解的硬前提）。
+        // v1.19 全球水层口径：陆格露出**不再是任何标定目标**，而是涌现量
+        // = 陆洋均衡阶跃（Airy 常量）− 海平面（由"全球等效水层 2700 m"按容积守恒解出）。
+        // 历史链：v1.10 前该断言是 [200,3000] 宽区间，放过了"d 双当海拔与模板输入"的缺陷（陆均值 +2316 m）；
+        // v1.10 起陆壳走 Airy 反解、基准即海拔；v1.17 幅度 550→1800（水位维度解锁被淹没低地）；
+        // v1.18 反解自由板把海平面顶到 +4.2 km（陆均被钉回 800）；v1.19 第一版拿 3700 当水量解出
+        // +0.27 km（陆均 +4.7 km"全是高山"、脊轴出水）；现口径（全球水层）海平面 ≈ +1.3 km、
+        // 陆均露出 ≈ +3.7 km——仍偏高的来源（ρ_c 2600 偏轻、洋底偏老）已登记，见 H3Isostasy v1.19 头注。
         var plateOfCell = new H3Plate(Ball).SplitIntoPlates(Plates, Seed);
         var sim = new H3DynamicTectonics(Ball);
         sim.Initialize(plateOfCell, Seed);
@@ -167,7 +169,7 @@ public class H3DynamicInitTests
         float min = float.MaxValue, max = float.MinValue;
         for (int i = 0; i < d.Length; i++)
         {
-            if (!sim.Fields.IsLand(i)) continue;
+            if (!sim.Fields.IsLand(i)) continue;          // 物质口径：长英质壳
             land++;
             float elevation = d[i] - sea;
             sum += elevation;
@@ -176,13 +178,24 @@ public class H3DynamicInitTests
         }
         double mean = sum / land;
         float amplitude = sim.LandReliefAmplitudeM;
-        Assert.That(mean, Is.InRange(600.0, 1000.0),
-            $"陆格露出均值 {mean:F0} m 应锚在自由板高度 800 m（±{amplitude:F0} m 起伏）；海平面 {sea:F0} m");
-        Assert.GreaterOrEqual(min, 0f,
-            $"最低陆格 {min:F0} m —— 陆格不得落到海平面以下（幅度 {amplitude:F0} m 相对 800 m 自由板过大）");
-        Assert.Greater(max, 800f + amplitude * 0.3f, $"最高陆格 {max:F0} m 过低 = 陆起伏没铺开");
-        Assert.LessOrEqual(max, 800f + amplitude * 1.45f, $"最高陆格 {max:F0} m 超过 fBm 硬上界");
-        Assert.Greater(sea, -5000f, "海平面应落在洋底基准决定的负值区间");
+        float bound = amplitude * 1.45f;
+        float airyStep = H3Isostasy.AiryFactor(new MaterialDensity()) * H3Isostasy.LandReferenceThicknessM
+            - H3Isostasy.AiryFactorMafic(new MaterialDensity()) * H3Isostasy.OceanReferenceThicknessM;
+        double expected = airyStep - sea;
+        // ① 均值 = 涌现链（阶跃 − 海平面，±400 m 容差 = fBm 采样均值 + 陆格薄沉积）；② 极值不超 fBm 硬界
+        Assert.That(mean, Is.InRange(expected - 400.0, expected + 400.0),
+            $"陆格露出均值 {mean:F0} m 应 ≈ 均衡阶跃 {airyStep:F0} − 海平面 {sea:F0} = {expected:F0} m"
+            + $"（±{amplitude:F0} m 起伏的采样均值漂移内）");
+        Assert.GreaterOrEqual(min, expected - bound - 20f,
+            $"最低陆壳格 {min:F0} m 跌破 涌现均值 − fBm 硬下界 {expected - bound:F0} m（幅度 {amplitude:F0} m）");
+        Assert.Greater(max, expected + amplitude * 0.3f, $"最高陆格 {max:F0} m 过低 = 陆起伏没铺开");
+        Assert.LessOrEqual(max, expected + bound, $"最高陆格 {max:F0} m 超过 fBm 硬上界");
+        // v1.19 全球水层口径：海平面由"地球实测全球等效水层 2700 m"按容积守恒解出——无任何海拔目标。
+        // 量级推演：洋底平均位移 ≈ −3.2 km、洋盆占 60% ⇒ 海平面 ≈ +1.3 km（datum）。
+        // 历史链：v1.18 反解自由板把海平面顶到 +4.2 km；v1.19 第一版拿 3700 当水量解出 +0.27 km
+        // （脊轴出水成"放射线"）——都是把海拔目标错当水量输入；现口径海平面纯涌现。
+        Assert.That(sea, Is.InRange(800f, 1800f),
+            $"海平面 {sea:F0} m 应由全球等效水层(2700 m)涌现（≈ +1.3 km，带宽容洋占比抽样差）");
     }
 
     [Test]
@@ -277,14 +290,19 @@ public class H3DynamicInitTests
     [Test]
     public void Initialize_OceanRelief_MapsThroughAiry_InKnownThicknessBand()
     {
-        // 洋壳厚度 = 洋参考厚 + 起伏 / kAiry（Airy 反解）⇒ 厚度必须落在 [参考 ∓ 幅度/kAiry] 内，
+        // 洋壳厚度 = 洋参考厚 + 起伏 / kAiry,mafic（Airy 反解）⇒ 厚度必须落在 [参考 ∓ 幅度/kAiry] 内，
         // 且实际铺开的跨度可观（不是常量场）。这条同时守住"洋底起伏是写厚度得来的"这个机制口径。
+        // ⚠️ v1.17：kAiry 必须用**镁铁质**那个（1 − 2890/3075 = 0.0602），不是长英质的 0.1545——
+        // 旧写法两侧共用一个长英质系数，而均衡读侧曾也用同一个 ⇒ 自洽但抬升被放大 2.57×（海底假山的成因之一）。
+        // 用对系数后，"±amplitude 米的**海拔**起伏"要求 ±amplitude/kAiry,mafic ≈ ±5.8 km 的**厚度**起伏
+        // （H3DynamicTectonics.OceanReliefAmplitudeM 注释已登记该口径与随之而来的厚度区间）。
         const float amplitude = 400f;
         var plateOfCell = new H3Plate(Ball).SplitIntoPlates(Plates, Seed);
         var sim = new H3DynamicTectonics(Ball) { OceanReliefAmplitudeM = amplitude };
         sim.Initialize(plateOfCell, Seed);
 
-        float airy = H3Isostasy.AiryFactor(new MaterialDensity());
+        var material = new MaterialDensity();
+        float airy = H3Isostasy.AiryFactorMafic(material);
         float reference = H3Isostasy.OceanReferenceThicknessM;
         float span = amplitude / airy;
         var fields = sim.Fields;

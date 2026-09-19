@@ -27,6 +27,32 @@ public class H3PlateStaticTests
     private const int Plates = 15;      // 文档默认 P（10–20 区间）
     private const int Seed = 42;        // 文档默认 seed（场景默认同值）
 
+    [Test]
+    public void SplitIntoPlates_MinShare_NoSliverPlates()
+    {
+        // v1.24(C)：防饿死地板 + 退化碎片重采样后，生长不再产出"个位数格"的病理碎片——
+        // 最小板份额 ≥ 公平份额 × 5% 的 0.9 倍（≈ 0.33%/P=15，res3 上 ≈ 50 万 km²，真实小板块量级）。
+        // 注意不是"各板均等"：加权重生长的悬殊是刻意保留的地形性格（GrowthRateExponent）。
+        foreach (var (numPlates, seed) in new[] { (15, 42), (15, 7), (6, 1337), (4, 42) })
+        {
+            var plateOfCell = new H3Plate(Ball).SplitIntoPlates(numPlates, seed);
+            var counts = new int[numPlates];
+            int claimed = 0;
+            foreach (int p in plateOfCell)
+            {
+                Assert.GreaterOrEqual(p, 0, $"P={numPlates} seed={seed}：生长应铺满（无主格是测试该抓的缺陷）");
+                counts[p]++;
+                claimed++;
+            }
+            Assert.AreEqual(plateOfCell.Length, claimed, "铺满");
+            double minShare = double.MaxValue;
+            foreach (int c in counts) minShare = Math.Min(minShare, c / (double)plateOfCell.Length);
+            double floor = 0.9 * 0.05 / numPlates;
+            Assert.GreaterOrEqual(minShare, floor,
+                $"P={numPlates} seed={seed}：最小板份额 {minShare:P2} 低于退化碎片线 {floor:P2}");
+        }
+    }
+
     // 类级共享网格（构造昂贵：全格 CellToVertexes/GridDisk；只建一次跨用例复用）
     static readonly Lazy<Ball> SharedBall = new(() => new Ball(Res, 1f));
     static Ball Ball => SharedBall.Value;

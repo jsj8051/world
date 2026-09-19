@@ -1,7 +1,8 @@
 using Godot;
 using System;
 using System.Collections.Generic;
-using World.NewHexWorld.UI.Modes;            // ElevationMapMode（海拔色带烘焙源）
+using World.NewHexWorld.Plate;               // H3Rivers（河流走廊，R3）
+using World.NewHexWorld.UI.Modes;            // Elevation/TemperatureMapMode（色带烘焙源）
 using World.NewHexWorld.UI.ViewModels;
 using World.Render;                          // SphereLines（球面画线工具）
 using World.Utils;
@@ -18,7 +19,7 @@ namespace World.NewHexWorld
 	// 派生，模式切换换 uniform、描边开关切线可见性——零几何重交。
 	// View 只显示，不读/改 Model 的地壳场数组（区域数据/边界边集都经 VM 派生口）；Ball 自身的静态
 	// 网格几何（建面/拾取）属渲染基础设施，直读只读 Ball。拾取 PickCell（屏幕点 → 球面 cell）。
-	// 视角运动全交 OrbitalCamera（拖转/缩放）——星球本身不自转（用户拍板 09-07）。
+	// 视角运动全交 OrbitalCamera（拖转/缩放）——星球本身不自转。
 	public partial class BallView : Node3D
 	{
 		Ball _ball;                     // 数据层（组装器 Init 注入）
@@ -48,12 +49,25 @@ namespace World.NewHexWorld
 		public void Bind(HexWorldViewModel vm)
 		{
 			_vm = vm;
+			RebuildMeshWithRiverCorridors(vm.RiverCorridors);   // 河流走廊细分（生成后一次；无河则保持基网格）
 			SubmitSurface();
 			SubmitBoundaryLines(vm.BoundaryVertexEdges);   // 边界线几何（点串带 + 端帽，建一次常驻）
 			_material.SetShaderParameter("region_data", BuildRegionDataTexture());
-			_material.SetShaderParameter("elevation_ramp", BuildElevationRampTexture());
+			_material.SetShaderParameter("region_data2", BuildRegionData2Texture());
+			_material.SetShaderParameter("elevation_ramp", BakeRampTexture(ElevationMapMode.ElevationStops));
+			_material.SetShaderParameter("temperature_ramp", BakeRampTexture(TemperatureMapMode.TemperatureStops));
+			_material.SetShaderParameter("precipitation_ramp", BakeRampTexture(PrecipitationMapMode.PrecipStops));
 			_vm.Changed += Refresh;
 			Refresh();
+		}
+
+		// 河流走廊细分：走廊格的显示面替换为 res+1 子格面、河格走河流材质——
+		// Init 期网格是基形态（生成未跑），Bind 时账本已定局，有走廊才重建重提交（静态世界一次）。
+		void RebuildMeshWithRiverCorridors(H3Rivers.Corridors corridors)
+		{
+			if (corridors == null || corridors.ChildCount == 0) return;
+			_mesh.BuildTileMeshData(_ball, _ball.Radius, corridors);
+			((ArrayMesh)_meshInstance.Mesh).ClearSurfaces();
 		}
 
 		// 拉取 VM 显示状态 → uniform / 可见性（模式切换/描边开关只走这里；静态世界无重交）。
@@ -83,10 +97,11 @@ namespace World.NewHexWorld
 		}
 
 		// 静态表面一次提交：顶点/索引 + UV（格纹素中心 = region_data 查找地址）。
-		// 几何常驻不再动；取色全在片元侧派生。
+		// Bind 可能带走廊重建过几何 → 先清旧面再加（幂等）。
 		void SubmitSurface()
 		{
 			var am = (ArrayMesh)_meshInstance.Mesh;
+			am.ClearSurfaces();
 			var arr = new Godot.Collections.Array();
 			arr.Resize((int)Mesh.ArrayType.Max);
 			arr[(int)Mesh.ArrayType.Vertex] = _mesh.DisplayVerts;
@@ -96,7 +111,7 @@ namespace World.NewHexWorld
 		}
 
 		// 边界线一次提交：异板共享边顶点对 → 世界坐标两点串喂 SphereLines（线带/端帽几何由工具
-		// 生成，建一次常驻）。换算与旧几何线带同值：线半宽 = _lineWidthFrac × ρ × R、细分步长 =
+		// 生成，建一次常驻）。换算口径：线半宽 = _lineWidthFrac × ρ × R、细分步长 =
 		// 0.4 × ρ × R（格度量 ρ 角量 × 球半径 → 世界单位）。
 		void SubmitBoundaryLines(IReadOnlyList<(ulong va, ulong vb)> edges)
 		{
@@ -112,43 +127,76 @@ namespace World.NewHexWorld
 			_lines.SetLines(strips, _ball.Radius, halfWidth, 0.4f * rho * _ball.Radius);
 		}
 
-		// 逐格区域数据纹理（每格 1 纹素；R=海拔归一 / G=板号色相 / B=陆1洋0 / A 备用；布局 =
-		// BallMesh.DataTexWidth，与 UV 填充同源）。数据经 VM 派生口（Crust 场引用，静态生成后只读）；
-		// 海拔归一域 = 色带停点首尾 Pos（与色带同源 → 改色带无需动这里）。8 bit/通道对本阶段两级
-		// 常量绰绰有余；将来要素生成器加连续起伏后换 Rf/Rgb16f 通道即可（纹素布局不变）。
+		// 逐格区域数据纹理（R=海拔归一 / G=板号色相 / B=陆1洋0 / A=温度归一；布局 =
+		// 基格纹素 + 走廊子格纹素，尺寸由 _mesh 提供）。子格纹素场值从父格复制（子格是父格的
+		// 细分显示，数据同源——统一判陆口不动）。
 		Texture2D BuildRegionDataTexture()
 		{
-			int n = _vm.CellCount;
-			int w = BallMesh.DataTexWidth(n), h = (n + w - 1) / w;
+			int n = _vm.CellCount, w = _mesh.DataTexW, h = _mesh.DataTexH;
+			var bytes = new byte[w * h * 4];
 			float elevMin = ElevationMapMode.ElevationStops[0].Pos;
-			float span = ElevationMapMode.ElevationStops[^1].Pos - elevMin;
-			int plateCount = _vm.PlateCount;
+			float elevSpan = ElevationMapMode.ElevationStops[^1].Pos - elevMin;
+			float tempMin = TemperatureMapMode.TemperatureStops[0].Pos;
+			float tempSpan = TemperatureMapMode.TemperatureStops[^1].Pos - tempMin;
 			var elevs = _vm.CellElevations;
 			var plateIds = _vm.CellPlateIds;
-			var bytes = new byte[w * h * 4];
+			var temps = _vm.CellTemperatures;
 			for (int i = 0; i < n; i++)
 			{
 				int o = i * 4;
-				bytes[o] = (byte)Math.Round(Math.Clamp((elevs[i] - elevMin) / span, 0f, 1f) * 255f);
-				bytes[o + 1] = (byte)Math.Round(plateIds[i] * 255f / plateCount);   // 板号 → 色相归一（片元侧还原板色）
+				bytes[o] = (byte)Math.Round(Math.Clamp((elevs[i] - elevMin) / elevSpan, 0f, 1f) * 255f);
+				bytes[o + 1] = (byte)Math.Round(plateIds[i] * 255f / _vm.PlateCount);   // 板号 → 色相归一（片元侧还原板色）
 				bytes[o + 2] = _vm.IsLand(i) ? (byte)255 : (byte)0;                 // 统一判陆口（预留分区域材质位）
-				bytes[o + 3] = 255;
+				bytes[o + 3] = (byte)Math.Round(Math.Clamp((temps[i] - tempMin) / tempSpan, 0f, 1f) * 255f);   // 温度 → 归一（片元侧查温度色带）
 			}
+			CopyChildTexels(bytes, writeRiver: false);
 			return ImageTexture.CreateFromImage(Image.CreateFromData(w, h, false, Image.Format.Rgba8, bytes));
 		}
 
-		// 海拔色带纹理（256×1，linear）：与信息面板同一 RampSampleSmooth(ElevationStops) 烘焙 →
-		// 画面与信息条取色天然同源（旧 CPU 投影同款 sRGB→linear 纪律）。采点 = 纹素中心——
-		// 0m 硬台阶落最近纹素界（~55 m 量级偏差，两级常量数据下不可见）。
-		Texture2D BuildElevationRampTexture()
+		// 第二张逐格区域数据纹理（region_data A 通道已被温度占用；R=降水归一（陆地 min-max
+		// 自适应域），G=河流档 0..3（仅走廊子格非零，shader 河流材质用），B/A 备用）。
+		Texture2D BuildRegionData2Texture()
+		{
+			int n = _vm.CellCount, w = _mesh.DataTexW, h = _mesh.DataTexH;
+			var bytes = new byte[w * h * 4];
+			(float pMin, float pMax) = _vm.PrecipLandRange;
+			var precip = _vm.CellPrecipMmYear;
+			for (int i = 0; i < n; i++)
+			{
+				int o = i * 4;
+				bytes[o] = (byte)Math.Round(PrecipitationMapMode.Normalize(precip[i], pMin, pMax) * 255f);
+				bytes[o + 1] = 0;   // 河档只写走廊子格
+				bytes[o + 2] = 0;
+				bytes[o + 3] = 255;
+			}
+			CopyChildTexels(bytes, writeRiver: true);
+			return ImageTexture.CreateFromImage(Image.CreateFromData(w, h, false, Image.Format.Rgba8, bytes));
+		}
+
+		// 走廊子格纹素 = 父格纹素复制（场值同源）；region_data2 的 G 通道写河档（0..3 → 0/85/170/255）。
+		void CopyChildTexels(byte[] bytes, bool writeRiver)
+		{
+			int n = _vm.CellCount;
+			var parents = _mesh.CorridorChildParent;
+			var grades = _mesh.CorridorChildGrade;
+			for (int e = 0; e < parents.Length; e++)
+			{
+				int child = (n + e) * 4, parent = parents[e] * 4;
+				for (int k = 0; k < 4; k++) bytes[child + k] = bytes[parent + k];
+				if (writeRiver) bytes[child + 1] = (byte)Math.Round(grades[e] * (255f / 3f));
+			}
+		}
+
+		// 色带纹理烘焙（256×1，linear）：海拔/温度/降水三模式共用——与信息面板同一 RampSampleSmooth
+		// 烘焙 → 画面与信息条取色天然同源（sRGB→linear）。采点 = 纹素中心。
+		Texture2D BakeRampTexture(ColorStop[] stops)
 		{
 			const int ramp = 256;
-			var stops = ElevationMapMode.ElevationStops;
-			float elevMin = stops[0].Pos, span = stops[^1].Pos - elevMin;
+			float vMin = stops[0].Pos, span = stops[^1].Pos - vMin;
 			var bytes = new byte[ramp * 4];
 			for (int i = 0; i < ramp; i++)
 			{
-				Color c = RampSampleSmooth(stops, elevMin + span * (i + 0.5f) / ramp).SrgbToLinear();
+				Color c = RampSampleSmooth(stops, vMin + span * (i + 0.5f) / ramp).SrgbToLinear();
 				int o = i * 4;
 				bytes[o] = (byte)Math.Round(c.R * 255f);
 				bytes[o + 1] = (byte)Math.Round(c.G * 255f);
