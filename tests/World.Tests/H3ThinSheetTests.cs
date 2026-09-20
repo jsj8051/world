@@ -143,6 +143,48 @@ public class H3ThinSheetTests
     }
 
     [Test]
+    public void LinearRamp_GlobalDrive_FlowsDownhill_NoLockup()
+    {
+        // 球面锁死缺陷的关闭测试（设计-07 §0.0 登记项，2026-09-20 复判）：
+        // 线形 GPE 坡 gpe = k·X 是"平移型"全球驱动——P2.1 早期（×平均边刚度×1e-4 弱规范锚时代）
+        // 实测收敛到 ~0，当时的处方是"逐边未知量重入"。复判结论：锁死根因 = 弱规范锚的平移
+        // 近零空间饿死 CG；P2.1 改拖曳型规范锚（K/gauge ≈ 22，分辨率无关）后已顺带修复——
+        // 逐格速度表述保留，逐边重写不采用（§8 问题 2 关闭）。本测试钉住：全球驱动健康
+        // （速度沿下坡、量级与拖曳平衡档同数量级、CG 在预算内收敛），res1/res2 同验。
+        foreach (var res in new[] { 1, 2 })
+        {
+            var ball = new Ball(res, 1f);
+            float k = 2e12f;
+            var gpe = new float[ball.CellIds.Length];
+            for (int i = 0; i < gpe.Length; i++) gpe[i] = k * ball.CellCenters[i].X;
+
+            var sheet = new H3ThinSheet(ball);
+            sheet.Solve(gpe);
+
+            float radiusM = H3PlateMotion.EarthRadiusKm * 1000f;
+            double sumSpeed = 0, sumAlong = 0;
+            int n = ball.CellIds.Length;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 w = new Vector3(1f, 0f, 0f)
+                    - ball.CellDirs[i] * ball.CellDirs[i].Dot(new Vector3(1f, 0f, 0f));   // −x 平移型切向场
+                sumSpeed += sheet.Velocity[i].Length();
+                sumAlong += sheet.Velocity[i].Dot(-w / w.Length());
+            }
+            float meanSpeed = (float)(sumSpeed / n) * 100f;      // cm/yr
+            float meanAlong = (float)(sumAlong / n) * 100f;
+            float dragBalance = k / radiusM / sheet.BasalDragNyrPerM3 * 100f;   // 板式平衡档 |∇GPE|/c_b
+
+            Assert.Greater(meanAlong, 0f, $"res{res}：线形坡应驱动整体沿 −x 下坡（方向不锁死）");
+            Assert.Greater(meanAlong, 0.8f * meanSpeed, $"res{res}：运动应以下坡分量为主（无侧向发散）");
+            Assert.That(meanSpeed, Is.EqualTo(dragBalance).Within(0.75f * dragBalance),
+                $"res{res}：全球驱动速度应与拖曳平衡档（{dragBalance:F2} cm/yr）同数量级——压制超 4× 即锁死复发");
+            Assert.Less(sheet.LastCgIterations, sheet.CgMaxIterations,
+                $"res{res}：CG 应在预算内收敛（残差 {sheet.LastCgResidual:E2}）");
+        }
+    }
+
+    [Test]
     public void ShadowCompare_UnitsDirectionThreshold()
     {
         // 旧：1 rad/My = 637.1 cm/yr；新：±0.05 m/yr = ±5 cm/yr；第三格双方低于阈值（0.05 cm/yr）
