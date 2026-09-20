@@ -582,6 +582,10 @@ namespace World.NewHexWorld.Plate
 					_motion.AddSlab(entry.plate, entry.massPerArea, entry.dir);
 				(_fields, _scratch) = (_scratch, _fields);
 				RecycledToMantleLastStep = _flux.RecycledToMantleLastStep;
+				// 销毁分账两户（P4 台账补齐）：守恒组销毁 = 伺服的输入（漏记则伺服永不触发，
+				// 长跑水世界防线哑火）；刮削 = 弧回流的配平对手（判读口）。
+				RecycledConservedTotal += _flux.RecycledConservedMassLastStep;
+				FelsicScrapedCum += _flux.FelsicScrapedMassLastStep;
 				FluxSubductEdgesLastStep = _flux.SubductEdgesLastStep;
 				HoleCellsLastStep = 0; MixedCellsLastStep = 0; OverflowCellsLastStep = 0;
 				ResampledCellsLastStep = 0; JammedCellsLastStep = 0; ContinentalJamCellsLastStep = 0;

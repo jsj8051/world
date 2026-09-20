@@ -33,6 +33,7 @@ public partial class HexDynamicDiag : Node
 	float? _reliefWaveKm;
 	int _flexureIterations = -1;      // <0 = 用产品默认（24）；0 = 关闭挠曲（A/B 对照）
 	float _precipScale = 1f;          // 降水倍率（0 = 无水世界：水蚀/输沙归零，只剩风+重力）
+	float _yieldRate = -1f;           // 屈服流速率覆盖（-1 = 用默认档；P4 平衡点判读 A/B）
 	// 影子薄席（设计-07 P1）：--shadow=1 开启——旧运动学旁并行解薄席速度场，只记不改。
 	bool _shadow;
 	// 薄席驱动（设计-07 P2）：--sheet=1 开启——平流方向/节拍改吃薄席，旧力平衡退位。
@@ -66,6 +67,8 @@ public partial class HexDynamicDiag : Node
 		if (args.TryGetValue("sheet", out value)) _sheetDriving = value != "0";
 		// 通量化运输（设计-07 P3）：--flux=1 开启（默认关；须与 --sheet 同开）。
 		if (args.TryGetValue("flux", out value)) _fluxTransport = value != "0";
+		// 屈服流速率（P4 平衡点判读）：--yield=0.1/0.2 覆盖默认 0.05——max 山高 = 来流量/速率。
+		if (args.TryGetValue("yield", out value)) _yieldRate = float.Parse(value);
 
 		var ball = new Ball(_res, 1f);
 		GD.Print($"=== HexDynamicDiag res={_res} P={_plates} seed={_seed} N={ball.CellIds.Length} "
@@ -87,6 +90,7 @@ public partial class HexDynamicDiag : Node
 		if (_reliefWaveKm.HasValue) sim.ReliefBaseWavelengthKm = _reliefWaveKm.Value;
 		if (_flexureIterations >= 0) sim.FlexureIterations = _flexureIterations;
 		sim.PrecipitationScale = _precipScale;
+		if (_yieldRate > 0f) sim.YieldFlowRate = _yieldRate;
 		sim.EnableThinSheetDriving = _sheetDriving;
 		sim.EnableFluxTransport = _fluxTransport;
 		// 周期重启的重分板委托（05 §6.3）：与生产路径 `H3Plate.BeginCreatePlates` 同款注入——

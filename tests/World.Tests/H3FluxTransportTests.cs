@@ -122,7 +122,11 @@ public class H3FluxTransportTests
         var src = TwoPlateOcean();
         for (int i = 0; i < src.Count; i++)
         {
-            if (Ball.CellCenters[i].X > 0f) src.Age[i] = 300f;          // 板 0：老洋（密 3300）
+            if (Ball.CellCenters[i].X > 0f)
+            {
+                src.Age[i] = 300f;                                      // 板 0：老洋（密 3300）
+                src.Sediment[i] = 20000f;                               // 来料带沉积（守恒组）
+            }
             else src.Age[i] = 0f;                                       // 板 1：年轻（密 2890）
         }
 
@@ -132,6 +136,10 @@ public class H3FluxTransportTests
 
         Assert.Greater(transport.SubductEdgesLastStep, 0, "洋-洋汇聚应判俯冲（老撞年轻）");
         Assert.Greater(transport.RecycledToMantleLastStep, 0, "俯冲份额应回地幔（销毁账）");
+        Assert.Greater(transport.RecycledConservedMassLastStep, 0,
+            "沉积类全额回地幔应记守恒组分账（陆壳收支伺服的输入——漏记则长跑水世界防线哑火）");
+        Assert.LessOrEqual(transport.RecycledConservedMassLastStep, transport.RecycledToMantleLastStep,
+            "守恒组分账是销毁账的子集");
         Assert.AreEqual(0.0, transport.ArcFelsicReturnedMassLastStep,
             "洋-洋俯冲不得触发弧回流（与跳格路径同口径；白化球教训——通量路径曾对一切俯冲边付弧）");
         Assert.Greater(transport.SlabInflow.Count, 0, "板片账户应有入账条目");

@@ -45,6 +45,13 @@ namespace World.NewHexWorld.Plate
 		public double CreatedMassLastStep { get; private set; }
 		/// <summary>本步俯冲回地幔质量（销毁账）。</summary>
 		public double RecycledToMantleLastStep { get; private set; }
+		/// <summary>本步随俯冲回地幔的守恒组质量（沉积类全额 + 变质/长英质刮削；已并入
+		/// RecycledToMantleLastStep）——陆壳收支伺服的输入，接线方 book 进 RecycledConservedTotal
+		/// （漏记则伺服永不触发 = 长跑水世界防线哑火，P4 台账补齐）。</summary>
+		public double RecycledConservedMassLastStep { get; private set; }
+		/// <summary>本步长英质刮削（守恒组销毁里的变质/长英质部分；弧回流的配平对手，判读口；
+		/// 接线方 book 进 FelsicScrapedCum——与跳格路径 FelsicScrapedMassLastStep 同式）。</summary>
+		public double FelsicScrapedMassLastStep { get; private set; }
 		/// <summary>本步弧回流长英质质量（上盘格新生的陆壳入口；接线方 book 进 FelsicArcReturnedCum）。</summary>
 		public double ArcFelsicReturnedMassLastStep { get; private set; }
 		/// <summary>本步俯冲边数（判读口）。</summary>
@@ -70,6 +77,8 @@ namespace World.NewHexWorld.Plate
 			int n = source.Count;
 			CreatedMassLastStep = 0;
 			RecycledToMantleLastStep = 0;
+			RecycledConservedMassLastStep = 0;
+			FelsicScrapedMassLastStep = 0;
 			ArcFelsicReturnedMassLastStep = 0;
 			SubductEdgesLastStep = 0;
 			InjectionBudgetLastStep = 0;
@@ -223,8 +232,10 @@ namespace World.NewHexWorld.Plate
 				{
 					float toMantle = rem[k] * recycleShares[k];
 					RecycledToMantleLastStep += toMantle;
+					if (k < 5) RecycledConservedMassLastStep += toMantle;   // 守恒组五池分账（伺服输入）
 					pools[k][to] += rem[k] - toMantle;    // 余额增生到上盘格
 				}
+				FelsicScrapedMassLastStep += (double)(rem[2] + rem[3] + rem[4]) * RecycleFelsicFraction;
 				Vector3 dir = velocityRadPerMy[from];
 				if (dir.LengthSquared() > 1e-18f)
 					SlabInflow.Add((source.PlateId[from], total, dir.Normalized()));
