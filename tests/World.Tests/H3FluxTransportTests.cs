@@ -12,7 +12,7 @@ namespace World.Tests;
 ///   · 均匀平移：全池总量守恒（纯转移零记账）；
 ///   · 顶死阻断：大陆来料撞洋格 = 通量阻断（来料格质量原地保留 = 造山加厚）；
 ///   · 俯冲极性：老洋来料撞年轻洋格 = 俯冲汇（回地幔 + 板片账户 + 弧回流）；
-///   · 注壳闭环：注壳只落真离散板缘（异板邻边发散）格，总量 ≤ 当步俯冲回地幔量；
+///   · 注壳闭环：总量 ≤ 当步俯冲回地幔量，预算内真离散板缘优先、余量回填其余薄柱；
 ///   · 确定性：同输入两跑逐位一致。
 /// 纪律：只用 [Test]；不写文件；不触碰 GD.*/LogService。
 /// </summary>
@@ -171,36 +171,96 @@ public class H3FluxTransportTests
     }
 
     [Test]
-    public void Injection_ConfinedToDivergentEdges_AndBudgetCapped()
+    public void Injection_BudgetCapped_RidgePriorityWhenScarce()
     {
-        // 场景：板 0（东带 X>0.3）向 +x 退离缝、板 1（其余）向 −x 退离缝 ⇒ 缝 X≈0.3 两侧相互远离
-        // = 真离散板缘；板 2 = −x 极区单格，周围洋壳流向它 = 俯冲汇（预算来源）。
+        // P4 后修订：注壳资格回调为一切薄柱格（预算内真离散板缘优先、余量回填其余）。
+        // 布防：缝格（X≈0.3 两侧）压薄到 1000 m（= 板缘薄柱，优先档需求）、+x 极区单格压薄到
+        // 500 m（= 板内薄柱，非优先）、其余格 6000 m（厚，无需求）；板 2 = −x 极区俯冲汇。
+        // 预算（极区+缝俯冲销毁）≪ 板缘需求 ⇒ 稀缺：注入全部落在板缘、板内格饿死。
         var src = RidgeTrenchScene(out int poleCell, out int eastPoleCell);
         var v = RidgeTrenchVelocity();
+        for (int i = 0; i < src.Count; i++)
+        {
+            bool seam = false;
+            foreach (int nb in Ball.CellNeighbors[i])
+            {
+                bool cross = (Ball.CellCenters[i].X - 0.3f) * (Ball.CellCenters[nb].X - 0.3f) < 0f;
+                seam |= cross;
+            }
+            src.MaficVolcanic[i] = Material.MaficVolcanicMin * (seam ? 1000f : 6000f);
+        }
+        src.MaficVolcanic[eastPoleCell] = Material.MaficVolcanicMin * 500f;   // 靶格候选（通量后可能被喂肥）
 
         var tgt = new H3PlateFields(src.Count);
         var transport = new H3FluxTransport(Ball);
         transport.Step(src, tgt, v, Material, 4f, 0);
 
-        Assert.Greater(transport.RecycledToMantleLastStep, 0, "布置检查：极区俯冲汇应有回地幔销毁（预算来源）");
-        Assert.Greater(transport.RidgeCellsLastStep, 0, "布置检查：离散缝上应有合格薄柱格");
-        Assert.Greater(transport.CreatedMassLastStep, 0, "离散缝薄柱应注入新洋壳（创建账）");
-
-        // 预算闭环（白化球教训）：注壳不得超过当步俯冲回地幔量——威尔逊旋回按构造平衡
-        Assert.LessOrEqual(transport.CreatedMassLastStep, transport.RecycledToMantleLastStep * 1.000001,
-            "注壳预算闭环：脊上增生 ≤ 海沟销毁（无差别注壳的净增生通道被堵死）");
-
-        // 板缘限定：注入格（Age 翻 0）必须都是"异板邻边发散"格；板内薄柱（+x 极区）与
-        // 汇聚边上盘（−x 极区）一律无注壳资格
+        Assert.Greater(transport.RecycledToMantleLastStep, 0, "布置检查：俯冲汇应有回地幔销毁（预算来源）");
+        int injected = 0, ridgeThin = 0, ridgeInjected = 0;
         for (int i = 0; i < tgt.Count; i++)
         {
-            if (tgt.Age[i] != 0f)
-                continue;
-            Assert.IsTrue(IsDivergentForeignEdge(src, i, v),
-                $"格 {i} 被注入但无发散异板边——注壳必须只落真离散板缘");
+            float mafic = tgt.MaficVolcanic[i] + tgt.MaficPlutonic[i];
+            bool thin = mafic / Material.MaficVolcanicMin < transport.NewCrustThicknessThresholdM;
+            bool ridge = IsDivergentForeignEdge(src, i, v);
+            if (thin && ridge) ridgeThin++;
+            if (tgt.Age[i] == 0f)
+            {
+                injected++;
+                if (ridge) ridgeInjected++;
+            }
         }
-        Assert.AreEqual(50f, tgt.Age[eastPoleCell], "板内薄柱（无异板边）不得注壳");
-        Assert.AreEqual(50f, tgt.Age[poleCell], "汇聚边上盘格不得注壳（发散资格不含收敛边）");
+        Assert.Greater(ridgeThin, 0, "布置检查：缝格应构成板缘薄柱需求");
+        Assert.AreEqual(injected, ridgeInjected, "稀缺预算必须全部落在板缘优先档");
+        Assert.Less(transport.CreatedMassLastStep, transport.InjectionDemandLastStep,
+            "稀缺预算应不足以喂饱全部需求（欠账 = 分配在起作用）");
+        Assert.AreEqual(50f, tgt.Age[eastPoleCell], "板内薄柱在稀缺预算下不得获注（板缘优先）");
+        Assert.LessOrEqual(transport.CreatedMassLastStep, transport.RecycledToMantleLastStep * 1.000001,
+            "注壳预算闭环：脊上增生 ≤ 海沟销毁（白化球防线，任何分配下都成立）");
+    }
+
+    [Test]
+    public void Injection_RefillsAnyThinCell_WhenBudgetAllows()
+    {
+        // P4 后修订的另一半：预算充裕时余量必须回填非板缘薄柱（板内伪影掏薄区的回填通道——
+        // 海平面缓漂/洋内金链白斑的修复）。布防：板内单格压薄到 500 m + 极区 donors 加厚 20×
+        //（俯冲销毁预算 ×20）⇒ 板缘需求小、预算大 ⇒ 余量回填板内薄柱。
+        var src = RidgeTrenchScene(out int poleCell, out int eastPoleCell);
+        var v = RidgeTrenchVelocity();
+        for (int i = 0; i < src.Count; i++)
+        {
+            src.MaficVolcanic[i] = Material.MaficVolcanicMin * 4000f;               // 厚柱（无需求）
+            bool seam = false;
+            foreach (int nb in Ball.CellNeighbors[i])
+            {
+                bool cross = (Ball.CellCenters[i].X - 0.3f) * (Ball.CellCenters[nb].X - 0.3f) < 0f;
+                seam |= cross;
+            }
+            if (seam) src.MaficVolcanic[i] = Material.MaficVolcanicMin * 3490f;     // 缝格：缺口 60 m（小需求）
+            if (Ball.CellCenters[i].X < -0.9f)                                      // 极区 donors：预算 ×60
+                src.MaficVolcanic[i] = Material.MaficVolcanicMin * 200000f;
+        }
+        src.MaficVolcanic[eastPoleCell] = Material.MaficVolcanicMin * 500f;         // 板内格：缺口 3050 m
+        Assert.IsFalse(IsDivergentForeignEdge(src, eastPoleCell, v), "布置检查：极区格非板缘");
+
+        var tgt = new H3PlateFields(src.Count);
+        var transport = new H3FluxTransport(Ball);
+        transport.Step(src, tgt, v, Material, 4f, 0);
+
+        // 断言：预算 ≥ 需求（充裕）且**存在非板缘薄柱获注入**——余量真的回填到了
+        // 板内伪影掏薄区（海平面缓漂/洋内金链白斑的修复口），而不是只喂板缘。
+        Assert.GreaterOrEqual(transport.InjectionBudgetLastStep, transport.InjectionDemandLastStep,
+            "布置检查：预算应 ≥ 需求（充裕分支）");
+        int injectedTotal = 0, injectedNonRidge = 0;
+        for (int i = 0; i < tgt.Count; i++)
+        {
+            if (tgt.Age[i] != 0f) continue;
+            injectedTotal++;
+            if (!IsDivergentForeignEdge(src, i, v)) injectedNonRidge++;
+        }
+        Assert.Greater(injectedTotal, 0, "应有薄柱获注入");
+        Assert.Greater(injectedNonRidge, 0, "预算余量应回填非板缘薄柱（回填通道的存在性）");
+        Assert.LessOrEqual(transport.CreatedMassLastStep, transport.RecycledToMantleLastStep * 1.000001,
+            "预算闭环在任何分配下都成立");
     }
 
     [Test]

@@ -58,9 +58,9 @@ namespace World.NewHexWorld.Plate
 		public int SubductEdgesLastStep { get; private set; }
 		/// <summary>本步注壳预算 = 当步俯冲回地幔总量（威尔逊旋回闭环：注壳不得超过它；判读口）。</summary>
 		public double InjectionBudgetLastStep { get; private set; }
-		/// <summary>本步合格离散板缘薄柱的注壳需求总量（判读口：需求 &lt; 预算 = 结余不花，地壳净减）。</summary>
+		/// <summary>本步薄柱注壳需求总量（真离散板缘 + 其余薄柱；判读口：需求 &lt; 预算 = 结余不花）。</summary>
 		public double InjectionDemandLastStep { get; private set; }
-		/// <summary>本步合格离散板缘上的薄柱格数（判读口）。</summary>
+		/// <summary>本步真离散板缘上的薄柱格数（预算优先档；判读口）。</summary>
 		public int RidgeCellsLastStep { get; private set; }
 		/// <summary>本步板片账户入账条目（板号, 质量面密度, 流向单位向量）——接线方转 AddSlab。</summary>
 		public readonly List<(int plate, double massPerArea, Vector3 dir)> SlabInflow = new();
@@ -241,34 +241,38 @@ namespace World.NewHexWorld.Plate
 					SlabInflow.Add((source.PlateId[from], total, dir.Normalized()));
 			}
 
-			// ── ④ 薄柱注壳（P3 第二批.5 预算闭环）：白化球教训——旧版对【一切】薄柱格注壳，
-			//      刚体旋转场的前导/后曳失衡把后曳半球整片掏薄，注壳+弧回流的净增生跑赢俯冲销毁，
-			//      地壳净增 → 海面相对下降 → 全星隆起白化。现在注壳只落【真离散板缘】（① 标记的
-			//      异板发散边格），且每步注壳总量 ≤ 当步俯冲回地幔总量（威尔逊旋回的质量平衡按
-			//      构造实现：脊上增生不超过海沟销毁；需求小于预算按需注入、结余不花，需求大于
-			//      预算按需求比例摊）。遍历序固定 ⇒ 确定性。
+			// ── ④ 薄柱注壳（P4 后修订——预算闭环保留、资格回调）：白化球的两刀是"无预算"与
+			//      "弧回流失控"；"只落真离散板缘"是过度矫正——刚体场离散伪影掏薄的板内海域
+			//      无人回填 ⇒ 洋壳净销毁、海平面缓漂，薄柱地形贴着下降的海面冒头（洋内金链、
+			//      散点白斑、岸缘深带）。现在一切薄柱格都有注壳需求，预算内**真离散板缘优先**
+			//      （洋中脊语义保留），余量回填其余薄柱——注壳总量仍 ≤ 当步俯冲回地幔量
+			//      （威尔逊旋回按构造闭合，白化球不可能回归）。遍历序固定 ⇒ 确定性。
 			double injectBudget = RecycledToMantleLastStep;
 			var demand = new float[n];
-			double demandTotal = 0;
+			double demandRidge = 0, demandOther = 0;
 			int ridgeThinCells = 0;
 			for (int i = 0; i < n; i++)
 			{
-				if (!ridgeCell[i] || source.PlateId[i] < 0) continue;
+				if (source.PlateId[i] < 0) continue;
 				float maficMass = target.MaficVolcanic[i] + target.MaficPlutonic[i];
 				float thickness = maficMass / material.MaficVolcanicMin;
 				if (thickness >= NewCrustThicknessThresholdM) continue;
 				demand[i] = (NewCrustThicknessThresholdM - thickness) * material.MaficVolcanicMin;
-				demandTotal += demand[i];
-				ridgeThinCells++;
+				if (ridgeCell[i]) { demandRidge += demand[i]; ridgeThinCells++; }
+				else demandOther += demand[i];
 			}
 			InjectionBudgetLastStep = injectBudget;
-			InjectionDemandLastStep = demandTotal;
+			InjectionDemandLastStep = demandRidge + demandOther;
 			RidgeCellsLastStep = ridgeThinCells;
-			float injectScale = demandTotal > 0 ? (float)Math.Min(1.0, injectBudget / demandTotal) : 0f;
+			float ridgeScale = demandRidge > 0 ? (float)Math.Min(1.0, injectBudget / demandRidge) : 0f;
+			float otherScale = 0f;
+			double ridgeSpent = Math.Min(injectBudget, demandRidge);   // 优先档实际花费（可为 0）
+			if (demandOther > 0 && injectBudget - ridgeSpent > 0)
+				otherScale = (float)Math.Min(1.0, (injectBudget - ridgeSpent) / demandOther);
 			for (int i = 0; i < n; i++)
 			{
 				if (demand[i] <= 0f) continue;
-				float injectMass = demand[i] * injectScale;
+				float injectMass = demand[i] * (ridgeCell[i] ? ridgeScale : otherScale);
 				if (injectMass <= 0f) continue;
 				target.MaficVolcanic[i] += injectMass;
 				target.Age[i] = 0f;
