@@ -358,6 +358,12 @@ public partial class HexDynamicDiag : Node
 			+ $"强少数格={sim.LocalMinorityCellsLastStep} 连通分量={sim.PlateComponentCountLastStep}（板数 {sim.PlateCount}）"
 			+ $" 最大分量占比={sim.LargestComponentFractionLastStep * 100f:F1}%");
 
+		// 通量注壳判读（P3 第二批.5 预算闭环）：脊上增生不得超过海沟销毁——白化球复发先看这行
+		if (sim.Flux is { } flux)
+			GD.Print($"[{label}] 通量注壳 ｜ 预算={flux.InjectionBudgetLastStep:E2} 需求={flux.InjectionDemandLastStep:E2} "
+				+ $"实注={flux.CreatedMassLastStep:E2} 脊格={flux.RidgeCellsLastStep} 俯冲边={flux.SubductEdgesLastStep} "
+				+ $"弧回流={flux.ArcFelsicReturnedMassLastStep:E2}");
+
 		// 逐板顶死明细（缺口量测：谁在顶着等密碰撞带、幻影力占比、真实板速还剩多少）
 		var motion = sim.Motion;
 		if (motion?.PlateJamContacts == null) return;

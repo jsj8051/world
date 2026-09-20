@@ -11,8 +11,11 @@ namespace World.NewHexWorld.Plate
 	//   · 跳格"整格沿流向走一格 + 起跳相位" → 逐边 upwind 通量（物质按速度连续流出，CFL 子步进）；
 	//   · 顶死裁决（Pass C 链头停） → 通量阻断：大陆来料撞异板 = 阻断（物质堆在自己格 = 造山加厚）；
 	//   · 俯冲埋入 → 俯冲汇：洋壳来料流入异板 = 该份额不落到对方格，而是销毁回地幔 + 板片账户入账
-	//     + 弧回流长英质给上盘（记 ArcFelsicReturned 账，接线方 book 进伺服）；
-	//   · 离散空洞注壳 → 薄柱注壳：格柱被流走变薄到阈值以下时注入 age=0 新洋壳（记创建账）。
+	//     + 弧回流长英质只给洋→陆的上盘陆格（按埋入 mafic 计，与跳格路径同口径——记 ArcFelsicReturned
+	//     账，接线方 book 进伺服）。
+	//   · 离散空洞注壳 → 薄柱注壳：真离散板缘（异板邻边发散）上的薄柱格注入 age=0 新洋壳（记创建账），
+	//     每步注壳总量受当步俯冲回地幔量钳制（预算闭环，P3 第二批.5 白化球教训——无差别注壳让
+	//     "注壳+弧回流"的净增生跑赢"俯冲销毁"，地壳净增、全星隆起白化）。
 	// 守恒纪律：搬运组内严格守恒（纯转移）；质量台账只有两户进出——俯冲回地幔（销毁）与薄柱注壳（创建），
 	// 由调用方（接线批次）记入 CrustCreatedTotal/RecycledToMantle 与板片账户。
 	//
@@ -28,10 +31,14 @@ namespace World.NewHexWorld.Plate
 		public float RecycleSedimentFraction = 1f;
 		/// <summary>俯冲再循环：长英质刮削份额（旧 0.2）。</summary>
 		public float RecycleFelsicFraction = 0.2f;
-		/// <summary>弧岩浆回流系数：俯冲质量 × 此比 = 上盘格新生长英质火山岩。</summary>
+		/// <summary>弧岩浆回流系数：**洋→陆**俯冲每埋入 1 kg 镁铁质，向上盘陆格从地幔
+		/// 新生长英质火山岩的比例（与跳格路径同门控同基数；洋-洋俯冲不触发）。</summary>
 		public float ArcFelsicReturnFraction = 0.5f;
 		/// <summary>薄柱注壳阈值（m）：柱厚低于此注入 age=0 新洋壳至参考厚（旧"离散空洞注壳"的连续版）。</summary>
 		public float NewCrustThicknessThresholdM = 3550f;
+		/// <summary>离散发育阈值（km/My）：异板邻边的法向分离速度超过它才算真离散板缘
+		/// （④ 注壳资格门槛；与跳格路径 H3DynamicTectonics.SpreadingSpeedKmPerMy 同源同值）。</summary>
+		public float SpreadingSpeedKmPerMy = 0.05f;
 
 		// ── 输出（Step 后有效；接线方记台账）──
 		/// <summary>本步薄柱注壳创建质量（kg/m²·格 口径累计；创建账）。</summary>
@@ -42,6 +49,12 @@ namespace World.NewHexWorld.Plate
 		public double ArcFelsicReturnedMassLastStep { get; private set; }
 		/// <summary>本步俯冲边数（判读口）。</summary>
 		public int SubductEdgesLastStep { get; private set; }
+		/// <summary>本步注壳预算 = 当步俯冲回地幔总量（威尔逊旋回闭环：注壳不得超过它；判读口）。</summary>
+		public double InjectionBudgetLastStep { get; private set; }
+		/// <summary>本步合格离散板缘薄柱的注壳需求总量（判读口：需求 &lt; 预算 = 结余不花，地壳净减）。</summary>
+		public double InjectionDemandLastStep { get; private set; }
+		/// <summary>本步合格离散板缘上的薄柱格数（判读口）。</summary>
+		public int RidgeCellsLastStep { get; private set; }
 		/// <summary>本步板片账户入账条目（板号, 质量面密度, 流向单位向量）——接线方转 AddSlab。</summary>
 		public readonly List<(int plate, double massPerArea, Vector3 dir)> SlabInflow = new();
 
@@ -59,6 +72,9 @@ namespace World.NewHexWorld.Plate
 			RecycledToMantleLastStep = 0;
 			ArcFelsicReturnedMassLastStep = 0;
 			SubductEdgesLastStep = 0;
+			InjectionBudgetLastStep = 0;
+			InjectionDemandLastStep = 0;
+			RidgeCellsLastStep = 0;
 			SlabInflow.Clear();
 
 			CopyInto(source, target);
@@ -75,6 +91,7 @@ namespace World.NewHexWorld.Plate
 			// f[i][k] = 格 i 沿第 k 邻边流出给 j 的柱份额（0 = 无/阻断/俯冲汇另行记账）
 			var frac = new float[n][];
 			var subductEntries = new List<(int from, int to, float fraction)>();   // 俯冲边：来料格→上盘格
+			var ridgeCell = new bool[n];                // 真离散板缘格（④ 注壳资格；异板邻边发散）
 			for (int i = 0; i < n; i++) frac[i] = new float[neighbors[i].Length];
 
 			for (int i = 0; i < n; i++)
@@ -98,6 +115,14 @@ namespace World.NewHexWorld.Plate
 
 					int pi = source.PlateId[i], pj = source.PlateId[j];
 					bool foreign = pi >= 0 && pj >= 0 && pi != pj;
+					// 真离散板缘（P3 第二批.5）：异板边 + 法向相对速度分离（t̂ 从 i 指向 j，
+					// (vj−vi) 为正 = 两格相互远离）≥ 离散发育阈值。洋中脊/陆内裂谷离散侧——
+					// 注壳只落这些格；板内（同板）假离散与汇聚边一律无注壳资格。
+					if (foreign && (vj - vi) * H3PlateMotion.EarthRadiusKm >= SpreadingSpeedKmPerMy)
+					{
+						ridgeCell[i] = true;
+						ridgeCell[j] = true;
+					}
 					if (foreign && vi > 0f)
 					{
 						// i 的来料撞 j：密度裁决——顶死 = 阻断（物质堆在 i = 造山）；否则俯冲汇
@@ -178,9 +203,20 @@ namespace World.NewHexWorld.Plate
 					total += rem[k];
 					pools[k][from] -= rem[k];
 				}
-				float arc = (float)(total * ArcFelsicReturnFraction);
-				target.FelsicVolcanic[to] += arc;
-				ArcFelsicReturnedMassLastStep += arc;
+				// 弧岩浆回流：**只对洋→陆俯冲**（上盘陆格、来料洋格）且按埋入 mafic 通量记账——
+				// 与跳格路径（H3PlateAdvection Pass C）逐字同口径。白化球教训：通量路径曾对
+				// 一切俯冲边付 0.5×整柱（洋-洋俯冲是通量路径的默认收敛结局，~1500 边/步），
+				// 弧回流净增生跑赢全部销毁户，陆格 >5km 45%、全星白化。洋-洋不触发——不造
+				// intra-oceanic 弧（口径漂移 = 设计-07 §1.2 的架构税，两侧各写一份迟早漂）。
+				if (source.IsLand(to) && !source.IsLand(from))
+				{
+					float arc = (rem[5] + rem[6]) * ArcFelsicReturnFraction;
+					if (arc > 0f)
+					{
+						target.FelsicVolcanic[to] += arc;
+						ArcFelsicReturnedMassLastStep += arc;
+					}
+				}
 				float[] recycleShares = { RecycleSedimentFraction, RecycleSedimentFraction, RecycleFelsicFraction,
 					RecycleFelsicFraction, RecycleFelsicFraction, 1f, 1f };
 				for (int k = 0; k < 7; k++)
@@ -194,14 +230,35 @@ namespace World.NewHexWorld.Plate
 					SlabInflow.Add((source.PlateId[from], total, dir.Normalized()));
 			}
 
-			// ── ④ 薄柱注壳：柱厚低于阈值 → 注 age=0 新洋壳至参考厚（创建账）──
+			// ── ④ 薄柱注壳（P3 第二批.5 预算闭环）：白化球教训——旧版对【一切】薄柱格注壳，
+			//      刚体旋转场的前导/后曳失衡把后曳半球整片掏薄，注壳+弧回流的净增生跑赢俯冲销毁，
+			//      地壳净增 → 海面相对下降 → 全星隆起白化。现在注壳只落【真离散板缘】（① 标记的
+			//      异板发散边格），且每步注壳总量 ≤ 当步俯冲回地幔总量（威尔逊旋回的质量平衡按
+			//      构造实现：脊上增生不超过海沟销毁；需求小于预算按需注入、结余不花，需求大于
+			//      预算按需求比例摊）。遍历序固定 ⇒ 确定性。
+			double injectBudget = RecycledToMantleLastStep;
+			var demand = new float[n];
+			double demandTotal = 0;
+			int ridgeThinCells = 0;
 			for (int i = 0; i < n; i++)
 			{
-				if (source.PlateId[i] < 0) continue;
+				if (!ridgeCell[i] || source.PlateId[i] < 0) continue;
 				float maficMass = target.MaficVolcanic[i] + target.MaficPlutonic[i];
 				float thickness = maficMass / material.MaficVolcanicMin;
 				if (thickness >= NewCrustThicknessThresholdM) continue;
-				float injectMass = (NewCrustThicknessThresholdM - thickness) * material.MaficVolcanicMin;
+				demand[i] = (NewCrustThicknessThresholdM - thickness) * material.MaficVolcanicMin;
+				demandTotal += demand[i];
+				ridgeThinCells++;
+			}
+			InjectionBudgetLastStep = injectBudget;
+			InjectionDemandLastStep = demandTotal;
+			RidgeCellsLastStep = ridgeThinCells;
+			float injectScale = demandTotal > 0 ? (float)Math.Min(1.0, injectBudget / demandTotal) : 0f;
+			for (int i = 0; i < n; i++)
+			{
+				if (demand[i] <= 0f) continue;
+				float injectMass = demand[i] * injectScale;
+				if (injectMass <= 0f) continue;
 				target.MaficVolcanic[i] += injectMass;
 				target.Age[i] = 0f;
 				CreatedMassLastStep += injectMass;

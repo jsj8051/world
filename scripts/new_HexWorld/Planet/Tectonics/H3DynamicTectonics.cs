@@ -246,6 +246,8 @@ namespace World.NewHexWorld.Plate
 		public H3PlateFields Fields => _fields;
 		public H3PlateMotion Motion => _motion;
 		public H3PlateAdvection Advection => _advection;   // 平流本体（诊断/调试取数口）
+		/// <summary>通量化运输（P3）：EnableFluxTransport 首步后非空（诊断判读口：注壳预算/需求/脊格）。</summary>
+		public H3FluxTransport Flux => _flux;
 		public H3SurfaceProcesses Surface => _surface;     // 坡面侵蚀判读口
 		public H3FluvialTransport Fluvial => _fluvial;     // 河流输沙判读口
 		public H3AeolianTransport Aeolian => _aeolian;     // 风沙搬运判读口
@@ -569,6 +571,7 @@ namespace World.NewHexWorld.Plate
 					RecycleSedimentFraction = RecycleSedimentFraction,
 					RecycleFelsicFraction = RecycleFelsicFraction,
 					ArcFelsicReturnFraction = ArcFelsicReturnFraction,
+					SpreadingSpeedKmPerMy = SpreadingSpeedKmPerMy,   // 注壳资格门槛与跳格路径同源（P3 第二批.5）
 				};
 				_flux.Step(_fields, _scratch, _motion.Velocity, _material, StepMy, StepCount);
 				// 创建账两户：薄柱注壳 + 弧回流（"从地幔新生长英质"= 净增质量，必须记创建——
