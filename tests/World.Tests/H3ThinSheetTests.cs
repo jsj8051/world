@@ -44,7 +44,7 @@ public class H3ThinSheetTests
 
         float maxSpeed = 0f;
         foreach (var v in sheet.Velocity) maxSpeed = MathF.Max(maxSpeed, v.Length());
-        Assert.Less(maxSpeed, 1e-12f, "均匀 GPE 下体力逐边抵消，速度场应恒零");
+        Assert.Less(maxSpeed, 1e-9f, "均匀 GPE 下体力逐边抵消，速度场应恒零（欠松弛残差 ~1e-11 m/yr）");
     }
 
     [Test]

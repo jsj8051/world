@@ -97,10 +97,15 @@ namespace World.NewHexWorld.Plate
 			float radiusM = H3PlateMotion.EarthRadiusKm * 1000f;
 			float sceneToM = radiusM / _ball.Radius;
 			// ── ① 逐边通量裁决与份额（对无向边一次）──
-			// f[i][k] = 格 i 沿第 k 邻边流出给 j 的柱份额（0 = 无/阻断/俯冲汇另行记账）
+			// P5 架构修订：**单向迎风格式**——每边单一面法向通量 u_face = (vi+vj)/2，donor = 上风格。
+			// 旧 |·| 双流（两边各按 |v| 互流）不构成任何速度场的精确离散散度：格尺度随机游走
+			// 逐步积累成洋内金链/深坑棋盘（出图判读）。迎风下每格净通量 = 速度场离散散度的
+			// 精确值，解算器场（Laplacian 平滑）的散度只集中在脊/沟 ⇒ 板内无漂移噪声。
+			// 俯冲/顶死裁决键在 donor 横穿方向（语义同旧口径，方向由迎风符号给出）。
+			// f[i][k] = 格 i 沿第 k 邻边流出的柱份额（donor 非格 i 则为 0）
 			var frac = new float[n][];
 			var subductEntries = new List<(int from, int to, float fraction)>();   // 俯冲边：来料格→上盘格
-			var ridgeCell = new bool[n];                // 真离散板缘格（④ 注壳资格；异板邻边发散）
+			var ridgeCell = new bool[n];                // 真离散板缘格（④ 注壳预算优先档；异板邻边发散）
 			for (int i = 0; i < n; i++) frac[i] = new float[neighbors[i].Length];
 
 			for (int i = 0; i < n; i++)
@@ -118,50 +123,40 @@ namespace World.NewHexWorld.Plate
 					float vi = TangentialSpeed(velocityRadPerMy[i], radial, t);   // i 的物质流向 j 的速度分量
 					float vj = TangentialSpeed(velocityRadPerMy[j], radial, t);
 					float dPhys = (centers[j] - centers[i]).Length() * sceneToM;
-					// rad/My → 弧长 m/My（×R）；份额 = 本步位移 / 格距
-					float f = MathF.Abs(vi) * radiusM * stepMy / dPhys;
-					float fj = MathF.Abs(vj) * radiusM * stepMy / dPhys;
 
 					int pi = source.PlateId[i], pj = source.PlateId[j];
 					bool foreign = pi >= 0 && pj >= 0 && pi != pj;
-					// 真离散板缘（P3 第二批.5）：异板边 + 法向相对速度分离（t̂ 从 i 指向 j，
-					// (vj−vi) 为正 = 两格相互远离）≥ 离散发育阈值。洋中脊/陆内裂谷离散侧——
-					// 注壳只落这些格；板内（同板）假离散与汇聚边一律无注壳资格。
+					// 真离散板缘（P3 第二批.5，P4 后修订改优先档）：异板边 + 法向相对速度分离
+					//（t̂ 从 i 指向 j，(vj−vi) 为正 = 两格相互远离）≥ 离散发育阈值。
+					// 洋中脊/陆内裂谷离散侧——④ 的注壳预算优先落这些格，余量回填其余薄柱。
 					if (foreign && (vj - vi) * H3PlateMotion.EarthRadiusKm >= SpreadingSpeedKmPerMy)
 					{
 						ridgeCell[i] = true;
 						ridgeCell[j] = true;
 					}
-					if (foreign && vi > 0f)
+
+					// 面法向速度（迎风）：> 0 = i→j（donor = i）；< 0 = j→i（donor = j）
+					float uFace = (vi + vj) * 0.5f;
+					float share = MathF.Abs(uFace) * radiusM * stepMy / dPhys;
+					int donor = uFace >= 0f ? i : j;
+					int receiver = donor == i ? j : i;
+					if (foreign && share > 0f)
 					{
-						// i 的来料撞 j：密度裁决——顶死 = 阻断（物质堆在 i = 造山）；否则俯冲汇
+						// donor 横穿撞 receiver：密度裁决——顶死 = 阻断（物质堆在 donor = 造山）；否则俯冲汇
 						if (H3PlateContact.JamsInto(
-								source.Density(i, material), source.Density(j, material),
-								source.IsLand(i), source.IsLand(j)))
-							f = 0f;
+								source.Density(donor, material), source.Density(receiver, material),
+								source.IsLand(donor), source.IsLand(receiver)))
+							share = 0f;
 						else
 						{
-							subductEntries.Add((i, j, f));                        // 俯冲汇：不落到 j，见 ③
+							subductEntries.Add((donor, receiver, share));         // 俯冲汇：不落到对方，见 ③
 							SubductEdgesLastStep++;
-							f = 0f;
+							share = 0f;
 						}
 					}
-					if (foreign && vj > 0f)
-					{
-						if (H3PlateContact.JamsInto(
-								source.Density(j, material), source.Density(i, material),
-								source.IsLand(j), source.IsLand(i)))
-							fj = 0f;
-						else
-						{
-							subductEntries.Add((j, i, fj));
-							SubductEdgesLastStep++;
-							fj = 0f;
-						}
-					}
-					frac[i][k] = f;
+					frac[i][k] = donor == i ? share : 0f;
 					int back = FindBackSlot(j, i);
-					if (back >= 0) frac[j][back] = fj;
+					if (back >= 0) frac[j][back] = donor == j ? share : 0f;
 				}
 			}
 

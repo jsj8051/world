@@ -34,6 +34,12 @@ namespace World.NewHexWorld.Plate
 		/// 0.1 = 屈服边最多软化 10×（res1 影子首跑实测：1e-3 会让缝边流到 km/yr 量级）。</summary>
 		public float PlasticStressFloorFraction = 0.1f;
 		public int PicardIterations = 4;             // 应力帽外层迭代
+		/// <summary>Picard 欠松弛（0.5 = 新旧解各半）：海岸 GPE 悬崖处应力帽开关式振荡的
+		/// 标准阻尼（R1"强粘度对比下 Picard 抖"的处方之一；线性段收敛稍慢，换稳定）。</summary>
+		public float PicardRelaxation = 0.5f;
+		/// <summary>GPE 预平滑（0.5 = 一次邻域均值混合）：格尺度 GPE 悬崖是网格离散产物
+		/// （真实岩石圈强度连续），解算前一次混合消掉格级噪声源（R1 处方，06 α 场先例）。</summary>
+		public float GpeSmoothing = 0.5f;
 		public int CgMaxIterations = 400;
 		public float CgRelativeTolerance = 1e-3f;
 
@@ -56,6 +62,8 @@ namespace World.NewHexWorld.Plate
 		readonly Vector3[] _vel, _f, _body;          // CG/装配工作区
 		float _gauge;                                // 旋转规范锚刚度（N·yr/m；每次 Solve 重算）
 		float[] _ca, _cb, _ra, _rb, _pa, _pb, _apa, _apb, _za, _zb, _rhsA, _rhsB;
+		float[]? _gpeSmooth;                         // GPE 预平滑缓冲
+		float[]? _velPrevA, _velPrevB;               // Picard 欠松弛的上一轮解
 
 		public H3ThinSheet(Ball ball)
 		{
@@ -108,6 +116,22 @@ namespace World.NewHexWorld.Plate
 		/// cellTraction = 可选逐格切向牵引（N；P2 接板片账户，测试用）。可重复调用（幂等，无内部时间态）。</summary>
 		public void Solve(float[] gpe, Vector3[]? cellTraction = null)
 		{
+			// GPE 预平滑（R1 处方）：格尺度悬崖是网格离散产物，一次邻域混合消掉噪声源；
+			// 大尺度驱动（洋脊推力/板片牵引的 GPE 圈）不受影响。
+			if (GpeSmoothing > 0f)
+			{
+				_gpeSmooth ??= new float[_n];
+				var nb0 = _ball.CellNeighbors;
+				for (int i = 0; i < _n; i++)
+				{
+					float s = gpe[i];
+					var nbi = nb0[i];
+					for (int k = 0; k < nbi.Length; k++) s += gpe[nbi[k]];
+					_gpeSmooth[i] = gpe[i] + (s / (nbi.Length + 1) - gpe[i]) * GpeSmoothing;
+				}
+				gpe = _gpeSmooth;
+			}
+
 			ComputeBodyForces(gpe, cellTraction);
 
 			// 初始刚度 = 纯粘性；规范锚 = 底层拖曳（按格面积，分辨率无关）；Picard：解 → 应力帽 → 再解
@@ -119,9 +143,20 @@ namespace World.NewHexWorld.Plate
 
 			Array.Clear(_ca ??= new float[_n]);
 			Array.Clear(_cb ??= new float[_n]);
+			Array.Clear(_velPrevA ??= new float[_n]);
+			Array.Clear(_velPrevB ??= new float[_n]);
 			for (int pic = 0; pic < PicardIterations; pic++)
 			{
 				SolveCg();
+				// 欠松弛：新旧解各半（R1 处方——应力帽开关式振荡的标准阻尼）
+				float relax = PicardRelaxation;
+				for (int i = 0; i < _n; i++)
+				{
+					_ca[i] = _velPrevA[i] + (_ca[i] - _velPrevA[i]) * relax;
+					_cb[i] = _velPrevB[i] + (_cb[i] - _velPrevB[i]) * relax;
+					_velPrevA[i] = _ca[i];
+					_velPrevB[i] = _cb[i];
+				}
 				CapEdgesByYield();
 			}
 

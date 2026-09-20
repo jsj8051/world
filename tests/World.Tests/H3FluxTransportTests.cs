@@ -107,13 +107,19 @@ public class H3FluxTransportTests
         var transport = new H3FluxTransport(Ball);
         transport.Step(src, tgt, VelocityToward(new Vector3(-1f, 0f, 0f)), Material, 4f, 0);
 
-        // 顶死阻断：自身陆壳分毫未失（出流被阻断；同板邻居的流入堆积 = 造山加厚，允许增）；
-        // 背后大洋的俯冲给大陆送来弧岩浆（安第斯式增生）
-        Assert.GreaterOrEqual(tgt.FelsicPlutonic[donor], src.FelsicPlutonic[donor] - 1f,
-            "顶死阻断：大陆来料的自身陆壳不应流失");
-        Assert.Greater(tgt.Sediment[donor] + tgt.MaficVolcanic[donor], src.Sediment[donor] + src.MaficVolcanic[donor],
-            "背后大洋的俯冲/通量应给大陆缝边送来质量（安第斯式增生）");
-        Assert.Greater(transport.SlabInflow.Count, 0, "大洋俯冲应有板片账户入账");
+        // 顶死阻断（P5 迎风语义）：大陆地壳不得越过缝流失到洋板——逐格会有平流再分布
+        //（质量向碰撞Jam前沿堆积 = 造山），板级守恒才是正确口径；洋格零污染、无俯冲账户。
+        double felsicPlate0Src = 0, felsicPlate0Tgt = 0;
+        for (int i = 0; i < src.Count; i++)
+        {
+            if (src.PlateId[i] != 0) continue;
+            felsicPlate0Src += src.FelsicPlutonic[i] + src.FelsicVolcanic[i];
+            felsicPlate0Tgt += tgt.FelsicPlutonic[i] + tgt.FelsicVolcanic[i];
+        }
+        Assert.GreaterOrEqual(felsicPlate0Tgt, felsicPlate0Src * (1f - 1e-3f),
+            "顶死阻断：大陆板的长英质存量不得流失去洋板（Jam 前沿堆积是板内再分布，允许增；容差 = 浮点累加）");
+        Assert.AreEqual(0, transport.SubductEdgesLastStep, "陆撞洋顶死：无俯冲（阻断）");
+        Assert.AreEqual(0, transport.SlabInflow.Count, "无俯冲 ⇒ 无板片账户入账");
     }
 
     [Test]
@@ -164,7 +170,7 @@ public class H3FluxTransportTests
 
         var tgt = new H3PlateFields(src.Count);
         var transport = new H3FluxTransport(Ball);
-        transport.Step(src, tgt, VelocityToward(new Vector3(-1f, 0f, 0f)), Material, 4f, 0);
+        transport.Step(src, tgt, VelocityToward(new Vector3(1f, 0f, 0f)), Material, 4f, 0);
 
         Assert.Greater(transport.SubductEdgesLastStep, 0, "布置检查：洋→陆应判俯冲（洋壳密度大）");
         Assert.Greater(transport.ArcFelsicReturnedMassLastStep, 0, "洋→陆俯冲应在上盘陆格新生弧岩浆（创建账）");
