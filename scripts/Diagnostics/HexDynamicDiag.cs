@@ -42,6 +42,10 @@ public partial class HexDynamicDiag : Node
 	bool _fluxTransport;
 	H3ThinSheet? _shadowSheet;
 	float[]? _shadowGpe, _shadowElev;
+	// 应变场判读（P4 应变源决策）：--strain=1 每 25 步解薄席，只记不改。
+	bool _strain;
+	H3ThinSheet? _strainSheet;
+	float[]? _strainGpe, _strainElev;
 	double _shadowSumOld, _shadowSumNew, _shadowSumAgree;
 	int _shadowSamples;
 
@@ -67,6 +71,8 @@ public partial class HexDynamicDiag : Node
 		if (args.TryGetValue("sheet", out value)) _sheetDriving = value != "0";
 		// 通量化运输（设计-07 P3）：--flux=1 开启（默认关；须与 --sheet 同开）。
 		if (args.TryGetValue("flux", out value)) _fluxTransport = value != "0";
+		// 应变场判读（设计-07 P4）：--strain=1 开启（默认关；每 25 步解一次薄席，只记不改）。
+		if (args.TryGetValue("strain", out value)) _strain = value != "0";
 		// 屈服流速率（P4 平衡点判读）：--yield=0.1/0.2 覆盖默认 0.05——max 山高 = 来流量/速率。
 		if (args.TryGetValue("yield", out value)) _yieldRate = float.Parse(value);
 
@@ -160,6 +166,20 @@ public partial class HexDynamicDiag : Node
 				_shadowSamples++;
 				GD.Print($"[影子薄席 step {s + 1}] 旧 {stats.MeanSpeedOldCmPerYr:F2} cm/yr ｜ 薄席 {stats.MeanSpeedNewCmPerYr:F2} cm/yr ｜ 方向一致率 {stats.DirectionAgreement:P0}（对比格 {stats.ComparedCells}）");
 			}
+
+			// 应变场判读（P4 应变源决策）：解薄席应变场，报告形态质量——
+			// 边界占比高 = 可驱动缝合触发器；板内高位格存在 = 可驱动裂解触发器（判读口，不设门槛）。
+			if (_strain && s % 25 == 0)
+			{
+				_strainElev ??= new float[ball.CellIds.Length];
+				_strainGpe ??= new float[ball.CellIds.Length];
+				_strainSheet ??= new H3ThinSheet(ball);
+				for (int i = 0; i < _strainElev.Length; i++)
+					_strainElev[i] = sim.Displacement[i] - sim.SeaLevel;
+				H3Gpe.ComputeInto(sim.Fields, _strainElev, DiagMaterial, _strainGpe);
+				_strainSheet.Solve(_strainGpe);
+				PrintStrainMorphology($"应变场 step {s + 1}", ball, sim, _strainSheet);
+			}
 		}
 		GD.Print($"[全程平均/步] 空洞={sumHole / steps:F1} 异板混合={sumMixed / steps:F1} 同板多源={sumOverflow / steps:F1} "
 			+ $"｜ 治乱 空洞加权平均填充={sumHoleFill / steps:F1} 屈服流出={sumYieldBled / steps:E2}（回地幔 {sumYieldToMantle / steps:E2}）"
@@ -181,6 +201,82 @@ public partial class HexDynamicDiag : Node
 
 	/// <summary>初始地形判读（v1.10 新增）：陆/洋海拔区间与**相邻同板同相格的海拔差分位数**。
 	/// 后者是"起伏是否连续"的判据——逐格白噪声下相邻差会是千 m 级台阶，fBm 下应是百 m 内小量。</summary>
+	// 应变场形态统计（P4 应变源决策的判读口）：均值/最大/局域化比 + top 5% 高应变格的
+	// 边界归属（异板邻边）与离散/板内归因。方向数据来自板级刚体速度场（与通量判据同式）。
+	static void PrintStrainMorphology(string label, Ball ball, H3DynamicTectonics sim, H3ThinSheet sheet)
+	{
+		var strain = sheet.StrainRate;
+		int n = strain.Length;
+		double sum = 0;
+		float max = 0;
+		for (int i = 0; i < n; i++) { sum += strain[i]; if (strain[i] > max) max = strain[i]; }
+		float mean = n > 0 ? (float)(sum / n) : 0f;
+		if (mean <= 0f) { GD.Print($"[{label}] 应变场恒零（解算器无响应？）"); return; }
+
+		var sorted = (float[])strain.Clone();
+		Array.Sort(sorted);
+		float topCut = sorted[Math.Max(0, (int)(n * 0.95f) - 1)];   // top 5% 门槛
+
+		var velocity = sim.Motion.Velocity;
+		var centers = ball.CellCenters;
+		var neighbors = ball.CellNeighbors;
+		int top = 0, atBoundary = 0, divergent = 0, intraPlate = 0;
+		for (int i = 0; i < n; i++)
+		{
+			if (strain[i] < topCut) continue;
+			top++;
+			int pi = sim.Fields.PlateId[i];
+			bool boundary = false, div = false;
+			foreach (int j in neighbors[i])
+			{
+				int pj = sim.Fields.PlateId[j];
+				if (pj < 0 || pj == pi) continue;
+				boundary = true;
+				Vector3 radial = (centers[i] + centers[j]).Normalized();
+				Vector3 t = centers[j] - centers[i];
+				t -= radial * t.Dot(radial);
+				float dl = t.Length();
+				if (dl <= 1e-12f) continue;
+				t /= dl;
+				float vi = (velocity[i] - radial * velocity[i].Dot(radial)).Dot(t);
+				float vj = (velocity[j] - radial * velocity[j].Dot(radial)).Dot(t);
+				if ((vj - vi) * H3PlateMotion.EarthRadiusKm >= 0.05f) div = true;   // 法向分离 = 离散
+			}
+			if (boundary) { atBoundary++; if (div) divergent++; }
+			else intraPlate++;
+		}
+		// 带状度：top 格的最大连通分量占比（邻接连通，不分板）——带状（高）才能当裂谷种子，
+		// 散点（低）只是单格噪声。BFS 复用 top 格集合。
+		var topSet = new HashSet<int>();
+		for (int i = 0; i < n; i++)
+			if (strain[i] >= topCut) topSet.Add(i);
+		var visited = new HashSet<int>();
+		int largestBand = 0;
+		foreach (int seed in topSet)
+		{
+			if (visited.Contains(seed)) continue;
+			int size = 0;
+			var stack = new Stack<int>();
+			stack.Push(seed);
+			visited.Add(seed);
+			while (stack.Count > 0)
+			{
+				int c = stack.Pop();
+				size++;
+				foreach (int nb in neighbors[c])
+				{
+					if (!topSet.Contains(nb) || visited.Contains(nb)) continue;
+					visited.Add(nb);
+					stack.Push(nb);
+				}
+			}
+			if (size > largestBand) largestBand = size;
+		}
+		GD.Print($"[{label}] 均值={mean:E2} /yr ｜ max={max:E2}（max/mean {max / mean:F0}） ｜ "
+			+ $"top5% {top} 格：边界 {atBoundary / (float)Math.Max(top, 1):P0}（离散 {divergent / (float)Math.Max(top, 1):P0}）"
+			+ $" 板内 {intraPlate / (float)Math.Max(top, 1):P0} ｜ 最大连通带 {largestBand / (float)Math.Max(top, 1):P0}");
+	}
+
 	void ReportInitialRelief(Ball ball, H3DynamicTectonics sim)
 	{
 		var fields = sim.Fields;
