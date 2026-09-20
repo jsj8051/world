@@ -56,10 +56,17 @@ namespace World.NewHexWorld.Planet
 
 		// 建板 + 初始分板 + 板块演化 + 六场写回 + 统计。seed 定初始分板与初始地壳，全局定局。
 		public void Init(Ball ball, int numPlates, int seed, float oceanFraction = 0.6f,
-			float landOceanNoiseBlend = 0.7f, float runMy = H3DynamicTectonics.DefaultRunMy)
+			float landOceanNoiseBlend = 0.7f, float runMy = H3DynamicTectonics.DefaultRunMy,
+			bool thinSheetDriving = false, bool fluxTransport = false)
 		{
 			NumPlates = numPlates;
-			_plate = new H3Plate(ball) { LandOceanNoiseBlend = landOceanNoiseBlend, RunMy = runMy };
+			_plate = new H3Plate(ball)
+			{
+				LandOceanNoiseBlend = landOceanNoiseBlend,
+				RunMy = runMy,
+				UseThinSheetDriving = thinSheetDriving,
+				UseFluxTransport = fluxTransport,
+			};
 			_plate.CreatePlates(numPlates, seed, oceanFraction);
 			CollectStatistics();
 		}
@@ -68,10 +75,17 @@ namespace World.NewHexWorld.Planet
 
 		/// <summary>分帧阶段一：分板 + 模拟初始化（不跑时间步）。</summary>
 		public void BeginInit(Ball ball, int numPlates, int seed, float oceanFraction = 0.6f,
-			float landOceanNoiseBlend = 0.7f, float runMy = H3DynamicTectonics.DefaultRunMy)
+			float landOceanNoiseBlend = 0.7f, float runMy = H3DynamicTectonics.DefaultRunMy,
+			bool thinSheetDriving = false, bool fluxTransport = false)
 		{
 			NumPlates = numPlates;
-			_plate = new H3Plate(ball) { LandOceanNoiseBlend = landOceanNoiseBlend, RunMy = runMy };
+			_plate = new H3Plate(ball)
+			{
+				LandOceanNoiseBlend = landOceanNoiseBlend,
+				RunMy = runMy,
+				UseThinSheetDriving = thinSheetDriving,
+				UseFluxTransport = fluxTransport,
+			};
 			_plate.BeginCreatePlates(numPlates, seed, oceanFraction);
 		}
 

@@ -55,6 +55,11 @@ namespace World.NewHexWorld.Plate
 		public int NumPlates { get; private set; }
 		public float InitialOceanFraction { get; private set; }   // 初始地壳的海洋格占比（老 landFrac 的对应物）
 
+		/// <summary>P2/P3 B 方案开关（设计-07 §5）：运动定义权交 GPE+板片牵引板级驱动、
+		/// 物质运输走通量化。默认 false（旧跳格架构）；生产链由 BallManager 导出下行。</summary>
+		public bool UseThinSheetDriving;
+		public bool UseFluxTransport;
+
 		readonly Ball _ball;
 
 		public H3Plate(Ball ball)
@@ -106,6 +111,8 @@ namespace World.NewHexWorld.Plate
 				Insolation = Insolation,
 				ProgradeRotation = ProgradeRotation,
 				RotationSpeed = RotationSpeed,
+				EnableThinSheetDriving = UseThinSheetDriving,   // B 方案（设计-07 §5）：GPE+板片牵引驱动
+				EnableFluxTransport = UseFluxTransport,          // B 方案（设计-07 §5）：通量化运输
 				// 重启循环的重分板口：僵局触发时全部重分板、物质场保留（seed 派生自 RestartCount，可复现）
 				Repartition = k => SplitIntoPlates(k, seed + 977 * Simulation.RestartCount),
 			};

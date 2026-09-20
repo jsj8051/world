@@ -18,9 +18,9 @@ public partial class NewBallShotDiag : Node
 {
 	int _frame;
 	string _outPath = "user://maps/newball_shot.png";
-	const int BaseShotFrame = 10;    // 全景截图帧（首帧提交 + 渲染稳定）
-	const int CloseShotFrame = 18;   // 病征格特写截图帧
-	const int PlateShotFrame = 42;   // 板块模式特写截图帧
+	const int BaseShotFrame = 40;    // 全景截图帧（分帧生成：150 步 / StepsPerFrame 12 ≈ 13 帧才跑完模拟，40 帧留足余量）
+	const int CloseShotFrame = 48;   // 病征格特写截图帧
+	const int PlateShotFrame = 72;   // 板块模式特写截图帧
 
 	public override void _Ready()
 	{

@@ -34,6 +34,8 @@ namespace World.NewHexWorld
 		[Export] public float OutlineWidthFrac = 0.18f;   // 板块边界线半宽（× 格平均内切半径）
 		[Export] public Color OutlineColor = new Color(0f, 0f, 0f, 0.55f); // 板块边界线色（含透明度；两遍深度预写渲染，半透明也不叠加变深）
 		[Export] public int StepsPerFrame = 12;   // 分帧生成：每帧推进的模拟步数（0 = 同步一次跑完）
+		[Export] public bool UseThinSheetDriving = true;   // B 方案 P2（设计-07）：GPE+板片牵引板级驱动，幻影力退役
+		[Export] public bool UseFluxTransport = true;      // B 方案 P3：通量化运输，跳格/相位退役
 
 		Ball _ball;                              // 网格数据层（分帧装配期需跨方法引用）
 		OrbitalCamera _orbitalCamera;            // 子节点：轨道相机（拖转/缩放/拾取射线源）
@@ -65,7 +67,8 @@ namespace World.NewHexWorld
 
 			// ①b 生成：StepsPerFrame = 0 → 同步一次跑完（拖住首帧）；
 			//     > 0 → 分帧推进（编辑器不再被整段模拟卡住），完成后再装配 UI。
-			_plates.BeginInit(ball, NumPlates, Seed, OceanFraction, LandOceanNoiseBlend, RunMy);
+			_plates.BeginInit(ball, NumPlates, Seed, OceanFraction, LandOceanNoiseBlend, RunMy,
+				UseThinSheetDriving, UseFluxTransport);
 			if (StepsPerFrame <= 0)
 			{
 				while (_plates.AdvanceInit(int.MaxValue)) { }

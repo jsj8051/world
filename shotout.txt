@@ -1,0 +1,19 @@
+Godot Engine v4.7.1.stable.mono.official.a13da4feb - https://godotengine.org
+D3D12 12_0 - Forward+ - Using Device #0: NVIDIA - NVIDIA GeForce RTX 5060 Laptop GPU
+
+NewBallShotDiag: NewBall 已实例化（默认模式 = 海拔）
+NewBallShotDiag: [海拔·全景] 已截图 → E:/godotGames/world/userdata/maps/bplan_shot.png (2560x1440)
+NewBallShotDiag: 病征格 832d92fffffffff——5/6 边贴异板（≥5，即用户报告场景）
+NewBallShotDiag: 相机已指向病征格并拉近（距离 = 2.3，贴表面）
+NewBallShotDiag: [海拔·病征格特写] 已截图 → E:/godotGames/world/userdata/maps/bplan_shot_closeup.png (2560x1440)
+NewBallShotDiag: [海拔·病征格特写] 中心裁片 → E:/godotGames/world/userdata\maps\bplan_shot_closeup_crop.png
+NewBallShotDiag: 边界五边格 836200fffffffff
+NewBallShotDiag: [五边格特写] 已截图 → E:/godotGames/world/userdata/maps/bplan_shot_pent.png (2560x1440)
+NewBallShotDiag: [五边格特写] 中心裁片 → E:/godotGames/world/userdata\maps\bplan_shot_pent_crop.png
+NewBallShotDiag: 极区格 830326fffffffff
+NewBallShotDiag: [极区特写] 已截图 → E:/godotGames/world/userdata/maps/bplan_shot_pole.png (2560x1440)
+NewBallShotDiag: [极区特写] 中心裁片 → E:/godotGames/world/userdata\maps\bplan_shot_pole_crop.png
+NewBallShotDiag: 已模拟点模式按钮 ModePlate（板块）
+NewBallShotDiag: [板块·特写] 已截图 → E:/godotGames/world/userdata/maps/bplan_shot_plate.png (2560x1440)
+NewBallShotDiag: [板块·特写] 中心裁片 → E:/godotGames/world/userdata\maps\bplan_shot_plate_crop.png
+NewBallShotDiag: 截图完成，退出
