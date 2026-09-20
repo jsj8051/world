@@ -211,6 +211,77 @@ public class H3DynamicCycleTests
     }
 
     [Test]
+    public void Split_StrainBandSeeds_SelectorPicksBandNearPlateau()
+    {
+        // P4 应变源决策（混合制）：门选器应把三种子放进最大板的板内高应变连通带。
+        // 布防：巨板（X>0.2）的 +x 极区帽（X>0.7）加厚 20 km ⇒ GPE 峰 ⇒ 应变带在帽缘
+        // ⇒ 三种子的 X 都应显著大于巨板均值（贴帽）。res1 全板粒度下"远点对照"无判别力
+        //（远点也可能撞帽），对照口径改为直接断言选器行为 + 关闭时返回 false。
+        var sim = BuildSupercontinentWithCap();
+        var cells = new List<int>();
+        for (int i = 0; i < Ball.CellIds.Length; i++)
+            if (Ball.CellCenters[i].X > 0.2f) cells.Add(i);
+        float meanX = 0;
+        foreach (int c in cells) meanX += Ball.CellCenters[c].X;
+        meanX /= cells.Count;
+
+        Assert.IsTrue(sim.TrySelectStrainSeeds(cells, out int s0, out int s1, out int s2),
+            "帽缘应变带应足够成带（选器返回 true）");
+        float meanSeedX = (Ball.CellCenters[s0].X + Ball.CellCenters[s1].X + Ball.CellCenters[s2].X) / 3f;
+        Console.WriteLine($"[STRAINSEED] 巨板均 X={meanX:F2}，种子 X = {Ball.CellCenters[s0].X:F2}/" +
+            $"{Ball.CellCenters[s1].X:F2}/{Ball.CellCenters[s2].X:F2}（均 {meanSeedX:F2}）");
+        Assert.Greater(meanSeedX, meanX + 0.1f, "三种子应显著偏向 crafted 帽（+x 极区）");
+
+        var off = BuildSupercontinentWithCap();
+        off.EnableStrainRiftSeed = false;
+        Assert.IsFalse(off.TrySelectStrainSeeds(cells, out _, out _, out _),
+            "关闭应变种子 ⇒ 返回 false（回退远点采样）");
+    }
+
+    [Test]
+    public void Split_StrainSeeding_Deterministic()
+    {
+        var a = BuildSupercontinentWithCap();
+        a.EnableStrainRiftSeed = true;
+        var b = BuildSupercontinentWithCap();
+        b.EnableStrainRiftSeed = true;
+        for (int s = 0; s < 3; s++) { a.Step(); b.Step(); }
+        for (int i = 0; i < Ball.CellIds.Length; i++)
+            Assert.AreEqual(a.Fields.PlateId[i], b.Fields.PlateId[i], $"格 {i} 板号漂移——应变带种子破坏确定性");
+    }
+
+    H3DynamicTectonics BuildSupercontinentWithCap()
+    {
+        int n = Ball.CellIds.Length;
+        var plateOfCell = new int[n];
+        for (int i = 0; i < n; i++)
+            plateOfCell[i] = Ball.CellCenters[i].X > 0.2f ? 0
+                : (Ball.CellCenters[i].Y >= 0f ? 1 : 2);
+        var sim = new H3DynamicTectonics(Ball) { RunMy = 16f, StepMy = 4f };
+        sim.Initialize(plateOfCell, 42);
+        // 帽：巨板 +x 极区加厚 20 km（GPE 峰 ⇒ 薄席应变带在帽缘）
+        for (int i = 0; i < n; i++)
+            if (Ball.CellCenters[i].X > 0.7f)
+                sim.Fields.FelsicPlutonic[i] += Material.FelsicPlutonic * 20000f;
+        return sim;
+    }
+
+    static int RunAndMeasureCapPlateIds(H3DynamicTectonics sim)
+    {
+        bool splitFired = false;
+        for (int s = 0; s < 4 && !splitFired; s++)
+        {
+            sim.Step();
+            splitFired = sim.SplitPlateLastStep >= 0;
+        }
+        Assert.IsTrue(splitFired, "60% 巨板应触发裂解");
+        var ids = new HashSet<int>();
+        for (int i = 0; i < Ball.CellIds.Length; i++)
+            if (Ball.CellCenters[i].X > 0.7f) ids.Add(sim.Fields.PlateId[i]);
+        return ids.Count;
+    }
+
+    [Test]
     public void Split_SinglePlateWorld_SplitsIntoThree()
     {
         // 三板世界 + 一个 60% 巨板（> 硬顶 35%）：巨板应被继承式三分，小板不动。

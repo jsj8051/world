@@ -44,6 +44,8 @@ public partial class HexDynamicDiag : Node
 	float[]? _shadowGpe, _shadowElev;
 	// 应变场判读（P4 应变源决策）：--strain=1 每 25 步解薄席，只记不改。
 	bool _strain;
+	// 周期重启步数覆盖（P4 重启退休评估）：--restartcycle=N（默认 -1 = 用类默认 150）。
+	int _restartCycle = -1;
 	H3ThinSheet? _strainSheet;
 	float[]? _strainGpe, _strainElev;
 	double _shadowSumOld, _shadowSumNew, _shadowSumAgree;
@@ -73,6 +75,8 @@ public partial class HexDynamicDiag : Node
 		if (args.TryGetValue("flux", out value)) _fluxTransport = value != "0";
 		// 应变场判读（设计-07 P4）：--strain=1 开启（默认关；每 25 步解一次薄席，只记不改）。
 		if (args.TryGetValue("strain", out value)) _strain = value != "0";
+		// 周期重启覆盖（设计-07 P4 退休评估）：--restartcycle=9999 = 实质关闭周期触发④。
+		if (args.TryGetValue("restartcycle", out value)) _restartCycle = int.Parse(value);
 		// 屈服流速率（P4 平衡点判读）：--yield=0.1/0.2 覆盖默认 0.05——max 山高 = 来流量/速率。
 		if (args.TryGetValue("yield", out value)) _yieldRate = float.Parse(value);
 
@@ -97,6 +101,7 @@ public partial class HexDynamicDiag : Node
 		if (_flexureIterations >= 0) sim.FlexureIterations = _flexureIterations;
 		sim.PrecipitationScale = _precipScale;
 		if (_yieldRate > 0f) sim.YieldFlowRate = _yieldRate;
+		if (_restartCycle >= 0) sim.RestartCycleSteps = _restartCycle;
 		sim.EnableThinSheetDriving = _sheetDriving;
 		sim.EnableFluxTransport = _fluxTransport;
 		// 周期重启的重分板委托（05 §6.3）：与生产路径 `H3Plate.BeginCreatePlates` 同款注入——

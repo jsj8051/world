@@ -109,6 +109,14 @@ namespace World.NewHexWorld.Plate
 		/// <summary>裂解离散踢强度（× 洋壳模板质量面密度）：裂解时给子板账户注入背离种子的板片拉力，
 		/// 让裂谷真的张开；随板片记忆 `SlabMemoryMy` 衰减 ⇒ 裂解后有 ~30 My 离散窗口。</summary>
 		public float RiftKickStrength = 1f;
+		/// <summary>P4 应变源决策（混合制）：裂解种子改从最大板的**薄席板内高应变连通带**选取
+		/// （东非裂谷式——高原重力垮塌带开裂）。false = 退回远点采样（远距三点，旧口径）。
+		/// 与驱动方式无关：应变场只需要 GPE。默认 true（B 方案生产行为）。</summary>
+		public bool EnableStrainRiftSeed = true;
+		/// <summary>裂解应变场降频解算（步）：种子评估用应变的缓存刷新周期（薄席 res3 ~百 ms 级）。</summary>
+		public int StrainRefreshEverySteps = 25;
+		/// <summary>应变带最小格数：最大板的 top 应变连通带小于此 = 无有效带，回退远点采样。</summary>
+		public int StrainBandMinCells = 5;
 		/// <summary>重启触发①（"世界冻住了"的兜底）：全球板均**实到**速度持续低于此值
 		/// （km/My = 0.25 cm/yr）⇒ 全部重分板（场保留）。"发动机还剩多少"那一维由
 		/// <see cref="RestartEnergyRatio"/> 管（规定速度口径）。</summary>
@@ -126,8 +134,11 @@ namespace World.NewHexWorld.Plate
 		/// <summary>触发③：连续这么多步没有陆-陆碰撞 ⇒ 重启。0 = 关（platec 的 10 迭代照搬过来
 		/// 会在初始陆块碰撞前就误触发；要"无聊就重启"再打开）。</summary>
 		public int RestartNoCollisionSteps;
-		/// <summary>触发④：一个周期最多这么多步（一步 4 My ⇒ 150 步 = 600 My 一个周期）。</summary>
-		public int RestartCycleSteps = 150;
+		/// <summary>触发④：一个周期最多这么多步（一步 4 My ⇒ 150 步 = 600 My 一个周期）。
+		/// **默认 0 = 关闭（P4 退休拍板，2026-09-20）**：3 Ga B 方案对照跑实证——关掉周期重启后
+		/// 世界自持（板速恒定、动能比 97%、失速/动能/超大陆触发全部零触发），platec 式周期重启
+		/// 服务的是旧架构的几何死锁，连续变形下没有存在必要。触发①②③⑤ 保留作兜底。</summary>
+		public int RestartCycleSteps;
 		/// <summary>周期数上限（0 = 无限）。</summary>
 		public int MaxRestartCycles;
 
@@ -207,6 +218,9 @@ namespace World.NewHexWorld.Plate
 		float[]? _sheetGpe, _sheetElev;                       // 薄席工作缓冲（GPE / 海拔）
 		Vector3[]? _sheetDriveRadPerMy;                       // 板级刚体驱动场（rad/My，喂运动学外部覆写口）
 		H3FluxTransport? _flux;                               // 通量化运输（P3，懒建）
+	H3ThinSheet? _riftStrainSheet;                        // 裂解应变带种子（P4）：薄席降频解算缓存
+	float[]? _riftStrainGpe, _riftStrainElev, _riftStrain;
+	int _riftStrainStep = -1;
 		readonly bool[] _topologyVisited;               // 连通分量 BFS 用（复用，避免每步分配）
 		readonly int[] _topologyStack;
 		readonly int[] _topologyComp;                   // 每格连通分量号（只记号+尺寸，免逐分量 List）
@@ -424,6 +438,10 @@ namespace World.NewHexWorld.Plate
 			_nextPlateId = maxPlate + 1;
 			BuildInitialCrust(plateOfCell, seed);
 			InitialCrustMass = TotalCrustMass();
+			double felsic0 = 0;
+			for (int i = 0; i < _fields.Count; i++)
+				felsic0 += _fields.FelsicPlutonic[i] + _fields.FelsicVolcanic[i];
+			FelsicMassInitial = felsic0;                 // 伺服质量地板的基准（P4 形态拍板）
 			// 水量：全球等效水层（GlobalWaterLayerM，行星参数）按洋盆格数摊派成 TOD，
 			// OceanScale 对水层整体缩放。此后守恒；海平面/海岸线/陆高/洋深全部由容积守恒 + 均衡涌现。
 			_isostasy.TotalOceanDepth = _isostasy.DistributeGlobalWaterLayer(_ball, _fields, _material) * OceanScale;
@@ -1185,13 +1203,31 @@ namespace World.NewHexWorld.Plate
 		// 比例**从地幔补生长英质火山岩（底侵式增生；份额 ∝ 各自余量 ⇒ 天然不越帽）。落在弧上还是
 		// 陆内一视同仁——底侵不受弧位置约束（实验：只补弧格时弧格普遍顶帽，容量枯竭、预算闭不上）。
 		// 本步容量不足（全球陆壳顶帽）则缺口留在账上滚入下一步（控制器无状态，只认账本）。
-		// 不变量：FelsicArcReturnedCum ≥ 守恒组销毁累计 ⇒ 陆壳存量只增不减（长跑不走向水世界的保证）。
+		// 不变量（P4 形态拍板改**质量地板**口径）：长英质存量跌破初始禀赋时伺服全力工作
+		// ⇒ 陆壳存量不低于初始禀赋（防海水世界）；越过地板伺服停 ⇒ 出口账由大陆自付
+		//（防"伺服从兜底变主渠道"的单调陆增长——通量路径实测 600 My 陆 33%→70%）。
+		/// <summary>陆壳伺服的质量地板（× 初始长英质禀赋）：存量在地板上时伺服暂停补料、缺口滚账。
+		/// 默认 1.0；-1 = 关门（旧行为：永远补 ⇒ 单调陆增长）。取代此前的陆占比门（3 Ga 跳格
+		/// 长跑实测：陆占比门让存量跌破禀赋 −18%，质量地板才是被保护量的直读口径）。</summary>
+		public float ServoFelsicFloorMultiple = 1f;
+		/// <summary>初始长英质禀赋（kg；Initialize 时点）。伺服质量地板的基准（判读口）。</summary>
+		public double FelsicMassInitial { get; private set; }
 		void ApplyContinentalBudgetServo()
 		{
 			ContinentalServoPlacedLastStep = 0;
 			double destroyed = RecycledConservedTotal + ConservedYieldToMantleCum;
 			double deficit = destroyed - FelsicArcReturnedCum;
 			if (deficit <= 0) return;
+
+			// 质量地板：存量在地板上方的窗口期，大陆付得起侵蚀出口账（缺口滚存不丢）；
+			// 跌破地板（大陆受威胁）才补。O(N) 存量求和与伺服的帽余量遍历同量级。
+			if (ServoFelsicFloorMultiple >= 0f)
+			{
+				double felsicNow = 0;
+				for (int i = 0; i < _fields.Count; i++)
+					felsicNow += _fields.FelsicPlutonic[i] + _fields.FelsicVolcanic[i];
+				if (felsicNow >= FelsicMassInitial * ServoFelsicFloorMultiple) return;
+			}
 
 			// 单遍缓存逐格帽余量（<0 = 非陆格/无余量）：原两遍各算一次 Thickness（7 次除法/格），
 			// 全球陆格 × 2 是本步的常数大头。累加序与逐格数值同原两遍版逐位一致。
@@ -1419,11 +1455,16 @@ namespace World.NewHexWorld.Plate
 			var cells = new List<int>(largestCount);
 			for (int i = 0; i < n; i++) if (plateId[i] == largest) cells.Add(i);
 
-			// 远点采样三种子（确定性：首种子 = 最小格号；逐轮取"距已选种子最小距离"最大者）
+			// 三种子：优先薄席板内高应变连通带（P4 应变源决策，混合制——东非裂谷式，
+			// 裂谷沿重力垮塌带张开）；无有效带（带 < StrainBandMinCells 或未启用）回退远点采样。
 			var centers = _ball.CellCenters;
-			int s0 = cells[0];
-			int s1 = FarthestFrom(cells, centers, s0, -1);
-			int s2 = FarthestFrom(cells, centers, s0, s1);
+			int s0, s1, s2;
+			if (!TrySelectStrainSeeds(cells, out s0, out s1, out s2))
+			{
+				s0 = cells[0];
+				s1 = FarthestFrom(cells, centers, s0, -1);
+				s2 = FarthestFrom(cells, centers, s0, s1);
+			}
 
 			// 分配 = 多源 BFS 生长：三源同层推进、每格归最近种子的图距离——保证每块新板连通
 			// （距离 Voronoi 会切出碎散格）；遍历序固定 ⇒ 确定性。
@@ -1519,6 +1560,89 @@ namespace World.NewHexWorld.Plate
 
 		static float DistanceSquared(Vector3 a, Vector3 b) => (a - b).LengthSquared();
 
+		// 裂解应变的降频缓存：每 StrainRefreshEverySteps 步（或首次）解一次薄席，只取逐格应变率。
+		// 消耗在 CycleStep 内（本步均衡已解出 ⇒ GPE 输入新鲜），res3 ~百 ms 级摊薄。
+		float[] RefreshRiftStrain()
+		{
+			if (_riftStrain == null || StepCount - _riftStrainStep >= Math.Max(1, StrainRefreshEverySteps))
+			{
+				int n = _fields.Count;
+				_riftStrainElev ??= new float[n];
+				_riftStrainGpe ??= new float[n];
+				_riftStrain ??= new float[n];
+				_riftStrainSheet ??= new H3ThinSheet(_ball);
+				for (int i = 0; i < n; i++)
+					_riftStrainElev[i] = _isostasy.Displacement[i] - _isostasy.SeaLevel;
+				H3Gpe.ComputeInto(_fields, _riftStrainElev, _material, _riftStrainGpe);
+				_riftStrainSheet.Solve(_riftStrainGpe);
+				Array.Copy(_riftStrainSheet.StrainRate, _riftStrain, n);
+				_riftStrainStep = StepCount;
+			}
+			return _riftStrain;
+		}
+
+		// 裂谷种子选取（P4 应变源决策，混合制）：最大板的 top 应变格（板内前 10%）做邻接连通，
+		// 取最大连通带（同权重取带内最小格号——确定性）；带 < StrainBandMinCells = 无有效带 → false
+		//（调用方回退远点采样）。种子 = 带内最高应变格 + 逐轮"距已选种子最远"（同权重最小格号）。
+		internal bool TrySelectStrainSeeds(List<int> cells, out int s0, out int s1, out int s2)
+		{
+			s0 = s1 = s2 = -1;
+			if (!EnableStrainRiftSeed || cells.Count < 3) return false;
+			var strain = RefreshRiftStrain();
+			var plateId = _fields.PlateId;
+			var neighbors = _ball.CellNeighbors;
+
+			// 板内 top 应变集合（前 10%，至少带下限个；降序：应变同值按格号升序 ⇒ 确定性）
+			int take = Math.Max(StrainBandMinCells, cells.Count / 10);
+			var ranked = new List<(float strain, int cell)>(cells.Count);
+			foreach (int c in cells) ranked.Add((strain[c], c));
+			ranked.Sort((a, b) => a.strain != b.strain
+				? b.strain.CompareTo(a.strain) : a.cell.CompareTo(b.cell));
+
+			var top = new HashSet<int>();
+			var topList = new List<int>(take);
+			for (int k = 0; k < Math.Min(take, ranked.Count); k++)
+			{
+				if (ranked[k].strain <= 0f) break;              // 全零应变场无带可言
+				top.Add(ranked[k].cell);
+				topList.Add(ranked[k].cell);
+			}
+			if (topList.Count < StrainBandMinCells) return false;
+
+			// 最大连通带（邻接连通 BFS；遍历序 = topList 升序 ⇒ 平局取最小种子格号，确定性）
+			var visited = new HashSet<int>();
+			List<int> bestBand = topList;
+			foreach (int seed in topList)
+			{
+				if (visited.Contains(seed)) continue;
+				var band = new List<int>();
+				var stack = new Stack<int>();
+				stack.Push(seed);
+				visited.Add(seed);
+				while (stack.Count > 0)
+				{
+					int c = stack.Pop();
+					band.Add(c);
+					foreach (int nb in neighbors[c])
+					{
+						if (!top.Contains(nb) || visited.Contains(nb) || plateId[nb] != plateId[c]) continue;
+						visited.Add(nb);
+						stack.Push(nb);
+					}
+				}
+				if (band.Count > bestBand.Count) bestBand = band;
+			}
+			if (bestBand.Count < StrainBandMinCells) return false;
+
+			// 种子：带内最高应变格（同值最小格号）→ 逐轮最远（与远点采样同式，限带内）
+			s0 = bestBand[0];
+			foreach (int c in bestBand)
+				if (strain[c] > strain[s0] || (strain[c] == strain[s0] && c < s0)) s0 = c;
+			s1 = FarthestFrom(bestBand, _ball.CellCenters, s0, -1);
+			s2 = FarthestFrom(bestBand, _ball.CellCenters, s0, s1);
+			return true;
+		}
+
 		// 重启触发与执行（对齐 platec lithosphere::update/restart）：
 		//   ① 板均实到速度 < RestartStallSpeedKmPerMy（连续 N 步）
 		//   ② 系统动量/峰值 < RestartEnergyRatio（连续 N 步；峰值不复位）
@@ -1533,7 +1657,7 @@ namespace World.NewHexWorld.Plate
 			bool speedStalled = MeanRealizedSpeedKmPerMyLastStep < RestartStallSpeedKmPerMy;
 			bool energyDecayed = _peakMomentum > 0 && _systemMomentumLastStep / _peakMomentum < RestartEnergyRatio;
 			bool quiet = RestartNoCollisionSteps > 0 && StepsSinceContinentalCollision > RestartNoCollisionSteps;
-			bool cycleLong = CycleStepCount > RestartCycleSteps;
+			bool cycleLong = RestartCycleSteps > 0 && CycleStepCount > RestartCycleSteps;
 			bool supercontinent = LargestPlateFractionLastStep > RestartSupercontinentFraction;
 
 			// 速度/能量/超大陆条件要连续成立 N 步（抖动门）
