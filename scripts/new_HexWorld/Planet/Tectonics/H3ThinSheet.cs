@@ -33,7 +33,16 @@ namespace World.NewHexWorld.Plate
 		/// 标准粘塑性正则化：屈服边保留一份 ductile 底粘度，速率依赖由它兜底。
 		/// 0.1 = 屈服边最多软化 10×（res1 影子首跑实测：1e-3 会让缝边流到 km/yr 量级）。</summary>
 		public float PlasticStressFloorFraction = 0.1f;
-		public int PicardIterations = 4;             // 应力帽外层迭代
+		public int MaxNonlinearIterations = 16;      // 非线性（应力帽）外层迭代上限（文献纪律：解到收敛，不盲跑固定轮数）
+		public float NonlinearVelocityTolerance = 1e-3f;   // 速度更新相对范数收敛阈（文献 Picard 档）
+		/// <summary>黏度比上限（μ_max/μ_min = 1e4，文献数值辅助档）：帽后刚度不得低于初始刚度的
+		/// 此比例——修复旧实现的**跨 Picard 复合软化**（每轮 ×0.1 连乘，4 轮 = 1e4 倍、跨步无界）。
+		/// 刚性对比的物理来源是屈服帽（应力封顶），比值上限只约束数值条件数，不伤 G3。</summary>
+		public float ViscosityRatioCap = 1e4f;
+		/// <summary>应变速率限制器（m/yr）：解算输出速度的天花板（黏塑性码的标准数值保障件）。
+		/// 帽在地板饱和后无法限制流速（屈服条件被地板违反数个量级）⇒ 在输出端限幅保方向。
+		/// 默认 0.5 m/yr = 50 cm/yr，地球板块上限（~30 cm/yr）的富余档。</summary>
+		public float MaxVelocityMPerYr = 0.5f;
 		/// <summary>Picard 欠松弛（0.5 = 新旧解各半）：海岸 GPE 悬崖处应力帽开关式振荡的
 		/// 标准阻尼（R1"强粘度对比下 Picard 抖"的处方之一；线性段收敛稍慢，换稳定）。</summary>
 		public float PicardRelaxation = 0.5f;
@@ -48,12 +57,20 @@ namespace World.NewHexWorld.Plate
 		public float[] StrainRate;                   // 逐格平均边缘剪应变率（1/yr；P3 变形加厚/损伤的输入）
 		public int LastCgIterations { get; private set; }
 		public float LastCgResidual { get; private set; }
+		/// <summary>本步非线性（应力帽）外层轮数——步长反馈调速器的输入（超阈 ⇒ 亚循环）。</summary>
+		public int LastNonlinearIterations { get; private set; }
+		/// <summary>本步非线性外层是否收敛（速度更新 + 帽集合双判据；false = 上限截断）。</summary>
+		public bool LastConverged { get; private set; }
+		/// <summary>临时诊断开关（P5 R1 攻关期）：逐 Picard 轮打印最大速度/帽变化。</summary>
+		public static bool TraceSolve;
 
 		const float SecondsPerYear = 3.1558e7f;
 
 		readonly Ball _ball;
 		readonly int _n;
 		readonly float _cellWidthM;                  // 地球物理口径格宽
+		/// <summary>地球物理口径格宽（m；CFL 限制器等分辨率相关保障件用）。</summary>
+		public float CellWidthM => _cellWidthM;
 		readonly float _cellAreaM2;
 		readonly Vector3[] _tu, _tv;                 // 逐格切面基
 		readonly Vector3[][] _edgeUnit;              // 逐有向边：切向单位向量（i→j，边缘中点切面）
@@ -64,6 +81,7 @@ namespace World.NewHexWorld.Plate
 		float[] _ca, _cb, _ra, _rb, _pa, _pb, _apa, _apb, _za, _zb, _rhsA, _rhsB;
 		float[]? _gpeSmooth;                         // GPE 预平滑缓冲
 		float[]? _velPrevA, _velPrevB;               // Picard 欠松弛的上一轮解
+		float[][]? _edgeK0;                          // 初始刚度（黏度比上限的地板基准）
 
 		public H3ThinSheet(Ball ball)
 		{
@@ -145,19 +163,66 @@ namespace World.NewHexWorld.Plate
 			Array.Clear(_cb ??= new float[_n]);
 			Array.Clear(_velPrevA ??= new float[_n]);
 			Array.Clear(_velPrevB ??= new float[_n]);
-			for (int pic = 0; pic < PicardIterations; pic++)
+			_edgeK0 ??= new float[_n][];
+			for (int i = 0; i < _n; i++)
+			{
+				if (_edgeK0[i] == null || _edgeK0[i].Length < _edgeK[i].Length)
+					_edgeK0[i] = new float[_edgeK[i].Length];
+				Array.Copy(_edgeK[i], _edgeK0[i], _edgeK[i].Length);
+			}
+
+			// 非线性外层（文献纪律）：解 → 欠松弛 → 帽 → 检查"速度更新 + 帽变化"双收敛，
+			// 收敛即停（典型 3–10 轮）；到上限仍未收敛如实报 LastConverged = false。
+			float relax = PicardRelaxation;
+			int iters = 0;
+			bool converged = false;
+			for (int pic = 0; pic < MaxNonlinearIterations; pic++)
 			{
 				SolveCg();
-				// 欠松弛：新旧解各半（R1 处方——应力帽开关式振荡的标准阻尼）
-				float relax = PicardRelaxation;
+				if (TraceSolve)
+				{
+					float mv = 0;
+					for (int i = 0; i < _n; i++) mv = MathF.Max(mv, _vel[i].Length());
+					Console.WriteLine($"[SOLVE] pic={pic} maxV={mv:E3} m/yr cg={LastCgIterations} res={LastCgResidual:E2}");
+				}
+
+				double updateNorm = 0, scaleNorm = 0;
 				for (int i = 0; i < _n; i++)
 				{
-					_ca[i] = _velPrevA[i] + (_ca[i] - _velPrevA[i]) * relax;
-					_cb[i] = _velPrevB[i] + (_cb[i] - _velPrevB[i]) * relax;
+					float dA = _ca[i] - _velPrevA[i], dB = _cb[i] - _velPrevB[i];
+					updateNorm += (double)(dA * dA + dB * dB);
+					scaleNorm += (double)(_ca[i] * _ca[i] + _cb[i] * _cb[i]);
+					_ca[i] = _velPrevA[i] + dA * relax;
+					_cb[i] = _velPrevB[i] + dB * relax;
 					_velPrevA[i] = _ca[i];
 					_velPrevB[i] = _cb[i];
 				}
-				CapEdgesByYield();
+				int changed = CapEdgesByYield();
+				iters = pic + 1;
+				if (TraceSolve)
+				{
+					float mv = 0;
+					for (int i = 0; i < _n; i++) mv = MathF.Max(mv, _vel[i].Length());
+					Console.WriteLine($"[SOLVE] pic={pic} relaxed maxV={mv:E3} changed={changed}");
+				}
+				bool capSettled = changed == 0;
+				bool velSettled = updateNorm <= NonlinearVelocityTolerance * NonlinearVelocityTolerance
+					* Math.Max(scaleNorm, 1e-30);
+				if (capSettled && velSettled) { converged = true; break; }
+			}
+			LastNonlinearIterations = iters;
+			LastConverged = converged;
+
+			// 应变速率限制器：帽在地板饱和后无法限制流速 ⇒ 输出端限幅保方向
+			//（黏塑性码的标准保障件；0.5 m/yr = 地球板块上限的富余档）
+			if (MaxVelocityMPerYr > 0f)
+			{
+				for (int i = 0; i < _n; i++)
+				{
+					float speed = _vel[i].Length();
+					if (speed > MaxVelocityMPerYr)
+						_vel[i] *= MaxVelocityMPerYr / speed;
+				}
 			}
 
 			for (int i = 0; i < _n; i++) Velocity[i] = _vel[i];
@@ -202,13 +267,23 @@ namespace World.NewHexWorld.Plate
 				_rhsB[i] = _body[i].Dot(_tv[i]);
 			}
 
+			float rhsScale = 0f;
+			for (int i = 0; i < _n; i++)
+				rhsScale = MathF.Max(rhsScale, MathF.Max(MathF.Abs(_rhsA[i]), MathF.Abs(_rhsB[i])));
+			if (rhsScale <= 0f) { LastCgIterations = 0; LastCgResidual = 0f; return; }
+			float meanDiag = 0f;
+			for (int i = 0; i < _n; i++) meanDiag += Diagonal(i);
+			meanDiag = MathF.Max(meanDiag / _n, 1e-30f);
+			float solScale = rhsScale / meanDiag;             // 解尺度（典型 |x| ~ b/K）
+			float opScale = 1f / meanDiag;                    // 缩放算子 = Apply × opScale（条目 O(1)）
+
 			Apply(_ca, _cb, _ra, _rb);
 			float rsOld = 0f, diagSum = 0f;
 			for (int i = 0; i < _n; i++)
 			{
-				_ra[i] = _rhsA[i] - _ra[i];
-				_rb[i] = _rhsB[i] - _rb[i];
-				float d = Diagonal(i) + 1e-30f;
+				_ra[i] = (_rhsA[i] / rhsScale) - _ra[i] * opScale;
+				_rb[i] = (_rhsB[i] / rhsScale) - _rb[i] * opScale;
+				float d = Diagonal(i) * opScale + 1e-30f;   // 缩放系统对角线（预条件子同口径）
 				_za[i] = _ra[i] / d;
 				_zb[i] = _rb[i] / d;
 				rsOld += _ra[i] * _za[i] + _rb[i] * _zb[i];
@@ -225,7 +300,7 @@ namespace World.NewHexWorld.Plate
 			{
 				Apply(_pa, _pb, _apa, _apb);
 				float pAp = 0f;
-				for (int i = 0; i < _n; i++) pAp += _pa[i] * _apa[i] + _pb[i] * _apb[i];
+				for (int i = 0; i < _n; i++) pAp += _pa[i] * _apa[i] * opScale + _pb[i] * _apb[i] * opScale;
 				if (pAp <= 0f) break;
 				float alpha = rsOld / pAp;
 				float rsNew = 0f;
@@ -233,12 +308,13 @@ namespace World.NewHexWorld.Plate
 				{
 					_ca[i] += alpha * _pa[i];
 					_cb[i] += alpha * _pb[i];
-					_ra[i] -= alpha * _apa[i];
-					_rb[i] -= alpha * _apb[i];
+					_ra[i] -= alpha * _apa[i] * opScale;
+					_rb[i] -= alpha * _apb[i] * opScale;
 				}
+
 				for (int i = 0; i < _n; i++)
 				{
-					float d = Diagonal(i) + 1e-30f;
+					float d = Diagonal(i) * opScale + 1e-30f;
 					_za[i] = _ra[i] / d;
 					_zb[i] = _rb[i] / d;
 					rsNew += _ra[i] * _za[i] + _rb[i] * _zb[i];
@@ -254,7 +330,8 @@ namespace World.NewHexWorld.Plate
 			}
 
 			Apply(_ca, _cb, _ra, _rb);
-			for (int i = 0; i < _n; i++) _vel[i] = _tu[i] * _ca[i] + _tv[i] * _cb[i];
+			float unscale = solScale;
+			for (int i = 0; i < _n; i++) _vel[i] = (_tu[i] * _ca[i] + _tv[i] * _cb[i]) * unscale;
 			LastCgIterations = iter;
 			LastCgResidual = MathF.Sqrt(rs0 > 0f ? rsOld / rs0 : 0f);
 		}
@@ -301,10 +378,14 @@ namespace World.NewHexWorld.Plate
 			return sum;
 		}
 
-		// 逐边应力帽：|K·Δv| 超 Y ⇒ 该边 K 等比削减（对向槽位同步）——屈服边缘可滑移
-		void CapEdgesByYield()
+		// 逐边应力帽：|K·Δv| 超 Y ⇒ 该边 K 等比削减（对向槽位同步）——屈服边缘可滑移。
+		// 黏度比上限：K 不得低于初始 K 的 1/ViscosityRatioCap（修复跨 Picard 复合软化）。
+		// 返回本轮实际削减的边数（0 = 帽集合稳定，非线性收敛判据之一）。
+		int CapEdgesByYield()
 		{
 			var neighbors = _ball.CellNeighbors;
+			int changed = 0;
+			float ratio = MathF.Max(ViscosityRatioCap, 1f);
 			for (int i = 0; i < _n; i++)
 			{
 				var nb = neighbors[i];
@@ -319,12 +400,16 @@ namespace World.NewHexWorld.Plate
 					if (stress > YieldForcePerLengthN)
 					{
 						float scale = MathF.Max(YieldForcePerLengthN / stress, PlasticStressFloorFraction);
-						_edgeK[i][k] *= scale;
+						float kFloor = _edgeK0[i][k] / ratio;
+						float kNew = MathF.Max(_edgeK[i][k] * scale, kFloor);
+						if (kNew < _edgeK[i][k] * (1f - 1e-6f)) changed++;
+						_edgeK[i][k] = kNew;
 						int back = FindBackSlot(j, i);
-						if (back >= 0) _edgeK[j][back] *= scale;
+						if (back >= 0) _edgeK[j][back] = kNew;
 					}
 				}
 			}
+			return changed;
 		}
 
 		int FindBackSlot(int j, int i)

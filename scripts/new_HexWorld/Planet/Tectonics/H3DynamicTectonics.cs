@@ -88,6 +88,13 @@ namespace World.NewHexWorld.Plate
 		/// upwind 通量；俯冲 = 通量汇、加厚 = 收敛堆积、薄柱注壳内建）。跳格平流/起跳相位/空洞填充
 		/// 退位。须与 EnableThinSheetDriving 同开（通量吃驱动速度场）。默认 false。</summary>
 		public bool EnableFluxTransport = false;
+		/// <summary>P5 步长反馈：解算器非线性轮数超过此阈 ⇒ 下一宏步亚循环加倍（文献 dt 自适应）。</summary>
+		public int UnstableNonlinearIters = 8;
+		/// <summary>宏步亚循环上限（动力学核心拆 N 个子步，生命周期只在末子步）。</summary>
+		public int MaxSubcycles = 4;
+		int _subcycleCount = 1;
+		/// <summary>本宏步实际执行的亚循环数（判读口：>1 = 步长反馈在工作）。</summary>
+		public int SubcyclesLastStep { get; private set; }
 
 		// ── 板块生命周期旋钮（缝合/裂解/重启循环；借鉴 platec P1/P2/P4）──
 		/// <summary>缝合触发：板对顶死接触数 / 该对边界边数 ≥ 此比例（platec aggr_overlap_rel 口径）。</summary>
@@ -216,7 +223,9 @@ namespace World.NewHexWorld.Plate
 		H3PlateFields _fields;
 		H3PlateFields _scratch;
 		float[]? _sheetGpe, _sheetElev;                       // 薄席工作缓冲（GPE / 海拔）
-		Vector3[]? _sheetDriveRadPerMy;                       // 板级刚体驱动场（rad/My，喂运动学外部覆写口）
+		H3ThinSheet? _driveSheet;                             // P5 架构：解算器直驱（逐格连续变形场）
+		Vector3[]? _driveVelocityRadPerMy;                    // 解算器场（rad/My，物理方向）——平流通量直接消费
+		Vector3[]? _motionDriveRadPerMy;                      // motion 外部通道副本（取反约定，供拟合/触发/地形带）
 		H3FluxTransport? _flux;                               // 通量化运输（P3，懒建）
 	H3ThinSheet? _riftStrainSheet;                        // 裂解应变带种子（P4）：薄席降频解算缓存
 	float[]? _riftStrainGpe, _riftStrainElev, _riftStrain;
@@ -262,6 +271,8 @@ namespace World.NewHexWorld.Plate
 		public H3PlateAdvection Advection => _advection;   // 平流本体（诊断/调试取数口）
 		/// <summary>通量化运输（P3）：EnableFluxTransport 首步后非空（诊断判读口：注壳预算/需求/脊格）。</summary>
 		public H3FluxTransport Flux => _flux;
+		/// <summary>解算器逐格驱动场（rad/My，物理方向）——P5 架构：平流通量的直接输入。</summary>
+		public Vector3[]? DriveVelocityRadPerMy => _driveVelocityRadPerMy;
 		public H3SurfaceProcesses Surface => _surface;     // 坡面侵蚀判读口
 		public H3FluvialTransport Fluvial => _fluvial;     // 河流输沙判读口
 		public H3AeolianTransport Aeolian => _aeolian;     // 风沙搬运判读口
@@ -554,25 +565,42 @@ namespace World.NewHexWorld.Plate
 		}
 
 
-		/// <summary>走一个时间步（流水线 1–8b，再接 9-10 生命周期）。</summary>
+		/// <summary>走一个时间步（流水线 1–8b，再接 9-10 生命周期）。步长反馈：上一步解算器
+		/// 非线性轮数超阈 ⇒ 本宏步自动亚循环（动力学核心拆 N 个子步、生命周期只在末子步）。</summary>
 		public void Step()
+		{
+			int sub = _subcycleCount;
+			SubcyclesLastStep = sub;
+			float subMy = StepMy / sub;
+			for (int k = 0; k < sub; k++)
+				StepCore(subMy, isLast: k == sub - 1);
+			StepCount++;
+			// 步长反馈调速器（文献 dt 自适应）：解算非线性轮数超阈 ⇒ 加倍亚循环；减半回稳 ⇒ 逐级回收
+			int iters = _driveSheet?.LastNonlinearIterations ?? 0;
+			if (iters > UnstableNonlinearIters)
+				_subcycleCount = Math.Min(_subcycleCount * 2, Math.Max(1, MaxSubcycles));
+			else if (iters <= Math.Max(1, UnstableNonlinearIters / 2) && _subcycleCount > 1)
+				_subcycleCount = Math.Max(1, _subcycleCount / 2);
+		}
+
+		void StepCore(float stepMy, bool isLast)
 		{
 			// 1 热年龄累积：洋壳按离脊年龄累积；盖厚陆壳的格冻结（大陆岩石圈热稳态，不冷却沉降）。
 			//   地图型并行：写只落 Age[i] 本格，逐元素算式与串行逐位一致。
 			ParallelLoops.For(_fields.Count, i =>
 			{
-				if (!_fields.IsLand(i)) _fields.Age[i] += StepMy;
+				if (!_fields.IsLand(i)) _fields.Age[i] += stepMy;
 			});
 
 			// 1b 地幔热状态：势温按热收支下降 → Arrhenius 黏度注入运动学；本步力平衡用的就是更新后的 η。
-			Thermal.Step(_fields, StepMy);
+			Thermal.Step(_fields, stepMy);
 			_motion.MantleViscosityPaS = Thermal.MantleViscosityPaS;
 			_motion.PotentialTemperatureK = Thermal.PotentialTemperatureK;
 
 			// 2 运动学：浮力 → 力平衡速度（顶死接触格不计净驱动）→ 每板旋转增量 + CFL 钳制。
 			// P2 薄席驱动开启时：先解薄席并经外部覆写口喂数，力平衡在 motion 内部跳过（设计-07 §5）。
 			if (EnableThinSheetDriving) DriveByThinSheet();
-			_motion.Step(_ball, _fields, _material, 9.8f, StepMy);
+			_motion.Step(_ball, _fields, _material, 9.8f, stepMy);
 			ClampedCellsLastStep = _motion.ClampedCellCount;
 			JamContactCellsLastStep = _motion.JamContactCellCount;
 			PhantomForceFractionLastStep = _motion.PhantomForceFraction;
@@ -591,7 +619,7 @@ namespace World.NewHexWorld.Plate
 					ArcFelsicReturnFraction = ArcFelsicReturnFraction,
 					SpreadingSpeedKmPerMy = SpreadingSpeedKmPerMy,   // 注壳资格门槛与跳格路径同源（P3 第二批.5）
 				};
-				_flux.Step(_fields, _scratch, _motion.Velocity, _material, StepMy, StepCount);
+				_flux.Step(_fields, _scratch, _driveVelocityRadPerMy ?? _motion.Velocity, _material, stepMy, StepCount);
 				// 创建账两户：薄柱注壳 + 弧回流（"从地幔新生长英质"= 净增质量，必须记创建——
 				// 漏记则质量审计逐步多出弧回流量，实测 1.8e9 kg/步）。
 				CrustCreatedTotal += _flux.CreatedMassLastStep + _flux.ArcFelsicReturnedMassLastStep;
@@ -690,7 +718,7 @@ namespace World.NewHexWorld.Plate
 				// 8b-1c 风速度场：|u| 随当步海拔重算（方向步不变，走风模板缓存），高山风大顺势增强。
 				H3Wind.SpeedField(FluvialStencil(), surfaceHeight, RotationSpeed, _windSpeedMS);
 				_surface.BindFieldsForK(_fields);
-				_surface.Apply(_fields, surfaceHeight, _material, StepMy, ErosionScale,
+				_surface.Apply(_fields, surfaceHeight, _material, stepMy, ErosionScale,
 					new H3SurfaceProcesses.ErosionMedium(_erosionPrecip, _surfaceTempC, _windSpeedMS));
 
 				// 8b-1d 方向性风沙：侵蚀→搬运→沉积沿风向走。三通道执行序 = 坡面（风/重力/冰川）→ 风 → 河
@@ -708,12 +736,11 @@ namespace World.NewHexWorld.Plate
 				LandFractionLastStep = _isostasy.LandFraction();
 			}
 
-			// 9–10 板块生命周期：缝合 / 裂解 / 重启（场保留）。每步恰一次，且必须在拓扑量测之前（改归属）。
-			CycleStep();
+			// 9–10 板块生命周期：仅末子步执行（子步粒度 = 动力学；生命周期触发器按宏步计数）
+			if (isLast) CycleStep();
 
-			// 板数 + 归属拓扑量测（无主/孤立格、连通分量、最大板占比）
-			MeasurePlateTopology();
-			StepCount++;
+			// 板数 + 归属拓扑量测：仅末子步
+			if (isLast) MeasurePlateTopology();
 		}
 
 		// ═══ P2 薄席驱动（设计-07 §5）═══
@@ -734,49 +761,32 @@ namespace World.NewHexWorld.Plate
 			int n = _fields.Count;
 			_sheetElev ??= new float[n];
 			_sheetGpe ??= new float[n];
-			_sheetDriveRadPerMy ??= new Vector3[n];
+			_driveSheet ??= new H3ThinSheet(_ball);
+			_driveVelocityRadPerMy ??= new Vector3[n];
+			_motionDriveRadPerMy ??= new Vector3[n];
 
 			for (int i = 0; i < n; i++)
 				_sheetElev[i] = _isostasy.Displacement[i] - _isostasy.SeaLevel;
 			H3Gpe.ComputeInto(_fields, _sheetElev, _material, _sheetGpe);
 
-			// 逐格 GPE 梯度体力（六边格梯度恢复，与 H3ThinSheet 同式）+ 板级聚合
+			// 板片账户牵引 → 逐格 traction（N/格）：板级账户方向力均摊到板内各格。
+			// 均摊后总量 = 旧板级口径（v = F/(c_b·A)），速度标定直接继承。
 			var plateId = _fields.PlateId;
 			int maxPlate = 0;
 			for (int i = 0; i < n; i++) if (plateId[i] > maxPlate) maxPlate = plateId[i];
-			var force = new Vector3[maxPlate + 1];
-			var area = new float[maxPlate + 1];
 			var dirSum = new Vector3[maxPlate + 1];
 			var count = new int[maxPlate + 1];
-			var neighbors = _ball.CellNeighbors;
-			var centers = _ball.CellCenters;
 			var dirs = _ball.CellDirs;
 			float radiusM = H3PlateMotion.EarthRadiusKm * 1000f;
-			float sceneToM = radiusM / _ball.Radius;
 			float cellAreaM2 = 4f * MathF.PI * radiusM * radiusM / n;
 			for (int i = 0; i < n; i++)
 			{
-				Vector3 grad = Vector3.Zero;
-				foreach (int nb in neighbors[i])
-				{
-					Vector3 dir = centers[nb] - centers[i];
-					float dPhys = dir.Length() * sceneToM;
-					Vector3 mid = (centers[i] + centers[nb]) * 0.5f;
-					Vector3 radial = mid.Normalized();
-					Vector3 t = dir - radial * dir.Dot(radial);
-					grad += (float)(_sheetGpe[nb] - _sheetGpe[i]) * t.Normalized() / dPhys;
-				}
-				grad *= 2f / 3f;
 				int p = plateId[i];
 				if (p < 0) continue;
-				force[p] += -grad * cellAreaM2;
-				area[p] += cellAreaM2;
 				dirSum[p] += dirs[i];
 				count[p]++;
 			}
-
-			// 板片牵引（P2 力清单补全）：俯冲板片经账户持续拉板——真实地球的主驱动力。
-			// 力 = w·g·|账户方向和|·格面积（与旧 ③ 板片通道同式），方向 = 账户方向在板心切面的投影。
+			var traction = new Vector3[n];
 			for (int p = 0; p <= maxPlate; p++)
 			{
 				if (count[p] == 0) continue;
@@ -788,52 +798,35 @@ namespace World.NewHexWorld.Plate
 				float dl = d.Length();
 				if (dl <= 1e-9f) continue;
 				float fSlab = H3PlateMotion.SlabPullWeightFraction * 9.8f * slabMag * cellAreaM2;
-				force[p] += d / dl * fSlab;
+				Vector3 perCell = d / dl * fSlab;
+				for (int i = 0; i < n; i++)
+					if (plateId[i] == p) traction[i] = perCell;
 			}
 
-			// 板级刚体驱动：净力方向 → 旋转轴（携质心沿净力方向走）→ 角速度 = 板速/R
-			float toRadPerMy = 1e6f / radiusM;                                 // m/yr → rad/My
-			// ⚠️ 符号约定（测试钉住 ThinSheetDriving_FlowsTowardLowerGpe）：拟合+写出链路
-			// 对驱动场整体取反——外部驱动场按 −物理角速度 喂入，平流才沿净力方向跳格。
+			// 应变速率限制器绑定 CFL（分辨率自适应）：格宽/步长 × CFL 上限——
+			// 固定值会在 res3（格距 111 km）下给出 18 格/步的超临限搬运（实测世界熔毁）。
+			_driveSheet.MaxVelocityMPerYr =
+				H3PlateMotion.CflMaxStepCellWidths * _driveSheet.CellWidthM / (StepMy * 1e6f);
+
+			// 解薄席：连续变形场（粘度帽 + 底层拖曳规范锚 + 板片牵引）——P5 架构：
+			// 运动定义权在解算器（球面锁死已随拖曳规范锚修复）；场散度 = 物理散度。
+			_driveSheet.Solve(_sheetGpe, traction);
+
+			// 解算器场（m/yr，物理方向）→ rad/My：平流通量直接消费；
+			// motion 外部通道喂取反副本（拟合/地形带链路的取反约定保持，P2 方向验收测试钉住）。
+			float toRadPerMy = 1e6f / radiusM;
 			double speedSumKmPerMy = 0;
-			int speedCount = 0;
-			for (int p = 0; p <= maxPlate; p++)
+			for (int i = 0; i < n; i++)
 			{
-				Vector3 omega = Vector3.Zero;
-				// ⚠️ 力模长必须走 double：板级合力 ~1e19–1e21 N（物理量级），float 平方即溢出
-				//（1e19² = 1e38 ≈ float.MaxValue 3.4e38）⇒ Length() = ∞ ⇒ 板速/驱动场全废。
-				double fx = force[p].X, fy = force[p].Y, fz = force[p].Z;
-				double fLen = Math.Sqrt(fx * fx + fy * fy + fz * fz);
-				if (count[p] > 0 && fLen > 0)
-				{
-					Vector3 cHat = dirSum[p].Normalized();
-					Vector3 fHat = new Vector3((float)(fx / fLen), (float)(fy / fLen), (float)(fz / fLen));
-					Vector3 axis = cHat.Cross(fHat);
-					if (axis.LengthSquared() > 1e-12f)
-					{
-						double vP = fLen / ((double)BasalDragNyrPerM3 * area[p]);        // m/yr
-						omega = axis.Normalized() * (float)(vP * toRadPerMy);
-					}
-				}
-				for (int i = 0; i < n; i++)
-				{
-					if (plateId[i] != p) continue;
-					_sheetDriveRadPerMy[i] = -omega.Cross(dirs[i]);
-				}
-				if (count[p] > 0)
-				{
-					speedSumKmPerMy += omega.Length() * H3PlateMotion.EarthRadiusKm;
-					speedCount++;
-				}
+				_driveVelocityRadPerMy[i] = _driveSheet.Velocity[i] * toRadPerMy;
+				_motionDriveRadPerMy[i] = -_driveVelocityRadPerMy[i];
+				speedSumKmPerMy += _driveSheet.Velocity[i].Length() * 1000.0;   // m/yr → km/My
 			}
 
 			_motion.ThinSheetDriving = true;
-			_motion.ExternalDriveVelocity = _sheetDriveRadPerMy;
-			// 拟合门槛自适应：薄席驱动的板速可低至 mm/yr 量级——固定 1 km/My 门槛会把拟合
-			// 全部滤空（速度场恒零）。门槛 = 当步板均速的 20%，钳到 [0.02, 1] km/My。
-			if (speedCount > 0)
-				_motion.MinFitSpeedKmPerMy = Math.Clamp(
-					0.2f * (float)(speedSumKmPerMy / speedCount), 0.02f, 1f);
+			_motion.ExternalDriveVelocity = _motionDriveRadPerMy;
+			// 拟合门槛自适应：薄席速度可低至 mm/yr——门槛 = 均速 ×20%，钳 [0.02, 1] km/My。
+			_motion.MinFitSpeedKmPerMy = Math.Clamp(0.2f * (float)(speedSumKmPerMy / Math.Max(n, 1)), 0.02f, 1f);
 		}
 
 		/// <summary>本步的降水闭合系数 λ：全球 Σ 降水 = 洋面蒸发总量。

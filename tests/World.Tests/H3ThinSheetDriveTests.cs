@@ -129,6 +129,32 @@ public class H3ThinSheetDriveTests
     }
 
     [Test]
+    public void SolverDrive_CouplingStaysBounded_OverSteps()
+    {
+        // P5 R1 耦合有界性测试（架构接线前的正确顺序）：解算器直驱 + 通量平流的耦合回路
+        // 在海岸 GPE 悬崖处的正反馈（实测 0.25 → 46 rad/My → NaN）必须被收敛纪律 + 步长
+        // 反馈压住：N 步内驱动场保持有界、无 NaN、审计闭账。本测试是 P5 的第一道闸门。
+        var sim = NewDrivenSim(true, flux: true);
+        H3ThinSheet.TraceSolve = true;
+        float maxDrive = 0f;
+        for (int s = 0; s < 12; s++)
+        {
+            sim.Step();
+            var drive = sim.DriveVelocityRadPerMy!;
+            for (int i = 0; i < drive.Length; i++)
+            {
+                Assert.IsTrue(float.IsFinite(drive[i].X) && float.IsFinite(drive[i].Y)
+                    && float.IsFinite(drive[i].Z), $"step {s} 格 {i} 驱动场出现非有限值（耦合失稳）");
+                maxDrive = MathF.Max(maxDrive, drive[i].Length());
+            }
+        }
+        float maxDriveCmPerYr = maxDrive * H3PlateMotion.EarthRadiusKm * 10f;   // rad/My → cm/yr
+        Console.WriteLine($"[BOUND] 12 步 maxDrive = {maxDriveCmPerYr:F0} cm/yr（限幅器上限 50 cm/yr）");
+        Assert.Less(maxDrive, 0.1f,
+            $"耦合 12 步驱动场峰值 {maxDrive:E3} rad/My 越过限幅器（≈ {maxDriveCmPerYr:F0} cm/yr）——耦合正反馈复发");
+    }
+
+    [Test]
     public void FluxTransport_Deterministic()
     {
         var a = NewDrivenSim(true, flux: true);
