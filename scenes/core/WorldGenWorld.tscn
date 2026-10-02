@@ -1,0 +1,15 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/noise_world/worldgen/WorldGenManager.cs" id="1_mgr"]
+[ext_resource type="PackedScene" path="res://scenes/noise_world/WorldGenPlanet.tscn" id="2_planet"]
+[ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="3_cam"]
+
+[node name="WorldGenRoot" type="Node3D"]
+script = ExtResource("1_mgr")
+
+[node name="WorldGenPlanet" parent="." instance=ExtResource("2_planet")]
+ContinentCount = 7
+LandFraction = 0.29
+
+[node name="OrbitalCamera" parent="." instance=ExtResource("3_cam")]
+_planetRadius = 2.0

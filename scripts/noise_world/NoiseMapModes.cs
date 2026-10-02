@@ -57,12 +57,14 @@ public abstract class NoiseMapMode
 //（单一事实源跟着模式走；视图 BandName 委托本类，格信息面板口径不变）。
 public sealed class ElevationBandMode : NoiseMapMode
 {
-	readonly NoiseTerrain _terrain;
-	public ElevationBandMode(NoiseTerrain t) => _terrain = t;
+	readonly float[] _elevation;
+	public ElevationBandMode(NoiseTerrain t) : this(t.ElevationM) { }
+	/// <summary>海拔源抽象为逐格数组：worldgen（世界生成空间）线复用同一色带与视图。</summary>
+	public ElevationBandMode(float[] elevationM) => _elevation = elevationM;
 
 	public override int Id => 0;
 	public override string Name => "海拔";
-	public override Color CellColorAt(int i) => ElevationColor(_terrain.ElevationM[i]);
+	public override Color CellColorAt(int i) => ElevationColor(_elevation[i]);
 
 	internal static Color ElevationColor(float m) => m switch
 	{

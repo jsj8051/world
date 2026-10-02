@@ -20,7 +20,7 @@ namespace World.NoiseWorld;
 public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生成器要求（GD0001）
 {
 	readonly Ball _ball;
-	readonly NoiseTerrain _terrain;
+	float[] _elevation;   // 逐格海拔（米）——海拔源抽象（NoiseTerrain 或 worldgen 投影层供给；重算可经 SetElevationSource 重绑）
 	NoiseMapMode _mode;         // 当前地图模式（取色函数；null = 未设 → 首烘时回落海拔分档）
 
 	float _lodNearRatio;        // 拍板①旋钮：近距 = 球半径 × 此值
@@ -43,9 +43,13 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	float _cameraFovMargin = 0.6f;    // 透视外扩余量（rad）：相机在 1.7R 处 FOV 75° 能看到半球外 ~35° 的侧面
 
 	public NoiseBallView(Ball ball, NoiseTerrain terrain, float lodNearRatio, float backfaceCullRatio)
+		: this(ball, terrain.ElevationM, lodNearRatio, backfaceCullRatio) { }
+
+	/// <summary>海拔源直供构造：任何逐格海拔数组（worldgen 投影层等）；引用须稳定（重烘读同一份）。</summary>
+	public NoiseBallView(Ball ball, float[] elevationM, float lodNearRatio, float backfaceCullRatio)
 	{
 		_ball = ball;
-		_terrain = terrain;
+		_elevation = elevationM ?? throw new ArgumentNullException(nameof(elevationM));
 		_lodNearRatio = lodNearRatio;
 		_backfaceCullRatio = backfaceCullRatio;
 	}
@@ -124,6 +128,13 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	public void SetLodRatio(float v) => _lodNearRatio = v;            // 只改判据，下帧生效
 	public void SetBackfaceRatio(float v) => _backfaceCullRatio = v;
 
+	/// <summary>重绑海拔源（重算换了数组实例后调用；随后的重烘/查询读新数组）。</summary>
+	public void SetElevationSource(float[] elevationM) =>
+		_elevation = elevationM ?? throw new ArgumentNullException(nameof(elevationM));
+
+	/// <summary>格 id → 全局下标（逻辑层数组对位查询）；格表外返回 −1。</summary>
+	public int PickCellIndex(ulong cell) => CellIndex().TryGetValue(cell, out int i) ? i : -1;
+
 	// ── 颜色数据纹理（全星一张，static 共享；ResLevel/噪声变化时 RebuildElevTex 重烘）──
 	// 布局 = BallView 同款：格 i → 纹素 ((i%W)+0.5)/W, ((i/W)+0.5)/H（W=ceil(sqrt(N))）。
 	// 块网格 UV = 该格纹素中心；fragment 直采 RGB = 分档色（已转 linear，nearest ⇒ 硬色阶）。
@@ -132,7 +143,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 
 	void RebuildElevTex()
 	{
-		_mode ??= new ElevationBandMode(_terrain);   // 默认模式 = 海拔分档（首烘/未显式设置时）
+		_mode ??= new ElevationBandMode(_elevation);   // 默认模式 = 海拔分档（首烘/未显式设置时）
 		_mode.BeginBake();                           // 自适应域模式在此刷新 min-max
 		int n = _ball.CellIds.Length;
 		_texW = (int)Math.Ceiling(Math.Sqrt(n));
@@ -331,7 +342,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	{
 		if (CellIndex().TryGetValue(cell, out int i))
 		{
-			elevM = _terrain.ElevationM[i];
+			elevM = _elevation[i];
 			return true;
 		}
 		elevM = 0f;
