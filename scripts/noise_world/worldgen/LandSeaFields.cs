@@ -6,7 +6,7 @@ namespace World.NoiseWorld.WorldGen;
 
 // 世界生成空间 · 海陆结构连续场（阶段 1 影响场 + 阶段 2 轮廓细化，决策 02 §2/§3）：
 //   ContinentInfluenceField = Σmax 锚点影响（椭圆衰减 × 权重）——加权 Voronoi 的连续版，
-//     AnchorAt(dir) = 影响最大锚点（离散化后即 ContinentId）。
+//     AnchorAt(dir) = 影响最大锚点（连续场内部塑形判据；地图量 = 陆块连通分量）。
 //   LandSeaField = influence + Large(低频) + Medium(中频×coastComplexity) + Small(高频×coastComplexity)，
 //     采样坐标先过域扭曲（阶段 2 的海岸弯曲）。**只管海陆结构，不生成高度**（决策 02 §0）。
 //     连续场口径：> 0 = 陆；精确海陆比由离散层分位校准（H3LandSeaProjector，"目标占比"滑块的承接）。

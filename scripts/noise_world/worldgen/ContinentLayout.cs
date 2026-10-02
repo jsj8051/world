@@ -8,7 +8,7 @@ namespace World.NoiseWorld.WorldGen;
 // 世界生成空间 · 大陆锚点层（阶段 1，决策 docs/newdecision/设计-世界生成空间-02-海陆结构.md）：
 //   「大陆锚点 + 加权 Voronoi + 多尺度 Noise」——先撒大陆中心（**蓝噪声**：Mitchell best-candidate，
 //   中心不挤在一起），每锚点带 size / shape / rotation / coastComplexity 属性，形成大陆影响场
-//   continentInfluence(dir)；归属 = 影响最大的锚点（加权 Voronoi ⇒ ContinentId）。
+//   continentInfluence(dir)；归属仅用于连续场内部塑形（锚点性格参数），地图量 = 陆块连通分量。
 // 确定性红线：撒点与属性全部经 DeterministicRandom **固定次序**派生；best-candidate 的候选数固定。
 // 尺度口径：地球半径 6371 km；大陆影响半径 1800–4200 km（地球大陆量级：非洲 ~3600、澳洲 ~2000）。
 /// <summary>大陆锚点：中心方向 + 椭圆影响参数（shape = 轴比，rotation = 切平面内轴朝向）+ 海岸性格。</summary>

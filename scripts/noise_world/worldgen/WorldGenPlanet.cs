@@ -6,7 +6,7 @@ namespace World.NoiseWorld.WorldGen;
 
 // 世界生成空间 · 星球组件（阶段 1+2 落地场景件）：数据层（Ball + 大陆布局 + 海陆场 + H3 投影）
 // + 视图层（复用 NoiseBallView——海拔源直供构造）。自包含、不含相机（宿主自配）。
-// 海陆结构五件套（Land/ContinentId/DistToCoast/DistToLand/ElevationM）由投影层一次产出；
+// 海陆结构五件套（Land/LandmassId/DistToCoast/DistToLand/ElevationM）由投影层一次产出；
 // 可见海拔 = raw 相对阈值映射（仅上色——阶段 1/2 不生成真实高度，决策 02 §0）。
 public partial class WorldGenPlanet : Node3D
 {
@@ -14,7 +14,7 @@ public partial class WorldGenPlanet : Node3D
 	[Export(PropertyHint.Enum, "res3 (41k 格)/res4 (288k 格)")]
 	public int ResLevel = 4;                    // H3 分辨率档（res4 = 渲染预算实算舒适档）
 	[Export] public float Radius = 2.0f;        // 球半径（与轨道相机 _planetRadius 同值时取景正确）
-	[Export] public int ContinentCount = 7;     // 大陆锚点数（蓝噪声撒布）
+	[Export] public int ContinentCount = 7;     // 大陆锚点数（蓝噪声撒布；海陆场塑形用，地图量=陆块连通分量）
 	[Export(PropertyHint.Range, "0.02,0.9,0.01")]
 	public float LandFraction = 0.29f;          // 目标陆地占比（分位校准钉死）
 	[Export] public int Seed = 42;

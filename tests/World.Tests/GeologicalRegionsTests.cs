@@ -49,11 +49,11 @@ public class GeologicalRegionsTests
 		var (g, p) = Make();
 		for (int r = 0; r < g.Regions.Length; r++)
 		{
-			Assert.That(g.Regions[r].Continent, Is.InRange(0, p.ContinentCount - 1));
+			Assert.That(g.Regions[r].Landmass, Is.InRange(0, p.LandmassCount - 1));
 			for (int i = 0; i < p.Land.Length; i++)
 				if (g.RegionOfCell[i] == r)
-					Assert.That(p.ContinentId[i], Is.EqualTo(g.Regions[r].Continent),
-						$"区域 {r} 含他大陆格——两级归属嵌套被破坏");
+					Assert.That(p.LandmassId[i], Is.EqualTo(g.Regions[r].Landmass),
+						$"区域 {r} 含他陆块格——两级归属嵌套被破坏");
 		}
 	}
 
@@ -62,13 +62,13 @@ public class GeologicalRegionsTests
 	{
 		var (g, _) = Make();
 		Assert.That(g.Regions.Length, Is.GreaterThanOrEqualTo(1));
-		var perContinent = new Dictionary<int, int>();
+		var perLandmass = new Dictionary<int, int>();
 		foreach (var r in g.Regions)
-			perContinent[r.Continent] = perContinent.GetValueOrDefault(r.Continent) + 1;
-		foreach (var (c, k) in perContinent)
+			perLandmass[r.Landmass] = perLandmass.GetValueOrDefault(r.Landmass) + 1;
+		foreach (var (c, k) in perLandmass)
 		{
-			Assert.That(k, Is.GreaterThanOrEqualTo(1), $"大陆 {c} 至少 1 区域");
-			Assert.That(k, Is.LessThanOrEqualTo(GeologicalRegions.MaxRegionsPerContinent), $"大陆 {c} 区域数超上限");
+			Assert.That(k, Is.GreaterThanOrEqualTo(1), $"陆块 {c} 至少 1 区域");
+			Assert.That(k, Is.LessThanOrEqualTo(GeologicalRegions.MaxRegionsPerContinent), $"陆块 {c} 区域数超上限");
 		}
 		// 面积口径：更大的目标面积 ⇒ 更少区域（数量旋钮的真实性）
 		var (gCoarse, _) = Make(targetAreaKm2: 40_000_000f);

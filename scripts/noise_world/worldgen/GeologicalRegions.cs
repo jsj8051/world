@@ -36,7 +36,7 @@ public sealed class GeologicalRegions
 		public int Id;                    // 区域号（全局）
 		public Vector3 Seed;              // 种子方向（Lloyd 后的收敛位置）
 		public float Weight;              // SizeNoise 空间连续权重（score = 角距/weight 的分母）
-		public int Continent;             // 所属大陆（锚点号）
+		public int Landmass;              // 所属陆块（连通分量号）
 		public RegionType Type;
 		// ── Features（决策 §十）──
 		public int CellCount;             // 格数
@@ -124,10 +124,10 @@ public sealed class GeologicalRegions
 		float cellAreaKm2 = 4f * MathF.PI * SphericalFbmNoise.EarthRadiusKm * SphericalFbmNoise.EarthRadiusKm / n;
 
 		// ── ① 大陆格集合 + 面积口径区域数（×random(0.8,1.2) 抖动，决策 §四）──
-		var continentCells = new List<int>[proj.ContinentCount];
+		var continentCells = new List<int>[proj.LandmassCount];
 		for (int c = 0; c < continentCells.Length; c++) continentCells[c] = new List<int>();
 		for (int i = 0; i < n; i++)
-			if (proj.Land[i]) continentCells[proj.ContinentId[i]].Add(i);
+			if (proj.Land[i]) continentCells[proj.LandmassId[i]].Add(i);
 
 		int continentN = continentCells.Length;
 		var kPerContinent = new int[continentN];
@@ -187,7 +187,7 @@ public sealed class GeologicalRegions
 			for (int i = 0; i < n; i++)
 			{
 				if (!proj.Land[i]) { RegionOfCell[i] = -1; continue; }
-				RegionOfCell[i] = RegionAt(ball.CellDirs[i], proj.ContinentId[i], regionBase, kPerContinent, seedDir, seedWeight);
+				RegionOfCell[i] = RegionAt(ball.CellDirs[i], proj.LandmassId[i], regionBase, kPerContinent, seedDir, seedWeight);
 				regionCells[RegionOfCell[i]].Add(i);
 			}
 		}
@@ -243,7 +243,7 @@ public sealed class GeologicalRegions
 					Id = r,
 					Seed = seedDir[r],
 					Weight = seedWeight[r],
-					Continent = c,
+					Landmass = c,
 					Type = RegionType.Plain,
 					CellCount = regionCells[r].Count,
 					AreaKm2 = regionCells[r].Count * cellAreaKm2,
@@ -348,7 +348,7 @@ public sealed class GeologicalRegions
 		var g = Regions[r];
 		float sum = 0f; int cnt = 0;
 		for (int i = 0; i < Regions.Length; i++)
-			if (Regions[i].Continent == g.Continent) { sum += Regions[i].AreaKm2; cnt++; }
+			if (Regions[i].Landmass == g.Landmass) { sum += Regions[i].AreaKm2; cnt++; }
 		float avg = cnt > 0 ? sum / cnt : 1f;
 		return avg > 0 ? g.AreaKm2 / avg : 1f;
 	}

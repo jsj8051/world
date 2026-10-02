@@ -11,12 +11,12 @@ namespace World.NoiseWorld.WorldGen;
 // 海格统一深蓝底（与海拔色带深海档同色，画面连续）。
 public static class WorldGenMapModes
 {
-	/// <summary>全部模式（注册序 = 坞按钮序 = Id）。</summary>
+	/// <summary>全部模式（注册序 = 坞按钮序 = Id）。「大陆」势力图已删（2026-10-02 用户拍板）：
+	///   锚点 Voronoi 归属是连续场内部塑形判据，不是地图语义——地图语义 = 陆块连通分量（投影层）。</summary>
 	public static List<NoiseMapMode> CreateAll(WorldGenPlanet planet) => new()
 	{
 		new ElevationMode(planet),
 		new LandSeaMode(planet),
-		new ContinentMode(planet),
 		new RegionTypeMode(planet),
 		new CoastDistanceMode(planet),
 	};
@@ -45,26 +45,12 @@ public static class WorldGenMapModes
 		public override Color CellColorAt(int i) => RampSampleSmooth(NoiseMapMode.DivergingStops, _p.Projector.Raw[i] / 0.8f);
 	}
 
-	/// <summary>大陆归属（加权 Voronoi 锚点号 → 色相；海 = 深蓝）。</summary>
-	sealed class ContinentMode : NoiseMapMode
-	{
-		readonly WorldGenPlanet _p;
-		public ContinentMode(WorldGenPlanet p) => _p = p;
-		public override int Id => 2;
-		public override string Name => "大陆";
-		public override Color CellColorAt(int i)
-		{
-			int c = _p.Projector.ContinentId[i];
-			return c < 0 ? new Color(OceanR, OceanG, OceanB) : Color.FromHsv((c * 0.618f) % 1f, 0.55f, 0.92f);
-		}
-	}
-
-	/// <summary>地质区域类型（七类固定色；阶段 3 主判读图）。</summary>
+	/// <summary>地质区域类型（七类固定色；主判读图——用户拍板的地图语义）。</summary>
 	sealed class RegionTypeMode : NoiseMapMode
 	{
 		readonly WorldGenPlanet _p;
 		public RegionTypeMode(WorldGenPlanet p) => _p = p;
-		public override int Id => 3;
+		public override int Id => 2;
 		public override string Name => "地质区域";
 		public override Color CellColorAt(int i)
 		{
@@ -89,7 +75,7 @@ public static class WorldGenMapModes
 	{
 		readonly WorldGenPlanet _p;
 		public CoastDistanceMode(WorldGenPlanet p) => _p = p;
-		public override int Id => 4;
+		public override int Id => 3;
 		public override string Name => "离岸距离";
 		public override Color CellColorAt(int i)
 		{

@@ -5,23 +5,25 @@ using World.NewHexWorld;    // Ball（H3 球壳数据层）
 namespace World.NoiseWorld.WorldGen;
 
 // 世界生成空间 · H3 投影层（阶段 1 输出 + 可见化，决策 02 §2/§4）：
-//   连续海陆场 → H3 逐格五件套：Land / ContinentId / DistToCoast / DistToLand / 可见海拔。
+//   连续海陆场 → H3 逐格五件套：Land / LandmassId（连通分量）/ DistToCoast / DistToLand / 可见海拔。
 //   海陆比 = **分位校准**：全格采样后按目标占比取阈值——「目标陆地占比」滑块的承接
 //   （连续场阈值 0 只是形状语义；精确占比在离散层钉死，继承现役"海陆比滑块可控"性质）。
-//   ContinentId = 归属锚点 argmax（**未扭曲格心方向**——大陆归属是板块感分区，不被海岸噪声撕碎）。
+//   陆块 = 海陆掩码连通分量（2026-10-02 语义修正：大陆=真实陆地板块，非锚点势力）。
 //   离岸/离海距离 = H3 邻接图 BFS（多源，跳数；现役 NoiseTerrain._distToLand 同构）。
 //   可见海拔 = raw 相对阈值的超出量映射（陆正海负）——**仅为上色**，阶段 1/2 不生成真实高度
 //     （决策 02 §0）；内陆高沿海低的分布由连续场幅值自然给出。
 // 确定性红线：分位取值用固定排序（值 + 下标）；BFS 队列序固定 ⇒ 同输入逐位同。
 /// <summary>
-/// H3 海陆结构投影：把连续海陆场离散化成 Land/ContinentId/距离/可见海拔五件套。
+/// H3 海陆结构投影：把连续海陆场离散化成 Land/LandmassId/距离/可见海拔五件套。
 /// </summary>
 public sealed class H3LandSeaProjector
 {
 	/// <summary>海陆掩码（陆 = true）。</summary>
 	public bool[] Land { get; private set; } = Array.Empty<bool>();
-	/// <summary>大陆归属（加权 Voronoi 锚点下标；海格 = −1）。</summary>
-	public int[] ContinentId { get; private set; } = Array.Empty<int>();
+	/// <summary>陆块归属（海陆连通分量号：一片连通陆地 = 一个陆块；海格 = −1）。
+	///   语义修正（2026-10-02 用户拍板）：大陆 = 真实陆地板块，不是锚点势力——锚点 Voronoi 归属
+	///   只存于连续场内部塑形（LandSeaField 取锚点性格参数），不再产出地图量。</summary>
+	public int[] LandmassId { get; private set; } = Array.Empty<int>();
 	/// <summary>陆格离海跳数（海格 = 0）——内陆深度。</summary>
 	public int[] DistToCoast { get; private set; } = Array.Empty<int>();
 	/// <summary>海格离岸跳数（陆格 = 0）——离岸距离（近岸浅水环/海沟口径的原料）。</summary>
@@ -33,8 +35,8 @@ public sealed class H3LandSeaProjector
 	/// <summary>实测海陆比与所用阈值（校准回读）。</summary>
 	public float LandFraction { get; private set; }
 	public float ThresholdUsed { get; private set; }
-	/// <summary>大陆数（归属锚点数；海陆结构下游分区用）。</summary>
-	public int ContinentCount { get; private set; }
+	/// <summary>陆块数（连通分量数；下游分区用）。</summary>
+	public int LandmassCount { get; private set; }
 
 	public void Generate(Ball ball, LandSeaField field, float targetLandFraction = 0.29f,
 		H3TerrainSampler.Mode mode = H3TerrainSampler.Mode.CenterAndCorners)
@@ -60,16 +62,32 @@ public sealed class H3LandSeaProjector
 			if (Land[i]) landCount++;
 		}
 
-		// ③ 大陆归属（**扭曲坐标**的锚点归属；海格 −1）——与海陆场同一扭曲系 ⇒ 分界弯曲与
-		//    海岸线同源；未扭曲 Voronoi 的数学圆弧会直接切在连片陆地上（实测踩坑，v2 修正）
-		ContinentId = new int[n];
-		int maxCont = -1;
-		for (int i = 0; i < n; i++)
+		// ③ 陆块归属 = 海陆掩码的**连通分量**（一片连通陆地 = 一个陆块；海格 −1）——
+		//    "这块陆地属于哪个大陆"的自然语义；内陆归属岛从构造上消失。
+		//    （v2 踩坑记录：锚点势力 argmax 会把连片陆地内部判成圆形归属岛——势力与海陆不同源。）
+		LandmassId = new int[n];
+		Array.Fill(LandmassId, -1);
+		var neighbors = ball.CellNeighbors;
+		int landmassCount = 0;
+		var bfs = new Queue<int>(n);
+		for (int seed = 0; seed < n; seed++)
 		{
-			ContinentId[i] = Land[i] ? field.Influence.AnchorAt(field.SampleWarpDir(ball.CellDirs[i])) : -1;
-			if (ContinentId[i] > maxCont) maxCont = ContinentId[i];
+			if (!Land[seed] || LandmassId[seed] >= 0) continue;
+			LandmassId[seed] = landmassCount;
+			bfs.Enqueue(seed);
+			while (bfs.Count > 0)
+			{
+				int i = bfs.Dequeue();
+				foreach (int j in neighbors[i])
+				{
+					if (!Land[j] || LandmassId[j] >= 0) continue;
+					LandmassId[j] = landmassCount;
+					bfs.Enqueue(j);
+				}
+			}
+			landmassCount++;
 		}
-		ContinentCount = maxCont + 1;
+		LandmassCount = landmassCount;
 
 		// ④ 双向 BFS：离海（陆深度）与离岸（海远度）
 		DistToCoast = BfsFrom(ball, i => !Land[i]);

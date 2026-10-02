@@ -8,7 +8,7 @@ namespace World.Tests;
 /// <summary>
 /// 世界生成空间 · H3 海陆投影护栏（阶段 1 输出五件套，决策 02 §2/§4）：
 ///   · 分位校准：实测海陆比 = 目标（±2pp）；
-///   · 五件套一致性：Land 符号 ⟺ 可见海拔符号；ContinentId 陆全覆盖、海 −1；
+///   · 五件套一致性：Land 符号 ⟺ 可见海拔符号；LandmassId 陆全覆盖、海 −1；
 ///     DistToCoast/DistToLand 各自源侧为 0、对侧 ≥1；BFS 距离 ≤ 邻居 +1（图距定义）；
 ///   · 确定性：同输入逐位同。
 /// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*/LogService。
@@ -49,20 +49,20 @@ public class H3LandSeaProjectorTests
 	}
 
 	[Test]
-	public void ContinentId_FullOnLand_NegativeOnOcean()
+	public void LandmassId_FullOnLand_NegativeOnOcean()
 	{
 		var (p, field) = MakeProjector();
-		int continents = field.Influence.Layout.Anchors.Length;
+		int continents = p.LandmassCount;
 		for (int i = 0; i < p.Land.Length; i++)
 		{
 			if (p.Land[i])
 			{
-				Assert.That(p.ContinentId[i], Is.InRange(0, continents - 1),
-					$"陆格 {i}：归属必须是合法锚点号");
+				Assert.That(p.LandmassId[i], Is.InRange(0, continents - 1),
+					$"陆格 {i}：归属必须是合法陆块号");
 			}
 			else
 			{
-				Assert.That(p.ContinentId[i], Is.EqualTo(-1), $"海格 {i}：归属必须为 −1");
+				Assert.That(p.LandmassId[i], Is.EqualTo(-1), $"海格 {i}：归属必须为 −1");
 			}
 		}
 	}

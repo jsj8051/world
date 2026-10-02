@@ -88,7 +88,7 @@ public partial class WorldGenManager : Node3D
 			? $"区域{g.RegionOfCell[i]}({GeologicalRegions.TypeName(g.Regions[g.RegionOfCell[i]].Type)})"
 			: "区域−";
 		GD.Print($"[WORLDGEN-PICK] 格 {i} lat={latDeg:F1} lng={lngDeg:F1} " +
-				 $"land={p.Land[i]} 大陆={p.ContinentId[i]} {region} " +
+				 $"land={p.Land[i]} 陆块={p.LandmassId[i]} {region} " +
 				 $"离海={p.DistToCoast[i]} 离岸={p.DistToLand[i]} elev={g.ElevationM[i]:F0}m");
 	}
 }
