@@ -1,13 +1,13 @@
 using Godot;
+using System;
 using System.Diagnostics;
 using World.NewHexWorld;        // Ball（H3 球壳数据层）
 
 namespace World.NoiseWorld.WorldGen;
 
-// 世界生成空间 · 星球组件（阶段 1+2 落地场景件）：数据层（Ball + 大陆布局 + 海陆场 + H3 投影）
-// + 视图层（复用 NoiseBallView——海拔源直供构造）。自包含、不含相机（宿主自配）。
-// 海陆结构五件套（Land/LandmassId/DistToCoast/DistToLand/ElevationM）由投影层一次产出；
-// 可见海拔 = raw 相对阈值映射（仅上色——阶段 1/2 不生成真实高度，决策 02 §0）。
+// 世界生成空间 · 星球组件（阶段 1-4 落地场景件）：数据层（Ball + 大陆布局 + 海陆场 + H3 投影
+// + 地质区域 + 山脉骨架）+ 视图层（复用 NoiseBallView——海拔源直供构造）。自包含、不含相机。
+// 显示海拔 = 投影基线 + 区域类型偏移（阶段 3 占位调制）+ 山脉骨架加成（阶段 4，决策 04）。
 public partial class WorldGenPlanet : Node3D
 {
 	[ExportGroup("星球")]
@@ -28,7 +28,10 @@ public partial class WorldGenPlanet : Node3D
 	public LandSeaField Field { get; private set; }         // 连续海陆场（域扭曲 + 三尺度）
 	public H3LandSeaProjector Projector { get; private set; }   // H3 投影五件套
 	public GeologicalRegions Regions { get; private set; }  // 地质区域（阶段 3：两级 Voronoi + 约束式类型）
+	public MountainSkeleton Mountains { get; private set; } // 山脉骨架（阶段 4：主脊+分支 → 高斯包络 × ridged 细化）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
+	/// <summary>显示海拔（Regions.ElevationM + Mountains.ElevationAddM；信息卡/判读口）。</summary>
+	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
 
 	Ball _ball;
 	int _timingDiag;   // 生成耗时打印限次
@@ -37,13 +40,13 @@ public partial class WorldGenPlanet : Node3D
 	{
 		_ball = new Ball(ResLevel, Radius);
 		Regenerate();
-		View = new NoiseBallView(_ball, Projector.ElevationM,
+		View = new NoiseBallView(_ball, DisplayElevation,
 			lodNearRatio: LodNearRatio, backfaceCullRatio: BackfaceCullRatio);
 		AddChild(View);
 		View.BuildChunks();
 	}
 
-	/// <summary>全量重算（锚点 → 场 → 投影 → 地质区域）+ 重烘颜色纹理（宿主防抖后调）。</summary>
+	/// <summary>全量重算（锚点 → 场 → 投影 → 地质区域 → 山脉骨架）+ 重烘颜色纹理（宿主防抖后调）。</summary>
 	public void Regenerate()
 	{
 		var sw = Stopwatch.StartNew();
@@ -53,14 +56,23 @@ public partial class WorldGenPlanet : Node3D
 		Projector.Generate(_ball, Field, LandFraction);
 		Regions = new GeologicalRegions(Seed);
 		Regions.Generate(_ball, Projector, TargetRegionAreaKm2);
+		Mountains = new MountainSkeleton(Seed);
+		Mountains.Generate(_ball, Regions);
+
+		// 显示海拔 = 投影 + 区域偏移 + 骨架加成（阶段 4 上画面）
+		DisplayElevation = new float[_ball.CellDirs.Length];
+		for (int i = 0; i < DisplayElevation.Length; i++)
+			DisplayElevation[i] = Regions.ElevationM[i] + Mountains.ElevationAddM[i];
+
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
 					 $"land={Projector.LandFraction:P1} regions={Regions.Regions.Length} " +
+					 $"ridges={Mountains.Ridges.Length} " +
 					 $"thr={Projector.ThresholdUsed:F3} {sw.Elapsed.TotalMilliseconds:F0} ms");
 		if (View != null)
 		{
-			// 重算换了海拔数组实例 ⇒ 视图海拔源重绑后重烘（几何/UV 不动；海拔 = 区域合成版）
-			View.SetElevationSource(Regions.ElevationM);
+			// 重算换了海拔数组实例 ⇒ 视图海拔源重绑后重烘（几何/UV 不动；海拔 = 骨架合成版）
+			View.SetElevationSource(DisplayElevation);
 			View.RefreshColors();
 		}
 	}

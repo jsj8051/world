@@ -89,6 +89,6 @@ public partial class WorldGenManager : Node3D
 			: "区域−";
 		GD.Print($"[WORLDGEN-PICK] 格 {i} lat={latDeg:F1} lng={lngDeg:F1} " +
 				 $"land={p.Land[i]} 陆块={p.LandmassId[i]} {region} " +
-				 $"离海={p.DistToCoast[i]} 离岸={p.DistToLand[i]} elev={g.ElevationM[i]:F0}m");
+				 $"离海={p.DistToCoast[i]} 离岸={p.DistToLand[i]} elev={_planet.DisplayElevation[i]:F0}m 加成={_planet.Mountains.ElevationAddM[i]:F0}m");
 	}
 }
