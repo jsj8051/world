@@ -8,7 +8,7 @@ using Godot;
 namespace World.NewHexWorld
 {
 	// H3 球面网格数据层（纯数据可单测）：res 网格静态拓扑与几何，一次构建永久只读。
-	// 内容模拟（H3Plate）持只读引用：场数组按下标与 CellIds 对齐。
+	// 内容层（noise_world 噪声世界等）持只读引用：场数组按下标与 CellIds 对齐。
 	public class Ball
 	{
 		// ── 字段（全部 private，构建期写入，之后只读）──
@@ -76,7 +76,7 @@ namespace World.NewHexWorld
 			for (int i = 0; i < _cellCenters.Length; i++) _cellDirs[i] = _cellCenters[i].Normalized();
 		}
 
-		// 顶点 id → 顶点下标映射（BallMesh 画格子取角点坐标用）。
+		// 顶点 id → 顶点下标映射（视图层画格子取角点坐标用）。
 		void BuildVertexIdToIndex() =>
 			_vertexIdToIndex = _vertexIds.Select((id, i) => (id, i)).ToDictionary(t => t.id, t => t.i);
 

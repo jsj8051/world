@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cfa6l6qirfeqq"]
+
+[ext_resource type="Script" path="res://scripts/Diagnostics/NoiseShotDiag.cs" id="1_diag"]
+
+[node name="NoiseShotDiag" type="Node"]
+script = ExtResource("1_diag")
