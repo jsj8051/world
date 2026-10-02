@@ -50,8 +50,6 @@ public sealed class GeologicalRegions
 	public Region[] Regions { get; private set; } = Array.Empty<Region>();
 	/// <summary>逐格区域号（陆 = 区域下标；海 = −1）。</summary>
 	public int[] RegionOfCell { get; private set; } = Array.Empty<int>();
-	/// <summary>合成可见海拔（投影海拔 + 区域类型偏移；海格不变——占位表现，S3 换 Height Generator）。</summary>
-	public float[] ElevationM { get; private set; } = Array.Empty<float>();
 
 	// ── 分区旋钮 ──
 	public const float TargetRegionAreaKm2 = 4_000_000f;   // 目标区域面积（地球：~400 万 km²/区域）
@@ -59,21 +57,12 @@ public sealed class GeologicalRegions
 	public const int LloydIterations = 2;                  // 决策 §七：1~3 次，多了过度规则
 	public const int PoissonMinGapKm = 900;                // 种子最小角距（km；Poisson disk 半径口径）
 
-	// 世界级类型配额先验（决策 §十七）：统计控制非机械结果——配额缺口进打分，Softmax 保自然
-	public static readonly float[] TypeQuota = { 0.35f, 0.15f, 0.10f, 0.15f, 0.10f, 0.05f, 0.10f };
+	// 世界级类型配额先验（决策 §十七）：统计控制非机械结果——配额缺口进打分，Softmax 保自然。
+	//   BASIN 压到 0.06（决策 05 §七警告：盆地大量生成 ⇒ 河流系统出现大量孤立内流盆地）。
+	//   区域类型不再直接加海拔偏移（2026-10-02 退役）——类型驱动大尺度场（MOUNTAIN→脊、
+	//   PLATEAU→高原帽、BASIN→下挖），合成在 HeightComposer（决策 05 §六公式）。
+	public static readonly float[] TypeQuota = { 0.35f, 0.15f, 0.06f, 0.15f, 0.10f, 0.05f, 0.10f };
 	//                            类型:            Plain Highland Basin Mountain Plateau Rift Coastal
-
-	// 区域类型海拔偏移（米；占位——真实高度 S3 由 Height Generator 按类型生成骨架）
-	public static readonly float[] TypeElevOffsetM =
-	{
-		120f,    // Plain
-		650f,    // Highland
-		-450f,   // Basin
-		1500f,   // Mountain
-		950f,    // Plateau
-		-280f,   // Rift
-		0f,      // Coastal
-	};
 
 	static readonly string[] TypeNames = { "Plain", "Highland", "Basin", "Mountain", "Plateau", "Rift", "Coastal" };
 	public static string TypeName(RegionType t) => TypeNames[(int)t];
@@ -256,7 +245,6 @@ public sealed class GeologicalRegions
 			}
 
 		AssignTypes(rnd, adj);
-		ComposeElevation(proj, n);
 	}
 
 	/// <summary>连续 Region Field 查询：本大陆种子中 argmin(扭曲角距/weight)——H3 格只是采样点（决策 §九）。</summary>
@@ -332,15 +320,6 @@ public sealed class GeologicalRegions
 			for (int t = 0; t < 7; t++) { acc += prob[t]; if (pick <= acc) { chosen = t; break; } }
 			Regions[r].Type = (RegionType)chosen;
 		}
-	}
-
-	void ComposeElevation(H3LandSeaProjector proj, int n)
-	{
-		ElevationM = new float[n];
-		for (int i = 0; i < n; i++)
-			ElevationM[i] = RegionOfCell[i] >= 0
-				? proj.ElevationM[i] + TypeElevOffsetM[(int)Regions[RegionOfCell[i]].Type]
-				: proj.ElevationM[i];
 	}
 
 	float AreaRelSize(int r)

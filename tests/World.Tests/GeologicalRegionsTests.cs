@@ -104,7 +104,6 @@ public class GeologicalRegionsTests
 			Assert.That(b.g.Regions[r].Seed, Is.EqualTo(a.g.Regions[r].Seed), $"区域 {r} Lloyd 种子须逐位同");
 			Assert.That(b.g.Regions[r].Weight, Is.EqualTo(a.g.Regions[r].Weight));
 		}
-		CollectionAssert.AreEqual(a.g.ElevationM, b.g.ElevationM, "合成海拔须逐位同");
 	}
 
 	[Test]
@@ -151,16 +150,6 @@ public class GeologicalRegionsTests
 	}
 
 	[Test]
-	public void Elevation_Composite_Viewable_ByRegionType()
-	{
-		var (g, p) = Make();
-		for (int i = 0; i < p.Land.Length; i++)
-		{
-			if (!p.Land[i]) continue;
-			float expect = p.ElevationM[i] + GeologicalRegions.TypeElevOffsetM[(int)g.Regions[g.RegionOfCell[i]].Type];
-			Assert.That(g.ElevationM[i], Is.EqualTo(expect).Within(0.5f), $"格 {i}：合成海拔 = 投影海拔 + 区域偏移（占位调制）");
-		}
-	}
 
 	Dictionary<int, HashSet<int>> BuildAdjacency(GeologicalRegions g)
 	{

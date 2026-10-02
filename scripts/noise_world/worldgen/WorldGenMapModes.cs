@@ -31,7 +31,7 @@ public static class WorldGenMapModes
 		public override string Name => "海拔";
 		public override Color CellColorAt(int i) =>
 			_p.Projector.Land[i]
-				? ElevationBandMode.ElevationColor(_p.Regions.ElevationM[i])   // 陆 = 合成海拔分档（含区域调制）
+				? ElevationBandMode.ElevationColor(_p.DisplayElevation[i])   // 陆 = 合成海拔分档（HeightComposer 唯一出处）
 				: new Color(OceanR, OceanG, OceanB);
 	}
 

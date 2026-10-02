@@ -13,7 +13,7 @@ namespace World.NoiseWorld.WorldGen;
 // 脊几何：以区域质心为锚、沿随机方位直线双向延伸 ±L/2，横向蜿蜒 = 低频 fBm 采直线基准点
 //   （**位置合成**而非增量积分——无漂移）；分支从主脊 1/3~2/3 段以 50°~105° 斜向分叉，
 //   更短更矮更窄（支脉语义，决策 4.1）。
-// 包络语义（决策 4.2/4.3）：detail = 0.7 + 0.6×ridged ∈[0.7,1.3]（均值≈1 保能量）——
+// 包络语义（决策 4.2/4.3）：detail = 0.45 + 0.55×ridged ∈[0.45,1.0]（峰谷比 2.2:1）——
 //   骨架定高度包络与位置，噪声只在包络内造峰谷锯齿。
 // 性能：逐脊**角帽预筛**（帽 = 脊点包围 + 3σ 余量；exp(−9)≈1e-4 截断）+ 海格跳过——
 //   res4 全链增量 <1 s（先对再快；空间索引待实测超预算再立）。
@@ -39,7 +39,7 @@ public sealed class MountainSkeleton
 
 	// ── 骨架性格旋钮（地球量级；面板接线走 S5）──
 	public const float BaseLengthKm = 1400f;       // 主脊基准长度（安第斯/落基山单段量级）
-	public const float BaseHeightM = 4200f;        // 主脊基准脊高（米，叠加在区域偏移之上）
+	public const float BaseHeightM = 2400f;        // 主脊基准脊高（米；大陆基线 ~940 之上，峰 ~3300 过雪线、谷 ~1980 不过——山链雪线上下穿越）
 	public const float BaseSigmaKm = 130f;         // 高斯宽度基准（山体半宽量级）
 	public const float MeanderAmpKm = 260f;        // 蜿蜒横移幅度（脊是曲线不是直线，决策 4.1）
 	public const int PointStepKm = 20;             // 脊点列步长（σ 的 ~1/6，距离量化误差 <8%）
@@ -122,7 +122,7 @@ public sealed class MountainSkeleton
 				}
 				float envelope = MathF.Exp(-(dMin * dMin) / (sigmaRad * sigmaRad));   // 决策 4.2
 				float ridged01 = MathF.Pow(1f - MathF.Abs(_rugged.Sample(dirs[i])), 2f);
-				float detail = 0.7f + 0.6f * ridged01;                                // 决策 4.3（均值≈1）
+				float detail = 0.45f + 0.55f * ridged01;                              // 决策 4.3：∈[0.45,1.0] 峰谷比 2.2:1（v1 ±30% 拉不出谷——"白盘"根因之一）
 				ElevationAddM[i] += envelope * ridge.HeightM * detail;
 			}
 		}

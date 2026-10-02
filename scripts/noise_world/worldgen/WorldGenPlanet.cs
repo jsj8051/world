@@ -29,8 +29,10 @@ public partial class WorldGenPlanet : Node3D
 	public H3LandSeaProjector Projector { get; private set; }   // H3 投影五件套
 	public GeologicalRegions Regions { get; private set; }  // 地质区域（阶段 3：两级 Voronoi + 约束式类型）
 	public MountainSkeleton Mountains { get; private set; } // 山脉骨架（阶段 4：主脊+分支 → 高斯包络 × ridged 细化）
+	public RegionalLandforms Landforms { get; private set; }    // 区域地貌（阶段 5：高原帽 / 盆地下挖）
+	public HeightComposer Composer { get; private set; }    // 高度合成（阶段 6：唯一海拔出处）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
-	/// <summary>显示海拔（Regions.ElevationM + Mountains.ElevationAddM；信息卡/判读口）。</summary>
+	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
 	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
 
 	Ball _ball;
@@ -46,7 +48,7 @@ public partial class WorldGenPlanet : Node3D
 		View.BuildChunks();
 	}
 
-	/// <summary>全量重算（锚点 → 场 → 投影 → 地质区域 → 山脉骨架）+ 重烘颜色纹理（宿主防抖后调）。</summary>
+	/// <summary>全量重算（锚点 → 场 → 投影 → 区域 → 骨架 → 地貌 → 合成）+ 重烘颜色纹理。</summary>
 	public void Regenerate()
 	{
 		var sw = Stopwatch.StartNew();
@@ -58,11 +60,11 @@ public partial class WorldGenPlanet : Node3D
 		Regions.Generate(_ball, Projector, TargetRegionAreaKm2);
 		Mountains = new MountainSkeleton(Seed);
 		Mountains.Generate(_ball, Regions);
-
-		// 显示海拔 = 投影 + 区域偏移 + 骨架加成（阶段 4 上画面）
-		DisplayElevation = new float[_ball.CellDirs.Length];
-		for (int i = 0; i < DisplayElevation.Length; i++)
-			DisplayElevation[i] = Regions.ElevationM[i] + Mountains.ElevationAddM[i];
+		Landforms = new RegionalLandforms(Seed);
+		Landforms.Generate(_ball, Regions);
+		Composer = new HeightComposer(Seed);
+		Composer.Generate(_ball, Projector, Regions, Mountains, Landforms);
+		DisplayElevation = Composer.HeightM;   // 唯一海拔出处（决策 05 §六）
 
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
@@ -71,7 +73,7 @@ public partial class WorldGenPlanet : Node3D
 					 $"thr={Projector.ThresholdUsed:F3} {sw.Elapsed.TotalMilliseconds:F0} ms");
 		if (View != null)
 		{
-			// 重算换了海拔数组实例 ⇒ 视图海拔源重绑后重烘（几何/UV 不动；海拔 = 骨架合成版）
+			// 重算换了海拔数组实例 ⇒ 视图海拔源重绑后重烘（几何/UV 不动；海拔 = 合成版）
 			View.SetElevationSource(DisplayElevation);
 			View.RefreshColors();
 		}

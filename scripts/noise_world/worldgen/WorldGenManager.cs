@@ -81,7 +81,7 @@ public partial class WorldGenManager : Node3D
 		var ll = H3.CellToLatLng(cell.Value);
 		float latDeg = (float)(ll.Lat * 180 / Math.PI);
 		float lngDeg = (float)(ll.Lng * 180 / Math.PI);
-		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, g.ElevationM[i]);
+		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, _planet.DisplayElevation[i]);
 
 		if (_pickDiag++ >= 20) return;   // 控制台判读限次（信息卡常驻）
 		string region = g.RegionOfCell[i] >= 0

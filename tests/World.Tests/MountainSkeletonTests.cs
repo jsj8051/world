@@ -67,8 +67,8 @@ public class MountainSkeletonTests
 					if (d < dMin) dMin = d;
 				}
 				float env = MathF.Exp(-(dMin * dMin) / (sigmaRad * sigmaRad));
-				expectLo += env * ridge.HeightM * 0.7f;
-				expectHi += env * ridge.HeightM * 1.3f;
+				expectLo += env * ridge.HeightM * 0.45f;
+				expectHi += env * ridge.HeightM * 1.0f;
 			}
 			Assert.That(m.ElevationAddM[i], Is.InRange(expectLo - 1f, expectHi + 1f),
 				$"格 {i}：加成必须落在高斯包络 × detail 值域带内（决策 4.2/4.3 公式）");

@@ -93,7 +93,10 @@ public sealed class H3LandSeaProjector
 		DistToCoast = BfsFrom(ball, i => !Land[i]);
 		DistToLand = BfsFrom(ball, i => Land[i]);
 
-		// ⑤ 可见海拔：raw 相对阈值的超出量 → 陆正海负（幅域取 1%/99% 分位防极值）
+		// ⑤ 海拔基线：raw 相对阈值的超出量 → 陆正海负（幅域取 1%/99% 分位防极值）。
+		//   陆侧 = **ContinentalElevation 大陆基线**（阶段 6 合成公式的第一项）：峰值压到 ~940 m
+		//   （丘陵以下）——山/高原/盆地由骨架与区域场叠加拔起/下挖（决策 05），基线自己不进高地档
+		//   （v1 基线 2240 + 区域偏移 1500 未算骨架就已过雪线 2800 ⇒ "雪山圆盘"的根因之一）。
 		float landSpread = MathF.Max(thr - SortedQuantile(sorted, 0.99f), 1e-4f);
 		float seaSpread = MathF.Max(SortedQuantile(sorted, 0.01f) - thr, 1e-4f);
 		ElevationM = new float[n];
@@ -102,7 +105,7 @@ public sealed class H3LandSeaProjector
 			if (Land[i])
 			{
 				float t = Math.Clamp((Raw[i] - thr) / landSpread, 0f, 1f);
-				ElevationM[i] = 40f + 2200f * MathF.Pow(t, 1.3f);
+				ElevationM[i] = 40f + 900f * MathF.Pow(t, 1.3f);
 			}
 			else
 			{
