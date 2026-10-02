@@ -54,4 +54,31 @@ public static class ParallelLoops
 		Parallel.For(0, count, localInit, body,
 			local => { lock (combineGate) combine(local); });
 	}
+
+	/// <summary>批次 2b（设计 11-2 §2.4）：**固定分块**地图型并行 for——「跨运行确定性」在框架层的兜底。
+	/// 与 <see cref="For"/> 的区别：块的**数量与区间只由入参决定**（块数 = workers，
+	/// 块 b = [b·count/B, (b+1)·count/B)），不依赖运行时调度器的动态分区 ⇒ 即使将来有人
+	/// 误把归约型循环接进来，跨运行/跨线程数的划分也恒定可复现。body 仍须地图型
+	///（写只落 i 自己的输出位）——此时结果与串行版逐位同。worker 数由**调用方专用字段**
+	/// 传入（各调用方专用 worker 字段），不读全局 WorkerCount，避免外溢到
+	/// 其他共用调用方（设计 11-2 §5 的 ★修正纪律）。</summary>
+	public static void ForFixed(int count, int workers, Action<int> body)
+	{
+		ArgumentOutOfRangeException.ThrowIfNegative(count);
+		if (count == 0) return;
+		int blockCount = Math.Clamp(workers, 1, 64);
+		if (count < MinCellsForParallel || blockCount <= 1)
+		{
+			for (int i = 0; i < count; i++) body(i);
+			return;
+		}
+		if (blockCount > count) blockCount = count;   // 块数 ≤ 格数（空块也无害，但省一趟调度）
+		Parallel.For(0, blockCount, b =>
+		{
+			// 固定等分（b·count/B 的整数式）：同参数下划分恒同、与线程池调度无关。
+			int lo = b * count / blockCount;
+			int hi = (b + 1) * count / blockCount;
+			for (int i = lo; i < hi; i++) body(i);
+		});
+	}
 }
