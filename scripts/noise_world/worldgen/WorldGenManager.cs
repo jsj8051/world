@@ -56,13 +56,17 @@ public partial class WorldGenManager : Node3D
 		}
 		_planet.View.HighlightCell(cell);
 
-		// 阶段 1 五件套判读（控制台；信息卡 UI 后续批次）
+		// 阶段 1+3 判读（控制台；信息卡 UI 后续批次）
 		int i = _planet.View.PickCellIndex(cell.Value);
 		if (i < 0 || _pickDiag++ >= 20) return;
 		var p = _planet.Projector;
+		var g = _planet.Regions;
 		var ll = H3.CellToLatLng(cell.Value);
+		string region = g.RegionOfCell[i] >= 0
+			? $"区域{g.RegionOfCell[i]}({GeologicalRegions.TypeName(g.Regions[g.RegionOfCell[i]].Type)})"
+			: "区域−";
 		GD.Print($"[WORLDGEN-PICK] 格 {i} lat={ll.Lat * 180 / Math.PI:F1} lng={ll.Lng * 180 / Math.PI:F1} " +
-				 $"land={p.Land[i]} continent={(p.ContinentId[i] >= 0 ? p.ContinentId[i].ToString() : "−")} " +
-				 $"离海={p.DistToCoast[i]} 离岸={p.DistToLand[i]} elev={p.ElevationM[i]:F0}m raw={p.Raw[i]:F3}");
+				 $"land={p.Land[i]} 大陆={p.ContinentId[i]} {region} " +
+				 $"离海={p.DistToCoast[i]} 离岸={p.DistToLand[i]} elev={g.ElevationM[i]:F0}m");
 	}
 }

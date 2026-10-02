@@ -33,6 +33,8 @@ public sealed class H3LandSeaProjector
 	/// <summary>实测海陆比与所用阈值（校准回读）。</summary>
 	public float LandFraction { get; private set; }
 	public float ThresholdUsed { get; private set; }
+	/// <summary>大陆数（归属锚点数；海陆结构下游分区用）。</summary>
+	public int ContinentCount { get; private set; }
 
 	public void Generate(Ball ball, LandSeaField field, float targetLandFraction = 0.29f,
 		H3TerrainSampler.Mode mode = H3TerrainSampler.Mode.CenterAndCorners)
@@ -60,8 +62,13 @@ public sealed class H3LandSeaProjector
 
 		// ③ 大陆归属（未扭曲格心方向的锚点 argmax；海格 −1）
 		ContinentId = new int[n];
+		int maxCont = -1;
 		for (int i = 0; i < n; i++)
+		{
 			ContinentId[i] = Land[i] ? field.Influence.AnchorAt(ball.CellDirs[i]) : -1;
+			if (ContinentId[i] > maxCont) maxCont = ContinentId[i];
+		}
+		ContinentCount = maxCont + 1;
 
 		// ④ 双向 BFS：离海（陆深度）与离岸（海远度）
 		DistToCoast = BfsFrom(ball, i => !Land[i]);

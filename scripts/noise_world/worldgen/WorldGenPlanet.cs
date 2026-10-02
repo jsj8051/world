@@ -18,6 +18,7 @@ public partial class WorldGenPlanet : Node3D
 	[Export(PropertyHint.Range, "0.02,0.9,0.01")]
 	public float LandFraction = 0.29f;          // 目标陆地占比（分位校准钉死）
 	[Export] public int Seed = 42;
+	[Export] public float CellsPerRegion = GeologicalRegions.CellsPerRegion;   // 地质区域粒度（格/区域）
 
 	[ExportGroup("LOD 与剔除")]
 	[Export] public float LodNearRatio = 6f;         // 相机距 < 球半径×此值 ⇒ 高分辨率面
@@ -26,6 +27,7 @@ public partial class WorldGenPlanet : Node3D
 	public ContinentLayout Layout { get; private set; }     // 大陆锚点（蓝噪声 + 属性）
 	public LandSeaField Field { get; private set; }         // 连续海陆场（域扭曲 + 三尺度）
 	public H3LandSeaProjector Projector { get; private set; }   // H3 投影五件套
+	public GeologicalRegions Regions { get; private set; }  // 地质区域（阶段 3：两级 Voronoi + 约束式类型）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
 
 	Ball _ball;
@@ -41,7 +43,7 @@ public partial class WorldGenPlanet : Node3D
 		View.BuildChunks();
 	}
 
-	/// <summary>全量重算（锚点 → 场 → 投影）+ 重烘颜色纹理（宿主防抖后调）。</summary>
+	/// <summary>全量重算（锚点 → 场 → 投影 → 地质区域）+ 重烘颜色纹理（宿主防抖后调）。</summary>
 	public void Regenerate()
 	{
 		var sw = Stopwatch.StartNew();
@@ -49,13 +51,16 @@ public partial class WorldGenPlanet : Node3D
 		Field = new LandSeaField(Layout, new LandSeaParams { Seed = Seed });
 		Projector = new H3LandSeaProjector();
 		Projector.Generate(_ball, Field, LandFraction);
+		Regions = new GeologicalRegions(Seed);
+		Regions.Generate(_ball, Projector, CellsPerRegion);
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
-					 $"land={Projector.LandFraction:P1} thr={Projector.ThresholdUsed:F3} {sw.Elapsed.TotalMilliseconds:F0} ms");
+					 $"land={Projector.LandFraction:P1} regions={Regions.Regions.Length} " +
+					 $"thr={Projector.ThresholdUsed:F3} {sw.Elapsed.TotalMilliseconds:F0} ms");
 		if (View != null)
 		{
-			// 重算换了海拔数组实例 ⇒ 视图海拔源重绑后重烘（几何/UV 不动）
-			View.SetElevationSource(Projector.ElevationM);
+			// 重算换了海拔数组实例 ⇒ 视图海拔源重绑后重烘（几何/UV 不动；海拔 = 区域合成版）
+			View.SetElevationSource(Regions.ElevationM);
 			View.RefreshColors();
 		}
 	}
