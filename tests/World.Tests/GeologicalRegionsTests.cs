@@ -7,11 +7,11 @@ using World.NoiseWorld.WorldGen;
 namespace World.Tests;
 
 /// <summary>
-/// 世界生成空间 · 地质区域护栏（阶段 3，决策 03）：
-///   · 分区：陆格全覆盖、海格 −1；区域不跨大陆（嵌套性——两级 Voronoi 的结构保证）；
-///     区域数 = 各大陆面积定（≥min/大陆，≤max/大陆）；确定性逐位同。
-///   · 类型：七类约束式分配（非纯随机）——COASTAL 区域平均离海 ≤ 全体中位（沿岸确实是近海者）；
-///     MOUNTAIN 存在时必有高地系邻居（邻接调制）；HIGHLAND/MOUNTAIN 合成海拔均值 > PLAIN（区域调制上画面）。
+/// 世界生成空间 · 地质区域 v2 护栏（决策 03 v2：先划分区域再定类型的完整 pipeline）：
+///   · 分区：陆格全覆盖、海格 −1；区域不跨大陆（嵌套性）；区域数 = 面积口径有界；确定性逐位同。
+///   · 类型：七类约束式 + Softmax + 配额——类型多样；RIFT 硬约束（必邻接高地系）；
+///     COASTAL 是近海者；区域类型 ≠ 地形类型（合成海拔仅为占位调制，逐格精确）。
+///   · v2 结构：连续扭曲 Region Field（Lloyd 后种子收敛、区域不破碎——邻接图有限连通）。
 /// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*/LogService。
 /// </summary>
 public class GeologicalRegionsTests
@@ -19,15 +19,15 @@ public class GeologicalRegionsTests
 	static readonly Lazy<Ball> SharedBall = new(() => new Ball(1, 1f));   // 842 格（链路验证档）
 	static Ball Ball => SharedBall.Value;
 
-	// res1 842 格太小（~245 陆格），区域粒度按比例缩小 ⇒ 每大陆 2 区域可成立
-	static (GeologicalRegions g, H3LandSeaProjector p) Make(int seed = 42, float cellsPerRegion = 120f)
+	// res1 842 格（~60 万 km²/格）：目标区域面积 800 万 km² ⇒ 每大陆 2-3 区域，每区域 12-17 格
+	static (GeologicalRegions g, H3LandSeaProjector p) Make(int seed = 42, float targetAreaKm2 = 8_000_000f)
 	{
 		var layout = new ContinentLayout(seed, 7);
 		var field = new LandSeaField(layout, new LandSeaParams { Seed = seed });
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var g = new GeologicalRegions(seed);
-		g.Generate(Ball, proj, cellsPerRegion);
+		g.Generate(Ball, proj, targetAreaKm2);
 		return (g, proj);
 	}
 
@@ -50,27 +50,44 @@ public class GeologicalRegionsTests
 		for (int r = 0; r < g.Regions.Length; r++)
 		{
 			Assert.That(g.Regions[r].Continent, Is.InRange(0, p.ContinentCount - 1));
-			// 嵌套性直接验证：区域内格的大陆号 == 区域登记大陆号
 			for (int i = 0; i < p.Land.Length; i++)
 				if (g.RegionOfCell[i] == r)
 					Assert.That(p.ContinentId[i], Is.EqualTo(g.Regions[r].Continent),
-						$"区域 {r} 含他大陆格——两级 Voronoi 嵌套被破坏");
+						$"区域 {r} 含他大陆格——两级归属嵌套被破坏");
 		}
 	}
 
 	[Test]
-	public void RegionCount_PerContinentBounded_AndNonEmpty()
+	public void RegionCount_AreaDriven_Bounded()
 	{
 		var (g, _) = Make();
-		Assert.That(g.Regions.Length, Is.GreaterThanOrEqualTo(1), "至少一个区域");
+		Assert.That(g.Regions.Length, Is.GreaterThanOrEqualTo(1));
 		var perContinent = new Dictionary<int, int>();
 		foreach (var r in g.Regions)
 			perContinent[r.Continent] = perContinent.GetValueOrDefault(r.Continent) + 1;
 		foreach (var (c, k) in perContinent)
 		{
 			Assert.That(k, Is.GreaterThanOrEqualTo(1), $"大陆 {c} 至少 1 区域");
-			Assert.That(k, Is.LessThanOrEqualTo(GeologicalRegions.MaxRegionsPerContinent),
-				$"大陆 {c} 区域数超上限");
+			Assert.That(k, Is.LessThanOrEqualTo(GeologicalRegions.MaxRegionsPerContinent), $"大陆 {c} 区域数超上限");
+		}
+		// 面积口径：更大的目标面积 ⇒ 更少区域（数量旋钮的真实性）
+		var (gCoarse, _) = Make(targetAreaKm2: 40_000_000f);
+		Assert.That(gCoarse.Regions.Length, Is.LessThan(g.Regions.Length),
+			"目标区域面积 ×5 ⇒ 区域数应显著减少（面积口径生效）");
+	}
+
+	[Test]
+	public void Features_PopulatedWithPhysicalUnits()
+	{
+		var (g, _) = Make();
+		foreach (var r in g.Regions)
+		{
+			Assert.That(r.AreaKm2, Is.GreaterThan(0f), $"区域 {r.Id} 面积须为正");
+			Assert.That(r.LatitudeRad, Is.InRange(0f, MathF.PI / 2f));
+			Assert.That(r.CoastDistanceKm, Is.GreaterThanOrEqualTo(0f));
+			Assert.That(r.Continentality, Is.InRange(0f, 1f));
+			Assert.That(r.Weight, Is.InRange(0.7f, 1.3f), "SizeNoise 权重须在标称值域内");
+			Assert.That(r.Neighbors.Length, Is.GreaterThanOrEqualTo(0));
 		}
 	}
 
@@ -84,21 +101,39 @@ public class GeologicalRegionsTests
 		for (int r = 0; r < a.g.Regions.Length; r++)
 		{
 			Assert.That(b.g.Regions[r].Type, Is.EqualTo(a.g.Regions[r].Type), $"区域 {r} 类型须同");
-			Assert.That(b.g.Regions[r].Centroid, Is.EqualTo(a.g.Regions[r].Centroid));
+			Assert.That(b.g.Regions[r].Seed, Is.EqualTo(a.g.Regions[r].Seed), $"区域 {r} Lloyd 种子须逐位同");
+			Assert.That(b.g.Regions[r].Weight, Is.EqualTo(a.g.Regions[r].Weight));
 		}
 		CollectionAssert.AreEqual(a.g.ElevationM, b.g.ElevationM, "合成海拔须逐位同");
 	}
 
 	[Test]
-	public void Types_AreFromTheSevenKindTable()
+	public void Types_AreFromTheSevenKindTable_AndDiverse()
 	{
 		var (g, _) = Make();
-		foreach (var r in g.Regions)
-			Assert.That(Enum.IsDefined(r.Type), "类型必须来自七类表");
-		// 小球 + 小粒度下应出现 ≥2 种类型（约束式打分有区分度，防全 Plain 的假通过）
 		var distinct = new HashSet<RegionType>();
-		foreach (var r in g.Regions) distinct.Add(r.Type);
-		Assert.That(distinct.Count, Is.GreaterThanOrEqualTo(2), "类型应有多样性（随机权重 + 约束）");
+		foreach (var r in g.Regions)
+		{
+			Assert.That(Enum.IsDefined(r.Type), "类型必须来自七类表");
+			distinct.Add(r.Type);
+		}
+		Assert.That(distinct.Count, Is.GreaterThanOrEqualTo(2), "Softmax + 配额须产生类型多样性（防全 Plain 假通过）");
+	}
+
+	[Test]
+	public void Rift_HardConstraint_AdjacentToHighlandFamily()
+	{
+		var (g, _) = Make();
+		var adj = BuildAdjacency(g);
+		for (int r = 0; r < g.Regions.Length; r++)
+		{
+			if (g.Regions[r].Type != RegionType.Rift) continue;
+			bool hasHighlandFamily = false;
+			foreach (int a in adj[r])
+				if (g.Regions[a].Type is RegionType.Highland or RegionType.Mountain or RegionType.Basin)
+					hasHighlandFamily = true;
+			Assert.That(hasHighlandFamily, Is.True, $"RIFT 区域 {r} 必须邻接高地系（硬约束）");
+		}
 	}
 
 	[Test]
@@ -107,43 +142,12 @@ public class GeologicalRegionsTests
 		var (g, _) = Make();
 		var coastal = new List<float>();
 		var all = new List<float>();
-		foreach (var r in g.Regions) { all.Add(r.AvgDistToCoast); if (r.Type == RegionType.Coastal) coastal.Add(r.AvgDistToCoast); }
-		if (coastal.Count == 0) return;   // 本种子无 COASTAL 区域（打分决定，非必然）——沿岸约束未被触发，无可校验项
+		foreach (var r in g.Regions) { all.Add(r.CoastDistanceKm); if (r.Type == RegionType.Coastal) coastal.Add(r.CoastDistanceKm); }
+		if (coastal.Count == 0) return;   // 本种子无 COASTAL（Softmax 概率语义，非必然）
 		all.Sort();
 		float median = all[all.Count / 2];
 		foreach (float d in coastal)
-			Assert.That(d, Is.LessThanOrEqualTo(median + 1f),
-				"COASTAL 区域平均离海须不高于全体中位（沿岸约束生效）");
-	}
-
-	[Test]
-	public void Mountains_AdjacentToHighlandFamily_WhenPresent()
-	{
-		var (g, p) = Make();
-		// 邻接表
-		var neighbors = Ball.CellNeighbors;
-		var adj = new HashSet<int>[g.Regions.Length];
-		for (int r = 0; r < adj.Length; r++) adj[r] = new HashSet<int>();
-		for (int i = 0; i < p.Land.Length; i++)
-		{
-			int ri = g.RegionOfCell[i];
-			if (ri < 0) continue;
-			foreach (int j in neighbors[i])
-			{
-				int rj = g.RegionOfCell[j];
-				if (rj >= 0 && rj != ri) { adj[ri].Add(rj); adj[rj].Add(ri); }
-			}
-		}
-		for (int r = 0; r < g.Regions.Length; r++)
-		{
-			if (g.Regions[r].Type != RegionType.Mountain) continue;
-			bool hasHighlandFamily = false;
-			foreach (int a in adj[r])
-				if (g.Regions[a].Type is RegionType.Highland or RegionType.Plateau or RegionType.Mountain)
-					hasHighlandFamily = true;
-			Assert.That(hasHighlandFamily, Is.True,
-				"MOUNTAIN 区域须邻接高地系（邻接调制的语义）");
-		}
+			Assert.That(d, Is.LessThanOrEqualTo(median + 1f), "COASTAL 区域平均离海须不高于全体中位（沿岸约束生效）");
 	}
 
 	[Test]
@@ -154,21 +158,28 @@ public class GeologicalRegionsTests
 		{
 			if (!p.Land[i]) continue;
 			float expect = p.ElevationM[i] + GeologicalRegions.TypeElevOffsetM[(int)g.Regions[g.RegionOfCell[i]].Type];
-			Assert.That(g.ElevationM[i], Is.EqualTo(expect).Within(0.5f),
-				$"格 {i}：合成海拔 = 投影海拔 + 区域偏移");
+			Assert.That(g.ElevationM[i], Is.EqualTo(expect).Within(0.5f), $"格 {i}：合成海拔 = 投影海拔 + 区域偏移（占位调制）");
 		}
-		// 高地系区域的海拔均值 > 平原系（区域感上画面的可观察量）
-		float highSum = 0f, plainSum = 0f;
-		int highN = 0, plainN = 0;
-		for (int i = 0; i < p.Land.Length; i++)
+	}
+
+	Dictionary<int, HashSet<int>> BuildAdjacency(GeologicalRegions g)
+	{
+		var neighbors = Ball.CellNeighbors;
+		var adj = new Dictionary<int, HashSet<int>>();
+		for (int i = 0; i < g.RegionOfCell.Length; i++)
 		{
-			if (!p.Land[i]) continue;
-			var t = g.Regions[g.RegionOfCell[i]].Type;
-			if (t is RegionType.Highland or RegionType.Mountain or RegionType.Plateau) { highSum += g.ElevationM[i]; highN++; }
-			else if (t is RegionType.Plain or RegionType.Coastal) { plainSum += g.ElevationM[i]; plainN++; }
+			int ri = g.RegionOfCell[i];
+			if (ri < 0) continue;
+			if (!adj.ContainsKey(ri)) adj[ri] = new HashSet<int>();
+			foreach (int j in neighbors[i])
+			{
+				int rj = g.RegionOfCell[j];
+				if (rj < 0 || rj == ri) continue;
+				adj[ri].Add(rj);
+				if (!adj.ContainsKey(rj)) adj[rj] = new HashSet<int>();
+				adj[rj].Add(ri);
+			}
 		}
-		if (highN > 0 && plainN > 0)
-			Assert.That(highSum / highN, Is.GreaterThan(plainSum / plainN),
-				"高地系区域平均海拔须高于平原系（区域调制可见）");
+		return adj;
 	}
 }

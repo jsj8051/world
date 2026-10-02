@@ -60,12 +60,13 @@ public sealed class H3LandSeaProjector
 			if (Land[i]) landCount++;
 		}
 
-		// ③ 大陆归属（未扭曲格心方向的锚点 argmax；海格 −1）
+		// ③ 大陆归属（**扭曲坐标**的锚点归属；海格 −1）——与海陆场同一扭曲系 ⇒ 分界弯曲与
+		//    海岸线同源；未扭曲 Voronoi 的数学圆弧会直接切在连片陆地上（实测踩坑，v2 修正）
 		ContinentId = new int[n];
 		int maxCont = -1;
 		for (int i = 0; i < n; i++)
 		{
-			ContinentId[i] = Land[i] ? field.Influence.AnchorAt(ball.CellDirs[i]) : -1;
+			ContinentId[i] = Land[i] ? field.Influence.AnchorAt(field.SampleWarpDir(ball.CellDirs[i])) : -1;
 			if (ContinentId[i] > maxCont) maxCont = ContinentId[i];
 		}
 		ContinentCount = maxCont + 1;

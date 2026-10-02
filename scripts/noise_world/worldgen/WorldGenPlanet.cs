@@ -18,7 +18,7 @@ public partial class WorldGenPlanet : Node3D
 	[Export(PropertyHint.Range, "0.02,0.9,0.01")]
 	public float LandFraction = 0.29f;          // 目标陆地占比（分位校准钉死）
 	[Export] public int Seed = 42;
-	[Export] public float CellsPerRegion = GeologicalRegions.CellsPerRegion;   // 地质区域粒度（格/区域）
+	[Export] public float TargetRegionAreaKm2 = GeologicalRegions.TargetRegionAreaKm2;   // 地质区域粒度（km²/区域）
 
 	[ExportGroup("LOD 与剔除")]
 	[Export] public float LodNearRatio = 6f;         // 相机距 < 球半径×此值 ⇒ 高分辨率面
@@ -52,7 +52,7 @@ public partial class WorldGenPlanet : Node3D
 		Projector = new H3LandSeaProjector();
 		Projector.Generate(_ball, Field, LandFraction);
 		Regions = new GeologicalRegions(Seed);
-		Regions.Generate(_ball, Projector, CellsPerRegion);
+		Regions.Generate(_ball, Projector, TargetRegionAreaKm2);
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
 					 $"land={Projector.LandFraction:P1} regions={Regions.Regions.Length} " +

@@ -90,13 +90,7 @@ public sealed class LandSeaField : SphericalField
 	public override float Sample(Vector3 dir)
 	{
 		var p = Params;
-		// 域扭曲（阶段 2）：低频矢量场扭采样坐标——海岸线弯曲、去圆斑
-		Vector3 d = dir;
-		if (p.WarpAmplitudeKm > 0f)
-		{
-			var w = new Vector3(_w1.Sample(dir), _w2.Sample(dir), _w3.Sample(dir));
-			d = (dir + w * (p.WarpAmplitudeKm / SphericalFbmNoise.EarthRadiusKm)).Normalized();
-		}
+		Vector3 d = SampleWarpDir(dir);
 
 		float v = Influence.SampleWithAnchor(d, out int a);
 		var anchor = Influence.Layout.Anchors[a];
@@ -104,6 +98,16 @@ public sealed class LandSeaField : SphericalField
 		v += p.MediumAmplitude * anchor.CoastComplexity * _med.Sample(d);     // Medium：半岛 / 海湾
 		v += p.SmallAmplitude * anchor.CoastComplexity * _small.Sample(d);    // Small：海岸线细节
 		return v;
+	}
+
+	/// <summary>扭曲坐标查询（域扭曲后的采样方向）：大陆归属等"同一扭曲系"的下游判据共用——
+	/// 分界弯曲与海岸线同源，不再出现未扭曲 Voronoi 的数学圆弧（决策 03 v2 §九：先连续场再采样）。</summary>
+	public Vector3 SampleWarpDir(Vector3 dir)
+	{
+		var p = Params;
+		if (p.WarpAmplitudeKm <= 0f) return dir;
+		var w = new Vector3(_w1.Sample(dir), _w2.Sample(dir), _w3.Sample(dir));
+		return (dir + w * (p.WarpAmplitudeKm / SphericalFbmNoise.EarthRadiusKm)).Normalized();
 	}
 }
 
