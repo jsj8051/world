@@ -24,7 +24,7 @@ public sealed class FinalGeography
 {
 	/// <summary>最终陆海掩码（世界事实；与渲染高度逐格一致）。</summary>
 	public bool[] FinalLand { get; private set; } = Array.Empty<bool>();
-	/// <summary>陆占比 ∈[0,1]（7 采样；连续辅助数据）。</summary>
+	/// <summary>陆占比 ∈[0,1]（格+6 邻居 FinalLand 占比；连续辅助数据）。</summary>
 	public float[] FinalLandFraction { get; private set; } = Array.Empty<float>();
 	/// <summary>陆块归属（FinalLand 连通分量；海格 = −1）。</summary>
 	public int[] FinalLandmassId { get; private set; } = Array.Empty<int>();
@@ -36,26 +36,32 @@ public sealed class FinalGeography
 	/// <summary>最终区域归属（放置区域优先；山脉新增岛屿归入最近构造域；海格 = −1）。</summary>
 	public int[] FinalRegionOfCell { get; private set; } = Array.Empty<int>();
 
-	public void Generate(Ball ball, HeightComposer composer, GeologicalRegions regions,
-		SurfaceResolver surface, IReadOnlyList<FeatureField> features)
+	public void Generate(Ball ball, HeightComposer composer, GeologicalRegions regions)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 
-		// ── ① FinalLand（世界事实 = 最终高度符号；渲染逐格一致）+ 陆占比（7 采样连续量）──
+		// ── ① FinalLand（世界事实 = 最终高度符号；渲染逐格一致）──
 		FinalLand = new bool[n];
+		for (int i = 0; i < n; i++)
+			FinalLand[i] = composer.HeightM[i] > 0f;
+
+		// ── ①b 陆占比（**邻域拓扑口径**，T8 性能重构）：格 + 6 邻居中 FinalLand 占比 ∈[0,1]。
+		//    原 7 点全链连续采样（12s 增量大头）退役——量纲不变（局部陆占比），判定基础
+		//    同源（都源自 FinalLand/最终高度），成本 O(n)；供海岸过渡/滩涂/植被边缘的
+		//    连续用途。FinalLand 与逐格高度符号的强不变量不受影响。
 		FinalLandFraction = new float[n];
 		for (int i = 0; i < n; i++)
 		{
-			FinalLand[i] = composer.HeightM[i] > 0f;
-			int landSamples = 0, total = 0;
-			foreach (float hSample in SampleSurfacePoints(ball, i, composer, regions, features))
+			float sum = FinalLand[i] ? 1f : 0f;
+			int cnt = 1;
+			foreach (int j in ball.CellNeighbors[i])
 			{
-				total++;
-				if (hSample > 0f) landSamples++;
+				sum += FinalLand[j] ? 1f : 0f;
+				cnt++;
 			}
-			FinalLandFraction[i] = total > 0 ? (float)landSamples / total : 0f;
+			FinalLandFraction[i] = sum / cnt;
 		}
 
 		// ── ② 陆块连通分量（FinalLand flood fill）──
@@ -102,27 +108,6 @@ public sealed class FinalGeography
 	}
 
 	/// <summary>格 i 的最终表面采样点：格心 + H3 角点（与投影器多点采样同构）。</summary>
-	/// <summary>格 i 的最终表面采样点：**按格掩码分支**（格=陆 → 7 点全走陆分支；格=海 → 海分支）
-	/// ——与 FinalLand 同一分支口径（决策 07 v2：Final 真值体系内不允许第二套海陆判断）。</summary>
-	IEnumerable<float> SampleSurfacePoints(Ball ball, int i, HeightComposer composer,
-		GeologicalRegions regions, IReadOnlyList<FeatureField> features)
-	{
-		var dirs = ball.CellDirs;
-		bool landCell = regions.RegionOfCell[i] >= 0;
-		yield return landCell
-			? composer.SampleLandBranch(dirs[i], regions, features)
-			: composer.SampleSeaBranch(dirs[i], features);
-		ulong[] vids = H3.CellToVertexes(ball.CellIds[i]);
-		int cornerCount = Math.Min(vids.Length, 6);
-		for (int k = 0; k < cornerCount; k++)
-		{
-			var cornerDir = ball.VertexPositions[ball.VertexIndexOf(vids[k])].Normalized();
-			yield return landCell
-				? composer.SampleLandBranch(cornerDir, regions, features)
-				: composer.SampleSeaBranch(cornerDir, features);
-		}
-	}
-
 	static int[] BfsFrom(Ball ball, Func<int, bool> source)
 	{
 		int n = ball.CellDirs.Length;

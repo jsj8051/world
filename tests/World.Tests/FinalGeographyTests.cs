@@ -43,7 +43,7 @@ public class FinalGeographyTests
 		var c = new HeightComposer(seed);
 		c.Generate(Ball, surface, g, features);
 		var f = new FinalGeography();
-		f.Generate(Ball, c, g, surface, features);
+		f.Generate(Ball, c, g);
 		return (f, proj, c, g, m);
 	}
 

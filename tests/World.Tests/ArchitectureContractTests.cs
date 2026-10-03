@@ -76,6 +76,24 @@ public class ArchitectureContractTests
 	}
 
 	[Test]
+	public void RiverNetwork_OnlyDependsOnFinalLayer()
+	{
+		// 契约（决策 08 v2 下游边界）：水文层只依赖 Final 世界事实（Ball/FinalGeography/
+		// HeightComposer），不引用具体 Feature 类/投影器/TectonicField——
+		// "任何下游世界系统只依赖 Final 世界事实即可工作"的编译期钉子
+		var t = typeof(RiverNetwork);
+		var forbidden = new[]
+		{
+			typeof(H3LandSeaProjector), typeof(MountainSkeleton), typeof(RegionalLandforms),
+			typeof(VolcanoField), typeof(TectonicField), typeof(SurfaceResolver),
+			typeof(GeologicalRegions),
+		};
+		var offending = ReferencedTypes(t).Where(forbidden.Contains).ToList();
+		Assert.That(offending, Is.Empty,
+			$"RiverNetwork 引用了下游禁用类型：{string.Join(",", offending)}——水文只准消费 Final 层（决策 08 v2 §2）");
+	}
+
+	[Test]
 	public void EmptyFeatureList_EqualsPureBaseline()
 	{
 		// 契约 ⑤：没有特征就没有影响——空列表的最终高度 = 纯基线

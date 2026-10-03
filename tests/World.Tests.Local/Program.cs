@@ -543,7 +543,11 @@ public static class Program
         };
         var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);
-        Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）——以下为逐像素表现层采样（世界真相 = SampleSurface 单一事实源）");
+        var finalGeo = new World.NoiseWorld.WorldGen.FinalGeography();
+        finalGeo.Generate(ball, composer, regions);
+        var rivers = new World.NoiseWorld.WorldGen.RiverNetwork();
+        rivers.Generate(ball, finalGeo, composer, riverThresholdCells: 20);
+        Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length} rivers={rivers.IsRiver.Count(x => x)}）——以下为逐像素表现层采样（世界真相 = SampleSurface 单一事实源）");
 
         var snowCont = new World.NoiseWorld.WorldGen.SnowOverlay(seed);
         var heights = new float[width * height];
@@ -572,8 +576,13 @@ public static class Program
                     (float)Math.Sin((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0),
                     (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Sin((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)));
                 var c = World.NoiseWorld.ElevationBandMode.ElevationColor(Math.Min(heights[p], 2790f));
+                int ci = ball.CellIndexOf(World.Utils.H3.H3.LatLngToCell(new World.Utils.H3.LatLng(
+                    (90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0,
+                    (-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0), res));
                 if (lands[p])
                 {
+                    if (ci >= 0 && rivers.IsRiver[ci])   // 河流叠加（表现层：Final 掩码的渲染消费）
+                        c = new Godot.Color(c.R * 0.35f, c.G * 0.55f, MathF.Min(1f, c.B * 1.6f + 0.25f));
                     float snowA = snowCont.Alpha(heights[p], dirC);
                     c = new Godot.Color(
                         c.R + (0.97f - c.R) * snowA, c.G + (0.97f - c.G) * snowA, c.B + (1f - c.B) * snowA);

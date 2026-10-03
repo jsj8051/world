@@ -35,6 +35,7 @@ public partial class WorldGenPlanet : Node3D
 	public SurfaceResolver Surface { get; private set; }    // 唯一海陆口径（Placement 阶段）
 	public FinalGeography Final { get; private set; }      // 最终地理（FinalLand/Landmass/Region/Coast——世界事实层）
 	public VolcanoField Volcanoes { get; private set; }    // 火山（Feature 实证第一例；决策 08 冻结后首例）
+	public RiverNetwork Rivers { get; private set; }      // 河网（World Simulation 第一下游消费者；只读 Final 层）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
 	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
 	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
@@ -84,7 +85,9 @@ public partial class WorldGenPlanet : Node3D
 		DisplayElevation = Composer.HeightM;   // 最终高度（决策 07 ③）
 		// 最终地理（决策 07 ④⑤）：FinalLand/Landmass/Region/Coast 全部由最终高度派生
 		Final = new FinalGeography();
-		Final.Generate(_ball, Composer, Regions, Surface, features);
+		Final.Generate(_ball, Composer, Regions);
+		Rivers = new RiverNetwork();
+		Rivers.Generate(_ball, Final, Composer);
 
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
