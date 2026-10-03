@@ -36,6 +36,9 @@ public static class Program
         // 批量判读图分支（--maps=N）：逻辑层全链生成 + 等距圆柱投影出 PNG，绕过测试执行器
         if (Array.Exists(args, a => a.StartsWith("--maps=", StringComparison.Ordinal)))
             return RunMapBatch(args);
+        // 连续图分支（--spin=seed）：同一世界正交投影旋转帧（绕轴 360°）+ 蒙太奇速览
+        if (Array.Exists(args, a => a.StartsWith("--spin=", StringComparison.Ordinal)))
+            return RunSpinBatch(args);
 
         var asm = typeof(World.Tests.DeterministicRandomTests).Assembly;
         int pass = 0, fail = 0, skip = 0;
@@ -335,5 +338,136 @@ public static class Program
 
         Console.WriteLine($"== 完成 {count - failures.Count}/{count}，总耗时 {swAll.Elapsed.TotalMinutes:F1} min → {outDir} ==");
         return failures.Count == 0 ? 0 : 1;
+    }
+
+    // ── 连续图（--spin=seed [--frames=36] [--w=512] [--tilt=18] [--res=4] [--out=dir]）──
+    // 同一世界正交投影旋转帧：全链只生成一次，逐帧绕 Y 轴转 2π/frames 渲染（Orthographic，
+    // 决策 05 §十六：全球观察用 Orthographic 而非等距圆柱）；色 = 海拔分档 × relief 明暗。
+    // 产物 = 逐帧 PNG（spin_XX.png）+ 6×6 蒙太奇速览（montage.png）。
+    static int RunSpinBatch(string[] args)
+    {
+        int Parse(string key, int def)
+        {
+            var a = Array.Find(args, x => x.StartsWith("--" + key + "=", StringComparison.Ordinal));
+            return a != null && int.TryParse(a.Substring(key.Length + 3), out var v) ? v : def;
+        }
+        int seed = Parse("spin", 7);
+        int frames = Math.Clamp(Parse("frames", 36), 2, 90);
+        int size = Parse("w", 512);
+        int res = Parse("res", 4);
+        var tiltArg = Array.Find(args, x => x.StartsWith("--tilt=", StringComparison.Ordinal));
+        float tiltDeg = tiltArg != null && float.TryParse(tiltArg.Substring(6), out var td) ? td : 18f;
+        string outDir = $"userdata/maps/spin_seed{seed:D3}";
+        var outArg = Array.Find(args, x => x.StartsWith("--out=", StringComparison.Ordinal));
+        if (outArg != null) outDir = outArg.Substring(5);
+        Directory.CreateDirectory(outDir);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Console.WriteLine($"== 连续图：seed {seed} res{res} {frames} 帧 {size}×{size} 倾角 {tiltDeg}° → {outDir} ==");
+
+        var ball = new World.NewHexWorld.Ball(res, 1f);
+        var layout = new World.NoiseWorld.WorldGen.ContinentLayout(seed, 7);
+        var field = new World.NoiseWorld.WorldGen.LandSeaField(layout,
+            new World.NoiseWorld.WorldGen.LandSeaParams { Seed = seed });
+        var proj = new World.NoiseWorld.WorldGen.H3LandSeaProjector();
+        proj.Generate(ball, field, 0.29f);
+        var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
+        regions.Generate(ball, proj);
+        var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
+        mountains.Generate(ball, regions);
+        var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
+        landforms.Generate(ball, regions);
+        var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
+        composer.Generate(ball, proj, regions, mountains, landforms);
+        Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）");
+
+        // 逐格色（海拔分档 × relief 明暗）——一次预计算，全部帧复用
+        var h = composer.HeightM;
+        var cellRgb = new byte[h.Length * 3];
+        var nbs = ball.CellNeighbors;
+        for (int i = 0; i < h.Length; i++)
+        {
+            float sum = h[i]; int cnt = 1;
+            foreach (int j in nbs[i])
+            {
+                if (proj.Land[j] != proj.Land[i]) continue;
+                sum += h[j]; cnt++;
+            }
+            float shade = Math.Clamp(1f + (h[i] - sum / cnt) / 1200f, 0.78f, 1.18f);
+            var c = World.NoiseWorld.ElevationBandMode.ElevationColor(h[i]);
+            cellRgb[i * 3] = (byte)Math.Clamp(c.R * 255f * shade, 0f, 255f);
+            cellRgb[i * 3 + 1] = (byte)Math.Clamp(c.G * 255f * shade, 0f, 255f);
+            cellRgb[i * 3 + 2] = (byte)Math.Clamp(c.B * 255f * shade, 0f, 255f);
+        }
+
+        float tilt = tiltDeg * MathF.PI / 180f;
+        float cosT = MathF.Cos(tilt), sinT = MathF.Sin(tilt);
+        var frame = new byte[size * size * 3];
+        var bg = (byte)14;   // 太空底色
+        var allFrames = new byte[frames][];
+
+        for (int f = 0; f < frames; f++)
+        {
+            float lam = 2f * MathF.PI * f / frames;
+            float cosL = MathF.Cos(lam), sinL = MathF.Sin(lam);
+            for (int y = 0; y < size; y++)
+            {
+                float ny = 1f - 2f * (y + 0.5f) / size;
+                for (int x = 0; x < size; x++)
+                {
+                    float nx = 2f * (x + 0.5f) / size - 1f;
+                    float r2 = nx * nx + ny * ny;
+                    int o = (y * size + x) * 3;
+                    if (r2 > 1f)
+                    {
+                        frame[o] = bg; frame[o + 1] = bg; frame[o + 2] = bg;
+                        continue;
+                    }
+                    float z = MathF.Sqrt(1f - r2);
+                    // 相机系 → 倾角（绕 X）→ 自转（绕 Y）
+                    float cy = ny * cosT - z * sinT;
+                    float cz = ny * sinT + z * cosT;
+                    float dx = nx * cosL + cz * sinL;
+                    float dy = cy;
+                    float dz = -nx * sinL + cz * cosL;
+                    double lat = Math.Asin(Math.Clamp(dy, -1f, 1f));
+                    double lng = Math.Atan2(dz, dx);
+                    ulong cell = World.Utils.H3.H3.LatLngToCell(new World.Utils.H3.LatLng(lat, lng), res);
+                    int ci = ball.CellIndexOf(cell);
+                    if (ci < 0) { frame[o] = bg; frame[o + 1] = bg; frame[o + 2] = bg; continue; }
+                    frame[o] = cellRgb[ci * 3];
+                    frame[o + 1] = cellRgb[ci * 3 + 1];
+                    frame[o + 2] = cellRgb[ci * 3 + 2];
+                }
+            }
+            var copy = new byte[frame.Length];
+            Array.Copy(frame, copy, frame.Length);
+            allFrames[f] = copy;
+            World.Utils.PngWriter.WriteRgb(Path.Combine(outDir, $"spin_{f:D2}.png"), size, size, frame);
+        }
+
+        // 6×6 蒙太奇速览（帧均匀抽样，最近邻半分辨率）
+        int cols = 6, rows = (frames + 5) / 6;
+        int cellPx = size / 2;
+        var montage = new byte[cols * cellPx * rows * cellPx * 3];
+        for (int f = 0; f < frames; f++)
+        {
+            int cx = f % cols, cy2 = f / cols;
+            for (int y = 0; y < cellPx; y++)
+                for (int x = 0; x < cellPx; x++)
+                {
+                    int sx = Math.Min(size - 1, x * 2);   // 半分辨率最近邻
+                    int sy = Math.Min(size - 1, y * 2);
+                    int so = (sy * size + sx) * 3;
+                    int mo = ((cy2 * cellPx + y) * cols * cellPx + cx * cellPx + x) * 3;
+                    montage[mo] = allFrames[f][so];
+                    montage[mo + 1] = allFrames[f][so + 1];
+                    montage[mo + 2] = allFrames[f][so + 2];
+                }
+        }
+        World.Utils.PngWriter.WriteRgb(Path.Combine(outDir, "montage.png"), cols * cellPx, rows * cellPx, montage);
+
+        Console.WriteLine($"== 完成 {frames} 帧 {sw.Elapsed.TotalSeconds:F0}s → {outDir}（spin_00..{frames - 1:D2}.png + montage.png）==");
+        return 0;
     }
 }
