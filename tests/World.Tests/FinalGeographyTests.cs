@@ -35,10 +35,15 @@ public class FinalGeographyTests
 		m.Generate(Ball, g, surface);
 		var l = new RegionalLandforms(seed);
 		l.Generate(Ball, g);
+		var features = new System.Collections.Generic.List<FeatureField>
+		{
+			new(l, TerrainDomain.LandOnly),
+			new(m, TerrainDomain.LandAndSea),
+		};
 		var c = new HeightComposer(seed);
-		c.Generate(Ball, surface, g, m, l);
+		c.Generate(Ball, surface, g, features);
 		var f = new FinalGeography();
-		f.Generate(Ball, c, g, surface, m, l);
+		f.Generate(Ball, c, g, surface, features);
 		return (f, proj, c, g, m);
 	}
 

@@ -34,8 +34,13 @@ public class HeightComposerTests
 		m.Generate(Ball, g, surface);
 		var l = new RegionalLandforms(seed);
 		l.Generate(Ball, g);
+		var features = new List<FeatureField>
+		{
+			new(l, TerrainDomain.LandOnly),
+			new(m, TerrainDomain.LandAndSea),
+		};
 		var c = new HeightComposer(seed);
-		c.Generate(Ball, surface, g, m, l);
+		c.Generate(Ball, surface, g, features);
 		return (c, proj, g, l, m, surface);
 	}
 

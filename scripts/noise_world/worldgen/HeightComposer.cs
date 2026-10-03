@@ -1,28 +1,30 @@
 using System;
+using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.NewHexWorld;    // Ball（H3 球壳数据层）
 using World.Utils;
 
 namespace World.NoiseWorld.WorldGen;
 
-// 世界生成空间 · 高度合成器（决策 07 数据语义链的 ③ FinalHeight + ④/⑤ 的采样源）：
-//   **SampleSurface(dir) = 最终地表的连续单一事实源**——陆/海两分支、特征 lerp 链、
-//   变化场、保底全在其中；逐格数组 = 它在格心的采样（构造上不打架）。
-//   合成语义（决策 07 步骤⑤，目标绝对高度替代"+N 米增量"——峰高只有一个语义来源）：
-//     h = BaseElevation（区域基础高度，背景）
-//     h = lerp(h, PlateauTarget, PlateauInfluence)      ← 高原"这里倾向 2050m 台地"
-//     h = lerp(h, BasinTarget,   BasinInfluence)        ← 盆地"这里倾向 350m 洼地"
-//     h = lerp(h, MountainTarget, MountainInfluence)    ← 山脉"这里倾向 4200m×profile 山"
-//     h += Large + Medium + Detail（三档变化；large > medium > detail）
-//   ★**特征优先级规则（设计约定，非实现偶然）**：lerp 链**后位覆盖先位**——
-//     Mountain(4) > Basin(3) > Plateau(2) > Base(0)。排序依据 = 特征的空间局部性/
-//     强度（越局部、越"尖锐"的地貌优先级越高：山脉是线状强构造 > 盆地是面状洼地 >
-//     高原是面状台地）。**新特征插位准则**：按局部性插入链中合适位置并在本表登记
-//     （Volcano 最局部 → Mountain 之后；Erosion 全局弱场 → Detail 段）——
-//     插错位置的症状 = "为什么 A 一加 B 就变了"。影响度接近 1 时后位完全接管前位。
-//   陆格钳 ≥ MinLandElevationM（放置期陆地不因变化场淹死；内流洼地语义由 relief 承载）。
-//   海侧 = Bathymetry（放置期深海剖面）+ 山脉目标 lerp（海底脊/岛链，海洋表达式在 resolver）。
+// 世界生成空间 · 高度合成器（架构 v1 冻结版，决策 07 数据语义链 + 08 契约）：
+//   **SampleSurface(dir) = 最终地表的连续单一事实源**。
+//   合成 = Base（区域基础高度）→ 按序 lerp 特征场列表（influence/target 语义）→ 三档变化 → 保底。
+// ★特征优先级规则（设计约定）：列表**后位覆盖先位**——Mountain(4) > Basin(3) > Plateau(2) >
+//   Base(0)。排序依据 = 空间局部性/强度（越局部越"尖锐"优先级越高）。**新特征插位准则**：
+//   按局部性插入列表并在本表登记（Volcano 最局部 → Mountain 之后；Erosion 全局弱场 → Detail 段）。
+//   插错位置的症状 = "A 一加 B 就变了"。影响度接近 1 时后位完全接管前位。
+// ★契约（ArchitectureContractTests 钉死）：
+//   ① 合成器**不依赖具体 Feature 类**——只消费 ITerrainField 列表（新特征零合成器改动）；
+//   ② 陆/海作用域声明（TerrainDomain）：LandOnly 特征不影响海洋剖面（高原/盆地），
+//      LandAndSea 特征跨海（山脉/火山——火山在海上即海山，物理成立）；
+//   ③ 海侧 = Bathymetry + LandAndSea 特征 lerp（只向目标拉）；陆侧钳 ≥ MinLandElevationM。
 // 1 pass 图上平滑 = 离散化后处理（抗混叠），仅放置期陆格参与——连续场本身不含。
+/// <summary>特征作用域：陆海皆可（山脉/火山——跨海即海山/海底构造）或仅陆（高原/盆地）。</summary>
+public enum TerrainDomain { LandAndSea, LandOnly }
+
+/// <summary>特征场列表项：特征口 + 作用域（合成器按列表序 lerp，后位覆盖先位）。</summary>
+public readonly record struct FeatureField(ITerrainField Field, TerrainDomain Domain);
+
 /// <summary>
 /// 高度合成器：特征目标 lerp 链 + 变化场 → 最终地表（连续 SampleSurface + 逐格 HeightM）。
 /// </summary>
@@ -45,47 +47,49 @@ public sealed class HeightComposer
 		_detail = new SphericalFbmNoise(seed ^ 0x4E01, 90f, 2);
 	}
 
-	/// <summary>
 	static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
 	/// <summary>最终逐格海拔（米；SampleSurface 的 H3 采样 + 图上平滑；渲染/信息卡唯一来源）。</summary>
 	public float[] HeightM { get; private set; } = Array.Empty<float>();
 
+	/// <summary>
 	/// **最终地表连续单一事实源**（决策 07：世界逻辑只从这里拿最终高度）。
 	/// 表现层（--cont 等逐像素渲染）也读这里——不同分辨率、同一个世界真相。
 	/// </summary>
-	public float SampleSurface(Vector3 dir, GeologicalRegions regions, MountainSkeleton mountains,
-		RegionalLandforms landforms, SurfaceResolver surface)
+	public float SampleSurface(Vector3 dir, GeologicalRegions regions, SurfaceResolver surface,
+		IReadOnlyList<FeatureField> features)
 	{
 		if (surface.IsPlacementLand(dir))
 		{
 			float h = regions.BaseElevationAt(dir, regions.RegionIndexAt(dir));
-			var (pI, pT) = landforms.PlateauAt(dir);
-			h = Lerp(h, pT, pI);
-			var (bI, bT) = landforms.BasinAt(dir);
-			h = Lerp(h, bT, bI);
-			var (mI, mT) = mountains.InfluenceAt(dir);
-			h = Lerp(h, mT, mI);
+			for (int i = 0; i < features.Count; i++)
+			{
+				var (inf, tgt) = features[i].Field.SampleAt(dir);
+				h = Lerp(h, tgt, inf);
+			}
 			h += LargeVariationM * _large.Sample(dir)
 				+ MediumVariationM * _medium.Sample(dir)
 				+ RegionalNoiseM * _detail.Sample(dir);
 			return MathF.Max(h, MinLandElevationM);
 		}
-		// 海侧：放置期深海剖面 + 山脉目标 lerp（海底脊/岛链；海洋表达式在山脉口内）
+		// 海侧：放置期深海剖面 + LandAndSea 特征目标 lerp（海底脊/海山/岛链）
 		float sea = surface.BathymetryAt(dir);
-		var (mi, mt) = mountains.InfluenceAt(dir);
-		sea = Lerp(sea, mt, mi);
+		for (int i = 0; i < features.Count; i++)
+		{
+			if (features[i].Domain != TerrainDomain.LandAndSea) continue;
+			var (inf, tgt) = features[i].Field.SampleAt(dir);
+			sea = Lerp(sea, tgt, inf);
+		}
 		return sea;
 	}
 
 	public void Generate(Ball ball, SurfaceResolver surface, GeologicalRegions regions,
-		MountainSkeleton mountains, RegionalLandforms landforms)
+		IReadOnlyList<FeatureField> features)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (surface == null) throw new ArgumentNullException(nameof(surface));
 		if (regions == null) throw new ArgumentNullException(nameof(regions));
-		if (mountains == null) throw new ArgumentNullException(nameof(mountains));
-		if (landforms == null) throw new ArgumentNullException(nameof(landforms));
+		if (features == null) throw new ArgumentNullException(nameof(features));
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 
@@ -97,12 +101,17 @@ public sealed class HeightComposer
 		for (int i = 0; i < n; i++)
 		{
 			if (regions.RegionOfCell[i] >= 0)
-				h[i] = SampleSurface(dirs[i], regions, mountains, landforms, surface);
+				h[i] = SampleSurface(dirs[i], regions, surface, features);
 			else
 			{
 				float sea = surface.BathymetryAt(dirs[i]);
-				var (mi, mt) = mountains.InfluenceAt(dirs[i]);
-				h[i] = MathF.Max(Lerp(sea, mt, mi), sea);   // 海侧只向目标拉（不沉底）
+				for (int k = 0; k < features.Count; k++)
+				{
+					if (features[k].Domain != TerrainDomain.LandAndSea) continue;
+					var (inf, tgt) = features[k].Field.SampleAt(dirs[i]);
+					sea = Lerp(sea, tgt, inf);
+				}
+				h[i] = sea;
 			}
 		}
 

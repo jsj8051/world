@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.NewHexWorld;    // Ball（H3 球壳数据层）
@@ -37,6 +38,9 @@ public sealed class MountainSkeleton : ITerrainField
 	public MountainRidge[] Ridges { get; private set; } = Array.Empty<MountainRidge>();
 	/// <summary>山脉系统 Feature（Field+Feature+Morphology 抽象的第一个完整实现；决策 06）。</summary>
 	public List<MountainSystemFeature> Systems { get; } = new();
+	/// <summary>主 Range 锚点与方位（其他 Feature 的间距排斥参照；v3.2 冻结口）。</summary>
+	public IReadOnlyList<(Vector3 anchor, float azRad)> RangeAnchors() =>
+		Systems.Select(f => (f.Anchor, f.OrientationRad)).ToList();
 	/// <summary>构造场（Field 层：主轴/强度/锚点池——决策 06 上收的环境背景）。</summary>
 	public TectonicField Tectonic { get; private set; }
 	/// <summary>逐格山脉影响度 ∈[0,1]（InfluenceAt 的 H3 采样）。</summary>

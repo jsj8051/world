@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using World.NewHexWorld;        // Ball（H3 球壳数据层）
 
 namespace World.NoiseWorld.WorldGen;
@@ -33,6 +34,7 @@ public partial class WorldGenPlanet : Node3D
 	public HeightComposer Composer { get; private set; }    // 高度合成（FinalHeight 单一事实源）
 	public SurfaceResolver Surface { get; private set; }    // 唯一海陆口径（Placement 阶段）
 	public FinalGeography Final { get; private set; }      // 最终地理（FinalLand/Landmass/Region/Coast——世界事实层）
+	public VolcanoField Volcanoes { get; private set; }    // 火山（Feature 实证第一例；决策 08 冻结后首例）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
 	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
 	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
@@ -66,12 +68,23 @@ public partial class WorldGenPlanet : Node3D
 		Mountains.Generate(_ball, Regions, Surface);
 		Landforms = new RegionalLandforms(Seed);
 		Landforms.Generate(_ball, Regions);
+		Volcanoes = new VolcanoField();
+		Volcanoes.Place(_ball, Regions, TectonicOf(Mountains), Seed, Mountains.RangeAnchors());
+
+		// 特征场列表（架构 v1 冻结：新特征 = 实现 ITerrainField + 插入本列表——
+		// 合成器/FinalGeography 零改动；列表序 = 优先级序，后位覆盖先位）
+		var features = new List<FeatureField>
+		{
+			new(Landforms, TerrainDomain.LandOnly),      // Plateau(2)/Basin(3) 组合口
+			new(Mountains, TerrainDomain.LandAndSea),    // Mountain(4)：跨海（海底脊/海山）
+			new(Volcanoes, TerrainDomain.LandAndSea),    // Volcano(4.5)：最局部，后位覆盖
+		};
 		Composer = new HeightComposer(Seed);
-		Composer.Generate(_ball, Surface, Regions, Mountains, Landforms);
+		Composer.Generate(_ball, Surface, Regions, features);
 		DisplayElevation = Composer.HeightM;   // 最终高度（决策 07 ③）
 		// 最终地理（决策 07 ④⑤）：FinalLand/Landmass/Region/Coast 全部由最终高度派生
 		Final = new FinalGeography();
-		Final.Generate(_ball, Composer, Regions, Surface, Mountains, Landforms);
+		Final.Generate(_ball, Composer, Regions, Surface, features);
 
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
@@ -85,6 +98,8 @@ public partial class WorldGenPlanet : Node3D
 			View.RefreshColors();
 		}
 	}
+
+	static TectonicField TectonicOf(MountainSkeleton m) => m.Tectonic;
 
 	/// <summary>每帧剔除 + LOD 刷新（宿主传当前相机）。</summary>
 	public void UpdateVisibility(Camera3D camera) => View?.UpdateVisibility(camera);

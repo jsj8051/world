@@ -21,7 +21,7 @@ namespace World.NoiseWorld.WorldGen;
 /// <summary>
 /// 区域地貌场：PLATEAU/盆地目标场（influence + target 绝对高，ITerrainField 语义）。
 /// </summary>
-public sealed class RegionalLandforms
+public sealed class RegionalLandforms : ITerrainField
 {
 	/// <summary>逐格高原影响度 ∈[0,1]（PlateauAt 的 H3 采样）。</summary>
 	public float[] PlateauInfluence { get; private set; } = Array.Empty<float>();

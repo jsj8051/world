@@ -37,7 +37,7 @@ public sealed class FinalGeography
 	public int[] FinalRegionOfCell { get; private set; } = Array.Empty<int>();
 
 	public void Generate(Ball ball, HeightComposer composer, GeologicalRegions regions,
-		SurfaceResolver surface, MountainSkeleton mountains, RegionalLandforms landforms)
+		SurfaceResolver surface, IReadOnlyList<FeatureField> features)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		int n = ball.CellDirs.Length;
@@ -50,7 +50,7 @@ public sealed class FinalGeography
 		{
 			FinalLand[i] = composer.HeightM[i] > 0f;
 			int landSamples = 0, total = 0;
-			foreach (float hSample in SampleSurfacePoints(ball, i, composer, regions, mountains, landforms, surface))
+			foreach (float hSample in SampleSurfacePoints(ball, i, composer, regions, features, surface))
 			{
 				total++;
 				if (hSample > 0f) landSamples++;
@@ -99,17 +99,16 @@ public sealed class FinalGeography
 
 	/// <summary>格 i 的最终表面采样点：格心 + H3 角点（与投影器多点采样同构）。</summary>
 	IEnumerable<float> SampleSurfacePoints(Ball ball, int i, HeightComposer composer,
-		GeologicalRegions regions, MountainSkeleton mountains, RegionalLandforms landforms,
-		SurfaceResolver surface)
+		GeologicalRegions regions, IReadOnlyList<FeatureField> features, SurfaceResolver surface)
 	{
 		var dirs = ball.CellDirs;
-		yield return composer.SampleSurface(dirs[i], regions, mountains, landforms, surface);
+		yield return composer.SampleSurface(dirs[i], regions, surface, features);
 		ulong[] vids = H3.CellToVertexes(ball.CellIds[i]);
 		int cornerCount = Math.Min(vids.Length, 6);
 		for (int k = 0; k < cornerCount; k++)
 		{
 			var cornerDir = ball.VertexPositions[ball.VertexIndexOf(vids[k])].Normalized();
-			yield return composer.SampleSurface(cornerDir, regions, mountains, landforms, surface);
+			yield return composer.SampleSurface(cornerDir, regions, surface, features);
 		}
 	}
 
