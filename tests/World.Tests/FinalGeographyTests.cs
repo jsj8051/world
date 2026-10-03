@@ -8,8 +8,10 @@ namespace World.Tests;
 /// <summary>
 /// 世界生成空间 · 最终地理护栏（决策 07 数据语义链 ④⑤——世界事实层）：
 ///   · FinalLand = 最终高度 > 0（与渲染逐格一致——掩码说陆则画面必是陆）；
-///   · FinalLand ⊇ PlacementLand（放置期陆地不因变化场淹死——MinLand 钳制的推论）；
-///     山脉抬出的新增陆地（岛屿）被 FinalLand 收纳（掩码分裂问题的兑现）；
+///   · 【当前阶段 invariant，非永久法律】FinalLand ⊇ PlacementLand——成立前提是
+///     "特征只负责抬升"（MinLand 钳制）。将来引入降低高度的过程（侵蚀/峡谷/海沟/
+///     冰蚀）即失效，届时删除本断言——**长期不变量只有 FinalLand = 最终高度>0 派生**
+///     （独立测试 FinalLand_MatchesHeightSign 已钉死，不随地貌过程演进失效）；
 ///   · 陆块连通分量：陆格全有归属、FinalLandmassCount 一致；
 ///   · FinalRegionOfCell：陆格全有区域（新增岛屿 → 最近构造域）；
 ///   · 海岸距离图距递推；确定性逐位同。
@@ -50,8 +52,12 @@ public class FinalGeographyTests
 	}
 
 	[Test]
-	public void FinalLand_ContainsPlacementLand_AndMaybeNewIslands()
+	public void FinalLand_SupersetOfPlacement_CurrentStageInvariant()
 	{
+		// 【当前阶段 invariant】特征只抬升 ⇒ FinalLand ⊇ PlacementLand。
+		// 语义演进（决策 07 v2）：引入沉降/侵蚀类过程后本断言应删除——
+		// 长期不变量 = FinalLand 永远由 FinalHeight 派生（见 FinalLand_MatchesHeightSign）。
+	
 		var (f, proj, c, g, m) = Make();
 		int newLand = 0;
 		for (int i = 0; i < proj.PlacementLand.Length; i++)

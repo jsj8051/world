@@ -34,6 +34,10 @@ public sealed class RegionalLandforms
 	/// <summary>实际生成下挖场的盆地数（按陆块；每陆块上限 MaxBasinsPerLandmass——类型可为
 	/// BASIN 但超上限的区域不生成场，决策 §七防内流盆地泛滥）。</summary>
 	public System.Collections.Generic.Dictionary<int, int> AppliedBasinsPerLandmass { get; private set; } = new();
+	/// <summary>放置的高原 LandformFeature（决策 06/07 T6：独立 Feature，自带 Scale3 与形态）。</summary>
+	public List<PlateauFeature> Plateaus { get; } = new();
+	/// <summary>放置的盆地 LandformFeature。</summary>
+	public List<BasinFeature> Basins { get; } = new();
 
 	// ── 场性格旋钮（地球量级；面板接线走 S5）──
 	public const float PlateauTargetElevM = 2050f;    // 高原台面**目标绝对高度**（决策 07 步骤⑤）
@@ -64,23 +68,41 @@ public sealed class RegionalLandforms
 
 		// 每陆块盆地计数（决策 §七硬上限；按区域号序先到先得——确定性）
 		var basinCount = new Dictionary<int, int>();
-		var caps = new List<Cap>();
 		foreach (var region in regions.Regions)
 		{
 			if (region.Type == RegionType.Plateau)
 			{
-				caps.Add(MakeCap(region, PlateauTargetElevM, PlateauMinSigmaKm, isPlateau: true));
+				var (sigmaKm, radiusRad) = CapGeometry(region, PlateauMinSigmaKm);
+				Plateaus.Add(new PlateauFeature
+				{
+					Anchor = region.Seed,
+					Scale = new Scale3(sigmaKm * 2f, sigmaKm * 2f, PlateauTargetElevM),
+					CapCenter = region.Seed,
+					CapRadiusRad = radiusRad,
+					SigmaKm = sigmaKm,
+					TargetElevM = PlateauTargetElevM,
+					TopNoise = _topNoise,
+				});
 			}
 			else if (region.Type == RegionType.Basin)
 			{
 				int used = basinCount.GetValueOrDefault(region.Landmass);
-				if (used >= MaxBasinsPerLandmass) continue;   // 超上限：类型保留、场不生成
+				if (used >= MaxBasinsPerLandmass) continue;   // 超上限：类型保留、特征不放置
 				basinCount[region.Landmass] = used + 1;
 				AppliedBasinsPerLandmass[region.Landmass] = used + 1;
-				caps.Add(MakeCap(region, BasinTargetElevM, BasinMinSigmaKm, isPlateau: false));
+				var (sigmaKm, radiusRad) = CapGeometry(region, BasinMinSigmaKm);
+				Basins.Add(new BasinFeature
+				{
+					Anchor = region.Seed,
+					Scale = new Scale3(sigmaKm * 2f, sigmaKm * 2f, BasinTargetElevM),
+					CapCenter = region.Seed,
+					CapRadiusRad = radiusRad,
+					SigmaKm = sigmaKm,
+					TargetElevM = BasinTargetElevM,
+					TopNoise = _topNoise,
+				});
 			}
 		}
-		_caps = caps;
 
 		// 逐格数组 = 连续查询口的 H3 采样（海格不参与——门控在采样处）
 		PlateauInfluence = new float[n];
@@ -95,7 +117,6 @@ public sealed class RegionalLandforms
 		}
 	}
 
-	List<Cap> _caps = new();
 
 	/// <summary>连续查询（ITerrainField 组合口）：高原→盆地按序 lerp 后的等效（影响度, 目标）。
 	/// 等效合成：I* = 1−(1−i1)(1−i2)，T* = (t1·i1·(1−i2) + t2·i2)/I*（顺序语义保留）。</summary>
@@ -113,54 +134,81 @@ public sealed class RegionalLandforms
 	public (float influence, float targetM) PlateauAt(Vector3 dir)
 	{
 		float union = 0f, wSum = 0f, tAcc = 0f;
-		foreach (var cap in _caps)
+		foreach (var f in Plateaus)
 		{
-			if (!cap.IsPlateau) continue;
-			if (dir.Dot(cap.Center) < MathF.Cos(cap.RadiusRad)) continue;   // 帽外截断
-			float sigmaRad = cap.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
-			float d = MathF.Acos(Math.Clamp(dir.Dot(cap.Anchor), -1f, 1f));
+			if (!f.InCap(dir)) continue;   // 帽外截断
+			float sigmaRad = f.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+			float d = MathF.Acos(Math.Clamp(dir.Dot(f.Anchor), -1f, 1f));
 			float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
 			if (env <= 0f) continue;
-			float top = 1f + 0.12f * _topNoise.Sample(dir);   // 顶面起伏 ±12%：台面不是完美平顶
-			union = union + (1f - union) * env;
+			var (inf, tgt) = f.SampleAt(dir);   // Feature 自持形态（顶面 ±12% Flatness）
+			union = union + (1f - union) * inf;
 			wSum += env;
-			tAcc += env * cap.HeightM * top;
+			tAcc += env * tgt;
 		}
-		return union <= 0f ? (0f, 0f) : (union, tAcc / wSum);
+		return union <= 0f ? (0f, 0f) : (union, wSum > 0f ? tAcc / wSum : 0f);
 	}
 
 	/// <summary>连续查询：盆地目标场（洼地目标绝对高）。</summary>
 	public (float influence, float targetM) BasinAt(Vector3 dir)
 	{
 		float union = 0f, wSum = 0f, tAcc = 0f;
-		foreach (var cap in _caps)
+		foreach (var f in Basins)
 		{
-			if (cap.IsPlateau) continue;
-			if (dir.Dot(cap.Center) < MathF.Cos(cap.RadiusRad)) continue;
-			float sigmaRad = cap.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
-			float d = MathF.Acos(Math.Clamp(dir.Dot(cap.Anchor), -1f, 1f));
+			if (!f.InCap(dir)) continue;
+			float sigmaRad = f.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+			float d = MathF.Acos(Math.Clamp(dir.Dot(f.Anchor), -1f, 1f));
 			float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
 			if (env <= 0f) continue;
-			float top = 1f + 0.12f * _topNoise.Sample(dir);
-			union = union + (1f - union) * env;
+			var (inf, tgt) = f.SampleAt(dir);
+			union = union + (1f - union) * inf;
 			wSum += env;
-			tAcc += env * cap.HeightM * top;
+			tAcc += env * tgt;
 		}
-		return union <= 0f ? (0f, 0f) : (union, tAcc / wSum);
+		return union <= 0f ? (0f, 0f) : (union, wSum > 0f ? tAcc / wSum : 0f);
 	}
 
-	Cap MakeCap(GeologicalRegions.Region region, float heightM, float minSigmaKm, bool isPlateau)
+	(float sigmaKm, float radiusRad) CapGeometry(GeologicalRegions.Region region, float minSigmaKm)
 	{
 		// σ = max(区域等效半径 ×1.25, 类型下限)：大面积影响场非斑点（决策 05v2 §十五）
 		float equivRadiusKm = MathF.Sqrt(region.AreaKm2 / MathF.PI);
 		float sigmaKm = MathF.Max(equivRadiusKm * CapRadiusFactor, minSigmaKm);
 		// 帽角半径 = 质心到区域最远格的估计（等效圆近似）+ 2σ 余量
 		float radiusRad = (equivRadiusKm + 2f * sigmaKm) / SphericalFbmNoise.EarthRadiusKm + 0.01f;
-		return new Cap(region.Seed, sigmaKm, radiusRad, heightM, isPlateau);
+		return (sigmaKm, radiusRad);
 	}
+}
 
-	readonly record struct Cap(Vector3 Anchor, float SigmaKm, float RadiusRad, float HeightM, bool IsPlateau)
+/// <summary>高原 LandformFeature：台地目标场（T6 迁移——Region 帽 → 独立 Feature，决策 06/07）。</summary>
+public sealed class PlateauFeature : TerrainFeature, ITerrainField
+{
+	public float SigmaKm;
+	public float TargetElevM;
+	public SphericalFbmNoise TopNoise;   // Flatness：顶面起伏 ±12%（台面不是完美平顶）
+
+	public (float influence, float targetM) SampleAt(Vector3 dir)
 	{
-		public Vector3 Center => Anchor;   // 预筛中心 = 锚（帽以锚为心）
+		float sigmaRad = SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+		float d = MathF.Acos(Math.Clamp(dir.Dot(Anchor), -1f, 1f));
+		float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
+		float top = 1f + 0.12f * TopNoise.Sample(dir);
+		return (env, TargetElevM * top);
+	}
+}
+
+/// <summary>盆地 LandformFeature：洼地目标场。</summary>
+public sealed class BasinFeature : TerrainFeature, ITerrainField
+{
+	public float SigmaKm;
+	public float TargetElevM;
+	public SphericalFbmNoise TopNoise;
+
+	public (float influence, float targetM) SampleAt(Vector3 dir)
+	{
+		float sigmaRad = SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+		float d = MathF.Acos(Math.Clamp(dir.Dot(Anchor), -1f, 1f));
+		float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
+		float top = 1f + 0.12f * TopNoise.Sample(dir);
+		return (env, TargetElevM * top);
 	}
 }

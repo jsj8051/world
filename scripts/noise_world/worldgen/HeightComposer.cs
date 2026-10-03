@@ -10,10 +10,16 @@ namespace World.NoiseWorld.WorldGen;
 //   变化场、保底全在其中；逐格数组 = 它在格心的采样（构造上不打架）。
 //   合成语义（决策 07 步骤⑤，目标绝对高度替代"+N 米增量"——峰高只有一个语义来源）：
 //     h = BaseElevation（区域基础高度，背景）
-//     h = lerp(h, PlateauTarget, PlateauInfluence)      ← 高原"这里倾向 2000m 台地"
+//     h = lerp(h, PlateauTarget, PlateauInfluence)      ← 高原"这里倾向 2050m 台地"
 //     h = lerp(h, BasinTarget,   BasinInfluence)        ← 盆地"这里倾向 350m 洼地"
 //     h = lerp(h, MountainTarget, MountainInfluence)    ← 山脉"这里倾向 4200m×profile 山"
 //     h += Large + Medium + Detail（三档变化；large > medium > detail）
+//   ★**特征优先级规则（设计约定，非实现偶然）**：lerp 链**后位覆盖先位**——
+//     Mountain(4) > Basin(3) > Plateau(2) > Base(0)。排序依据 = 特征的空间局部性/
+//     强度（越局部、越"尖锐"的地貌优先级越高：山脉是线状强构造 > 盆地是面状洼地 >
+//     高原是面状台地）。**新特征插位准则**：按局部性插入链中合适位置并在本表登记
+//     （Volcano 最局部 → Mountain 之后；Erosion 全局弱场 → Detail 段）——
+//     插错位置的症状 = "为什么 A 一加 B 就变了"。影响度接近 1 时后位完全接管前位。
 //   陆格钳 ≥ MinLandElevationM（放置期陆地不因变化场淹死；内流洼地语义由 relief 承载）。
 //   海侧 = Bathymetry（放置期深海剖面）+ 山脉目标 lerp（海底脊/岛链，海洋表达式在 resolver）。
 // 1 pass 图上平滑 = 离散化后处理（抗混叠），仅放置期陆格参与——连续场本身不含。
