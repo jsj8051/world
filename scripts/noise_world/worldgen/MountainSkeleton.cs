@@ -61,9 +61,17 @@ public sealed class MountainSkeleton
 		_orientNoise = new SphericalFbmNoise(rnd.Next(), 6000f, 2);
 	}
 
-	/// <summary>生成骨架与加成场。regions 须已 Generate。</summary>
-	public void Generate(Ball ball, GeologicalRegions regions)
+		LandSeaField _field;        // 海陆场上下文（v3.2：海洋表达式的 raw/阈值源；null = 全陆口径）
+		float _thr, _seaSpread;
+
+	/// <summary>生成骨架与加成场。regions 须已 Generate；field 供海洋表达式
+	/// （构造骨架跨海连续，海洋中按海深衰减表达——决策 04v3 §一/§四）。</summary>
+	public void Generate(Ball ball, GeologicalRegions regions,
+		LandSeaField field = null, float seaThreshold = 0f, float seaSpread = 1f)
 	{
+		_field = field;
+		_thr = seaThreshold;
+		_seaSpread = MathF.Max(seaSpread, 1e-4f);
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (regions == null) throw new ArgumentNullException(nameof(regions));
 		var regionOfCell = regions.RegionOfCell;
@@ -158,13 +166,28 @@ public sealed class MountainSkeleton
 		}
 		Ridges = ridges.ToArray();
 
-		// ── 高度场 = HeightAddAt 的 H3 采样（陆格门控在采样处）──
+		// ── 高度场 = HeightAddAt 的 H3 采样（**无陆格门控**：构造骨架跨海连续，
+		//    海洋中以海深衰减表达——浅海海底脊/岛链、深海消失，决策 04v3 §一/§九）──
 		ElevationAddM = new float[n];
 		for (int i = 0; i < n; i++)
-			ElevationAddM[i] = regionOfCell[i] < 0 ? 0f : HeightAddAt(dirs[i]);
+			ElevationAddM[i] = HeightAddAt(dirs[i]);
 	}
 
-	/// <summary>连续查询：山脉骨架加成（米）。取最近脊点的包络 × **该点轴向高度** × 细化。</summary>
+	/// <summary>海洋表达式：构造强度在海上的保留比（决策 04v3 §四衰减表）——
+	/// 陆 = 1；海 = exp(−3t)，t = 归一化海深（0 岸/1 深渊）：浅海保留高（海底脊/岛链可露）、
+	/// 深海趋零（构造衰减消失）。连续无台阶 ⇒ 海岸附近无一刀切断头。</summary>
+	/// <summary>海洋表达式公共口（渲染器/测试同源）。</summary>
+	public float OceanFactor(Vector3 dir)
+	{
+		if (_field == null) return 1f;
+		float raw = _field.Sample(dir);
+		if (raw > _thr) return 1f;
+		float t = Math.Clamp((_thr - raw) / _seaSpread, 0f, 1f);
+		return MathF.Exp(-3f * t);
+	}
+
+	/// <summary>连续查询：山脉骨架加成（米）。取最近脊点的包络 × **该点轴向高度** × 细化
+	/// × **海洋表达式**（陆全量、浅海海底脊、深海衰减——骨架与地表表达分离）。</summary>
 	public float HeightAddAt(Vector3 dir)
 	{
 		float sum = 0f;
@@ -184,7 +207,7 @@ public sealed class MountainSkeleton
 			float detail = 0.92f + 0.16f * MathF.Pow(1f - MathF.Abs(_rugged.Sample(dir)), 2f);   // ±8%
 			sum += envelope * ridge.PointHeightM[bestP] * detail;
 		}
-		return sum;
+		return sum * OceanFactor(dir);
 	}
 
 	// ── 曲线行走（相关随机游走：heading 动量 + 小随机转角——曲率尺度与脊长匹配）──
@@ -272,10 +295,19 @@ public sealed class MountainSkeleton
 	void SpawnBranches(MountainRidge range, List<MountainRidge> ridges, DeterministicRandom rnd,
 		float rangeLenKm, float rangeSigmaKm, float rangeBaseHeightM)
 	{
-		// 高程加权起点池：轴向高度 ≥ 0.55×基准的点（山从高处long出，不从低处）
+		// 高程加权起点池：轴向高度 ≥ 0.55×基准（山从高处 long 出）+ **有效表达区门控**
+		//（深海段只保留主构造、不生支脉——决策 04v3 §七）
 		var pool = new List<int>();
 		for (int p = 0; p < range.Points.Length; p++)
-			if (range.PointHeightM[p] >= rangeBaseHeightM * 0.55f) pool.Add(p);
+		{
+			if (range.PointHeightM[p] < rangeBaseHeightM * 0.55f) continue;
+			if (_field != null && _field.Sample(range.Points[p]) <= _thr)
+			{
+				float t = Math.Clamp((_thr - _field.Sample(range.Points[p])) / _seaSpread, 0f, 1f);
+				if (t > 0.5f) continue;   // 深海段
+			}
+			pool.Add(p);
+		}
 		if (pool.Count == 0) return;
 
 		int primary = 1 + (rnd.NextDouble() < 0.5 ? 1 : 0);

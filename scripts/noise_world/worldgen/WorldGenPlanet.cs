@@ -59,7 +59,7 @@ public partial class WorldGenPlanet : Node3D
 		Regions = new GeologicalRegions(Seed);
 		Regions.Generate(_ball, Projector, TargetRegionAreaKm2);
 		Mountains = new MountainSkeleton(Seed);
-		Mountains.Generate(_ball, Regions);
+		Mountains.Generate(_ball, Regions, Field, Projector.ThresholdUsed, Projector.SeaSpreadUsed);
 		Landforms = new RegionalLandforms(Seed);
 		Landforms.Generate(_ball, Regions);
 		Composer = new HeightComposer(Seed);

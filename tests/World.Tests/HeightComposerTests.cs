@@ -104,13 +104,18 @@ public class HeightComposerTests
 	}
 
 	[Test]
-	public void Ocean_KeepsProjectionElevation()
+	public void Ocean_ProjectionPlusSubmarineRidgeOnly()
 	{
-		var (c, p, _, _, _) = Make();
+		// v3.2：海格 = 投影海侧 + 山脊表达（≥ 投影；深海衰减后接近投影）
+		var (c, p, _, _, m) = Make();
 		for (int i = 0; i < p.Land.Length; i++)
 			if (!p.Land[i])
-				Assert.That(c.HeightM[i], Is.EqualTo(p.ElevationM[i]),
-					$"海格 {i}：陆上合成不得污染海洋深度剖面");
+			{
+				Assert.That(c.HeightM[i], Is.GreaterThanOrEqualTo(p.ElevationM[i] - 0.01f),
+					$"海格 {i}：海侧只加不减（山脊表达非负）");
+				Assert.That(c.HeightM[i] - p.ElevationM[i], Is.LessThanOrEqualTo(4100f),
+					$"海格 {i}：海侧抬升有界");
+			}
 	}
 
 	[Test]

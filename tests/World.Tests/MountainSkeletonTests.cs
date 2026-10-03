@@ -29,7 +29,7 @@ public class MountainSkeletonTests
 		// res1 格宽 ~800 km >> 生产 σ 130 km——测试球放大骨架性格（σ×4）才能采到山带；
 		// 生产 res4（格宽 ~42 km）走默认地球量级参数
 		var m = new MountainSkeleton(seed, baseSigmaKm: 520f);
-		m.Generate(Ball, g);
+		m.Generate(Ball, g, field, proj.ThresholdUsed, proj.SeaSpreadUsed);
 		return (m, g);
 	}
 
@@ -70,6 +70,7 @@ public class MountainSkeletonTests
 		{
 			if (g.RegionOfCell[i] < 0) continue;
 			float expectLo = 0f, expectHi = 0f;
+			float oceanF = m.OceanFactor(dirs[i]);   // v3.2 海洋表达式同源（岸边陆格单点 raw 可 < 阈值）
 			foreach (var ridge in m.Ridges)
 			{
 				float sigmaRad = ridge.SigmaKm / 6371f;
@@ -84,6 +85,8 @@ public class MountainSkeletonTests
 				expectLo += env * ridge.PointHeightM[bestP] * 0.92f;
 				expectHi += env * ridge.PointHeightM[bestP] * 1.08f;
 			}
+			expectLo *= oceanF;
+			expectHi *= oceanF;
 			Assert.That(m.ElevationAddM[i], Is.InRange(expectLo - 1f, expectHi + 1f),
 				$"格 {i}：加成必须落在包络 × 轴向高度 × detail 值域带内（v3 公式）");
 			checkedCells++;
@@ -158,12 +161,21 @@ public class MountainSkeletonTests
 	}
 
 	[Test]
-	public void OceanCells_NeverLifted()
+	public void Lift_BoundedByRidgeHeights_NonNegative()
 	{
+		// v3.2 海洋表达式口径：加成处处 ∈[0, Σ各脊最大轴向高度×1.08]（表达式只衰减不放大、
+		// 多脊叠加有界）；深海衰减的单调性由 OceanFactor 构造（exp(−3t)）保证。
 		var (m, g) = Make();
+		float bound = 1f;
+		foreach (var r in m.Ridges)
+		{
+			float hMax = 0f;
+			foreach (float hp in r.PointHeightM) hMax = MathF.Max(hMax, hp);
+			bound += hMax * 1.08f;
+		}
 		for (int i = 0; i < g.RegionOfCell.Length; i++)
-			if (g.RegionOfCell[i] < 0)
-				Assert.That(m.ElevationAddM[i], Is.EqualTo(0f), $"海格 {i} 骨架加成必须为 0");
+			Assert.That(m.ElevationAddM[i], Is.InRange(0f, bound),
+				$"格 {i}：骨架加成须 ∈[0, Σ脊峰高]（海洋表达式只衰减）");
 	}
 
 	[Test]

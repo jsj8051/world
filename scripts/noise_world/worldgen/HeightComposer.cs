@@ -20,7 +20,7 @@ namespace World.NoiseWorld.WorldGen;
 /// </summary>
 public sealed class HeightComposer
 {
-	/// <summary>最终逐格海拔（米；海负陆正）。</summary>
+	/// <summary>最终逐格海拔（米；海负陆正；海底山脊/岛链已含）。</summary>
 	public float[] HeightM { get; private set; } = Array.Empty<float>();
 
 	public const float RegionalNoiseM = 80f;    // H_detail：小尺度细节（米）
@@ -69,10 +69,13 @@ public sealed class HeightComposer
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 
-		// ── ① 逐格海拔 = SampleLand 的 H3 采样（海格 = 投影海侧原样）──
+		// ── ① 逐格海拔 = 连续口采样（海格 = 投影海侧 + **海底山脊表达**——山脉构造
+		//    跨海连续，浅海海底脊可露成岛链、深海按海深衰减，决策 04v3）──
 		var h = new float[n];
 		for (int i = 0; i < n; i++)
-			h[i] = proj.Land[i] ? SampleLand(dirs[i], regions, mountains, landforms) : proj.ElevationM[i];
+			h[i] = proj.Land[i]
+				? SampleLand(dirs[i], regions, mountains, landforms)
+				: proj.ElevationM[i] + mountains.ElevationAddM[i];
 
 		// ── ② 1 pass 图上平滑（离散化后处理/抗混叠；连续场本身不需要——仅陆格互为邻居，海陆边界不模糊）──
 		var neighbors = ball.CellNeighbors;

@@ -536,7 +536,8 @@ public static class Program
                 if (raw <= thr)
                 {
                     float t = Math.Clamp((thr - raw) / seaSpread, 0f, 1f);
-                    heights[p] = -30f - 3200f * MathF.Pow(t, 1.2f);
+                    heights[p] = -30f - 3200f * MathF.Pow(t, 1.2f)
+                        + mountains.HeightAddAt(dir);   // 海底山脊表达（浅海可露成岛链）
                     lands[p] = false;
                 }
                 else
