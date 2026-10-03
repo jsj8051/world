@@ -38,9 +38,9 @@ public sealed class MountainSkeleton
 	public float[] ElevationAddM { get; private set; } = Array.Empty<float>();
 
 	// ── 骨架性格旋钮（地球量级；面板接线走 S5）──
-	public const float BaseLengthKm = 1400f;       // 主脊基准长度（安第斯/落基山单段量级）
-	public const float BaseHeightM = 2400f;        // 主脊基准脊高（米；大陆基线 ~940 之上，峰 ~3300 过雪线、谷 ~1980 不过——山链雪线上下穿越）
-	public const float BaseSigmaKm = 130f;         // 高斯宽度基准（山体半宽量级）
+	public const float BaseLengthKm = 1400f;       // （保留接口：主 Range 长度现由陆块尺度定）
+	public const float BaseHeightM = 3000f;        // 主 Range 基准脊高（米；区域基座 ~900-1600 之上，峰雪线穿越）
+	public const float BaseSigmaKm = 250f;         // 主 Range 高斯宽度（决策 05v2 §二：山脉带 200-800km 量级）
 	public const float MeanderAmpKm = 260f;        // 蜿蜒横移幅度（脊是曲线不是直线，决策 4.1）
 	public const int PointStepKm = 20;             // 脊点列步长（σ 的 ~1/6，距离量化误差 <8%）
 	const float CapSigmaMargin = 3f;               // 帽余量 = 3σ（exp(−9) ≈ 1e-4 截断）
@@ -68,37 +68,64 @@ public sealed class MountainSkeleton
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (regions == null) throw new ArgumentNullException(nameof(regions));
+	
 		var regionOfCell = regions.RegionOfCell;
 		int n = ball.CellDirs.Length;
+		float cellAreaKm2 = 4f * MathF.PI * SphericalFbmNoise.EarthRadiusKm * SphericalFbmNoise.EarthRadiusKm / n;
 		var rnd = new DeterministicRandom(_seed);
 		var dirs = ball.CellDirs;
 		float radPerKm = 1f / SphericalFbmNoise.EarthRadiusKm;
 
-		// ── ① 骨架：每个 MOUNTAIN 区域一条主脊 + 70% 概率一条分支（决策 4.1）──
+		// ── ① 山脉系统（决策 05v2 §一/§三：System 数量由**大陆尺度**定、跨 Region 的全局对象）──
+		//   陆块 → kSystem = clamp(√面积/2000 × random(0.8,1.2), 0, 4)（大洲 2-5 / 中洲 1-3 / 小洲 0-2）
+		//   每 System = 1 条主 Range（长轴跨区域，σ~250km 山脉带）+ 2~3 条支 Ridge（σ~80km 脊线）。
+		//   轴起点 70% 从 MOUNTAIN 区域格集合抽（区域控制图定"哪里适合山地"，但结构是跨区域的）。
 		var ridges = new List<MountainRidge>();
-		foreach (var region in regions.Regions)
+		var landmassCells = new Dictionary<int, List<int>>();
+		var mountainCells = new Dictionary<int, List<int>>();
+		for (int i = 0; i < n; i++)
 		{
-			if (region.Type != RegionType.Mountain) continue;
-
-			var (t1, t2) = TangentBasis(region.Seed);
-			float az = MathF.PI * 2f * (float)rnd.NextDouble();
-			var axis = (t1 * MathF.Cos(az) + t2 * MathF.Sin(az)).Normalized();
-			float lenKm = _baseLengthKm * (0.75f + 0.5f * (float)rnd.NextDouble())
-				* Math.Clamp(region.AreaKm2 / 4_000_000f, 0.6f, 1.6f);   // 区域越大山越长
-			float heightM = _baseHeightM * (0.8f + 0.4f * (float)rnd.NextDouble());
-			float sigmaKm = _baseSigmaKm * (0.8f + 0.4f * (float)rnd.NextDouble());
-
-			var main = BuildRidge(region.Seed, axis, lenKm, heightM, sigmaKm, isBranch: false);
-			ridges.Add(main);
-
-			// 分支：主脊中段取点，切向斜转 50°~105° 分叉；更短更矮更窄（支脉）
-			if (rnd.NextDouble() < 0.7)
+			int r = regionOfCell[i];
+			if (r < 0) continue;
+			int lm = regions.Regions[r].Landmass;
+			if (!landmassCells.TryGetValue(lm, out var cells)) landmassCells[lm] = cells = new List<int>();
+			cells.Add(i);
+			if (regions.Regions[r].Type == RegionType.Mountain)
 			{
-				int at = main.Points.Length / 3 + (int)((float)rnd.NextDouble() * main.Points.Length / 3);
-				Vector3 branchStart = main.Points[at];
-				Vector3 branchDir = TurnDirection(main, at, (0.55f + 0.5f * (float)rnd.NextDouble()) * (rnd.NextDouble() < 0.5f ? 1f : -1f));
-				ridges.Add(BuildRidge(branchStart, branchDir, lenKm * 0.45f, heightM * 0.7f,
-					sigmaKm * 0.8f, isBranch: true));
+				if (!mountainCells.TryGetValue(lm, out var mc)) mountainCells[lm] = mc = new List<int>();
+				mc.Add(i);
+			}
+		}
+		foreach (var (lm, cells) in landmassCells)
+		{
+			float areaKm2 = cells.Count * cellAreaKm2;
+			float sideKm = MathF.Sqrt(areaKm2);
+			int kSystems = Math.Clamp((int)MathF.Round(sideKm / 2000f * (0.8f + 0.4f * (float)rnd.NextDouble())), 0, 4);
+			var preferred = mountainCells.TryGetValue(lm, out var mc) && mc.Count > 0 ? mc : cells;
+
+			for (int s = 0; s < kSystems; s++)
+			{
+				var anchor = dirs[preferred[rnd.Next(preferred.Count)]];
+				var (t1, t2) = TangentBasis(anchor);
+				float az = MathF.PI * 2f * (float)rnd.NextDouble();
+				var axis = (t1 * MathF.Cos(az) + t2 * MathF.Sin(az)).Normalized();
+
+				// 主 Range：山系级宽度与长度（跨区域；上限 4000 km 防环绕全球）
+				float rangeLenKm = Math.Min(sideKm * (0.5f + 0.4f * (float)rnd.NextDouble()), 4000f);
+				float rangeHeight = _baseHeightM * (0.8f + 0.4f * (float)rnd.NextDouble());
+				float rangeSigma = _baseSigmaKm * (0.8f + 0.4f * (float)rnd.NextDouble());
+				var range = BuildRidge(anchor, axis, rangeLenKm, rangeHeight, rangeSigma, isBranch: false);
+				ridges.Add(range);
+
+				// 支 Ridge：沿主 Range 2~3 条斜向分叉（脊线级窄山）
+				int branches = 2 + (int)(rnd.NextDouble() * 2);
+				for (int b = 0; b < branches; b++)
+				{
+					int at = range.Points.Length / 4 + (int)((float)rnd.NextDouble() * range.Points.Length / 2);
+					var dir = TurnDirection(range, at, (0.55f + 0.5f * (float)rnd.NextDouble()) * (rnd.NextDouble() < 0.5f ? 1f : -1f));
+					ridges.Add(BuildRidge(range.Points[at], dir, rangeLenKm * (0.3f + 0.2f * (float)rnd.NextDouble()),
+						rangeHeight * 0.55f, rangeSigma * 0.32f, isBranch: true));
+				}
 			}
 		}
 		Ridges = ridges.ToArray();

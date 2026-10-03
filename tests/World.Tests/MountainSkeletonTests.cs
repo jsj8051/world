@@ -34,15 +34,28 @@ public class MountainSkeletonTests
 	}
 
 	[Test]
-	public void Ridges_ExistForEveryMountainRegion()
+	public void MountainSystems_ScaleWithLandmass_NotRegionCount()
 	{
+		// 决策 05v2 §一/§三：System 数量由大陆尺度定（k = clamp(√面积/2000 × jitter, 0, 4)），
+		// 不再由 MOUNTAIN 区域数一对一决定——山脉是跨区域的全局结构。
 		var (m, g) = Make();
-		int mountainRegions = 0;
-		foreach (var r in g.Regions) if (r.Type == RegionType.Mountain) mountainRegions++;
-		Assert.That(mountainRegions, Is.GreaterThan(0), "本种子须有 MOUNTAIN 区域（控制图定山位的前提）");
-		int mainRidges = 0;
-		foreach (var r in m.Ridges) if (!r.IsBranch) mainRidges++;
-		Assert.That(mainRidges, Is.EqualTo(mountainRegions), "每个 MOUNTAIN 区域恰一条主脊");
+		int mainRanges = 0;
+		foreach (var r in m.Ridges) if (!r.IsBranch) mainRanges++;
+		Assert.That(mainRanges, Is.GreaterThan(0), "有山世界须至少一条主 Range");
+		Assert.That(mainRanges, Is.LessThanOrEqualTo(7 * 4 + 1),
+			"主 Range 数 ≤ 每陆块上限 4（跨区域 System 语义，非逐区域短脊）");
+		// 宽度层级纪律（决策 05v2 §二）：主 Range（山脉带）显著宽于支 Ridge（脊线）。
+		// 断言用相对量（测试球会覆写 σ 适配格宽）：主 Range 最窄 σ ≥ 支脉最宽 σ × 2.5，且 ≥ 150km 带量级下限。
+		float mainMinSigma = float.PositiveInfinity, branchMaxSigma = 0f;
+		foreach (var r in m.Ridges)
+		{
+			if (r.IsBranch) branchMaxSigma = MathF.Max(branchMaxSigma, r.SigmaKm);
+			else mainMinSigma = MathF.Min(mainMinSigma, r.SigmaKm);
+		}
+		Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(150f), "主 Range σ 须在山脉带量级");
+		if (branchMaxSigma > 0f)
+			Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(branchMaxSigma * 2.0f),
+				$"主 Range σ({mainMinSigma:F0}) 须显著宽于支脉 σ({branchMaxSigma:F0})——System→Range→Ridge 层级；比值下限 2.0 = 抖动最坏比 2.08 取整)");
 	}
 
 	[Test]

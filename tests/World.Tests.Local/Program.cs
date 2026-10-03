@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
@@ -31,6 +33,10 @@ public static class Program
     /// 看门狗：`--timeout=秒` 覆盖默认 120s（Deep 用例自动 ×5）；`--no-timeout` 整关。</summary>
     public static int Main(string[] args)
     {
+        // 批量判读图分支（--maps=N）：逻辑层全链生成 + 等距圆柱投影出 PNG，绕过测试执行器
+        if (Array.Exists(args, a => a.StartsWith("--maps=", StringComparison.Ordinal)))
+            return RunMapBatch(args);
+
         var asm = typeof(World.Tests.DeterministicRandomTests).Assembly;
         int pass = 0, fail = 0, skip = 0;
         var failures = new List<string>();
@@ -220,5 +226,114 @@ public static class Program
         {
             // 探测失败不影响判分与执行，只影响消息可读性：直接放行
         }
+    }
+
+    // ── 批量判读图（--maps=N [--res=4] [--out=dir] [--w=1024] [--start=1] [--parallel=4]）──
+    // 逻辑层全链（锚点→海陆场→投影→区域→骨架→地貌→合成）逐种子生成，等距圆柱投影出 PNG；
+    // 色带 = ElevationBandMode.ElevationColor（与场景海拔模式同一单一事实源）。
+    // Ball 同 res 只读共享（构建一次，100 张复用）；种子间完全独立可并行（各任务私有逻辑层）。
+    static int RunMapBatch(string[] args)
+    {
+        int Parse(string key, int def)
+        {
+            var a = Array.Find(args, x => x.StartsWith("--" + key + "=", StringComparison.Ordinal));
+            return a != null && int.TryParse(a.Substring(key.Length + 3), out var v) ? v : def;
+        }
+        int count = Parse("maps", 100);
+        int res = Parse("res", 4);
+        int width = Parse("w", 1024);
+        int startSeed = Parse("start", 1);
+        int parallel = Math.Clamp(Parse("parallel", 4), 1, 16);
+        string outDir = "userdata/maps/batch100";
+        var outArg = Array.Find(args, x => x.StartsWith("--out=", StringComparison.Ordinal));
+        if (outArg != null) outDir = outArg.Substring(5);
+        Directory.CreateDirectory(outDir);
+
+        int height = width / 2;
+        var swAll = System.Diagnostics.Stopwatch.StartNew();
+        Console.WriteLine($"== 批量判读图：{count} 张 res{res} {width}×{height} seed {startSeed}..{startSeed + count - 1} → {outDir}（并行 {parallel}）==");
+
+        var ball = new World.NewHexWorld.Ball(res, 1f);
+
+        // 像素 → 格索引表（一次预计算，全种子复用；等距圆柱：y=0 北极）
+        var cellOfPixel = new int[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            double lat = (90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0;
+            for (int x = 0; x < width; x++)
+            {
+                double lng = (-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0;
+                ulong cell = World.Utils.H3.H3.LatLngToCell(new World.Utils.H3.LatLng(lat, lng), res);
+                cellOfPixel[y * width + x] = ball.CellIndexOf(cell);
+            }
+        }
+
+        int done = 0;
+        object gate = new();
+        var failures = new List<string>();
+        Parallel.ForEach(Enumerable.Range(startSeed, count),
+            new ParallelOptions { MaxDegreeOfParallelism = parallel },
+            seed =>
+            {
+                try
+                {
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var layout = new World.NoiseWorld.WorldGen.ContinentLayout(seed, 7);
+                    var field = new World.NoiseWorld.WorldGen.LandSeaField(layout,
+                        new World.NoiseWorld.WorldGen.LandSeaParams { Seed = seed });
+                    var proj = new World.NoiseWorld.WorldGen.H3LandSeaProjector();
+                    proj.Generate(ball, field, 0.29f);
+                    var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
+                    regions.Generate(ball, proj);
+                    var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
+                    mountains.Generate(ball, regions);
+                    var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
+                    landforms.Generate(ball, regions);
+                    var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
+                    composer.Generate(ball, proj, regions, mountains, landforms);
+
+                    var rgb = new byte[width * height * 3];
+                    // relative relief（决策 05v2 §六/§七）：relief = h − 同域邻域均值 → 明暗调制
+                    // （绝对高度给基础色，相对高度调明暗——盆地 380m 也能从色深读出"低洼"）
+                    var h = composer.HeightM;
+                    var relief = new float[h.Length];
+                    var nbs = ball.CellNeighbors;
+                    for (int i = 0; i < h.Length; i++)
+                    {
+                        float sum = h[i]; int cnt = 1;
+                        foreach (int j in nbs[i])
+                        {
+                            if (proj.Land[j] != proj.Land[i]) continue;   // 同域（海/陆）内取均值
+                            sum += h[j]; cnt++;
+                        }
+                        relief[i] = h[i] - sum / cnt;
+                    }
+                    for (int p = 0; p < cellOfPixel.Length; p++)
+                    {
+                        int i = cellOfPixel[p];
+                        var c = World.NoiseWorld.ElevationBandMode.ElevationColor(h[i]);
+                        float shade = Math.Clamp(1f + relief[i] / 1200f, 0.78f, 1.18f);   // 盆地偏暗、高地提亮
+                        int o = p * 3;
+                        rgb[o] = (byte)Math.Clamp(c.R * 255f * shade, 0f, 255f);
+                        rgb[o + 1] = (byte)Math.Clamp(c.G * 255f * shade, 0f, 255f);
+                        rgb[o + 2] = (byte)Math.Clamp(c.B * 255f * shade, 0f, 255f);
+                    }
+                    World.Utils.PngWriter.WriteRgb(Path.Combine(outDir, $"seed_{seed:D3}.png"), width, height, rgb);
+
+                    lock (gate)
+                    {
+                        done++;
+                        Console.WriteLine($"[{done:D3}/{count}] seed {seed} land={proj.LandFraction:P1} " +
+                                          $"regions={regions.Regions.Length} ridges={mountains.Ridges.Length} {sw.ElapsedMilliseconds} ms");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    lock (gate) { failures.Add($"seed {seed}: {ex.Message}"); Console.WriteLine($"[FAIL] seed {seed}: {ex}"); }
+                }
+            });
+
+        Console.WriteLine($"== 完成 {count - failures.Count}/{count}，总耗时 {swAll.Elapsed.TotalMinutes:F1} min → {outDir} ==");
+        return failures.Count == 0 ? 0 : 1;
     }
 }

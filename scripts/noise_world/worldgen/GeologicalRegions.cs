@@ -38,6 +38,9 @@ public sealed class GeologicalRegions
 		public float Weight;              // SizeNoise 空间连续权重（score = 角距/weight 的分母）
 		public int Landmass;              // 所属陆块（连通分量号）
 		public RegionType Type;
+		/// <summary>区域基础高度（米；类型位域 × 区域内随机——决策 05v2 §九/§十：
+		///   不是最终高度，是 HeightField 的区域基座；经插值场展开）。</summary>
+		public float BaseElevationM;
 		// ── Features（决策 §十）──
 		public int CellCount;             // 格数
 		public float AreaKm2;             // 面积
@@ -50,6 +53,9 @@ public sealed class GeologicalRegions
 	public Region[] Regions { get; private set; } = Array.Empty<Region>();
 	/// <summary>逐格区域号（陆 = 区域下标；海 = −1）。</summary>
 	public int[] RegionOfCell { get; private set; } = Array.Empty<int>();
+	/// <summary>区域基础高度场（米；陆格）——每区域一枚基础高度经**归一化高斯插值**展开成
+	///   连续场（决策 05v2 §十/§十一：大陆内部大尺度梯度，无色块拼接）。海格 0。</summary>
+	public float[] BaseElevationField { get; private set; } = Array.Empty<float>();
 
 	// ── 分区旋钮 ──
 	public const float TargetRegionAreaKm2 = 4_000_000f;   // 目标区域面积（地球：~400 万 km²/区域）
@@ -241,10 +247,72 @@ public sealed class GeologicalRegions
 					Continentality = Math.Clamp(distSum / count / maxDist, 0f, 1f),
 					Neighbors = new int[adj[r].Count],
 				};
-				adj[r].CopyTo(Regions[r].Neighbors);
-			}
+			adj[r].CopyTo(Regions[r].Neighbors);
+		}
 
 		AssignTypes(rnd, adj);
+		BuildBaseElevationField(ball, regionBase, kPerContinent);
+	}
+
+	// ── 区域基础高度（决策 05v2 §九/§十）──
+
+	// 类型位域（米）：不是最终高度，是区域基座——插值展开后叠加系统场。
+	//   MOUNTAIN 区基座高（山区本身是高地），BASIN 位域低（叠加下挖更深）。
+	static readonly (float lo, float hi)[] BaseElevBandM =
+	{
+		(80f, 450f),     // Plain
+		(500f, 1100f),   // Highland
+		(150f, 600f),    // Basin
+		(900f, 1600f),   // Mountain
+		(900f, 1700f),   // Plateau
+		(100f, 500f),    // Rift
+		(20f, 120f),     // Coastal
+	};
+
+	/// <summary>逐格基础高度场：每区域一枚 BaseElevationM 经**归一化高斯帽插值**（Shepard 式）
+	/// 展开成连续场——区域间平滑过渡，无色块拼接（决策 05v2 §十一）。</summary>
+	void BuildBaseElevationField(Ball ball, int[] regionBase, int[] kPerContinent)
+	{
+		int n = ball.CellDirs.Length;
+		var rnd = new DeterministicRandom(_seed ^ 0xB4E5);
+		foreach (var region in Regions)
+		{
+			var (lo, hi) = BaseElevBandM[(int)region.Type];
+			region.BaseElevationM = lo + (hi - lo) * (float)rnd.NextDouble();
+		}
+
+		// 每区域一帽（σ = 等效半径 ×1.4：覆盖全区并向邻区溢出——插值权重重叠才能平滑过渡）
+		var caps = new (Vector3 anchor, float sigmaRad, float baseM, float capR2)[Regions.Length];
+		for (int i = 0; i < Regions.Length; i++)
+		{
+			float equivKm = MathF.Sqrt(Regions[i].AreaKm2 / MathF.PI);
+			float sigmaKm = equivKm * 1.4f;
+			float sigmaRad = sigmaKm / SphericalFbmNoise.EarthRadiusKm;
+			// 帽截断角距 = 2.5σ（exp(−6.25)≈0.002，插值权重足够小）
+			float cutRad = 2.5f * sigmaRad;
+			caps[i] = (Regions[i].Seed, sigmaRad, Regions[i].BaseElevationM, cutRad * cutRad);
+		}
+
+		BaseElevationField = new float[n];
+		var dirs = ball.CellDirs;
+		var regionOfCell = RegionOfCell;
+		for (int i = 0; i < n; i++)
+		{
+			if (regionOfCell[i] < 0) continue;   // 海格 0（合成器海侧不读本场）
+			float wSum = 0f, acc = 0f;
+			for (int c = 0; c < caps.Length; c++)
+			{
+				float d2 = (dirs[i] - caps[c].anchor).LengthSquared();   // 弦距² ∝ 小角距（排序/截断用）
+				if (d2 > caps[c].capR2) continue;
+				float dRad = MathF.Acos(Math.Clamp(dirs[i].Dot(caps[c].anchor), -1f, 1f));
+				float w = MathF.Exp(-(dRad * dRad) / (2f * caps[c].sigmaRad * caps[c].sigmaRad));
+				if (w < 1e-4f) continue;
+				wSum += w;
+				acc += w * caps[c].baseM;
+			}
+			// 无帽覆盖（孤格）：回落本区域基础高度
+			BaseElevationField[i] = wSum > 1e-3f ? acc / wSum : Regions[regionOfCell[i]].BaseElevationM;
+		}
 	}
 
 	/// <summary>连续 Region Field 查询：本大陆种子中 argmin(扭曲角距/weight)——H3 格只是采样点（决策 §九）。</summary>

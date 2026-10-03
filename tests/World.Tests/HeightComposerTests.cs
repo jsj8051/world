@@ -40,13 +40,15 @@ public class HeightComposerTests
 	[Test]
 	public void Height_MatchesCompositeFormula_Band()
 	{
-		// 陆格精确界：h' = 0.6·代数和 + 0.4·邻居代数和均值（± regionalNoise）
-		// ⇒ 带宽 = noise ± (1−SmoothSelf) × 邻居代数和极差（盆边/山边邻居差数百米——逐格算）
+		// 陆格精确界（决策 05v2 §十二）：linear = H_region + mountain + plateau − basin；
+		// h' = 0.6·linear + 0.4·邻居 linear 均值 ± 三档 variation（large+medium+detail ≤ 470）
+		// ⇒ 带宽 = Σvariation + (1−SmoothSelf) × 邻居 linear 极差（逐格算）
 		var (c, p, g, l, m) = Make();
 		var neighbors = Ball.CellNeighbors;
 		var linear = new float[p.Land.Length];
 		for (int i = 0; i < p.Land.Length; i++)
-			linear[i] = p.ElevationM[i] + m.ElevationAddM[i] + l.PlateauAddM[i] - l.BasinDipM[i];
+			linear[i] = g.BaseElevationField[i] + m.ElevationAddM[i] + l.PlateauAddM[i] - l.BasinDipM[i];
+		float noiseSum = HeightComposer.LargeVariationM + HeightComposer.MediumVariationM + HeightComposer.RegionalNoiseM;
 
 		for (int i = 0; i < p.Land.Length; i++)
 		{
@@ -58,9 +60,9 @@ public class HeightComposerTests
 				nbMin = MathF.Min(nbMin, linear[j]);
 				nbMax = MathF.Max(nbMax, linear[j]);
 			}
-			float band = HeightComposer.RegionalNoiseM + (1f - HeightComposer.SmoothSelf) * (nbMax - nbMin) + 1f;
+			float band = noiseSum + (1f - HeightComposer.SmoothSelf) * (nbMax - nbMin) + 1f;
 			Assert.That(c.HeightM[i], Is.InRange(linear[i] - band, linear[i] + band),
-				$"格 {i}：合成海拔必须落在决策 05 §六公式的平滑精确界内");
+				$"格 {i}：合成海拔必须落在决策 05v2 §十二公式的平滑精确界内");
 		}
 	}
 

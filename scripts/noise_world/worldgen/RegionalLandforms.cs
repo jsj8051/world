@@ -30,9 +30,11 @@ public sealed class RegionalLandforms
 
 	// ── 场性格旋钮（地球量级；面板接线走 S5）──
 	public const float PlateauHeightM = 1150f;    // 高原台面高度（基线 ~940 之上 → 台面 ~2000 高地档）
-	public const float BasinDepthM = 520f;        // 盆地中心下挖（基线 ~900 → 盆底 ~400）
+	public const float BasinDepthM = 700f;        // 盆地中心下挖（区域基座 ~150-600 → 盆底 ~100 量级）
 	public const int MaxBasinsPerLandmass = 2;    // 每陆块盆地上限（决策 §七：防内流盆地泛滥）
-	const float CapRadiusFactor = 1.25f;          // 帽 σ = 区域等效半径 × 此值（覆盖全区、边缘平滑降）
+	public const float PlateauMinSigmaKm = 1200f; // 高原帽 σ 下限（决策 05v2：大面积影响场非斑点）
+	public const float BasinMinSigmaKm = 1000f;   // 盆地帽 σ 下限
+	const float CapRadiusFactor = 1.25f;          // 帽 σ = max(区域等效半径 × 此值, 类型下限)
 
 	readonly int _seed;
 	readonly SphericalFbmNoise _topNoise;         // 顶面起伏（中频：台面不平/盆底不光滑）
@@ -60,7 +62,7 @@ public sealed class RegionalLandforms
 		{
 			if (region.Type == RegionType.Plateau)
 			{
-				capOf[region.Id] = MakeCap(region, PlateauHeightM);
+				capOf[region.Id] = MakeCap(region, PlateauHeightM, PlateauMinSigmaKm);
 			}
 			else if (region.Type == RegionType.Basin)
 			{
@@ -68,7 +70,7 @@ public sealed class RegionalLandforms
 				if (used >= MaxBasinsPerLandmass) continue;   // 超上限：类型保留、场不生成
 				basinCount[region.Landmass] = used + 1;
 				AppliedBasinsPerLandmass[region.Landmass] = used + 1;
-				capOf[region.Id] = MakeCap(region, BasinDepthM);
+				capOf[region.Id] = MakeCap(region, BasinDepthM, BasinMinSigmaKm);
 			}
 		}
 
@@ -92,11 +94,11 @@ public sealed class RegionalLandforms
 		}
 	}
 
-	Cap MakeCap(GeologicalRegions.Region region, float heightM)
+	Cap MakeCap(GeologicalRegions.Region region, float heightM, float minSigmaKm)
 	{
-		// σ = 区域等效半径 ×1.25：帽覆盖全区、边缘在半径外平滑降坡
+		// σ = max(区域等效半径 ×1.25, 类型下限)：大面积影响场非斑点（决策 05v2 §十五）
 		float equivRadiusKm = MathF.Sqrt(region.AreaKm2 / MathF.PI);
-		float sigmaKm = equivRadiusKm * CapRadiusFactor;
+		float sigmaKm = MathF.Max(equivRadiusKm * CapRadiusFactor, minSigmaKm);
 		// 帽角半径 = 质心到区域最远格的估计（等效圆近似）+ 2σ 余量
 		float radiusRad = (equivRadiusKm + 2f * sigmaKm) / SphericalFbmNoise.EarthRadiusKm + 0.01f;
 		return new Cap(region.Seed, sigmaKm, radiusRad, heightM);

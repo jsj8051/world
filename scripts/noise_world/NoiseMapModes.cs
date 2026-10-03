@@ -66,7 +66,7 @@ public sealed class ElevationBandMode : NoiseMapMode
 	public override string Name => "海拔";
 	public override Color CellColorAt(int i) => ElevationColor(_elevation[i]);
 
-	internal static Color ElevationColor(float m) => m switch
+	public static Color ElevationColor(float m) => m switch
 	{
 		< -3000f => new Color(0.05f, 0.16f, 0.42f),   // 深海
 		< -1000f => new Color(0.08f, 0.25f, 0.55f),   // 海洋
