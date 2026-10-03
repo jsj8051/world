@@ -38,7 +38,7 @@ public sealed class MountainSkeleton
 
 	// ── 骨架性格旋钮（地球量级；测试球可经构造覆写）──
 	public const float BaseHeightM = 3000f;        // 主 Range 基准脊高（宏观 profile 在其上起伏）
-	public const float BaseSigmaKm = 250f;         // 主 Range 高斯宽度（山脉带量级）
+	public const float BaseSigmaKm = 160f;         // 主 Range 高斯宽度（v3.1：250→160，山带变薄）
 	public const float MeanderAmpKm = 260f;        // （保留常量兼容；v3 蜿蜒由行走转角承担）
 	public const int PointStepKm = 20;             // 行走步长
 	public const float MinRangeSpacingKm = 1400f;  // System 间最小间距（近平行排斥）
@@ -139,11 +139,15 @@ public sealed class MountainSkeleton
 					az += (MathF.PI / 180f) * (35f + 40f * (float)rnd.NextDouble());   // 强转一个角度
 				}
 
-				float heightM = _baseHeightM;
+				// v3.1 高度多样性：偏斜分布（多数系统 = 低山/丘陵，少数大成雪山）
+				// × 小陆块缩放（小岛上不必有雪山）——治"没有小山脉，全是大的雪山山脉"
+				float heightFactor = 0.45f + 0.55f * (float)Math.Pow(rnd.NextDouble(), 1.6);
+				float sizeFactor = Math.Clamp(sideKm / 3000f, 0.45f, 1f);
+				float heightM = _baseHeightM * heightFactor * sizeFactor;
 				float sigmaKm = _baseSigmaKm * (0.8f + 0.4f * (float)rnd.NextDouble());
 
 				var range = WalkRidge(anchor, az, lenKm, sigmaKm, isBranch: false,
-					turnScale: 0.045f, heightAt: null);
+					turnScale: 0.035f, maxDriftRad: 55f * MathF.PI / 180f, heightAt: null);
 				BuildAxialProfile(range, heightM, rnd);
 				ridges.Add(range);
 				placedRanges.Add((anchor, az));
@@ -187,13 +191,14 @@ public sealed class MountainSkeleton
 
 	/// <summary>从锚点沿初始方位行走 lenKm：每步转角 = 动量×0.75 + 随机小转角。</summary>
 	MountainRidge WalkRidge(Vector3 anchor, float azRad, float lenKm, float sigmaKm,
-		bool isBranch, float turnScale, float[] heightAt)
+		bool isBranch, float turnScale, float maxDriftRad, float[] heightAt)
 	{
 		float radPerKm = 1f / SphericalFbmNoise.EarthRadiusKm;
 		int steps = Math.Max(2, (int)(lenKm / PointStepKm));
 		float stepRad = lenKm / steps * radPerKm;
 		var (t1, t2) = TangentBasis(anchor);
 		var heading = t1 * MathF.Cos(azRad) + t2 * MathF.Sin(azRad);
+		var heading0 = heading;
 		var pts = new Vector3[steps + 1];
 		float turn = 0f;
 		var pos = anchor;
@@ -209,6 +214,18 @@ public sealed class MountainSkeleton
 			heading = heading.Normalized();
 			var side = frameUp.Cross(heading).Normalized();
 			heading = (heading * MathF.Cos(turn) + side * MathF.Sin(turn)).Normalized();
+			// v3.1 净转角上限：当前 heading 与初始方位的夹角封顶——弯而不卷（C 形/环圈根因）
+			var h0p = heading0 - frameUp * heading0.Dot(frameUp);
+			if (h0p.LengthSquared() > 1e-9f)
+			{
+				h0p = h0p.Normalized();
+				float drift = MathF.Acos(Math.Clamp(heading.Dot(h0p), -1f, 1f));
+				if (drift > maxDriftRad)
+				{
+					float back = drift - maxDriftRad;
+					heading = (heading * MathF.Cos(back) + h0p * MathF.Sin(back)).Normalized();
+				}
+			}
 			pos = posNext;
 		}
 		return FinishRidge(pts, sigmaKm, isBranch, heightAt);
@@ -285,7 +302,7 @@ public sealed class MountainSkeleton
 			float sigmaKm = rangeSigmaKm * (isPrimary ? 0.55f : 0.38f);
 
 			var branch = WalkRidge(start, theta, lenKm, sigmaKm, isBranch: true,
-				turnScale: 0.11f, heightAt: null);
+				turnScale: 0.11f, maxDriftRad: 75f * MathF.PI / 180f, heightAt: null);
 			// 支脉逐点高度 = 起点轴向高度 × 沿长衰减（一级 0.8 起点、末端 45%）
 			float h0 = startHeight * (isPrimary ? 0.8f : 0.6f);
 			int steps = branch.Points.Length;

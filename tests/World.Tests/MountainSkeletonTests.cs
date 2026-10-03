@@ -52,7 +52,7 @@ public class MountainSkeletonTests
 			if (r.IsBranch) branchMaxSigma = MathF.Max(branchMaxSigma, r.SigmaKm);
 			else mainMinSigma = MathF.Min(mainMinSigma, r.SigmaKm);
 		}
-		Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(150f), "主 Range σ 须在山脉带量级");
+		Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(100f), "主 Range σ 须在山脉带量级（v3.1 σ 160×抖动 0.8 = 128）");
 		if (branchMaxSigma > 0f)
 			Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(branchMaxSigma * 1.15f),
 				$"主 Range σ({mainMinSigma:F0}) 须显著宽于支脉 σ({branchMaxSigma:F0})——System→Range→Ridge 层级；下限 1.6 = 主/一级支标称比 1.8 容抖动)");
