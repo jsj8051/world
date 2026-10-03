@@ -29,6 +29,7 @@
 | [设计-世界生成空间-03-地质区域.md](newdecision/设计-世界生成空间-03-地质区域.md) | **地质区域 v2（2026-10-02，阶段 3 ✅ 二次决策重做）**：20 步 pipeline——Poisson Disk 种子（面积口径 ×random 抖动）+ SizeNoise 空间连续权重 + 连续扭曲 Region Field + Lloyd×2 + Features 全套 + 打分/全局配额/Softmax 概率选型 + RIFT 硬约束；大陆归属同系扭曲化（数学圆弧消失）；res4 实测 32 区域 |
 | [设计-世界生成空间-04-山脉骨架.md](newdecision/设计-世界生成空间-04-山脉骨架.md) | **山脉骨架落地（2026-10-02，阶段 4 ✅）**：MOUNTAIN 区域 → 蜿蜒主脊 + 斜向分支（球面曲线，位置合成无漂移）→ 角距高斯包络 exp(−d²/σ²) × 脊高 → ridged 噪声乘性细化（噪声只细化不定位）；角帽预筛（增量 ~0.1 s）；逐格公式对照测试 |
 | [设计-世界生成空间-05-区域地貌与高度合成.md](newdecision/设计-世界生成空间-05-区域地貌与高度合成.md) | **区域地貌与高度合成落地（2026-10-02，阶段 5+6 ✅）**：合成总公式 Height = continent + mountain + plateau − basin + regionalNoise（HeightComposer 唯一海拔出处 + 1 pass 图上平滑）；高原帽/盆地下挖区域场（盆地每陆块 ≤2 防内流盆地泛滥）；"雪山圆盘"三连根因修正（基线压低 940/区域偏移退役/峰谷比 2.2:1） |
+| [设计-世界生成空间-06-特征与形态层.md](newdecision/设计-世界生成空间-06-特征与形态层.md) | **Field + Feature + Morphology 架构落地（2026-10-03）**：「Field 回答哪里容易发生什么，Feature 回答长成什么样」——TectonicField（主轴/强度连续场/强度加权选址）上收环境背景、TerrainFeature 基类（Scale3 纵横垂三元组）、MountainSkeleton 定位为 MountainRange 的 Morphology（IHeightContribution 统一口）；新特征接入 = 身份+形态+贡献三步零总架构改动 |
 
 | 文档 | 内容 |
 |---|---|

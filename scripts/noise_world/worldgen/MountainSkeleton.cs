@@ -6,7 +6,9 @@ using World.Utils;
 
 namespace World.NoiseWorld.WorldGen;
 
-// 世界生成空间 · 山脉骨架 v3（决策 04 v2——「区域山脉场 → 主脊纵向高度场 → 曲线支脉树」）：
+// 世界生成空间 · 山脉骨架 v3（决策 04 v2 + 06 Feature/Morphology 化）：
+//   本类 = **MountainRange Feature 的 Morphology + 放置器**——环境场（主轴/强度/锚点池）
+//   已上收 TectonicField（决策 06：Field 回答"哪里容易"，本类只回答"长成什么样"）。
 //   v2 的三缺陷（脊线全线雪白 / 支脉死直辐条 / 平行双 Range 无地质逻辑）在此一次性消除：
 //   ① **主脊纵向高度曲线**：HeightM 常数 → 控制点 + Catmull-Rom 沿轴插值（峰-垭-峰），
 //      多尺度 = 宏观曲线（主起伏）+ 轴向中噪声 ±15% + detail ±8%（detail 不再负责主起伏）；
@@ -30,9 +32,13 @@ public sealed class MountainRidge
 /// <summary>
 /// 山脉骨架 v3：方向场主 Range（轴向高度曲线）+ 曲线生长支脉树 → 逐格高斯包络加成。
 /// </summary>
-public sealed class MountainSkeleton
+public sealed class MountainSkeleton : IHeightContribution
 {
 	public MountainRidge[] Ridges { get; private set; } = Array.Empty<MountainRidge>();
+	/// <summary>山脉系统 Feature（Field+Feature+Morphology 抽象的第一个完整实现；决策 06）。</summary>
+	public List<MountainSystemFeature> Systems { get; } = new();
+	/// <summary>构造场（Field 层：主轴/强度/锚点池——决策 06 上收的环境背景）。</summary>
+	public TectonicField Tectonic { get; private set; }
 	/// <summary>逐格海拔加成（米；仅陆格非零——HeightAddAt 的 H3 采样）。</summary>
 	public float[] ElevationAddM { get; private set; } = Array.Empty<float>();
 
@@ -47,7 +53,6 @@ public sealed class MountainSkeleton
 	readonly int _seed;
 	readonly SphericalFbmNoise _rugged;            // ridged 细化（±8%——不再负责主起伏）
 	readonly SphericalFbmNoise _axialMedium;       // 轴向中噪声（±15%，350 km）
-	readonly SphericalFbmNoise _orientNoise;       // 方向场扰动（低频）
 	readonly float _baseSigmaKm, _baseHeightM;
 
 	public MountainSkeleton(int seed, float? baseLengthKm = null, float? baseHeightM = null, float? baseSigmaKm = null)
@@ -58,7 +63,6 @@ public sealed class MountainSkeleton
 		var rnd = new DeterministicRandom(seed ^ 0x9E57);
 		_rugged = new SphericalFbmNoise(rnd.Next(), 90f, 3);
 		_axialMedium = new SphericalFbmNoise(rnd.Next(), 350f, 2);
-		_orientNoise = new SphericalFbmNoise(rnd.Next(), 6000f, 2);
 	}
 
 		LandSeaField _field;        // 海陆场上下文（v3.2：海洋表达式的 raw/阈值源；null = 全陆口径）
@@ -82,9 +86,11 @@ public sealed class MountainSkeleton
 		var dirs = ball.CellDirs;
 		float cellAreaKm2 = 4f * MathF.PI * SphericalFbmNoise.EarthRadiusKm * SphericalFbmNoise.EarthRadiusKm / n;
 
-		// ── 陆块分组 + 主轴（PCA 主成分 = 陆块走向）──
+		// ── Field 层：构造场（主轴/强度/锚点池——决策 06，从本类上收）──
+		Tectonic = new TectonicField(_seed, ball, regions);
+
+		// ── 陆块分组（System 数量口径仍按陆块面积）──
 		var landmassCells = new SortedDictionary<int, List<int>>();
-		var mountainCells = new Dictionary<int, List<int>>();
 		for (int i = 0; i < n; i++)
 		{
 			int r = regionOfCell[i];
@@ -92,16 +98,9 @@ public sealed class MountainSkeleton
 			int lm = regions.Regions[r].Landmass;
 			if (!landmassCells.TryGetValue(lm, out var cells)) landmassCells[lm] = cells = new List<int>();
 			cells.Add(i);
-			if (regions.Regions[r].Type == RegionType.Mountain)
-			{
-				if (!mountainCells.TryGetValue(lm, out var mc)) mountainCells[lm] = mc = new List<int>();
-				mc.Add(i);
-			}
 		}
-		var axes = new Dictionary<int, Vector3>();
-		foreach (var (lm, cells) in landmassCells) axes[lm] = PrincipalAxis(cells, dirs);
 
-		// ── 山脉系统：数量由陆块尺度定；方位 = 主轴 ± 扰动；近平行排斥 ──
+		// ── Feature 放置：数量由陆块尺度定；锚点 = 强度加权（“为什么长在这里”）；近平行排斥 ──
 		var ridges = new List<MountainRidge>();
 		var placedRanges = new List<(Vector3 mid, float azRad)>();
 		float radPerKm = 1f / SphericalFbmNoise.EarthRadiusKm;
@@ -110,12 +109,14 @@ public sealed class MountainSkeleton
 			float areaKm2 = cells.Count * cellAreaKm2;
 			float sideKm = MathF.Sqrt(areaKm2);
 			int kSystems = Math.Clamp((int)MathF.Round(sideKm / 2000f * (0.8f + 0.4f * (float)rnd.NextDouble())), 0, 4);
-			var preferred = mountainCells.TryGetValue(lm, out var mc) && mc.Count > 0 ? mc : cells;
-			var axis = axes[lm];
+			var mountainPool = Tectonic.AnchorPool(lm, mountainOnly: true);
+			var axis = Tectonic.PrincipalAxis(lm);
 
 			for (int s = 0; s < kSystems; s++)
 			{
-				var anchor = dirs[preferred[rnd.Next(preferred.Count)]];
+				var pool = mountainPool.Count > 0 ? mountainPool : cells;
+				int anchorCell = Tectonic.PickAnchorWeighted(pool, rnd);
+				var anchor = dirs[anchorCell];
 
 				// 方位 = 陆块主轴方位 ± 方向场扰动（±15° 低频 + ±8° 局部）；退化轴 → 随机
 				float az;
@@ -124,7 +125,7 @@ public sealed class MountainSkeleton
 				{
 					float axisAz = MathF.Atan2(axis.Dot(t2), axis.Dot(t1));
 					az = axisAz + ((float)rnd.NextDouble() - 0.5f) * (MathF.PI / 180f) * 30f
-						+ _orientNoise.Sample(anchor) * (MathF.PI / 180f) * 25f;
+						+ Tectonic.OrientationJitter(anchor);
 				}
 				else
 				{
@@ -159,6 +160,15 @@ public sealed class MountainSkeleton
 				BuildAxialProfile(range, heightM, rnd);
 				ridges.Add(range);
 				placedRanges.Add((anchor, az));
+				Systems.Add(new MountainSystemFeature
+				{
+					Anchor = anchor,
+					OrientationRad = az,
+					Intensity = Tectonic.IntensityAt(anchor),
+					Scale = new Scale3(lenKm, sigmaKm * 2f, heightM),
+					CapCenter = range.Center,
+					CapRadiusRad = range.CapRadiusRad,
+				});
 
 				// ── 支脉树（分级：起点按主脊高程加权，曲线生长，长度分布化）──
 				SpawnBranches(range, ridges, rnd, lenKm, sigmaKm, heightM);
@@ -185,6 +195,9 @@ public sealed class MountainSkeleton
 		float t = Math.Clamp((_thr - raw) / _seaSpread, 0f, 1f);
 		return MathF.Exp(-3f * t);
 	}
+
+	/// <summary>IHeightContribution 统一口（合成器只认这个口）。</summary>
+	public float Sample(Vector3 dir) => HeightAddAt(dir);
 
 	/// <summary>连续查询：山脉骨架加成（米）。取最近脊点的包络 × **该点轴向高度** × 细化
 	/// × **海洋表达式**（陆全量、浅海海底脊、深海衰减——骨架与地表表达分离）。</summary>
@@ -363,34 +376,6 @@ public sealed class MountainSkeleton
 		};
 	}
 
-	// 陆块主轴：方向向量协方差的 PCA 主成分（幂迭代，确定性初值）
-	Vector3 PrincipalAxis(List<int> cells, Vector3[] dirs)
-	{
-		Vector3 mean = Vector3.Zero;
-		foreach (int i in cells) mean += dirs[i];
-		mean = (mean / cells.Count).Normalized();
-		// 3×3 协方差
-		float[,] cov = new float[3, 3];
-		foreach (int i in cells)
-		{
-			var d = dirs[i] - mean;
-			cov[0, 0] += d.X * d.X; cov[0, 1] += d.X * d.Y; cov[0, 2] += d.X * d.Z;
-			cov[1, 1] += d.Y * d.Y; cov[1, 2] += d.Y * d.Z; cov[2, 2] += d.Z * d.Z;
-		}
-		cov[1, 0] = cov[0, 1]; cov[2, 0] = cov[0, 2]; cov[2, 1] = cov[1, 2];
-		var v = Vector3.One.Normalized();
-		for (int it = 0; it < 12; it++)
-		{
-			var nv = new Vector3(
-				cov[0, 0] * v.X + cov[0, 1] * v.Y + cov[0, 2] * v.Z,
-				cov[1, 0] * v.X + cov[1, 1] * v.Y + cov[1, 2] * v.Z,
-				cov[2, 0] * v.X + cov[2, 1] * v.Y + cov[2, 2] * v.Z);
-			if (nv.LengthSquared() < 1e-12f) return Vector3.Zero;
-			v = nv.Normalized();
-		}
-		return v;
-	}
-
 	static float AngleDiff(float a, float b)
 	{
 		float d = a - b;
@@ -406,4 +391,10 @@ public sealed class MountainSkeleton
 		var v = dir.Cross(u);
 		return (u, v);
 	}
+}
+
+/// <summary>山脉系统 Feature（决策 06 的第一个完整 Feature）：身份在基类，
+/// 形态（中心线/剖面/支脉树）由 MountainSkeleton 的 Morphology 生成并挂在 Ridges。</summary>
+public sealed class MountainSystemFeature : TerrainFeature
+{
 }
