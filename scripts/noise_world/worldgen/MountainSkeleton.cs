@@ -130,29 +130,34 @@ public sealed class MountainSkeleton
 		}
 		Ridges = ridges.ToArray();
 
-		// ── ② 高度场：陆格 min 角距 → 高斯包络 × ridged 细化（决策 4.2/4.3；帽预筛 + 海格跳过）──
+		// ── ② 高度场 = HeightAddAt 的 H3 采样（陆格门控在采样处；海格恒 0）──
 		ElevationAddM = new float[n];
+		for (int i = 0; i < n; i++)
+			ElevationAddM[i] = regionOfCell[i] < 0 ? 0f : HeightAddAt(dirs[i]);
+	}
+
+	/// <summary>连续查询：山脉骨架加成（米）——逐脊帽预筛 + min 角距高斯包络 × ridged 细化
+	/// （决策 4.2/4.3）。陆/海门控由调用方负责（离散版按 RegionOfCell，连续版按海陆场阈值）。</summary>
+	public float HeightAddAt(Vector3 dir)
+	{
+		float sum = 0f;
 		foreach (var ridge in Ridges)
 		{
-			float sigmaRad = ridge.SigmaKm * radPerKm;
-			float capCos = MathF.Cos(ridge.CapRadiusRad);
+			if (dir.Dot(ridge.Center) < MathF.Cos(ridge.CapRadiusRad)) continue;   // 帽外截断（exp(−9) 以下）
+			float sigmaRad = ridge.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+			float dMin = float.PositiveInfinity;
 			var pts = ridge.Points;
-			for (int i = 0; i < n; i++)
+			for (int p = 0; p < pts.Length; p++)
 			{
-				if (regionOfCell[i] < 0) continue;                            // 海格不受骨架影响
-				if (dirs[i].Dot(ridge.Center) < capCos) continue;    // 帽外截断（exp(−9) 以下）
-				float dMin = float.PositiveInfinity;
-				for (int p = 0; p < pts.Length; p++)
-				{
-					float d = MathF.Acos(Math.Clamp(dirs[i].Dot(pts[p]), -1f, 1f));
-					if (d < dMin) dMin = d;
-				}
-				float envelope = MathF.Exp(-(dMin * dMin) / (sigmaRad * sigmaRad));   // 决策 4.2
-				float ridged01 = MathF.Pow(1f - MathF.Abs(_rugged.Sample(dirs[i])), 2f);
-				float detail = 0.45f + 0.55f * ridged01;                              // 决策 4.3：∈[0.45,1.0] 峰谷比 2.2:1（v1 ±30% 拉不出谷——"白盘"根因之一）
-				ElevationAddM[i] += envelope * ridge.HeightM * detail;
+				float d = MathF.Acos(Math.Clamp(dir.Dot(pts[p]), -1f, 1f));
+				if (d < dMin) dMin = d;
 			}
+			float envelope = MathF.Exp(-(dMin * dMin) / (sigmaRad * sigmaRad));   // 决策 4.2
+			float ridged01 = MathF.Pow(1f - MathF.Abs(_rugged.Sample(dir)), 2f);
+			float detail = 0.45f + 0.55f * ridged01;                              // 决策 4.3：峰谷比 2.2:1
+			sum += envelope * ridge.HeightM * detail;
 		}
+		return sum;
 	}
 
 	/// <summary>构建一条脊：锚点 ± 沿轴 lenKm/2 直线基准 + 横向蜿蜒（位置合成，无积分漂移）。</summary>

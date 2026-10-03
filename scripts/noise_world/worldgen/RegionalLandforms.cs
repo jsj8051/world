@@ -57,12 +57,12 @@ public sealed class RegionalLandforms
 
 		// 每陆块盆地计数（决策 §七硬上限；按区域号序先到先得——确定性）
 		var basinCount = new Dictionary<int, int>();
-		var capOf = new Dictionary<int, Cap>();   // 区域号 → 帽（plateau 正 / basin 负语义由场数组承载）
+		var caps = new List<Cap>();
 		foreach (var region in regions.Regions)
 		{
 			if (region.Type == RegionType.Plateau)
 			{
-				capOf[region.Id] = MakeCap(region, PlateauHeightM, PlateauMinSigmaKm);
+				caps.Add(MakeCap(region, PlateauHeightM, PlateauMinSigmaKm, isPlateau: true));
 			}
 			else if (region.Type == RegionType.Basin)
 			{
@@ -70,41 +70,69 @@ public sealed class RegionalLandforms
 				if (used >= MaxBasinsPerLandmass) continue;   // 超上限：类型保留、场不生成
 				basinCount[region.Landmass] = used + 1;
 				AppliedBasinsPerLandmass[region.Landmass] = used + 1;
-				capOf[region.Id] = MakeCap(region, BasinDepthM, BasinMinSigmaKm);
+				caps.Add(MakeCap(region, BasinDepthM, BasinMinSigmaKm, isPlateau: false));
 			}
 		}
+		_caps = caps;
 
+		// 逐格数组 = 连续查询口的 H3 采样（海格不参与——门控在采样处）
 		PlateauAddM = new float[n];
 		BasinDipM = new float[n];
-		foreach (var (regionId, cap) in capOf)
+		for (int i = 0; i < n; i++)
 		{
-			var add = regions.Regions[regionId].Type == RegionType.Plateau ? PlateauAddM : BasinDipM;
-			float sigmaRad = cap.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
-			float capCos = MathF.Cos(cap.RadiusRad);
-			for (int i = 0; i < n; i++)
-			{
-				if (regionOfCell[i] < 0) continue;                          // 海格不参与
-				if (dirs[i].Dot(cap.Center) < capCos) continue;             // 帽外截断
-				float d = MathF.Acos(Math.Clamp(dirs[i].Dot(cap.Anchor), -1f, 1f));
-				float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
-				// 顶面起伏 ±18%：台面不是完美平顶（决策 05 §七 高原）
-				float top = 1f + 0.18f * _topNoise.Sample(dirs[i]);
-				add[i] += env * cap.HeightM * top;
-			}
+			if (regionOfCell[i] < 0) continue;
+			PlateauAddM[i] = PlateauAt(dirs[i]);
+			BasinDipM[i] = BasinAt(dirs[i]);
 		}
 	}
 
-	Cap MakeCap(GeologicalRegions.Region region, float heightM, float minSigmaKm)
+	List<Cap> _caps = new();
+
+	/// <summary>连续查询：高原帽抬升（米）。</summary>
+	public float PlateauAt(Vector3 dir)
+	{
+		float sum = 0f;
+		foreach (var cap in _caps)
+		{
+			if (!cap.IsPlateau) continue;
+			if (dir.Dot(cap.Center) < MathF.Cos(cap.RadiusRad)) continue;   // 帽外截断
+			float sigmaRad = cap.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+			float d = MathF.Acos(Math.Clamp(dir.Dot(cap.Anchor), -1f, 1f));
+			float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
+			float top = 1f + 0.18f * _topNoise.Sample(dir);   // 顶面起伏 ±18%：台面不是完美平顶
+			sum += env * cap.HeightM * top;
+		}
+		return sum;
+	}
+
+	/// <summary>连续查询：盆地下挖（米，正值；合成取负）。</summary>
+	public float BasinAt(Vector3 dir)
+	{
+		float sum = 0f;
+		foreach (var cap in _caps)
+		{
+			if (cap.IsPlateau) continue;
+			if (dir.Dot(cap.Center) < MathF.Cos(cap.RadiusRad)) continue;
+			float sigmaRad = cap.SigmaKm / SphericalFbmNoise.EarthRadiusKm;
+			float d = MathF.Acos(Math.Clamp(dir.Dot(cap.Anchor), -1f, 1f));
+			float env = MathF.Exp(-(d * d) / (sigmaRad * sigmaRad));
+			float top = 1f + 0.18f * _topNoise.Sample(dir);
+			sum += env * cap.HeightM * top;
+		}
+		return sum;
+	}
+
+	Cap MakeCap(GeologicalRegions.Region region, float heightM, float minSigmaKm, bool isPlateau)
 	{
 		// σ = max(区域等效半径 ×1.25, 类型下限)：大面积影响场非斑点（决策 05v2 §十五）
 		float equivRadiusKm = MathF.Sqrt(region.AreaKm2 / MathF.PI);
 		float sigmaKm = MathF.Max(equivRadiusKm * CapRadiusFactor, minSigmaKm);
 		// 帽角半径 = 质心到区域最远格的估计（等效圆近似）+ 2σ 余量
 		float radiusRad = (equivRadiusKm + 2f * sigmaKm) / SphericalFbmNoise.EarthRadiusKm + 0.01f;
-		return new Cap(region.Seed, sigmaKm, radiusRad, heightM);
+		return new Cap(region.Seed, sigmaKm, radiusRad, heightM, isPlateau);
 	}
 
-	readonly record struct Cap(Vector3 Anchor, float SigmaKm, float RadiusRad, float HeightM)
+	readonly record struct Cap(Vector3 Anchor, float SigmaKm, float RadiusRad, float HeightM, bool IsPlateau)
 	{
 		public Vector3 Center => Anchor;   // 预筛中心 = 锚（帽以锚为心）
 	}

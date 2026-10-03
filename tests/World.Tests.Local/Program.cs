@@ -39,6 +39,10 @@ public static class Program
         // 连续图分支（--spin=seed）：同一世界正交投影旋转帧（绕轴 360°）+ 蒙太奇速览
         if (Array.Exists(args, a => a.StartsWith("--spin=", StringComparison.Ordinal)))
             return RunSpinBatch(args);
+        // 连续地形图分支（--cont=seed）：逐像素直接采样连续场（不经 H3 离散化）——
+        // "连续世界 → H3 只是采样"架构承诺的直接验证口
+        if (Array.Exists(args, a => a.StartsWith("--cont=", StringComparison.Ordinal)))
+            return RunContBatch(args);
 
         var asm = typeof(World.Tests.DeterministicRandomTests).Assembly;
         int pass = 0, fail = 0, skip = 0;
@@ -468,6 +472,100 @@ public static class Program
         World.Utils.PngWriter.WriteRgb(Path.Combine(outDir, "montage.png"), cols * cellPx, rows * cellPx, montage);
 
         Console.WriteLine($"== 完成 {frames} 帧 {sw.Elapsed.TotalSeconds:F0}s → {outDir}（spin_00..{frames - 1:D2}.png + montage.png）==");
+        return 0;
+    }
+
+    // ── 连续地形图（--cont=seed [--w=1024] [--res=4] [--out=dir]）──
+    // 逐像素直接采样连续合成场 HeightComposer.SampleLand（不经 H3 离散化）；
+    // 海侧 = 海陆场 raw 相对阈值映射（与离散投影同源公式/常数）。relief 明暗调色同批量图。
+    static int RunContBatch(string[] args)
+    {
+        int Parse(string key, int def)
+        {
+            var a = Array.Find(args, x => x.StartsWith("--" + key + "=", StringComparison.Ordinal));
+            return a != null && int.TryParse(a.Substring(key.Length + 3), out var v) ? v : def;
+        }
+        int seed = Parse("cont", 7);
+        int width = Parse("w", 1024);
+        int res = Parse("res", 4);
+        string outDir = "userdata/maps/cont";
+        var outArg = Array.Find(args, x => x.StartsWith("--out=", StringComparison.Ordinal));
+        if (outArg != null) outDir = outArg.Substring(5);
+        Directory.CreateDirectory(outDir);
+        int height = width / 2;
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        Console.WriteLine($"== 连续地形图：seed {seed} res{res} {width}×{height} → {outDir} ==");
+
+        var ball = new World.NewHexWorld.Ball(res, 1f);
+        var layout = new World.NoiseWorld.WorldGen.ContinentLayout(seed, 7);
+        var field = new World.NoiseWorld.WorldGen.LandSeaField(layout,
+            new World.NoiseWorld.WorldGen.LandSeaParams { Seed = seed });
+        var proj = new World.NoiseWorld.WorldGen.H3LandSeaProjector();
+        proj.Generate(ball, field, 0.29f);
+        var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
+        regions.Generate(ball, proj);
+        var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
+        mountains.Generate(ball, regions);
+        var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
+        landforms.Generate(ball, regions);
+        var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
+        composer.Generate(ball, proj, regions, mountains, landforms);
+        Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）——以下为逐像素连续采样");
+
+        float thr = proj.ThresholdUsed;
+        float seaSpread = proj.SeaSpreadUsed;
+        var heights = new float[width * height];
+        var lands = new bool[width * height];
+        Parallel.For(0, height, y =>
+        {
+            double lat = (90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0;
+            for (int x = 0; x < width; x++)
+            {
+                double lng = (-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0;
+                float cl = (float)Math.Cos(lat);
+                var dir = new Godot.Vector3(cl * (float)Math.Cos(lng), (float)Math.Sin(lat), cl * (float)Math.Sin(lng));
+                float raw = field.Sample(dir);
+                int p = y * width + x;
+                if (raw <= thr)
+                {
+                    float t = Math.Clamp((thr - raw) / seaSpread, 0f, 1f);
+                    heights[p] = -30f - 3200f * MathF.Pow(t, 1.2f);
+                    lands[p] = false;
+                }
+                else
+                {
+                    heights[p] = composer.SampleLand(dir, regions, mountains, landforms);
+                    lands[p] = true;
+                }
+            }
+        });
+
+        var rgb = new byte[width * height * 3];
+        for (int y = 0; y < height; y++)
+            for (int x = 0; x < width; x++)
+            {
+                int p = y * width + x;
+                var c = World.NoiseWorld.ElevationBandMode.ElevationColor(heights[p]);
+                float sum = heights[p]; int cnt = 1;
+                for (int dy = -2; dy <= 2; dy += 2)
+                    for (int dx = -2; dx <= 2; dx += 2)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        int qx = (x + dx + width) % width, qy = Math.Clamp(y + dy, 0, height - 1);
+                        int q = qy * width + qx;
+                        if (lands[q] != lands[p]) continue;
+                        sum += heights[q]; cnt++;
+                    }
+                float shade = Math.Clamp(1f + (heights[p] - sum / cnt) / 1200f, 0.78f, 1.18f);
+                int o = p * 3;
+                rgb[o] = (byte)Math.Clamp(c.R * 255f * shade, 0f, 255f);
+                rgb[o + 1] = (byte)Math.Clamp(c.G * 255f * shade, 0f, 255f);
+                rgb[o + 2] = (byte)Math.Clamp(c.B * 255f * shade, 0f, 255f);
+            }
+        World.Utils.PngWriter.WriteRgb(Path.Combine(outDir, $"cont_seed{seed:D3}.png"), width, height, rgb);
+
+        Console.WriteLine($"== 完成 {sw.Elapsed.TotalSeconds:F0}s → {outDir}/cont_seed{seed:D3}.png ==");
         return 0;
     }
 }

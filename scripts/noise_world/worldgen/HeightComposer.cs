@@ -30,8 +30,33 @@ public sealed class HeightComposer
 	public const float MinLandElevationM = 30f; // 陆格海拔保底（盆地挖穿防护——内流洼地语义由 relief 承载）
 
 	readonly int _seed;
+	readonly SphericalFbmNoise _large, _medium, _detail;   // 三档 variation（连续场；种子派生同前）
 
-	public HeightComposer(int seed) => _seed = seed;
+	public HeightComposer(int seed)
+	{
+		_seed = seed;
+		_large = new SphericalFbmNoise(seed ^ 0x1A6E, 5000f, 2);   // H_large：大地形起伏（大陆尺度走势）
+		_medium = new SphericalFbmNoise(seed ^ 0x4E02, 600f, 3);   // H_medium：丘陵/山谷局部起伏
+		_detail = new SphericalFbmNoise(seed ^ 0x4E01, 90f, 2);    // H_detail：小山包/沟壑
+	}
+
+	/// <summary>
+	/// **连续合成查询**（决策 05v2 §十二公式的连续形态，架构承诺：连续场在前、H3 只是采样）：
+	/// 任意球面方向 → 陆地海拔（米）。海陆门控由调用方按海陆场阈值处理。
+	/// </summary>
+	public float SampleLand(Vector3 dir, GeologicalRegions regions, MountainSkeleton mountains, RegionalLandforms landforms)
+	{
+		// 尺度纪律（§十一）：大尺度 > 中尺度 > 小尺度——层间振幅严格递减
+		return MathF.Max(
+			regions.BaseElevationAt(dir, regions.RegionIndexAt(dir))   // H_region：区域基础高度插值场
+				+ mountains.HeightAddAt(dir)                           // H_mountain（System：Range+Ridge）
+				+ landforms.PlateauAt(dir)                             // H_plateau
+				- landforms.BasinAt(dir)                               // − H_basin
+				+ LargeVariationM * _large.Sample(dir)                 // + H_large_variation
+				+ MediumVariationM * _medium.Sample(dir)               // + H_medium_variation
+				+ RegionalNoiseM * _detail.Sample(dir),                // + H_detail
+			MinLandElevationM);                                        // 海平面保底（内流洼地语义由 relief 承载）
+	}
 
 	public void Generate(Ball ball, H3LandSeaProjector proj, GeologicalRegions regions,
 		MountainSkeleton mountains, RegionalLandforms landforms)
@@ -44,37 +69,18 @@ public sealed class HeightComposer
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 
-		// ── ① 线性合成（决策 05v2 §十二公式；海格 = 投影海侧原样）──
-		//   尺度纪律（§十一）：大尺度 > 中尺度 > 小尺度——层间振幅严格递减。
-		var large = new SphericalFbmNoise(_seed ^ 0x1A6E, 5000f, 2);   // H_large：大地形起伏（大陆尺度走势）
-		var medium = new SphericalFbmNoise(_seed ^ 0x4E02, 600f, 3);   // H_medium：丘陵/山谷局部起伏
-		var detail = new SphericalFbmNoise(_seed ^ 0x4E01, 90f, 2);    // H_detail：小山包/沟壑
+		// ── ① 逐格海拔 = SampleLand 的 H3 采样（海格 = 投影海侧原样）──
 		var h = new float[n];
 		for (int i = 0; i < n; i++)
-		{
-			if (proj.Land[i])
-				h[i] = regions.BaseElevationField[i]           // H_region：区域基础高度插值场（大陆内部梯度）
-					+ mountains.ElevationAddM[i]               // H_mountain（System：Range+Ridge）
-					+ landforms.PlateauAddM[i]                 // H_plateau
-					- landforms.BasinDipM[i]                   // − H_basin
-					+ LargeVariationM * large.Sample(dirs[i])  // + H_large_variation
-					+ MediumVariationM * medium.Sample(dirs[i])// + H_medium_variation
-					+ RegionalNoiseM * detail.Sample(dirs[i]); // + H_detail
-			else
-				h[i] = proj.ElevationM[i];
-		}
+			h[i] = proj.Land[i] ? SampleLand(dirs[i], regions, mountains, landforms) : proj.ElevationM[i];
 
-		// ── ② 海平面保底 + 1 pass 图上平滑（仅陆格互为邻居；海陆边界不模糊）──
-		//   陆格钳 ≥ MinLandElevationM：盆地挖穿 + large variation 会使内陆出现大片负海拔
-		//   （视觉=内陆"海斑"，物理不成立——地球内流洼地低于海平面的面积极小；
-		//   盆地"低洼"语义由 relief 相对高度承载，不靠绝对负值）
+		// ── ② 1 pass 图上平滑（离散化后处理/抗混叠；连续场本身不需要——仅陆格互为邻居，海陆边界不模糊）──
 		var neighbors = ball.CellNeighbors;
 		var smoothed = new float[n];
 		Array.Copy(h, smoothed, n);
 		for (int i = 0; i < n; i++)
 		{
 			if (!proj.Land[i]) continue;
-			if (smoothed[i] < MinLandElevationM) smoothed[i] = MinLandElevationM;
 			float sum = 0f; int cnt = 0;
 			foreach (int j in neighbors[i])
 			{

@@ -269,8 +269,7 @@ public sealed class GeologicalRegions
 		(20f, 120f),     // Coastal
 	};
 
-	/// <summary>逐格基础高度场：每区域一枚 BaseElevationM 经**归一化高斯帽插值**（Shepard 式）
-	/// 展开成连续场——区域间平滑过渡，无色块拼接（决策 05v2 §十一）。</summary>
+	/// <summary>逐格基础高度场 = <see cref="BaseElevationAt"/> 的 H3 采样（离散化只在投影处发生一次）。</summary>
 	void BuildBaseElevationField(Ball ball, int[] regionBase, int[] kPerContinent)
 	{
 		int n = ball.CellDirs.Length;
@@ -280,18 +279,7 @@ public sealed class GeologicalRegions
 			var (lo, hi) = BaseElevBandM[(int)region.Type];
 			region.BaseElevationM = lo + (hi - lo) * (float)rnd.NextDouble();
 		}
-
-		// 每区域一帽（σ = 等效半径 ×1.4：覆盖全区并向邻区溢出——插值权重重叠才能平滑过渡）
-		var caps = new (Vector3 anchor, float sigmaRad, float baseM, float capR2)[Regions.Length];
-		for (int i = 0; i < Regions.Length; i++)
-		{
-			float equivKm = MathF.Sqrt(Regions[i].AreaKm2 / MathF.PI);
-			float sigmaKm = equivKm * 1.4f;
-			float sigmaRad = sigmaKm / SphericalFbmNoise.EarthRadiusKm;
-			// 帽截断角距 = 2.5σ（exp(−6.25)≈0.002，插值权重足够小）
-			float cutRad = 2.5f * sigmaRad;
-			caps[i] = (Regions[i].Seed, sigmaRad, Regions[i].BaseElevationM, cutRad * cutRad);
-		}
+		BuildBaseCaps();
 
 		BaseElevationField = new float[n];
 		var dirs = ball.CellDirs;
@@ -299,20 +287,62 @@ public sealed class GeologicalRegions
 		for (int i = 0; i < n; i++)
 		{
 			if (regionOfCell[i] < 0) continue;   // 海格 0（合成器海侧不读本场）
-			float wSum = 0f, acc = 0f;
-			for (int c = 0; c < caps.Length; c++)
-			{
-				float d2 = (dirs[i] - caps[c].anchor).LengthSquared();   // 弦距² ∝ 小角距（排序/截断用）
-				if (d2 > caps[c].capR2) continue;
-				float dRad = MathF.Acos(Math.Clamp(dirs[i].Dot(caps[c].anchor), -1f, 1f));
-				float w = MathF.Exp(-(dRad * dRad) / (2f * caps[c].sigmaRad * caps[c].sigmaRad));
-				if (w < 1e-4f) continue;
-				wSum += w;
-				acc += w * caps[c].baseM;
-			}
-			// 无帽覆盖（孤格）：回落本区域基础高度
-			BaseElevationField[i] = wSum > 1e-3f ? acc / wSum : Regions[regionOfCell[i]].BaseElevationM;
+			BaseElevationField[i] = BaseElevationAt(dirs[i], regionOfCell[i]);
 		}
+	}
+
+	// ── 连续查询口（架构承诺：连续场在前，H3 只是采样——决策 05v2 §九/§十六）──
+
+	(Vector3 anchor, float sigmaRad, float baseM, float cutR2)[] _baseCaps;
+
+	void BuildBaseCaps()
+	{
+		_baseCaps = new (Vector3, float, float, float)[Regions.Length];
+		for (int i = 0; i < Regions.Length; i++)
+		{
+			// 帽 σ = 等效半径 ×1.4：覆盖全区并向邻区溢出——插值权重重叠才能平滑过渡
+			float equivKm = MathF.Sqrt(Regions[i].AreaKm2 / MathF.PI);
+			float sigmaRad = equivKm * 1.4f / SphericalFbmNoise.EarthRadiusKm;
+			// 帽截断角距 = 2.5σ（exp(−6.25)≈0.002，插值权重足够小）
+			float cutRad = 2.5f * sigmaRad;
+			_baseCaps[i] = (Regions[i].Seed, sigmaRad, Regions[i].BaseElevationM, cutRad * cutRad);
+		}
+	}
+
+	/// <summary>连续查询：区域基础高度（每区域一枚 BaseElevationM 的归一化高斯帽插值，Shepard 式——
+	/// 区域间平滑过渡、无色块拼接，决策 05v2 §十一）。孤点回落最近区域基础高度由调用方处理。</summary>
+	public float BaseElevationAt(Vector3 dir, int fallbackRegion)
+	{
+		if (_baseCaps == null) BuildBaseCaps();
+		float wSum = 0f, acc = 0f;
+		for (int c = 0; c < _baseCaps.Length; c++)
+		{
+			float d2 = (dir - _baseCaps[c].anchor).LengthSquared();   // 弦距² ∝ 小角距（截断用）
+			if (d2 > _baseCaps[c].cutR2) continue;
+			float dRad = MathF.Acos(Math.Clamp(dir.Dot(_baseCaps[c].anchor), -1f, 1f));
+			float w = MathF.Exp(-(dRad * dRad) / (2f * _baseCaps[c].sigmaRad * _baseCaps[c].sigmaRad));
+			if (w < 1e-4f) continue;
+			wSum += w;
+			acc += w * _baseCaps[c].baseM;
+		}
+		return wSum > 1e-3f ? acc / wSum
+			: (fallbackRegion >= 0 ? Regions[fallbackRegion].BaseElevationM : 0f);
+	}
+
+	/// <summary>连续查询：区域号（区域种子上 argmin(扭曲角距/weight)，全局口径——
+	/// 离散归属按陆块分组，连续口径在跨陆块边界处与离散版有格级差异，视觉无差）。</summary>
+	public int RegionIndexAt(Vector3 dir)
+	{
+		var d = WarpDir(dir);
+		int best = 0;
+		float bestCost = float.PositiveInfinity;
+		for (int s = 0; s < Regions.Length; s++)
+		{
+			float dist = MathF.Acos(Math.Clamp(d.Dot(Regions[s].Seed), -1f, 1f));
+			float cost = dist / Regions[s].Weight;   // 决策 §五：score = distance / weight
+			if (cost < bestCost) { bestCost = cost; best = s; }
+		}
+		return best;
 	}
 
 	/// <summary>连续 Region Field 查询：本大陆种子中 argmin(扭曲角距/weight)——H3 格只是采样点（决策 §九）。</summary>

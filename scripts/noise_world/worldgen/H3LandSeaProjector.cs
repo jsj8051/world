@@ -34,6 +34,8 @@ public sealed class H3LandSeaProjector
 	public float[] Raw { get; private set; } = Array.Empty<float>();
 	/// <summary>实测海陆比与所用阈值（校准回读）。</summary>
 	public float LandFraction { get; private set; }
+	/// <summary>校准映射常数回读（连续地形图的海洋公式与离散版同源：决策 05v2 架构——单一事实源）。</summary>
+	public float SeaSpreadUsed { get; private set; }
 	public float ThresholdUsed { get; private set; }
 	/// <summary>陆块数（连通分量数；下游分区用）。</summary>
 	public int LandmassCount { get; private set; }
@@ -99,6 +101,7 @@ public sealed class H3LandSeaProjector
 		//   （v1 基线 2240 + 区域偏移 1500 未算骨架就已过雪线 2800 ⇒ "雪山圆盘"的根因之一）。
 		float landSpread = MathF.Max(thr - SortedQuantile(sorted, 0.99f), 1e-4f);
 		float seaSpread = MathF.Max(SortedQuantile(sorted, 0.01f) - thr, 1e-4f);
+		SeaSpreadUsed = seaSpread;
 		ElevationM = new float[n];
 		for (int i = 0; i < n; i++)
 		{
