@@ -43,8 +43,8 @@ public class H3LandSeaProjectorTests
 	public void LandSymbol_MatchesElevationSign()
 	{
 		var (p, _) = MakeProjector();
-		for (int i = 0; i < p.Land.Length; i++)
-			Assert.That(p.ElevationM[i] > 0f, Is.EqualTo(p.Land[i]),
+		for (int i = 0; i < p.PlacementLand.Length; i++)
+			Assert.That(p.ElevationM[i] > 0f, Is.EqualTo(p.PlacementLand[i]),
 				$"格 {i}：可见海拔符号必须等于海陆掩码（陆正海负）");
 	}
 
@@ -53,9 +53,9 @@ public class H3LandSeaProjectorTests
 	{
 		var (p, field) = MakeProjector();
 		int continents = p.LandmassCount;
-		for (int i = 0; i < p.Land.Length; i++)
+		for (int i = 0; i < p.PlacementLand.Length; i++)
 		{
-			if (p.Land[i])
+			if (p.PlacementLand[i])
 			{
 				Assert.That(p.LandmassId[i], Is.InRange(0, continents - 1),
 					$"陆格 {i}：归属必须是合法陆块号");
@@ -71,9 +71,9 @@ public class H3LandSeaProjectorTests
 	public void CoastDistances_ZeroOnOwnSide_AtLeastOneOnOtherSide()
 	{
 		var (p, _) = MakeProjector();
-		for (int i = 0; i < p.Land.Length; i++)
+		for (int i = 0; i < p.PlacementLand.Length; i++)
 		{
-			if (p.Land[i])
+			if (p.PlacementLand[i])
 			{
 				Assert.That(p.DistToCoast[i], Is.GreaterThanOrEqualTo(0), $"陆格 {i} 离海 ≥ 0");
 				Assert.That(p.DistToLand[i], Is.EqualTo(0), $"陆格 {i} 离岸必须为 0（源侧）");
@@ -91,7 +91,7 @@ public class H3LandSeaProjectorTests
 	{
 		var (p, _) = MakeProjector();
 		var neighbors = Ball.CellNeighbors;
-		for (int i = 0; i < p.Land.Length; i++)
+		for (int i = 0; i < p.PlacementLand.Length; i++)
 		{
 			int dc = p.DistToCoast[i];
 			if (dc > 0)

@@ -18,8 +18,12 @@ namespace World.NoiseWorld.WorldGen;
 /// </summary>
 public sealed class H3LandSeaProjector
 {
-	/// <summary>海陆掩码（陆 = true）。</summary>
-	public bool[] Land { get; private set; } = Array.Empty<bool>();
+	/// <summary>**放置期陆海掩码**（生成依据——特征抬升之前的状态；仅供地貌生成/选址/环境判断，
+	///   不得进入水文/气候/生态。世界事实 = FinalGeography.FinalLand，由最终高度派生）。</summary>
+	public bool[] PlacementLand { get; private set; } = Array.Empty<bool>();
+	/// <summary>放置期陆海连续量 ∈[0,1]：多点采样中陆样本占比（决策 07 步骤②——
+	///   海岸过渡/滩涂/植被边缘的连续原料；0 完全海 / 1 完全陆）。</summary>
+	public float[] PlacementLandFraction { get; private set; } = Array.Empty<float>();
 	/// <summary>陆块归属（海陆连通分量号：一片连通陆地 = 一个陆块；海格 = −1）。
 	///   语义修正（2026-10-02 用户拍板）：大陆 = 真实陆地板块，不是锚点势力——锚点 Voronoi 归属
 	///   只存于连续场内部塑形（LandSeaField 取锚点性格参数），不再产出地图量。</summary>
@@ -56,12 +60,14 @@ public sealed class H3LandSeaProjector
 		float thr = SortedQuantile(sorted, 1f - targetLandFraction);
 		ThresholdUsed = thr;
 
-		Land = new bool[n];
+		PlacementLand = new bool[n];
+		PlacementLandFraction = new float[n];
 		int landCount = 0;
 		for (int i = 0; i < n; i++)
 		{
-			Land[i] = Raw[i] > thr;
-			if (Land[i]) landCount++;
+			PlacementLand[i] = Raw[i] > thr;   // 口径沿用：加权均值过阈值（行为不变）
+			PlacementLandFraction[i] = PlacementLand[i] ? 1f : 0f;   // 连续量：粗粒度占位（多点分数化走采样器重构，登记 T7）
+			if (PlacementLand[i]) landCount++;
 		}
 
 		// ③ 陆块归属 = 海陆掩码的**连通分量**（一片连通陆地 = 一个陆块；海格 −1）——
@@ -74,7 +80,7 @@ public sealed class H3LandSeaProjector
 		var bfs = new Queue<int>(n);
 		for (int seed = 0; seed < n; seed++)
 		{
-			if (!Land[seed] || LandmassId[seed] >= 0) continue;
+			if (!PlacementLand[seed] || LandmassId[seed] >= 0) continue;
 			LandmassId[seed] = landmassCount;
 			bfs.Enqueue(seed);
 			while (bfs.Count > 0)
@@ -82,7 +88,7 @@ public sealed class H3LandSeaProjector
 				int i = bfs.Dequeue();
 				foreach (int j in neighbors[i])
 				{
-					if (!Land[j] || LandmassId[j] >= 0) continue;
+					if (!PlacementLand[j] || LandmassId[j] >= 0) continue;
 					LandmassId[j] = landmassCount;
 					bfs.Enqueue(j);
 				}
@@ -92,8 +98,8 @@ public sealed class H3LandSeaProjector
 		LandmassCount = landmassCount;
 
 		// ④ 双向 BFS：离海（陆深度）与离岸（海远度）
-		DistToCoast = BfsFrom(ball, i => !Land[i]);
-		DistToLand = BfsFrom(ball, i => Land[i]);
+		DistToCoast = BfsFrom(ball, i => !PlacementLand[i]);
+		DistToLand = BfsFrom(ball, i => PlacementLand[i]);
 
 		// ⑤ 海拔基线：raw 相对阈值的超出量 → 陆正海负（幅域取 1%/99% 分位防极值）。
 		//   陆侧 = **ContinentalElevation 大陆基线**（阶段 6 合成公式的第一项）：峰值压到 ~940 m
@@ -105,7 +111,7 @@ public sealed class H3LandSeaProjector
 		ElevationM = new float[n];
 		for (int i = 0; i < n; i++)
 		{
-			if (Land[i])
+			if (PlacementLand[i])
 			{
 				float t = Math.Clamp((Raw[i] - thr) / landSpread, 0f, 1f);
 				ElevationM[i] = 40f + 900f * MathF.Pow(t, 1.3f);

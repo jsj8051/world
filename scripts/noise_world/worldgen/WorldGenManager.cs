@@ -76,7 +76,7 @@ public partial class WorldGenManager : Node3D
 
 		int i = _planet.View.PickCellIndex(cell.Value);
 		if (i < 0) { _cellPanel.Clear(); return; }
-		var p = _planet.Projector;
+		var f = _planet.Final;
 		var g = _planet.Regions;
 		var ll = H3.CellToLatLng(cell.Value);
 		float latDeg = (float)(ll.Lat * 180 / Math.PI);
@@ -88,7 +88,7 @@ public partial class WorldGenManager : Node3D
 			? $"区域{g.RegionOfCell[i]}({GeologicalRegions.TypeName(g.Regions[g.RegionOfCell[i]].Type)})"
 			: "区域−";
 		GD.Print($"[WORLDGEN-PICK] 格 {i} lat={latDeg:F1} lng={lngDeg:F1} " +
-				 $"land={p.Land[i]} 陆块={p.LandmassId[i]} {region} " +
-				 $"离海={p.DistToCoast[i]} 离岸={p.DistToLand[i]} elev={_planet.DisplayElevation[i]:F0}m 加成={_planet.Mountains.ElevationAddM[i]:F0}m");
+				 $"land={f.FinalLand[i]}({f.FinalLandFraction[i]:P0}) 陆块={f.FinalLandmassId[i]} {region} " +
+				 $"离海={f.FinalDistToCoast[i]} 离岸={f.FinalDistToLand[i]} elev={_planet.DisplayElevation[i]:F0}m");
 	}
 }

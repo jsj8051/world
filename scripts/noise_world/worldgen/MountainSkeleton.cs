@@ -32,18 +32,20 @@ public sealed class MountainRidge
 /// <summary>
 /// 山脉骨架 v3：方向场主 Range（轴向高度曲线）+ 曲线生长支脉树 → 逐格高斯包络加成。
 /// </summary>
-public sealed class MountainSkeleton : IHeightContribution
+public sealed class MountainSkeleton : ITerrainField
 {
 	public MountainRidge[] Ridges { get; private set; } = Array.Empty<MountainRidge>();
 	/// <summary>山脉系统 Feature（Field+Feature+Morphology 抽象的第一个完整实现；决策 06）。</summary>
 	public List<MountainSystemFeature> Systems { get; } = new();
 	/// <summary>构造场（Field 层：主轴/强度/锚点池——决策 06 上收的环境背景）。</summary>
 	public TectonicField Tectonic { get; private set; }
-	/// <summary>逐格海拔加成（米；仅陆格非零——HeightAddAt 的 H3 采样）。</summary>
-	public float[] ElevationAddM { get; private set; } = Array.Empty<float>();
+	/// <summary>逐格山脉影响度 ∈[0,1]（InfluenceAt 的 H3 采样）。</summary>
+	public float[] MountainInfluence { get; private set; } = Array.Empty<float>();
+	/// <summary>逐格山脉目标绝对高度（米；影响度 0 处无意义）。</summary>
+	public float[] MountainTargetM { get; private set; } = Array.Empty<float>();
 
 	// ── 骨架性格旋钮（地球量级；测试球可经构造覆写）──
-	public const float BaseHeightM = 3000f;        // 主 Range 基准脊高（宏观 profile 在其上起伏）
+	public const float BaseHeightM = 4200f;        // 主 Range **目标绝对高度**基准（决策 07 步骤⑤：lerp 语义——峰高单一来源；高度多样性/小陆块缩放在其上乘）
 	public const float BaseSigmaKm = 160f;         // 主 Range 高斯宽度（v3.1：250→160，山带变薄）
 	public const float MeanderAmpKm = 260f;        // （保留常量兼容；v3 蜿蜒由行走转角承担）
 	public const int PointStepKm = 20;             // 行走步长
@@ -65,17 +67,13 @@ public sealed class MountainSkeleton : IHeightContribution
 		_axialMedium = new SphericalFbmNoise(rnd.Next(), 350f, 2);
 	}
 
-		LandSeaField _field;        // 海陆场上下文（v3.2：海洋表达式的 raw/阈值源；null = 全陆口径）
-		float _thr, _seaSpread;
+		SurfaceResolver _surface;   // 唯一海陆口径（决策 07 步骤③）
 
-	/// <summary>生成骨架与加成场。regions 须已 Generate；field 供海洋表达式
-	/// （构造骨架跨海连续，海洋中按海深衰减表达——决策 04v3 §一/§四）。</summary>
-	public void Generate(Ball ball, GeologicalRegions regions,
-		LandSeaField field = null, float seaThreshold = 0f, float seaSpread = 1f)
+	/// <summary>生成骨架与目标场。regions 须已 Generate；surface = 唯一海陆口径
+	/// （海洋表达式收归 resolver——决策 07 步骤③）。</summary>
+	public void Generate(Ball ball, GeologicalRegions regions, SurfaceResolver surface)
 	{
-		_field = field;
-		_thr = seaThreshold;
-		_seaSpread = MathF.Max(seaSpread, 1e-4f);
+		_surface = surface ?? throw new ArgumentNullException(nameof(surface));
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (regions == null) throw new ArgumentNullException(nameof(regions));
 		var regionOfCell = regions.RegionOfCell;
@@ -176,34 +174,20 @@ public sealed class MountainSkeleton : IHeightContribution
 		}
 		Ridges = ridges.ToArray();
 
-		// ── 高度场 = HeightAddAt 的 H3 采样（**无陆格门控**：构造骨架跨海连续，
-		//    海洋中以海深衰减表达——浅海海底脊/岛链、深海消失，决策 04v3 §一/§九）──
-		ElevationAddM = new float[n];
+		// ── 目标场 = InfluenceAt 的 H3 采样（**无陆格门控**：构造骨架跨海连续，
+		//    海洋中以海深衰减表达——浅海海底脊/岛链、深海消失）──
+		MountainInfluence = new float[n];
+		MountainTargetM = new float[n];
 		for (int i = 0; i < n; i++)
-			ElevationAddM[i] = HeightAddAt(dirs[i]);
+			(MountainInfluence[i], MountainTargetM[i]) = InfluenceAt(dirs[i]);
 	}
 
-	/// <summary>海洋表达式：构造强度在海上的保留比（决策 04v3 §四衰减表）——
-	/// 陆 = 1；海 = exp(−3t)，t = 归一化海深（0 岸/1 深渊）：浅海保留高（海底脊/岛链可露）、
-	/// 深海趋零（构造衰减消失）。连续无台阶 ⇒ 海岸附近无一刀切断头。</summary>
-	/// <summary>海洋表达式公共口（渲染器/测试同源）。</summary>
-	public float OceanFactor(Vector3 dir)
+	/// <summary>连续查询（ITerrainField）：（影响度, 目标绝对高度）。影响度 = 各脊包络的
+	/// 概率并集 × **海洋表达式**（resolver 唯一口）；目标 = 包络加权的轴向目标高——
+	/// 峰高语义单一来源（决策 07 步骤⑤：lerp 替代增量）。</summary>
+	public (float influence, float targetM) InfluenceAt(Vector3 dir)
 	{
-		if (_field == null) return 1f;
-		float raw = _field.Sample(dir);
-		if (raw > _thr) return 1f;
-		float t = Math.Clamp((_thr - raw) / _seaSpread, 0f, 1f);
-		return MathF.Exp(-3f * t);
-	}
-
-	/// <summary>IHeightContribution 统一口（合成器只认这个口）。</summary>
-	public float Sample(Vector3 dir) => HeightAddAt(dir);
-
-	/// <summary>连续查询：山脉骨架加成（米）。取最近脊点的包络 × **该点轴向高度** × 细化
-	/// × **海洋表达式**（陆全量、浅海海底脊、深海衰减——骨架与地表表达分离）。</summary>
-	public float HeightAddAt(Vector3 dir)
-	{
-		float sum = 0f;
+		float union = 0f, wSum = 0f, tAcc = 0f;
 		foreach (var ridge in Ridges)
 		{
 			if (dir.Dot(ridge.Center) < MathF.Cos(ridge.CapRadiusRad)) continue;   // 帽外截断
@@ -217,11 +201,19 @@ public sealed class MountainSkeleton : IHeightContribution
 				if (d < dMin) { dMin = d; bestP = p; }
 			}
 			float envelope = MathF.Exp(-(dMin * dMin) / (sigmaRad * sigmaRad));   // 决策 4.2
+			if (envelope <= 0f) continue;
 			float detail = 0.92f + 0.16f * MathF.Pow(1f - MathF.Abs(_rugged.Sample(dir)), 2f);   // ±8%
-			sum += envelope * ridge.PointHeightM[bestP] * detail;
+			union = union + (1f - union) * envelope;                     // 概率并集（可叠加、有界 ≤1）
+			wSum += envelope;
+			tAcc += envelope * ridge.PointHeightM[bestP] * detail;
 		}
-		return sum * OceanFactor(dir);
+		if (union <= 0f) return (0f, 0f);
+		float influence = union * _surface.OceanFactorAt(dir);           // 海洋表达式（唯一口径）
+		return (influence, tAcc / wSum);
 	}
+
+	/// <summary>ITerrainField 统一口（合成器只认这个口）。</summary>
+	public (float influence, float targetM) SampleAt(Vector3 dir) => InfluenceAt(dir);
 
 	// ── 曲线行走（相关随机游走：heading 动量 + 小随机转角——曲率尺度与脊长匹配）──
 
@@ -314,9 +306,10 @@ public sealed class MountainSkeleton : IHeightContribution
 		for (int p = 0; p < range.Points.Length; p++)
 		{
 			if (range.PointHeightM[p] < rangeBaseHeightM * 0.55f) continue;
-			if (_field != null && _field.Sample(range.Points[p]) <= _thr)
+			if (!_surface.IsPlacementLand(range.Points[p]))
 			{
-				float t = Math.Clamp((_thr - _field.Sample(range.Points[p])) / _seaSpread, 0f, 1f);
+				float raw = _surface.RawAt(range.Points[p]);
+				float t = Math.Clamp((_surface.SeaThreshold - raw) / _surface.SeaSpread, 0f, 1f);
 				if (t > 0.5f) continue;   // 深海段
 			}
 			pool.Add(p);

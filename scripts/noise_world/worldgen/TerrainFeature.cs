@@ -47,11 +47,13 @@ public abstract class TerrainFeature
 }
 
 /// <summary>
-/// 高度贡献口：特征对最终地形高度的连续贡献（米，可正可负）。
-/// 合成器（HeightComposer）只认这个口——特征内部形态对合成器不可见。
+/// 特征地形场口：特征以「影响度 ∈[0,1] + 目标绝对高度（米）」表达自己对地表的诉求——
+/// 合成器执行 FinalHeight = lerp(当前高度, TargetM, Influence)（决策 07 步骤⑤：
+/// 目标语义替代"+N 米增量"——峰高只有一个语义来源）。特征内部形态对合成器不可见。
+/// 多特征叠加 = 按序 lerp（后位特征覆盖先位）。
 /// </summary>
-public interface IHeightContribution
+public interface ITerrainField
 {
-	/// <summary>任意球面方向的高度贡献（含海洋表达式等环境适配）。</summary>
-	float Sample(Vector3 dir);
+	/// <summary>任意球面方向的（影响度, 目标绝对高度）；influence = 0 时 target 无意义。</summary>
+	(float influence, float targetM) SampleAt(Vector3 dir);
 }

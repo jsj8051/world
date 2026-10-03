@@ -122,7 +122,7 @@ public sealed class GeologicalRegions
 		var continentCells = new List<int>[proj.LandmassCount];
 		for (int c = 0; c < continentCells.Length; c++) continentCells[c] = new List<int>();
 		for (int i = 0; i < n; i++)
-			if (proj.Land[i]) continentCells[proj.LandmassId[i]].Add(i);
+			if (proj.PlacementLand[i]) continentCells[proj.LandmassId[i]].Add(i);
 
 		int continentN = continentCells.Length;
 		var kPerContinent = new int[continentN];
@@ -181,7 +181,7 @@ public sealed class GeologicalRegions
 			for (int r = 0; r < regionCount; r++) regionCells[r].Clear();
 			for (int i = 0; i < n; i++)
 			{
-				if (!proj.Land[i]) { RegionOfCell[i] = -1; continue; }
+				if (!proj.PlacementLand[i]) { RegionOfCell[i] = -1; continue; }
 				RegionOfCell[i] = RegionAt(ball.CellDirs[i], proj.LandmassId[i], regionBase, kPerContinent, seedDir, seedWeight);
 				regionCells[RegionOfCell[i]].Add(i);
 			}

@@ -35,10 +35,10 @@ public class GeologicalRegionsTests
 	public void RegionOfCell_LandFullyCovered_OceanNegativeOne()
 	{
 		var (g, p) = Make();
-		Assert.That(g.RegionOfCell.Length, Is.EqualTo(p.Land.Length));
-		for (int i = 0; i < p.Land.Length; i++)
+		Assert.That(g.RegionOfCell.Length, Is.EqualTo(p.PlacementLand.Length));
+		for (int i = 0; i < p.PlacementLand.Length; i++)
 		{
-			if (p.Land[i]) Assert.That(g.RegionOfCell[i], Is.InRange(0, g.Regions.Length - 1), $"陆格 {i} 须有区域");
+			if (p.PlacementLand[i]) Assert.That(g.RegionOfCell[i], Is.InRange(0, g.Regions.Length - 1), $"陆格 {i} 须有区域");
 			else Assert.That(g.RegionOfCell[i], Is.EqualTo(-1), $"海格 {i} 须为 −1");
 		}
 	}
@@ -50,7 +50,7 @@ public class GeologicalRegionsTests
 		for (int r = 0; r < g.Regions.Length; r++)
 		{
 			Assert.That(g.Regions[r].Landmass, Is.InRange(0, p.LandmassCount - 1));
-			for (int i = 0; i < p.Land.Length; i++)
+			for (int i = 0; i < p.PlacementLand.Length; i++)
 				if (g.RegionOfCell[i] == r)
 					Assert.That(p.LandmassId[i], Is.EqualTo(g.Regions[r].Landmass),
 						$"区域 {r} 含他陆块格——两级归属嵌套被破坏");

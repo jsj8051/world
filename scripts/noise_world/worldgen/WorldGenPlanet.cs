@@ -30,7 +30,9 @@ public partial class WorldGenPlanet : Node3D
 	public GeologicalRegions Regions { get; private set; }  // 地质区域（阶段 3：两级 Voronoi + 约束式类型）
 	public MountainSkeleton Mountains { get; private set; } // 山脉骨架（阶段 4：主脊+分支 → 高斯包络 × ridged 细化）
 	public RegionalLandforms Landforms { get; private set; }    // 区域地貌（阶段 5：高原帽 / 盆地下挖）
-	public HeightComposer Composer { get; private set; }    // 高度合成（阶段 6：唯一海拔出处）
+	public HeightComposer Composer { get; private set; }    // 高度合成（FinalHeight 单一事实源）
+	public SurfaceResolver Surface { get; private set; }    // 唯一海陆口径（Placement 阶段）
+	public FinalGeography Final { get; private set; }      // 最终地理（FinalLand/Landmass/Region/Coast——世界事实层）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
 	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
 	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
@@ -56,15 +58,20 @@ public partial class WorldGenPlanet : Node3D
 		Field = new LandSeaField(Layout, new LandSeaParams { Seed = Seed });
 		Projector = new H3LandSeaProjector();
 		Projector.Generate(_ball, Field, LandFraction);
+		// 唯一海陆口径（决策 07 步骤③）：SurfaceResolver 收拢 Placement 阶段判断
+		Surface = new SurfaceResolver(Field, Projector.ThresholdUsed, Projector.SeaSpreadUsed);
 		Regions = new GeologicalRegions(Seed);
 		Regions.Generate(_ball, Projector, TargetRegionAreaKm2);
 		Mountains = new MountainSkeleton(Seed);
-		Mountains.Generate(_ball, Regions, Field, Projector.ThresholdUsed, Projector.SeaSpreadUsed);
+		Mountains.Generate(_ball, Regions, Surface);
 		Landforms = new RegionalLandforms(Seed);
 		Landforms.Generate(_ball, Regions);
 		Composer = new HeightComposer(Seed);
-		Composer.Generate(_ball, Projector, Regions, Mountains, Landforms);
-		DisplayElevation = Composer.HeightM;   // 唯一海拔出处（决策 05 §六）
+		Composer.Generate(_ball, Surface, Regions, Mountains, Landforms);
+		DisplayElevation = Composer.HeightM;   // 最终高度（决策 07 ③）
+		// 最终地理（决策 07 ④⑤）：FinalLand/Landmass/Region/Coast 全部由最终高度派生
+		Final = new FinalGeography();
+		Final.Generate(_ball, Composer, Regions, Surface, Mountains, Landforms);
 
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +

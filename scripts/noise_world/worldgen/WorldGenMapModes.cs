@@ -30,7 +30,7 @@ public static class WorldGenMapModes
 		public override int Id => 0;
 		public override string Name => "海拔";
 		public override Color CellColorAt(int i) =>
-			_p.Projector.Land[i]
+			_p.Final.FinalLand[i]
 				? ElevationBandMode.ElevationColor(_p.DisplayElevation[i])   // 陆 = 合成海拔分档（HeightComposer 唯一出处）
 				: new Color(OceanR, OceanG, OceanB);
 	}
@@ -80,9 +80,9 @@ public static class WorldGenMapModes
 		public override Color CellColorAt(int i)
 		{
 			var pr = _p.Projector;
-			int d = pr.Land[i] ? pr.DistToCoast[i] : pr.DistToLand[i];
+			int d = pr.PlacementLand[i] ? pr.DistToCoast[i] : pr.DistToLand[i];
 			float t = System.Math.Clamp(d / 12f, 0f, 1f);   // 12 跳满域（res4 实测量级）
-			return pr.Land[i]
+			return pr.PlacementLand[i]
 				? new Color(0.93f - 0.45f * t, 0.78f - 0.30f * t, 0.32f + 0.15f * t)   // 陆：近岸米白 → 内陆深棕
 				: new Color(0.55f - 0.50f * t, 0.75f - 0.59f * t, 0.80f - 0.38f * t);  // 海：近岸青白 → 深海蓝
 		}

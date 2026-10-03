@@ -292,12 +292,13 @@ public static class Program
                     proj.Generate(ball, field, 0.29f);
                     var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
                     regions.Generate(ball, proj);
+                    var surface = new World.NoiseWorld.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
                     var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
-                    mountains.Generate(ball, regions);
+                    mountains.Generate(ball, regions, surface);
                     var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
                     landforms.Generate(ball, regions);
                     var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
-                    composer.Generate(ball, proj, regions, mountains, landforms);
+                    composer.Generate(ball, surface, regions, mountains, landforms);
 
                     var rgb = new byte[width * height * 3];
                     // relative relief（决策 05v2 §六/§七）：relief = h − 同域邻域均值 → 明暗调制
@@ -310,7 +311,7 @@ public static class Program
                         float sum = h[i]; int cnt = 1;
                         foreach (int j in nbs[i])
                         {
-                            if (proj.Land[j] != proj.Land[i]) continue;   // 同域（海/陆）内取均值
+                            if (proj.PlacementLand[j] != proj.PlacementLand[i]) continue;   // 同域（海/陆）内取均值
                             sum += h[j]; cnt++;
                         }
                         relief[i] = h[i] - sum / cnt;
@@ -382,12 +383,13 @@ public static class Program
         proj.Generate(ball, field, 0.29f);
         var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
         regions.Generate(ball, proj);
+        var surface = new World.NoiseWorld.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
         var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
-        mountains.Generate(ball, regions);
+        mountains.Generate(ball, regions, surface);
         var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
         var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
-        composer.Generate(ball, proj, regions, mountains, landforms);
+        composer.Generate(ball, surface, regions, mountains, landforms);
         Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）");
 
         // 逐格色（海拔分档 × relief 明暗）——一次预计算，全部帧复用
@@ -399,7 +401,7 @@ public static class Program
             float sum = h[i]; int cnt = 1;
             foreach (int j in nbs[i])
             {
-                if (proj.Land[j] != proj.Land[i]) continue;
+                if (proj.PlacementLand[j] != proj.PlacementLand[i]) continue;
                 sum += h[j]; cnt++;
             }
             float shade = Math.Clamp(1f + (h[i] - sum / cnt) / 1200f, 0.78f, 1.18f);
@@ -510,16 +512,15 @@ public static class Program
         proj.Generate(ball, field, 0.29f);
         var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
         regions.Generate(ball, proj);
+        var surface = new World.NoiseWorld.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
         var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
-        mountains.Generate(ball, regions);
+        mountains.Generate(ball, regions, surface);
         var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
         var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
-        composer.Generate(ball, proj, regions, mountains, landforms);
-        Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）——以下为逐像素连续采样");
+        composer.Generate(ball, surface, regions, mountains, landforms);
+        Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）——以下为逐像素表现层采样（世界真相 = SampleSurface 单一事实源）");
 
-        float thr = proj.ThresholdUsed;
-        float seaSpread = proj.SeaSpreadUsed;
         var snowCont = new World.NoiseWorld.WorldGen.SnowOverlay(seed);
         var heights = new float[width * height];
         var lands = new bool[width * height];
@@ -531,20 +532,9 @@ public static class Program
                 double lng = (-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0;
                 float cl = (float)Math.Cos(lat);
                 var dir = new Godot.Vector3(cl * (float)Math.Cos(lng), (float)Math.Sin(lat), cl * (float)Math.Sin(lng));
-                float raw = field.Sample(dir);
                 int p = y * width + x;
-                if (raw <= thr)
-                {
-                    float t = Math.Clamp((thr - raw) / seaSpread, 0f, 1f);
-                    heights[p] = -30f - 3200f * MathF.Pow(t, 1.2f)
-                        + mountains.HeightAddAt(dir);   // 海底山脊表达（浅海可露成岛链）
-                    lands[p] = false;
-                }
-                else
-                {
-                    heights[p] = composer.SampleLand(dir, regions, mountains, landforms);
-                    lands[p] = true;
-                }
+                heights[p] = composer.SampleSurface(dir, regions, mountains, landforms, surface);
+                lands[p] = heights[p] > 0f;   // 世界事实 = 最终高度符号（决策 07 ④）
             }
         });
 
