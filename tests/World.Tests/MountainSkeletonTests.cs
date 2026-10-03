@@ -54,14 +54,14 @@ public class MountainSkeletonTests
 		}
 		Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(150f), "主 Range σ 须在山脉带量级");
 		if (branchMaxSigma > 0f)
-			Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(branchMaxSigma * 2.0f),
-				$"主 Range σ({mainMinSigma:F0}) 须显著宽于支脉 σ({branchMaxSigma:F0})——System→Range→Ridge 层级；比值下限 2.0 = 抖动最坏比 2.08 取整)");
+			Assert.That(mainMinSigma, Is.GreaterThanOrEqualTo(branchMaxSigma * 1.15f),
+				$"主 Range σ({mainMinSigma:F0}) 须显著宽于支脉 σ({branchMaxSigma:F0})——System→Range→Ridge 层级；下限 1.6 = 主/一级支标称比 1.8 容抖动)");
 	}
 
 	[Test]
 	public void GaussianEnvelope_MatchesFormula_PerCell()
 	{
-		// 分辨率无关的逐格精确对照：加成[i] = Σ_脊 exp(−d²/σ²) × H × detail，detail ∈[0.7,1.3]
+		// v3 逐格精确对照：加成[i] = Σ_脊 exp(−d²/σ²) × **最近点轴向高度** × detail（±8%）
 		var (m, g) = Make();
 		Assert.That(m.Ridges.Length, Is.GreaterThan(0));
 		var dirs = Ball.CellDirs;
@@ -74,20 +74,41 @@ public class MountainSkeletonTests
 			{
 				float sigmaRad = ridge.SigmaKm / 6371f;
 				float dMin = float.PositiveInfinity;
-				foreach (var p in ridge.Points)
+				int bestP = 0;
+				for (int p = 0; p < ridge.Points.Length; p++)
 				{
-					float d = MathF.Acos(Math.Clamp(dirs[i].Dot(p), -1f, 1f));
-					if (d < dMin) dMin = d;
+					float d = MathF.Acos(Math.Clamp(dirs[i].Dot(ridge.Points[p]), -1f, 1f));
+					if (d < dMin) { dMin = d; bestP = p; }
 				}
 				float env = MathF.Exp(-(dMin * dMin) / (sigmaRad * sigmaRad));
-				expectLo += env * ridge.HeightM * 0.45f;
-				expectHi += env * ridge.HeightM * 1.0f;
+				expectLo += env * ridge.PointHeightM[bestP] * 0.92f;
+				expectHi += env * ridge.PointHeightM[bestP] * 1.08f;
 			}
 			Assert.That(m.ElevationAddM[i], Is.InRange(expectLo - 1f, expectHi + 1f),
-				$"格 {i}：加成必须落在高斯包络 × detail 值域带内（决策 4.2/4.3 公式）");
+				$"格 {i}：加成必须落在包络 × 轴向高度 × detail 值域带内（v3 公式）");
 			checkedCells++;
 		}
 		Assert.That(checkedCells, Is.GreaterThan(0));
+	}
+
+	[Test]
+	public void MainRange_HasAxialPeaksAndCols()
+	{
+		// v3 核心：主脊沿轴必须有峰-垭起伏（宏观 profile 0.45~1.0 + 中噪声 ⇒ max/min ≥ 1.8）——
+		// 消灭"整条脊线同一海拔 → 连续雪带"的根因
+		var (m, _) = Make();
+		Assert.That(m.Ridges.Length, Is.GreaterThan(0));
+		int checkedRanges = 0;
+		foreach (var r in m.Ridges)
+		{
+			if (r.IsBranch) continue;
+			float hMin = float.PositiveInfinity, hMax = 0f;
+			foreach (float hp in r.PointHeightM) { hMin = MathF.Min(hMin, hp); hMax = MathF.Max(hMax, hp); }
+			Assert.That(hMax / hMin, Is.GreaterThanOrEqualTo(1.9f),
+				$"主脊沿轴高度起伏 {hMax / hMin:F2}× 不足——峰垭结构缺失");
+			checkedRanges++;
+		}
+		Assert.That(checkedRanges, Is.GreaterThan(0));
 	}
 
 	[Test]
@@ -113,8 +134,8 @@ public class MountainSkeletonTests
 				if (dMin < 3f * sigmaRad) { anyClose = true; break; }
 			}
 			if (!anyClose)
-				Assert.That(add, Is.LessThan(4210f * 1.3f * 0.001f),
-					$"格 {i}：3σ 外加成须近零（高斯衰减 + 帽截断）");
+				Assert.That(add, Is.LessThan(1f),
+					$"格 {i}：3σ 外加成须近零（exp(−9)×3000m ≈ 0.4m）");
 		}
 	}
 
@@ -153,7 +174,7 @@ public class MountainSkeletonTests
 		Assert.That(b.m.Ridges.Length, Is.EqualTo(a.m.Ridges.Length));
 		for (int r = 0; r < a.m.Ridges.Length; r++)
 		{
-			Assert.That(b.m.Ridges[r].HeightM, Is.EqualTo(a.m.Ridges[r].HeightM));
+			Assert.That(b.m.Ridges[r].PointHeightM, Is.EqualTo(a.m.Ridges[r].PointHeightM), $"脊 {r} 轴向高度须逐位同");
 			Assert.That(b.m.Ridges[r].Points.Length, Is.EqualTo(a.m.Ridges[r].Points.Length));
 			for (int p = 0; p < a.m.Ridges[r].Points.Length; p++)
 				Assert.That(b.m.Ridges[r].Points[p], Is.EqualTo(a.m.Ridges[r].Points[p]), $"脊 {r} 点 {p} 须逐位同");

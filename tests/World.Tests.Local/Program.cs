@@ -315,10 +315,15 @@ public static class Program
                         }
                         relief[i] = h[i] - sum / cnt;
                     }
+                    var snow = new World.NoiseWorld.WorldGen.SnowOverlay(seed);
                     for (int p = 0; p < cellOfPixel.Length; p++)
                     {
                         int i = cellOfPixel[p];
-                        var c = World.NoiseWorld.ElevationBandMode.ElevationColor(h[i]);
+                        // 渐变雪线（决策 04v2 §二）：分档色取雪线以下的山地档，向雪白按 alpha 过渡
+                        var c = World.NoiseWorld.ElevationBandMode.ElevationColor(Math.Min(h[i], 2790f));
+                        float snowA = snow.Alpha(h[i], ball.CellDirs[i]);
+                        c = new Godot.Color(
+                            c.R + (0.97f - c.R) * snowA, c.G + (0.97f - c.G) * snowA, c.B + (1f - c.B) * snowA);
                         float shade = Math.Clamp(1f + relief[i] / 1200f, 0.78f, 1.18f);   // 盆地偏暗、高地提亮
                         int o = p * 3;
                         rgb[o] = (byte)Math.Clamp(c.R * 255f * shade, 0f, 255f);
@@ -515,6 +520,7 @@ public static class Program
 
         float thr = proj.ThresholdUsed;
         float seaSpread = proj.SeaSpreadUsed;
+        var snowCont = new World.NoiseWorld.WorldGen.SnowOverlay(seed);
         var heights = new float[width * height];
         var lands = new bool[width * height];
         Parallel.For(0, height, y =>
@@ -546,7 +552,17 @@ public static class Program
             for (int x = 0; x < width; x++)
             {
                 int p = y * width + x;
-                var c = World.NoiseWorld.ElevationBandMode.ElevationColor(heights[p]);
+                var dirC = new Godot.Vector3(
+                    (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Cos((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)),
+                    (float)Math.Sin((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0),
+                    (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Sin((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)));
+                var c = World.NoiseWorld.ElevationBandMode.ElevationColor(Math.Min(heights[p], 2790f));
+                if (lands[p])
+                {
+                    float snowA = snowCont.Alpha(heights[p], dirC);
+                    c = new Godot.Color(
+                        c.R + (0.97f - c.R) * snowA, c.G + (0.97f - c.G) * snowA, c.B + (1f - c.B) * snowA);
+                }
                 float sum = heights[p]; int cnt = 1;
                 for (int dy = -2; dy <= 2; dy += 2)
                     for (int dx = -2; dx <= 2; dx += 2)
