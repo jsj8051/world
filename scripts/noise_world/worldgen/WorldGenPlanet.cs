@@ -36,6 +36,7 @@ public partial class WorldGenPlanet : Node3D
 	public FinalGeography Final { get; private set; }      // 最终地理（FinalLand/Landmass/Region/Coast——世界事实层）
 	public VolcanoField Volcanoes { get; private set; }    // 火山（Feature 实证第一例；决策 08 冻结后首例）
 	public RiverNetwork Rivers { get; private set; }      // 河网（World Simulation 第一下游消费者；只读 Final 层）
+	public FinalSpatialIndex Index { get; private set; }   // Final 空间索引（#13：nearest/distance/within 查询基础设施）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
 	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
 	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
@@ -88,6 +89,16 @@ public partial class WorldGenPlanet : Node3D
 		Final.Generate(_ball, Composer, Regions);
 		Rivers = new RiverNetwork();
 		Rivers.Generate(_ball, Final, Composer);
+		// Final 空间索引（#13 v1：Final World 事实的 nearest/distance/within 查询基础设施）
+		var mountainAnchors = new System.Collections.Generic.List<Godot.Vector3>();
+		foreach (var sys in Mountains.Systems) mountainAnchors.Add(sys.Anchor);
+		Index = new FinalSpatialIndex(_ball, mountainAnchors,
+			Volcanoes.Volcanoes.ConvertAll(v => v.Anchor));
+		var riverCells = new System.Collections.Generic.List<int>();
+		for (int i = 0; i < Rivers.IsRiver.Length; i++)
+			if (Rivers.IsRiver[i]) riverCells.Add(i);
+		Index.Generate(Final, riverCells);
+
 
 		if (_timingDiag++ < 3)
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +

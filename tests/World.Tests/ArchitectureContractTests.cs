@@ -94,6 +94,24 @@ public class ArchitectureContractTests
 	}
 
 	[Test]
+	public void SpatialIndex_OnlyDependsOnFinalWorld()
+	{
+		// 契约（决策 08 v2 §#13 架构层）：空间索引只依赖 Final World 事实（Ball/FinalGeography），
+		// 不引用 Placement 投影器/Feature 生成器/TectonicField/SurfaceResolver——
+		// "索引的是 Final World 的事实，不是生成器内部状态"的编译期钉子
+		var t = typeof(FinalSpatialIndex);
+		var forbidden = new[]
+		{
+			typeof(H3LandSeaProjector), typeof(MountainSkeleton), typeof(RegionalLandforms),
+			typeof(VolcanoField), typeof(TectonicField), typeof(SurfaceResolver),
+			typeof(GeologicalRegions), typeof(RiverNetwork), typeof(LandSeaField),
+		};
+		var offending = ReferencedTypes(t).Where(forbidden.Contains).ToList();
+		Assert.That(offending, Is.Empty,
+			$"FinalSpatialIndex 引用了禁用类型：{string.Join(",", offending)}——空间索引只准消费 Final World 事实（决策 08 v2 §#13）");
+	}
+
+	[Test]
 	public void EmptyFeatureList_EqualsPureBaseline()
 	{
 		// 契约 ⑤：没有特征就没有影响——空列表的最终高度 = 纯基线
