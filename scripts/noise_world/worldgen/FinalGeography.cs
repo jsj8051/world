@@ -50,7 +50,7 @@ public sealed class FinalGeography
 		{
 			FinalLand[i] = composer.HeightM[i] > 0f;
 			int landSamples = 0, total = 0;
-			foreach (float hSample in SampleSurfacePoints(ball, i, composer, regions, features, surface))
+			foreach (float hSample in SampleSurfacePoints(ball, i, composer, regions, features))
 			{
 				total++;
 				if (hSample > 0f) landSamples++;
@@ -87,7 +87,11 @@ public sealed class FinalGeography
 		FinalDistToCoast = BfsFrom(ball, i => !FinalLand[i]);
 		FinalDistToLand = BfsFrom(ball, i => FinalLand[i]);
 
-		// ── ④ 最终区域归属（放置区域优先；山脉新增岛屿 → 最近构造域）──
+		// ── ④ 最终区域归属（**显式拓扑归属策略**，决策 07 v2：非隐式 fallback）——
+		//    放置区域优先（区域=构造背景，背景不因地貌抬升改变）；山脉新增岛屿（放置期
+		//    海格被抬成陆）归入 RegionIndexAt = 扭曲坐标上最近的区域种子。已知边界情形：
+		//    跨海脊连接的两陆之间新岛可能归入对面大陆的区域——区域 ≠ 陆块（陆块看
+		//    FinalLandmassId），下游按区域统计时以此口径为准。
 		FinalRegionOfCell = new int[n];
 		for (int i = 0; i < n; i++)
 		{
@@ -98,17 +102,24 @@ public sealed class FinalGeography
 	}
 
 	/// <summary>格 i 的最终表面采样点：格心 + H3 角点（与投影器多点采样同构）。</summary>
+	/// <summary>格 i 的最终表面采样点：**按格掩码分支**（格=陆 → 7 点全走陆分支；格=海 → 海分支）
+	/// ——与 FinalLand 同一分支口径（决策 07 v2：Final 真值体系内不允许第二套海陆判断）。</summary>
 	IEnumerable<float> SampleSurfacePoints(Ball ball, int i, HeightComposer composer,
-		GeologicalRegions regions, IReadOnlyList<FeatureField> features, SurfaceResolver surface)
+		GeologicalRegions regions, IReadOnlyList<FeatureField> features)
 	{
 		var dirs = ball.CellDirs;
-		yield return composer.SampleSurface(dirs[i], regions, surface, features);
+		bool landCell = regions.RegionOfCell[i] >= 0;
+		yield return landCell
+			? composer.SampleLandBranch(dirs[i], regions, features)
+			: composer.SampleSeaBranch(dirs[i], features);
 		ulong[] vids = H3.CellToVertexes(ball.CellIds[i]);
 		int cornerCount = Math.Min(vids.Length, 6);
 		for (int k = 0; k < cornerCount; k++)
 		{
 			var cornerDir = ball.VertexPositions[ball.VertexIndexOf(vids[k])].Normalized();
-			yield return composer.SampleSurface(cornerDir, regions, surface, features);
+			yield return landCell
+				? composer.SampleLandBranch(cornerDir, regions, features)
+				: composer.SampleSeaBranch(cornerDir, features);
 		}
 	}
 

@@ -297,10 +297,13 @@ public static class Program
                     mountains.Generate(ball, regions, surface);
                     var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
                     landforms.Generate(ball, regions);
+                    var volcanoes = new World.NoiseWorld.WorldGen.VolcanoField();
+                    volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
                     var features = new List<World.NoiseWorld.WorldGen.FeatureField>
                     {
                         new(landforms, World.NoiseWorld.WorldGen.TerrainDomain.LandOnly),
                         new(mountains, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
+                        new(volcanoes, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
                     };
                     var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
                     composer.Generate(ball, surface, regions, features);
@@ -393,10 +396,13 @@ public static class Program
         mountains.Generate(ball, regions, surface);
         var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
+        var volcanoes = new World.NoiseWorld.WorldGen.VolcanoField();
+        volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
         var features = new List<World.NoiseWorld.WorldGen.FeatureField>
         {
             new(landforms, World.NoiseWorld.WorldGen.TerrainDomain.LandOnly),
             new(mountains, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
+            new(volcanoes, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
         };
         var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);
@@ -527,10 +533,13 @@ public static class Program
         mountains.Generate(ball, regions, surface);
         var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
+        var volcanoes = new World.NoiseWorld.WorldGen.VolcanoField();
+        volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
         var features = new List<World.NoiseWorld.WorldGen.FeatureField>
         {
             new(landforms, World.NoiseWorld.WorldGen.TerrainDomain.LandOnly),
             new(mountains, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
+            new(volcanoes, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
         };
         var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);

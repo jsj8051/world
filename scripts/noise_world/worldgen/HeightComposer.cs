@@ -52,28 +52,27 @@ public sealed class HeightComposer
 	/// <summary>最终逐格海拔（米；SampleSurface 的 H3 采样 + 图上平滑；渲染/信息卡唯一来源）。</summary>
 	public float[] HeightM { get; private set; } = Array.Empty<float>();
 
-	/// <summary>
-	/// **最终地表连续单一事实源**（决策 07：世界逻辑只从这里拿最终高度）。
-	/// 表现层（--cont 等逐像素渲染）也读这里——不同分辨率、同一个世界真相。
-	/// </summary>
-	public float SampleSurface(Vector3 dir, GeologicalRegions regions, SurfaceResolver surface,
-		IReadOnlyList<FeatureField> features)
+	// ── 分支口（唯一实现；SampleSurface 表现层与 FinalGeography 世界事实层共用）──
+
+	/// <summary>陆分支：基座 + 特征 lerp 链 + 三档变化 + MinLand 钳。</summary>
+	public float SampleLandBranch(Vector3 dir, GeologicalRegions regions, IReadOnlyList<FeatureField> features)
 	{
-		if (surface.IsPlacementLand(dir))
+		float h = regions.BaseElevationAt(dir, regions.RegionIndexAt(dir));
+		for (int i = 0; i < features.Count; i++)
 		{
-			float h = regions.BaseElevationAt(dir, regions.RegionIndexAt(dir));
-			for (int i = 0; i < features.Count; i++)
-			{
-				var (inf, tgt) = features[i].Field.SampleAt(dir);
-				h = Lerp(h, tgt, inf);
-			}
-			h += LargeVariationM * _large.Sample(dir)
-				+ MediumVariationM * _medium.Sample(dir)
-				+ RegionalNoiseM * _detail.Sample(dir);
-			return MathF.Max(h, MinLandElevationM);
+			var (inf, tgt) = features[i].Field.SampleAt(dir);
+			h = Lerp(h, tgt, inf);
 		}
-		// 海侧：放置期深海剖面 + LandAndSea 特征目标 lerp（海底脊/海山/岛链）
-		float sea = surface.BathymetryAt(dir);
+		h += LargeVariationM * _large.Sample(dir)
+			+ MediumVariationM * _medium.Sample(dir)
+			+ RegionalNoiseM * _detail.Sample(dir);
+		return MathF.Max(h, MinLandElevationM);
+	}
+
+	/// <summary>海分支：深海剖面 + LandAndSea 特征目标 lerp（海底脊/海山/岛链）。</summary>
+	public float SampleSeaBranch(Vector3 dir, IReadOnlyList<FeatureField> features)
+	{
+		float sea = surface_BathymetryFallback(dir);
 		for (int i = 0; i < features.Count; i++)
 		{
 			if (features[i].Domain != TerrainDomain.LandAndSea) continue;
@@ -81,6 +80,24 @@ public sealed class HeightComposer
 			sea = Lerp(sea, tgt, inf);
 		}
 		return sea;
+	}
+
+	private Func<Vector3, float> surface_BathymetryFallback = _ => 0f;   // 由 resolver 注入（见 SetBathymetry）
+
+	/// <summary>注入深海剖面函数（Generate 前由宿主调用；分支口无 resolver 依赖）。</summary>
+	public void SetBathymetry(Func<Vector3, float> bathymetry) => surface_BathymetryFallback = bathymetry;
+
+	/// <summary>
+	/// **表现层单点口**（--cont 逐像素等）：单点海陆分支。世界逻辑（FinalGeography）
+	/// **不走本口**——按格掩码分支调 SampleLandBranch/SampleSeaBranch（决策 07 v2：
+	/// 单点口径只属表现层，不进世界事实）。
+	/// </summary>
+	public float SampleSurface(Vector3 dir, GeologicalRegions regions, SurfaceResolver surface,
+		IReadOnlyList<FeatureField> features)
+	{
+		return surface.IsPlacementLand(dir)
+			? SampleLandBranch(dir, regions, features)
+			: SampleSeaBranch(dir, features);
 	}
 
 	public void Generate(Ball ball, SurfaceResolver surface, GeologicalRegions regions,
@@ -92,6 +109,7 @@ public sealed class HeightComposer
 		if (features == null) throw new ArgumentNullException(nameof(features));
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
+		SetBathymetry(surface.BathymetryAt);
 
 		// ── ① 逐格最终高度：分支判据 = **放置区域掩码**（多点口径，与区域/选址同源——
 		//    单点口径在海岸与掩码不一致会造成陆格海值/海格陆值，决策 07 步骤③的教训）。
@@ -104,14 +122,7 @@ public sealed class HeightComposer
 				h[i] = SampleSurface(dirs[i], regions, surface, features);
 			else
 			{
-				float sea = surface.BathymetryAt(dirs[i]);
-				for (int k = 0; k < features.Count; k++)
-				{
-					if (features[k].Domain != TerrainDomain.LandAndSea) continue;
-					var (inf, tgt) = features[k].Field.SampleAt(dirs[i]);
-					sea = Lerp(sea, tgt, inf);
-				}
-				h[i] = sea;
+				h[i] = SampleSeaBranch(dirs[i], features);
 			}
 		}
 
