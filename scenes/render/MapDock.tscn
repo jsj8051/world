@@ -62,7 +62,7 @@ corner_radius_bottom_left = 8
 
 [sub_resource type="ButtonGroup" id="bg_modes"]
 
-[node name="WorldGenDock" type="PanelContainer"]
+[node name="MapDock" type="PanelContainer"]
 script = ExtResource("1_dock")
 unique_name_in_owner = true
 theme_override_styles/panel = SubResource("sb_panel")
