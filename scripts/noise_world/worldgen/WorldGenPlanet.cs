@@ -3,11 +3,12 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using World.NewHexWorld;        // Ball（H3 球壳数据层）
+using World.Render;             // BallView（决策 08 §4.4 表现层保留资产）
 
 namespace World.NoiseWorld.WorldGen;
 
 // 世界生成空间 · 星球组件（阶段 1-4 落地场景件）：数据层（Ball + 大陆布局 + 海陆场 + H3 投影
-// + 地质区域 + 山脉骨架）+ 视图层（复用 NoiseBallView——海拔源直供构造）。自包含、不含相机。
+// + 地质区域 + 山脉骨架）+ 视图层（Render.BallView——海拔源直供构造）。自包含、不含相机。
 // 显示海拔 = 投影基线 + 区域类型偏移（阶段 3 占位调制）+ 山脉骨架加成（阶段 4，决策 04）。
 public partial class WorldGenPlanet : Node3D
 {
@@ -65,7 +66,7 @@ public partial class WorldGenPlanet : Node3D
 	public LakeState Lakes { get; private set; }          // 湖泊状态层（River 2C-B：水量平衡；与 Basin 并列，不改拓扑）
 	public WaterTopology WaterSystem { get; private set; } // 水系拓扑（River 2C-C：水体之间的连接；组合层，不重新定义河流/湖泊）
 	public FinalSpatialIndex Index { get; private set; }   // Final 空间索引（#13：nearest/distance/within 查询基础设施）
-	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
+	public BallView View { get; private set; }              // 视图（Render.BallView：LOD/剔除/拾取）
 	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
 	public float[] DisplayElevation { get; private set; } = Array.Empty<float>();
 
@@ -77,7 +78,7 @@ public partial class WorldGenPlanet : Node3D
 	{
 		_ball = new Ball(ResLevel, Radius);
 		Regenerate();
-		View = new NoiseBallView(_ball, DisplayElevation,
+		View = new BallView(_ball, DisplayElevation,
 			lodNearRatio: LodNearRatio, backfaceCullRatio: BackfaceCullRatio);
 		AddChild(View);
 		View.BuildChunks();

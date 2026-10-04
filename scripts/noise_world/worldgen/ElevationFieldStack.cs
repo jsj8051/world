@@ -71,7 +71,7 @@ public sealed class PositiveField : SphericalField
 
 /// <summary>
 /// 世界生成空间参数（框架期独立小参数表；接 [NoiseParam] 面板与 JSON 导出走后续批次——
-/// 现役 TerrainNoiseParams 是噪声地形线的单一事实源，本表不与之共享实例）。
+///噪声地形线的 TerrainNoiseParams 已随决策 08 §4.2 清退；本表亦零调用 ⇒ 整体待清退）。
 /// </summary>
 public sealed class WorldGenParams
 {

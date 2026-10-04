@@ -36,7 +36,7 @@ namespace World.NoiseWorld.WorldGen;
 //   ⇒ z-fighting 闪烁。故 `BuildChains` 先把所有边灌进 `nextOf` 字典（每格下游唯一 ⇒ 天然去重），
 //   再从头节点（source / confluence）走出来 ⇒ **每条河流边恰好属于一条 chain**，几何零重复。
 //
-// 地表网格是单半径球（NoiseBallView 全部顶点 = 方向 × R），故按"档位"分层抬升：
+// 地表网格是单半径球（Render.BallView 全部顶点 = 方向 × R），故按"档位"分层抬升：
 //   软边(支流) 1.0030 < 软边(干流) 1.0038 < 河水(支流) 1.0040 < 河水(干流) 1.0048 < 河口点 1.0065
 // （干流抬得更高 ⇒ 汇流处由干流覆盖支流末端，不需要额外的 junction mesh。）
 public sealed partial class RiverLineOverlay : MeshInstance3D

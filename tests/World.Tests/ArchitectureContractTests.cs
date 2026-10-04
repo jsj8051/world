@@ -194,6 +194,10 @@ public class ArchitectureContractTests
 	/// <summary>
 	/// **表现层例外契约（允许清单）**——B 线清退决策（决策 08 §清退）的正向钉。
 	///
+	/// ★P1 完成后的形态（2026-10-05）：旧父命名空间 `World.NoiseWorld` 下**已无任何类型**
+	///   （B 线生成逻辑 + 表现层全部清退/迁走），本条从"例外白名单"收紧为
+	///   "**新线的表现依赖必须且只能落在 World.Render / World.Render.UI**"。
+	///
 	/// 背景：新线命名空间是 `World.NoiseWorld.WorldGen`，而 B 线旧单体在**父**命名空间
 	/// `World.NoiseWorld` ⇒ C# 作用域规则让新线**不加using 就能直接看到**父命名空间的类型。
 	/// 于是 `NewWorldLine_DoesNotDependOnLegacyWorldLine` 的四命名空间黑名单
@@ -216,6 +220,8 @@ public class ArchitectureContractTests
 		{
 			typeof(WorldGenPlanet), typeof(WorldGenManager), typeof(RiverLineOverlay),
 		};
+		// 新线的表现依赖目标（迁移完成后应当全部落在这里）
+		var renderLayer = new[] { "World.Render", "World.Render.UI" };
 
 		// 唯一批准保留的旧表现资产。
 		// ★按**名字**匹配而非 typeof：清退过程是"先加新 → 切消费者 → 再删旧"，
@@ -230,13 +236,17 @@ public class ArchitectureContractTests
 		//     NoiseDock      —— 只发 `ModeSelected(int)` 信号 + 按鼠标更新按钮高亮，不认识任何生成类型
 		//     NoiseCellPanel —— 只被喂 `ShowCell(id, lat, lng, elevM)`，不感知星球与相机
 		//   与 BallView/MapMode 同类：有真实消费者 ⇒ 保留去噪，不是清退对象。
+		// ★2026-10-05 P1 完成后清单已换新名：4 类表现资产全部迁入 World.Render / World.Render.UI。
+		//   这条契约从"允许依赖旧父命名空间的 4 个类型"变成
+		//   "**新线只准依赖 World.Render，不准再碰 World.NoiseWorld 根命名空间**"。
 		var approved = new[]
 		{
-			"NoiseBallView",     // → Render.BallView（LOD / 剔除 / 拾取 / 高亮）
-			"NoiseMapMode",      // → Render.MapMode（地图模式策略抽象）
-			"ElevationBandMode", // 海拔分段（被 BallView 静态引用，随之迁移）
-			"NoiseDock",         // → Render/UI（模式坞，信号出口）
-			"NoiseCellPanel",    // → Render/UI（格信息卡，哑组件）
+			"BallView",      // LOD / 剔除 / 拾取 / 高亮（Render）
+			"MapMode",       // 地图模式策略抽象（Render）
+			"ElevationBandMode", // 海拔分档（Render；色带单一事实源）
+			"CellQuery",     // 拾取 / 高亮环带几何 / 格心方向（Render，纯函数）
+			"MapDock",       // 模式坞（Render.UI，信号出口）
+			"CellInfoCard",  // 格信息卡（Render.UI，哑组件）
 		};
 
 		const string legacyParent = "World.NoiseWorld";
@@ -253,6 +263,42 @@ public class ArchitectureContractTests
 			$"新线表现层依赖了未批准的旧类型：{string.Join(",", offending)}——" +
 			$"允许清单仅 {string.Join(" / ", approved)}；" +
 			"B 线生成语义已在新架构重写（决策 08 §清退），不得反向耦合");
+	}
+
+	/// <summary>
+	/// **B 线清退完成钉（结果断言）**——旧父命名空间 `World.NoiseWorld` 已**彻底清空**。
+	///
+	/// ★为什么必须钉"结果"而不只是"方向"：
+	///   允许清单（上一条）只保证"新线不碰旧线"，但**不保证旧线已消失**——
+	///   旧线完全可能原样留着、只是没人引用，静静躺在生产树里。
+	///   方向守卫 + 结果断言两者都要有：
+	///     只有方向 ⇒ 旧线删不掉（"没人用"不等于"该删"）；
+	///     只有结果 ⇒ 有人重新引入旧类型并引用它也测不出来。
+	///
+	/// 清退前的形态（决策 08 §4.2）：
+	///   生成逻辑/参数/场景/UI → 删；表现资产 4类 → 迁入 World.Render / World.Render.UI。
+	/// </summary>
+	[Test]
+	public void LegacyNoiseWorldLine_IsGone()
+	{
+		const string legacyParent = "World.NoiseWorld";
+		// 只认根命名空间本身；`World.NoiseWorld.WorldGen` 是新线（子命名空间），不在此列。
+		var survivors = typeof(FinalGeography).Assembly.GetTypes()
+			.Where(t => t.Namespace == legacyParent)
+			.Select(t => $"{t.Namespace}.{t.Name}")
+			.ToList();
+		Assert.That(survivors, Is.Empty,
+			$"B 线旧单体仍有类型存活：{string.Join(",", survivors)}——" +
+			"决策 08 §4.2 已定义其命运：生成逻辑/参数/场景/UI 清退，表现资产迁入 World.Render。" +
+			"若新代码需要其中的能力，先判断它是『生成世界』还是『画世界』：前者不应重建，后者迁Render。");
+
+		// 迁移后的落点必须真的存在（反向钉：防止"删了旧的又没建新的"这种半截状态）。
+		Assert.That(typeof(Render.BallView).Namespace, Is.EqualTo("World.Render"),
+			"BallView 应落在 World.Render（表现层保留资产）");
+		Assert.That(typeof(Render.MapMode).Namespace, Is.EqualTo("World.Render"),
+			"MapMode 应落在 World.Render（表现层保留资产）");
+		Assert.That(typeof(Render.CellQuery).Namespace, Is.EqualTo("World.Render"),
+			"CellQuery 应落在 World.Render（高亮/拾取纯函数）");
 	}
 
 	/// <summary>
@@ -283,8 +329,7 @@ public class ArchitectureContractTests
 			"TerrainNoiseParams", // ★双事实源：LandFraction 两套口径
 			"NoisePlanet",        // 旧组件装配
 			"NoiseWorldManager",  // 旧运行期接线（已由 WorldGenManager 重写）
-			"NoiseDock", "NoiseCellPanel", // 旧 UI 面板
-			"NoiseParamPanel",                // 旧调参面板（反射生成 NoiseParam 控件，唯一消费者是旧场景 NoiseWorld.tscn）
+			"NoiseParamPanel",                // 旧调参面板（反射生成 NoiseParam 控件，唯一消费者=已删的旧场景）
 			"ElevationFieldStack", // 框架期组合层（零调用，携带 WorldGenParams 表）
 		};
 

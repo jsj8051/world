@@ -1,19 +1,20 @@
 using Godot;
 using System.Collections.Generic;
+using World.Render;                // MapMode / ElevationBandMode（决策 08 §4.4 表现层保留资产）
 using static World.Utils.ColorRamp;        // ColorStop / RampSampleSmooth（通用色带算法，复用不复制）
 
 namespace World.NoiseWorld.WorldGen;
 
 // 世界生成空间 · 地图模式表（地图坞数据源，阶段 3 补接线）：
-//   模式持 WorldGenPlanet 引用、CellColorAt 时**现取**当前数据——Regenerate 会换数组实例
-//   （不同于现役 NoiseTerrain 的引用稳定数组），持实例引用会读到旧场。
-//   海拔模式复用 ElevationBandMode.ElevationColor（同程序集 internal，色带单一事实源不复制）。
+//   模式持 WorldGenPlanet 引用、CellColorAt 时**现取**当前数据——Regenerate 会换数组实例，
+//   持实例引用会读到旧场。
+//   海拔模式复用 Render.ElevationBandMode.ElevationColor（色带单一事实源不复制）。
 // 海格统一深蓝底（与海拔色带深海档同色，画面连续）。
 public static class WorldGenMapModes
 {
 	/// <summary>全部模式（注册序 = 坞按钮序 = Id）。「大陆」势力图已删（2026-10-02 用户拍板）：
 	///   锚点 Voronoi 归属是连续场内部塑形判据，不是地图语义——地图语义 = 陆块连通分量（投影层）。</summary>
-	public static List<NoiseMapMode> CreateAll(WorldGenPlanet planet) => new()
+	public static List<MapMode> CreateAll(WorldGenPlanet planet) => new()
 	{
 		new ElevationMode(planet),
 		new LandSeaMode(planet),
@@ -23,7 +24,7 @@ public static class WorldGenMapModes
 
 	const float OceanR = 0.05f, OceanG = 0.16f, OceanB = 0.42f;   // 深海底色（= ElevationColor 深海档）
 
-	sealed class ElevationMode : NoiseMapMode
+	sealed class ElevationMode : MapMode
 	{
 		readonly WorldGenPlanet _p;
 		public ElevationMode(WorldGenPlanet p) => _p = p;
@@ -36,17 +37,17 @@ public static class WorldGenMapModes
 	}
 
 	/// <summary>海陆结构场原值（连续 raw）：发散色带（负 = 蓝 / 0 ≈ 海岸线 = 纸白 / 正 = 棕红）。</summary>
-	sealed class LandSeaMode : NoiseMapMode
+	sealed class LandSeaMode : MapMode
 	{
 		readonly WorldGenPlanet _p;
 		public LandSeaMode(WorldGenPlanet p) => _p = p;
 		public override int Id => 1;
 		public override string Name => "海陆场";
-		public override Color CellColorAt(int i) => RampSampleSmooth(NoiseMapMode.DivergingStops, _p.Projector.Raw[i] / 0.8f);
+		public override Color CellColorAt(int i) => RampSampleSmooth(MapMode.DivergingStops, _p.Projector.Raw[i] / 0.8f);
 	}
 
 	/// <summary>地质区域类型（七类固定色；主判读图——用户拍板的地图语义）。</summary>
-	sealed class RegionTypeMode : NoiseMapMode
+	sealed class RegionTypeMode : MapMode
 	{
 		readonly WorldGenPlanet _p;
 		public RegionTypeMode(WorldGenPlanet p) => _p = p;
@@ -72,7 +73,7 @@ public static class WorldGenMapModes
 	}
 
 	/// <summary>离岸距离（陆 = 离海跳数内陆深度 / 海 = 离岸跳数）：近岸浅 → 远离深。</summary>
-	sealed class CoastDistanceMode : NoiseMapMode
+	sealed class CoastDistanceMode : MapMode
 	{
 		readonly WorldGenPlanet _p;
 		public CoastDistanceMode(WorldGenPlanet p) => _p = p;

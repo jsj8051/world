@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using Godot;
-using World.NoiseWorld;
+using World.Render;                 // CellQuery / BallView（决策 08 §4.4 表现层保留资产）
 using World.Utils;
 using World.Utils.H3;
 
@@ -148,26 +148,26 @@ public class CellHighlightRingTests
 	[Test]
 	public void Highlight_MustNotLiftGeometryRadially()
 	{
-		string path = FindViewSource() ?? throw new System.IO.FileNotFoundException(
-			"未找到 NoiseBallView.cs；跳过（路径脆弱，非失败）");
+		var paths = FindRenderSources() ?? throw new System.IO.FileNotFoundException(
+			"未找到 scripts/Render/{CellQuery,BallView}.cs；跳过（路径脆弱，非失败）");
 
-		string src = System.IO.File.ReadAllText(path);
-
-		// ① 全文件：不得出现任何 radial lift 常量（注释里允许提反面例子 ⇒ 跳过注释行）
-		foreach (var raw in System.IO.File.ReadLines(path))
-		{
-			var line = raw.Trim();
-			if (line.StartsWith("//") || line.StartsWith("*") || line.StartsWith("/*")) continue;
-			Assert.That(line, Does.Not.Contain("1.0005"),
-				"选中高亮禁止 world-space radial lift：分层只能用 depth bias，不能用 position += normal * epsilon");
-		}
+		// ① 两个文件全扫：不得出现任何 radial lift 常量（注释里允许提反面例子 ⇒ 跳过注释行）
+		foreach (var path in paths)
+			foreach (var raw in System.IO.File.ReadLines(path))
+			{
+				var line = raw.Trim();
+				if (line.StartsWith("//") || line.StartsWith("*") || line.StartsWith("/*")) continue;
+				Assert.That(line, Does.Not.Contain("1.0005"),
+					"选中高亮禁止 world-space radial lift：分层只能用 depth bias，不能用 position += normal * epsilon");
+			}
 
 		// ② 高亮**方法区内**：必须走 AddCellRing（环带），不得走 AddCellFan（整格扇面）。
 		//    ⚠️ 不能全文件禁 AddCellFan——地形块 BuildChunkMesh 仍在合法使用它（地形本来就该是扇面）。
+		string src = System.IO.File.ReadAllText(paths[1]);   // BallView.cs
 		int from = src.IndexOf("public void HighlightCell", StringComparison.Ordinal);
 		int to = src.IndexOf("bool EnsureRingMaterial", StringComparison.Ordinal);
 		Assert.That(from >= 0 && to > from, Is.True,
-			"NoiseBallView.cs 结构变了（找不到 HighlightCell/EnsureRingMaterial 标记）⇒ 本断言需同步更新");
+			"BallView.cs 结构变了（找不到 HighlightCell/EnsureRingMaterial 标记）⇒ 本断言需同步更新");
 		var region = src.Substring(from, to - from);
 		StringAssert.Contains("AddCellRing(", region, "高亮必须生成环带（AddCellRing）");
 		StringAssert.DoesNotContain("AddCellFan(", region, "高亮不得再生成整格扇面（AddCellFan）");
@@ -194,7 +194,7 @@ public class CellHighlightRingTests
 		cornerCount = H3.CellToVertexes(cell).Length;
 
 		var d = new RingData { Cell = cell, Center = center };
-		NoiseBallView.AddCellRing(d.V, d.N, d.Uv, d.Uv2, d.C, d.Idx,
+		CellQuery.AddCellRing(d.V, d.N, d.Uv, d.Uv2, d.C, d.Idx,
 			cell, center, R, WidthPx, new Color(1f, 1f, 1f), Bias);
 		return d;
 	}
@@ -208,13 +208,17 @@ public class CellHighlightRingTests
 		return res;
 	}
 
-	static string FindViewSource()
+	/// <summary>源码级扫描目标（决策 08 §4.1/§4.2 后路径变更）：
+	///高亮环带几何已从 BallView 拆到<see cref="CellQuery"/>（纯函数），
+	///   但 radial lift 禁令对**两个文件都要查**——材质与MeshInstance 生命周期仍在 BallView。</summary>
+	static string[] FindRenderSources()
 	{
 		var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 		for (int i = 0; i < 6 && dir != null; i++)
 		{
-			var candidate = System.IO.Path.Combine(dir, "scripts", "noise_world", "NoiseBallView.cs");
-			if (System.IO.File.Exists(candidate)) return candidate;
+			var a = System.IO.Path.Combine(dir, "scripts", "Render", "CellQuery.cs");
+			var b = System.IO.Path.Combine(dir, "scripts", "Render", "BallView.cs");
+			if (System.IO.File.Exists(a) && System.IO.File.Exists(b)) return new[] { a, b };
 			dir = System.IO.Directory.GetParent(dir)?.FullName;
 		}
 		return null!;

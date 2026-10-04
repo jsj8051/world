@@ -1,30 +1,37 @@
 using Godot;
 using System;
 using System.Collections.Generic;
-using World.NewHexWorld;        // Ball（复用 new_HexWorld 球壳数据层）
-using World.Utils;              // SphericalFbmNoise / CoordUtil
+using World.NewHexWorld;        // Ball（球壳数据层）
+using World.Utils;              // CoordUtil
 using World.Utils.H3;
 
-namespace World.NoiseWorld;
+namespace World.Render;
 
-// 噪声地形 · 视图层（P0 修订版，2026-09-29 用户拍板）：
-//   ★① 球体 = **单一半径**，地形不做顶点位移——海拔全部用**颜色分档**表达（地图风）；
-//   ★② 材质 = **Unshaded 平光**（shader 内联，ALBEDO = 分档色）——法线/位移/夸张整条线退役；
+// 星球球面视图（决策 08 §4.4 表现层保留资产 · 从 `World.NoiseWorld.NoiseBallView` 迁入）。
+//
+// ★迁移原因：**生成语义为零**的纯渲染资产。海拔全部用**颜色分档**表达（地图风），
+//   视图不关心海拔从哪来（噪声线 / 世界生成空间线都行）⇒ 批准从 B 线回收而非清退。
+//   类名去掉 `Noise` 前缀：新架构已无"噪声线"概念。
+//
+// 三个已拍板的设计（勿退回）：
+//   ① 球体 = **单一半径**，地形不做顶点位移——海拔用颜色分档表达；
+//   ② 材质 = **Unshaded 平光**（shader 内联，ALBEDO = 分档色）——法线/位移/夸张整条线退役；
 //   ③ LOD（远低近高）+ 背面整块剔除（看不到的不画）保留。
-// 颜色数据通路（本项目实测定案）：全星一张 **RGBA8 颜色数据纹理**（每格 1 纹素，UV=纹素中心，
-//   R/G/B = CPU 分档色已转 linear），fragment 直采输出——BallView sphere_region_material 同款
-//   已验证模式（烘色进纹理 ⇒ 无 8 位海拔量化误差翻转色档问题）。
-//   （顶点色 COLOR 通道、TEXUV 塞米级大数、片元 band() 现算三条路在 D3D12/Forward+ 下实测
-//   不可用或已废，详见 git 历史。）
-// 分层：本类只显示；海拔来自 NoiseTerrain（逻辑层，数据分辨率独立）；格表来自 Ball。
-public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生成器要求（GD0001）
+//
+// 颜色数据通路（本项目实测定案）：全星一张 **RGBA8 颜色数据纹理**（每格 1 纹素，UV = 纹素中心，
+//   R/G/B = CPU 分档色已转 linear），fragment 直采输出——烘色进纹理 ⇒ 无 8 位海拔量化误差翻转色档。
+//   （顶点色 COLOR 通道、TEXUV 塞米级大数、片元现算 band() 三条路在 D3D12/Forward+ 下实测不可用。）
+//
+// 分层：本类只显示 + 剔除/LOD；**拾取 / 高亮 / 海拔查询在 <see cref="CellQuery"/>**（纯函数，可独立测）；
+//   格表来自 Ball；海拔来自外部逐格数组。
+public sealed partial class BallView : Node3D   // partial = Godot 源生成器要求（GD0001）
 {
 	readonly Ball _ball;
-	float[] _elevation;   // 逐格海拔（米）——海拔源抽象（NoiseTerrain 或 worldgen 投影层供给；重算可经 SetElevationSource 重绑）
-	NoiseMapMode _mode;         // 当前地图模式（取色函数；null = 未设 → 首烘时回落海拔分档）
+	float[] _elevation;      // 逐格海拔（米）——引用须稳定（重烘读同一份；换实例走 SetElevationSource）
+	MapMode _mode;            // 当前地图模式（取色函数；null = 未设 → 首烘回落海拔分档）
 
-	float _lodNearRatio;        // 拍板①旋钮：近距 = 球半径 × 此值
-	float _backfaceCullRatio;   // 拍板②旋钮（保留接口；现版可见角限 = 90°+块角半径+0.6rad）
+	float _lodNearRatio;        // 旋钮①：近距 = 球半径 × 此值
+	float _backfaceCullRatio;   // 旋钮②（保留接口；现版可见角限 = 90° + 块角半径 + 0.6rad）
 
 	// ── 分块（res0 基格，122 块；每块两档网格 + 可见性状态）──
 	sealed class Chunk
@@ -39,14 +46,11 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 
 	readonly List<Chunk> _chunks = new();
 	readonly Dictionary<(ulong, int), ArrayMesh> _geomCache = new();   // (父格, 子档) → 网格
-	float _maxChunkAngular = 0.42f;   // res0 块角半径上限（rad；五边形块略大，P1 逐块实测替换）
+	float _maxChunkAngular = 0.42f;   // res0 块角半径上限（rad；五边形块略大）
 	float _cameraFovMargin = 0.6f;    // 透视外扩余量（rad）：相机在 1.7R 处 FOV 75° 能看到半球外 ~35° 的侧面
 
-	public NoiseBallView(Ball ball, NoiseTerrain terrain, float lodNearRatio, float backfaceCullRatio)
-		: this(ball, terrain.ElevationM, lodNearRatio, backfaceCullRatio) { }
-
-	/// <summary>海拔源直供构造：任何逐格海拔数组（worldgen 投影层等）；引用须稳定（重烘读同一份）。</summary>
-	public NoiseBallView(Ball ball, float[] elevationM, float lodNearRatio, float backfaceCullRatio)
+	/// <summary>海拔源直供构造：任何逐格海拔数组（世界生成空间线等）。</summary>
+	public BallView(Ball ball, float[] elevationM, float lodNearRatio, float backfaceCullRatio)
 	{
 		_ball = ball;
 		_elevation = elevationM ?? throw new ArgumentNullException(nameof(elevationM));
@@ -54,15 +58,19 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		_backfaceCullRatio = backfaceCullRatio;
 	}
 
+	/// <summary>视图持有的球（诊断工具与拾取需要）。</summary>
+	public Ball Ball => _ball;
+
 	int _visDiag;   // 诊断限次
-	/// <summary>建 122 块 + 两档网格（首帧全量；惰性按需建 = P1）。</summary>
+
+	/// <summary>建 122 块 + 两档网格（首帧全量）。</summary>
 	public void BuildChunks()
 	{
 		RebuildElevTex();    // 先有数据纹理（UV 布局依赖 _texW/_texH）
 		int res = _ball.Res;
 		foreach (ulong parent in Res0Cells())
 		{
-			var c = new Chunk { Parent = parent, Dir = CellDir(parent) };
+			var c = new Chunk { Parent = parent, Dir = CellQuery.CellDir(parent) };
 			c.Hi = new MeshInstance3D { Name = $"c{parent:X}_hi", Mesh = MeshFor(parent, res) };
 			AddChild(c.Hi);
 			if (res >= 1)
@@ -91,16 +99,18 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		int visCount = 0;
 		foreach (var c in _chunks)
 		{
-			bool vis = c.Dir.Dot(camDir) > cosLimit;   // 夹角 < 90°+余量 ⇒ 可见
-			bool hi = near;                                     // 远低近高：近距 = 高档
+			bool vis = c.Dir.Dot(camDir) > cosLimit;   // 夹角 < 90° + 余量 ⇒ 可见
+			bool hi = near;                           // 远低近高：近距 = 高档
 			if (vis) visCount++;
-			if (vis == c.VisNow && hi == c.IsHi) continue;      // 状态未变不写属性
+			if (vis == c.VisNow && hi == c.IsHi) continue;   // 状态未变不写属性
 			c.Hi.Visible = vis && hi;
 			if (c.Lo != null) c.Lo.Visible = vis && !hi;
 			c.VisNow = vis;
 			c.IsHi = hi;
 		}
-		if (_visDiag++ < 2) GD.Print($"[CULL-DIAG] chunks={_chunks.Count} visible={visCount} near={near} cosLimit={cosLimit:F3} camDist={camPos.Length():F2} R={_ball.Radius}");
+		if (_visDiag++ < 2)
+			GD.Print($"[CULL-DIAG] chunks={_chunks.Count} visible={visCount} near={near} " +
+				$"cosLimit={cosLimit:F3} camDist={camPos.Length():F2} R={_ball.Radius}");
 	}
 
 	/// <summary>海拔场变化后：清缓存重建两档网格（块结构不变）。</summary>
@@ -120,7 +130,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	public void RefreshColors() => RebuildElevTex();
 
 	/// <summary>切换地图模式：换取色函数重烘颜色纹理（几何/UV 不动；O(n) CPU 循环，毫秒级）。</summary>
-	public void SetMode(NoiseMapMode mode)
+	public void SetMode(MapMode mode)
 	{
 		_mode = mode ?? throw new ArgumentNullException(nameof(mode));
 		RefreshColors();
@@ -136,8 +146,23 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	/// <summary>格 id → 全局下标（逻辑层数组对位查询）；格表外返回 −1。</summary>
 	public int PickCellIndex(ulong cell) => CellIndex().TryGetValue(cell, out int i) ? i : -1;
 
+	/// <summary>格 id → 海拔（米）；格表外的格返回 false。</summary>
+	public bool TryGetElevation(ulong cell, out float elevM)
+	{
+		if (CellIndex().TryGetValue(cell, out int i))
+		{
+			elevM = _elevation[i];
+			return true;
+		}
+		elevM = 0f;
+		return false;
+	}
+
+	/// <summary>屏幕点 → 命中格 id；未命中返回 null。委托 <see cref="CellQuery.PickCell"/>。</summary>
+	public ulong? PickCell(Vector2 screenPos, Camera3D camera) => CellQuery.PickCell(_ball, screenPos, camera);
+
 	// ── 颜色数据纹理（全星一张，static 共享；ResLevel/噪声变化时 RebuildElevTex 重烘）──
-	// 布局 = BallView 同款：格 i → 纹素 ((i%W)+0.5)/W, ((i/W)+0.5)/H（W=ceil(sqrt(N))）。
+	// 布局：格 i → 纹素 ((i%W)+0.5)/W, ((i/W)+0.5)/H（W = ceil(sqrt(N))）。
 	// 块网格 UV = 该格纹素中心；fragment 直采 RGB = 分档色（已转 linear，nearest ⇒ 硬色阶）。
 	ImageTexture _elevTex;      // RGBA8；RGB = 分档色（linear），A = 255
 	int _texW, _texH;
@@ -166,7 +191,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	// 格 i → 数据纹理纹素中心 UV（采样地址；nearest ⇒ 一格一色）
 	Vector2 TexelUv(int i) => new(((i % _texW) + 0.5f) / _texW, ((i / _texW) + 0.5f) / _texH);
 
-	// ── 网格构建：块 = 基格 p 在子档 childRes 的全部子格（CellToChildren 全展开；compact P1）──
+	// ── 网格构建：块 = 基格 p 在子档 childRes 的全部子格（CellToChildren 全展开）──
 	ArrayMesh MeshFor(ulong parent, int childRes)
 	{
 		if (_geomCache.TryGetValue((parent, childRes), out var hit)) return hit;
@@ -189,7 +214,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 
 		foreach (ulong cell in cells)
 		{
-			// 格 → 纹素下标：本档格表命中 = 全局下标；低档中间档子格不在表内 ⇒ 原生查询
+			// 格 → 纹素下标：本档格表命中 = 全局下标；低档中间档子格不在表内 ⇒ 原生查询。
 			// LatLngToCell(方向, 本档) 命中包含它的本档格（数据纹理只铺本档格表）。
 			int texel;
 			Vector3 dir;
@@ -237,34 +262,10 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		return _mat;
 	}
 
-	/// <summary>格 cell 的边界角点**单位方向**，按环序返回（格心切平面上方位角升序 ⇒ 外视 CCW）。
-	/// ★必须环序：H3 CellToVertexes 返回集不保证顺序，乱序扇面会交叉重叠
-	///   （不透明地形块被同色 overdraft 掩盖，半透明高亮则缩成中心小多边形——实测踩坑）。
-	/// 地形扇面（AddCellFan）与选中环带（AddCellRing）共用，保证两者边界**逐角点一致**。</summary>
-	static Vector3[] RingOrdered(ulong cell, Vector3 centerDir)
-	{
-		ulong[] vids = H3.CellToVertexes(cell);
-		int m = vids.Length;
-		Vector3 refUp = MathF.Abs(centerDir.Y) < 0.9f ? Vector3.Up : Vector3.Right;
-		Vector3 t1 = refUp.Cross(centerDir).Normalized();
-		Vector3 t2 = centerDir.Cross(t1);
-		var ring = new (float ang, Vector3 dir)[m];
-		for (int k = 0; k < m; k++)
-		{
-			Vector3 vdir = CoordUtil.LatLngToSphere(H3.VertexToLatLng(vids[k]), 1f);
-			Vector3 tangent = vdir - centerDir * vdir.Dot(centerDir);   // 切平面投影
-			ring[k] = (MathF.Atan2(tangent.Dot(t2), tangent.Dot(t1)), vdir);
-		}
-		Array.Sort(ring, (a, b) => a.ang.CompareTo(b.ang));
-		var outArr = new Vector3[m];
-		for (int k = 0; k < m; k++) outArr[k] = ring[k].dir;
-		return outArr;
-	}
-
 	// 一格 = 格心 + m 角点 + m 扇形三角（外向缠绕）。单半径：所有顶点 = 方向 × R。
 	// 全部顶点 UV = 本格纹素中心 ⇒ 一格一色（nearest ⇒ 色档按格离散，边界即等高线）。
-	// ★顶点必须排成环序：H3 CellToVertexes 返回集不保证顺序，乱序扇面会交叉重叠
-	//   （不透明地形块被同色 overdraft 掩盖，半透明高亮则缩成中心小多边形——实测踩坑）。
+	// ★顶点必须排成环序（RingOrdered 保证）：H3 CellToVertexes 返回集不保证顺序，
+	//   乱序扇面会交叉重叠——半透明高亮会缩成中心小多边形（实测踩坑）。
 	void AddCellFan(List<Vector3> verts, List<Vector2> uvs, List<int> idx,
 		ulong cell, Vector3 centerDir, Vector2 cellUv, float R)
 	{
@@ -272,7 +273,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		verts.Add(centerDir * R);
 		uvs.Add(cellUv);
 
-		var ringDirs = RingOrdered(cell, centerDir);
+		var ringDirs = CellQuery.RingOrdered(cell, centerDir);
 		int m = ringDirs.Length;
 
 		var corner = new int[m];
@@ -290,8 +291,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		}
 	}
 
-	// 分档色与档位名已迁 NoiseMapModes.ElevationBandMode（画面/信息面板同一色带源）；
-	// 本类只留 BandName 委托（NoiseCellPanel 现有调用口不动）。
+	/// <summary>海拔 → 档位名（委托 <see cref="ElevationBandMode.BandName"/>，画面与信息卡同一口径）。</summary>
 	public static string BandName(float m) => ElevationBandMode.BandName(m);
 
 	// ── 工具 ──
@@ -323,70 +323,8 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		return _res0;
 	}
 
-	// 基格中心方向（剔除用；绕开 cellIdx——基格必不在本档格表）
-	Vector3 CellDir(ulong cell)
-	{
-		var ll = H3.CellToLatLng(cell);
-		return CoordUtil.LatLngToSphere(ll, 1f);
-	}
-
-	// ── 格子 UI：拾取 / 高亮 / 信息查询 ──
-
-	/// <summary>屏幕点 → 命中格 id；未命中（射线不交球/球在身后）返回 null。
-	/// 数学同 BallView.PickCell（本视图无自身变换，直接世界系求交）。</summary>
-	public ulong? PickCell(Vector2 screenPos, Camera3D camera)
-	{
-		Vector3 o = camera.ProjectRayOrigin(screenPos);
-		Vector3 d = camera.ProjectRayNormal(screenPos);
-		float b = o.Dot(d);
-		float c = o.LengthSquared() - _ball.Radius * _ball.Radius;
-		float disc = b * b - c;
-		if (disc < 0f) return null;
-		float t = -b - MathF.Sqrt(disc);          // 最近交点（正面）
-		if (t < 0f) return null;                  // 球在相机背后
-		Vector3 dir = (o + d * t) / _ball.Radius; // 单位球方向
-		double lat = Math.Asin(Mathf.Clamp(dir.Y, -1f, 1f));
-		double lng = Math.Atan2(dir.Z, dir.X);
-		return H3.LatLngToCell(new LatLng(lat, lng), _ball.Res);
-	}
-
-	/// <summary>格 id → 海拔（米）；格表外的格返回 false。</summary>
-	public bool TryGetElevation(ulong cell, out float elevM)
-	{
-		if (CellIndex().TryGetValue(cell, out int i))
-		{
-			elevM = _elevation[i];
-			return true;
-		}
-		elevM = 0f;
-		return false;
-	}
-
 	// ── 选中高亮：R 上的球面环带（2026-10-04 用户拍板）────────────────────────────
-	//
-	// ★★规则（与河流同一套表现层渲染规范，勿退回旧写法）：
-	//   ① **几何必须贴真实表面**——内外两条轮廓都在半径 R 上 ⇒ distance(顶点, 地形) = 0；
-	//   ② **环带厚度**由 shader 沿**切向**在屏幕空间展开（恒 px）⇒ 与相机距离无关；
-	//   ③ **图层分层只由 clip-space Z 偏移（UV2.y）解决**，不产生任何世界位移。
-	//   ⚠️ 严禁 `radius * 1.0005f` 这类 world-space radial lift：那会把"浮起来的整格"
-	//      变成"浮起来的边框"——径向抬升在掠射角下换算成横向屏幕位移，
-	//      实测旧写法在 1.02R 最近视距的屏幕边缘位移达 14.6 px（≈10% 格宽）。
-	//
-	// 顶点属性契约（与 river_surface.gdshader **完全一致**，改动须同步）：
-	//   VERTEX  = 角点方向 × R（内外轮廓同位置）
-	//   NORMAL  = 角点切平面内的**内角平分线**单位向量（指向格心）
-	//   UV.y    = ∓1 ⇒ 片元里插值为 [-1,+1]，shader 据此在屏幕空间向内外各展开半个宽度
-	//   UV2.x   = 目标屏幕宽度（px）★不能走 COLOR.a（Godot 会把顶点色夹到 [0,1]）
-	//   UV2.y   = NDC 深度偏移（只改 z，不改 x/y ⇒ 零视差）
-	//   COLOR   = 高亮色
-
-	const string HighlightShaderPath = "res://shaders/river_surface.gdshader";
-	public const string HighlightNodeName = "CellHighlight";
-	public const float HighlightWidthPx = 3.0f;      // 目标屏幕宽度（px）
-	public const float HighlightDepthBias = 4.0e-4f; // 深度层次：> 河流最粗档(3e-4) ⇒ 选中压在河线之上
-	public const float HighlightCore = 0.85f;        // |cross| < core ⇒ 实心；core→1 为抗锯齿淡出
-	static readonly Color HighlightColor = new(1f, 1f, 1f);
-
+	// 几何生成在 CellQuery.AddCellRing（纯函数）；本节只管 MeshInstance3D 的生命周期与材质。
 	MeshInstance3D _highlight;
 	ShaderMaterial _ringMat;
 	bool _ringTried;
@@ -398,7 +336,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		if (_highlight == null)
 		{
 			// ★命名：诊断（CellHighlightDiag）与调试都靠它在场景树里定位选中环带
-			_highlight = new MeshInstance3D { Name = HighlightNodeName, Visible = false };
+			_highlight = new MeshInstance3D { Name = CellQuery.HighlightNodeName, Visible = false };
 			AddChild(_highlight);
 		}
 		if (cell == null)
@@ -409,8 +347,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		if (!EnsureRingMaterial()) return;   // shader 缺失 ⇒ 宁可不画，也不退回整格扇面
 
 		ulong c = cell.Value;
-		var ll = H3.CellToLatLng(c);
-		var dir = CoordUtil.LatLngToSphere(ll, 1f);
+		var dir = CellQuery.CellDir(c);
 
 		var verts = new List<Vector3>(16);
 		var norms = new List<Vector3>(16);
@@ -418,8 +355,8 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		var uv2 = new List<Vector2>(16);
 		var cols = new List<Color>(16);
 		var idx = new List<int>(24);
-		AddCellRing(verts, norms, uvs, uv2, cols, idx, c, dir, _ball.Radius,
-			HighlightWidthPx, HighlightColor, HighlightDepthBias);
+		CellQuery.AddCellRing(verts, norms, uvs, uv2, cols, idx, c, dir, _ball.Radius,
+			CellQuery.HighlightWidthPx, CellQuery.HighlightColor, CellQuery.HighlightDepthBias);
 
 		var am = new ArrayMesh();
 		var arr = new Godot.Collections.Array();
@@ -437,61 +374,16 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		SyncRingViewport(GetViewport());
 	}
 
-	/// <summary>一格 = 闭合环带：m 个角点各 emit 内外两个顶点 ⇒ m 个四边形（2m 三角）。
-	/// ★没有格心顶点、没有共面填充 ⇒ z-fighting 面积为零，且天然只描边界。
-	/// ★两条轮廓都落在半径 R 上（顶点 = 角点方向 × R），**不做任何径向抬升**。</summary>
-	internal static void AddCellRing(List<Vector3> verts, List<Vector3> normals, List<Vector2> uvs,
-		List<Vector2> uv2, List<Color> cols, List<int> idx,
-		ulong cell, Vector3 centerDir, float R, float widthPx, Color color, float depthBias)
-	{
-		var ringDirs = RingOrdered(cell, centerDir);
-		int m = ringDirs.Length;
-
-		// ★正 m 边形下"角点的径向"恰好是**内角平分线** ⇒ 就是标准 miter 接头，六个转角不断、不豁口。
-		//   但沿平分线偏移 h 时，环带垂直于边的净宽度 = h·cos(π/m)（两端点垂距相同 ⇒ 外边界与边平行，
-		//   整条边等宽，转角**不会**变细）。故此处预先补 1/cos(π/m)，使实测宽度等于 widthPx。
-		float miterComp = 1f / MathF.Cos(MathF.PI / m);
-		float w = widthPx * miterComp;
-
-		int base0 = verts.Count;
-		for (int k = 0; k < m; k++)
-		{
-			Vector3 v = ringDirs[k];
-			// 角点 v 处切平面内指向格心的单位方向（= 内角平分线；退化时取任一切向）
-			Vector3 t = centerDir - v * centerDir.Dot(v);
-			if (t.LengthSquared() < 1e-18f)
-			{
-				Vector3 ru = MathF.Abs(v.Y) < 0.9f ? Vector3.Up : Vector3.Right;
-				t = ru.Cross(v);
-			}
-			t = t.Normalized();
-
-			var uv2v = new Vector2(w, depthBias);
-			verts.Add(v * R); normals.Add(t); uvs.Add(new Vector2(0f, +1f)); uv2.Add(uv2v); cols.Add(color);
-			verts.Add(v * R); normals.Add(t); uvs.Add(new Vector2(0f, -1f)); uv2.Add(uv2v); cols.Add(color);
-		}
-		for (int k = 0; k < m; k++)
-		{
-			int k2 = (k + 1) % m;
-			int a = base0 + 2 * k;          // 外 k
-			int b = a + 1;                  // 内 k
-			int c = base0 + 2 * k2 + 1;     // 内 k+1
-			int d = base0 + 2 * k2;         // 外 k+1
-			idx.Add(a); idx.Add(b); idx.Add(c);
-			idx.Add(a); idx.Add(c); idx.Add(d);
-		}
-	}
-
 	bool EnsureRingMaterial()
 	{
 		if (_ringMat != null) return true;
 		if (_ringTried) return false;
 		_ringTried = true;
-		var sh = GD.Load<Shader>(HighlightShaderPath);
+		var sh = GD.Load<Shader>(CellQuery.HighlightShaderPath);
 		if (sh == null) return false;
 		_ringMat = new ShaderMaterial { Shader = sh };
 		_ringMat.SetShaderParameter("u_screen_space", 1.0f);   // 恒 px（河流 v2 正式路径）
-		_ringMat.SetShaderParameter("u_core", HighlightCore);
+		_ringMat.SetShaderParameter("u_core", CellQuery.HighlightCore);
 		_ringMat.SetShaderParameter("u_edge", 1.0f);
 		_ringMat.SetShaderParameter("u_edge_gain", 1.0f);      // ★不要河流的"边缘提亮"（那是水色效果）
 		_ringMat.SetShaderParameter("u_viewport", new Vector2(1920f, 1080f));

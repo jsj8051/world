@@ -3,14 +3,16 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace World.NoiseWorld
+namespace World.Render.UI
 {
-	// 噪声世界模式坞（自 new_HexWorld HexDock 迁移适配，2026-09-30）：地图模式按钮行 + 坞滑出/滑入动画。
+	// 地图模式坞（决策 08 §4.4 表现层保留资产 · 从 `World.NoiseWorld.NoiseDock` 迁入改名）：
+//   地图模式按钮行 + 坞滑出/滑入动画。**生成语义为零**——不认识任何生成类型，
+//   只负责"点按钮 → 发ModeSelected(id) 信号"+ 按鼠标位置做滑出/滑入。
 	// 与旧坞的两点差异：① BindModes 收**模式名列表**（噪声世界无 MapMode 策略类型，文案由
-	// NoiseMapMode.Name 下行）；② 其余状态机逐行保留（显式 current/collapsed/expanded/_target、
+	// MapMode.Name 下行）；② 其余状态机逐行保留（显式 current/collapsed/expanded/_target、
 	// 折返不跳变、布局漂移 instant 补正——原实现已验证，不重写）。
 	// 模式按钮 = %ModeRow 场景预置按钮（代码自动收集）；按钮数量与模式数不符当场抛（启动首日暴露错位）。
-	public partial class NoiseDock : PanelContainer
+	public partial class MapDock : PanelContainer
 	{
 		// 模式选择信号（上行：点模式按钮 → 控制器订阅后切换显示）。
 		[Signal] public delegate void ModeSelectedEventHandler(int modeId);
@@ -66,7 +68,7 @@ namespace World.NoiseWorld
 			else MoveDockTo(target, instant: false);
 		}
 
-		// 下行：外部切模式时同步按钮高亮（NoiseWorldManager 调）。
+		// 下行：外部切模式时同步按钮高亮（WorldGenManager 调）。
 		public void SetMode(int modeId)
 		{
 			if (_modeButtons == null || modeId < 0 || modeId >= _modeButtons.Length) return;
@@ -83,7 +85,7 @@ namespace World.NoiseWorld
 			if (_modeButtons == null) throw new InvalidOperationException("坞按钮未收集（_Ready 未跑）");
 			if (modeNames.Count != _modeButtons.Length)
 				throw new InvalidOperationException(
-					$"坞按钮数 {_modeButtons.Length} 与模式数 {modeNames.Count} 不同步：场景 ModeRow 与 NoiseMapMode.CreateAll 须一一对应（按钮顺序 = 注册序 = 模式 Id）");
+					$"坞按钮数 {_modeButtons.Length} 与模式数 {modeNames.Count} 不同步：场景 ModeRow 与 MapMode 注册表须一一对应（按钮顺序 = 注册序 = 模式 Id）");
 			for (int i = 0; i < _modeButtons.Length; i++)
 				_modeButtons[i].Text = modeNames[i];
 		}

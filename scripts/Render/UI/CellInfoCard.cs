@@ -1,12 +1,14 @@
 using Godot;
 using System;
+using World.Render;                // BallView（档位名单一事实源）
 
-namespace World.NoiseWorld;
+namespace World.Render.UI;
 
-// 格子信息卡 · 组件场景：点选格子的只读信息卡（格 id/经纬/海拔/档位/海陆），未选中时隐藏。
-// 样式与 NoiseParamPanel 同源（羊皮纸底 + 深金标题——全局主题 ui_medieval 的深棕字给浅底设计）。
-// 面板保持哑组件：数据由宿主喂（ShowCell），不感知星球与相机。
-public partial class NoiseCellPanel : PanelContainer
+// 格子信息卡 · 组件场景（决策 08 §4.4 表现层保留资产 · 从 `NoiseCellPanel` 迁入改名）：
+//   点选格子的只读信息卡（格 id/经纬/海拔/档位/海陆），未选中时隐藏。
+// **纯哑组件**：数据由宿主喂（ShowCell），不感知星球与相机，不认识任何生成类型。
+// 样式为羊皮纸底 + 深金标题（全局主题 ui_medieval 的深棕字给浅底设计）。
+public partial class CellInfoCard : PanelContainer
 {
 	Label _body;
 
@@ -41,7 +43,7 @@ public partial class NoiseCellPanel : PanelContainer
 		string elev = $"{(elevM >= 0f ? "+" : "")}{elevM:F0} m";
 		_body.Text = $"格 id   {id:X}\n" +
 					 $"经纬    {lat}, {lng}\n" +
-					 $"海拔    {elev}（{NoiseBallView.BandName(elevM)}）\n" +
+					 $"海拔    {elev}（{BallView.BandName(elevM)}）\n" +
 					 $"海陆    {(elevM >= 0f ? "陆地" : "海洋")}";
 		Visible = true;
 	}

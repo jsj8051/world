@@ -2,7 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.Services;                    // UserPaths
-using World.NoiseWorld;                  // NoiseBallView
+using World.Render;                      // BallView / CellQuery
 using World.NoiseWorld.WorldGen;         // WorldGenPlanet
 using World.Utils;                       // CoordUtil
 using World.Utils.H3;
@@ -39,7 +39,7 @@ public partial class CellHighlightDiag : Node
 	Camera3D _cam;
 	Node _orbital;
 	WorldGenPlanet _planet;
-	NoiseBallView _view;
+	BallView _view;
 	MeshInstance3D _hl;
 	bool _camFound;
 
@@ -97,7 +97,7 @@ public partial class CellHighlightDiag : Node
 		{
 			// 重新生成**原始**环带（避免上一块把 mesh 改脏后累计缩放），再上探针色并隐藏
 			_view.HighlightCell(_cell);
-			_hl = _view?.GetNodeOrNull<MeshInstance3D>(NoiseBallView.HighlightNodeName);
+			_hl = _view?.GetNodeOrNull<MeshInstance3D>(CellQuery.HighlightNodeName);
 			if (_hl == null) { GD.Print("[CELL-HL] **未找到 CellHighlight 节点**（主场景结构变了？）"); GetTree().Quit(); return; }
 			MoveTo(_cellDir, Tiers[mi / Fracs.Length]);   // 先摆到本档视距并居中
 			MakeProbeMesh();

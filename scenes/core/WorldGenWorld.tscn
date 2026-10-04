@@ -3,8 +3,8 @@
 [ext_resource type="Script" path="res://scripts/noise_world/worldgen/WorldGenManager.cs" id="1_mgr"]
 [ext_resource type="PackedScene" path="res://scenes/noise_world/WorldGenPlanet.tscn" id="2_planet"]
 [ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="3_cam"]
-[ext_resource type="PackedScene" path="res://scenes/noise_world/NoiseCellPanel.tscn" id="4_cellpanel"]
-[ext_resource type="PackedScene" path="res://scenes/noise_world/WorldGenDock.tscn" id="5_dock"]
+[ext_resource type="PackedScene" path="res://scenes/render/CellInfoCard.tscn" id="4_cellpanel"]
+[ext_resource type="PackedScene" path="res://scenes/render/MapDock.tscn" id="5_dock"]
 
 [node name="WorldGenRoot" type="Node3D"]
 script = ExtResource("1_mgr")
@@ -18,10 +18,10 @@ _planetRadius = 2.0
 
 [node name="PanelLayer" type="CanvasLayer" parent="."]
 
-[node name="NoiseCellPanel" parent="PanelLayer" instance=ExtResource("4_cellpanel")]
+[node name="CellInfoCard" parent="PanelLayer" instance=ExtResource("4_cellpanel")]
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 12.0
 offset_bottom = 12.0
 
-[node name="NoiseDock" parent="PanelLayer" instance=ExtResource("5_dock")]
+[node name="MapDock" parent="PanelLayer" instance=ExtResource("5_dock")]

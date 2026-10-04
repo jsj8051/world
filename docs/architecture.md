@@ -1,97 +1,247 @@
-# world 项目架构文档（"酋邦→国家"制度化 · v1.0）
+# world 项目架构文档（世界生成空间 v1）
 
 > 本文档是项目的"宪法"：定义分层、依赖规则与工程纪律。
 > 新代码违反本文件即视为架构债，review 时一票否决。
-> 更新本文档需走 ADR（`docs/decisions/`）。
+> 更新本文档需走 ADR（`docs/decisions/`）或决策文档（`docs/newdecision/`）。
+
+> ★**2026-10-05 整篇重写**。旧版描述的是**已删除**的架构（`MapGen` / `Biome` / `MapView` /
+> `Tectonics` 四个命名空间、L0-L3 四层、`PlanetPipeline` 五阶段），那些代码在决策 07 §10
+> 与决策 08 §4 已全部清退。**架构文档整篇描述已删类型= 本仓库最大的文档断层**，本次修正。
+
+---
 
 ## 1. 项目是什么
 
-Godot 4.7.1（C# / .NET 8）程序化行星生成 + 文明演化模拟（v0.5.0）。
-流程：板块构造 → 气候/洋流/季风 → 生物群系 → 河流 → 文明模拟（部落→酋邦→国家），
-全部在六边形球面（Goldberg 多面体，`scripts/HexPlanet/`）上**确定性**运行。
+Godot 4.7（C# / .NET 8）程序化行星生成 + 文明演化模拟。
+**世界生成**在 H3 六边形球面网格上**确定性**运行，产出分层事实（陆块 / 海岸 / 区域 / 海拔），
+再由水文、气候等下游系统消费；表现层只画，不生成。
 
-## 2. 四层架构
+主入口场景：`scenes/core/WorldGenWorld.tscn`。
+
+---
+
+## 2. 世界生成五层（v1 冻结面 · 永久）
 
 ```
-L3 视图/交互层（Godot Node）
-    scripts/MapView · scripts/UI · scripts/Camera · scripts/Diagnostics
-        │  只调用 L1 公开 API 与 L2 服务；UI 逻辑不得下沉
-L2 服务层（全局基础设施，跨场景通信的唯一通道）
-    EventBus · LogService · ArchiveService · SettingsService（GameServices）
-        │  只依赖 L1/L0
-L1 生成/模拟系统层（确定性、无 UI、可 headless）
-    TectonicsSimulation · ClimateGenerator · RiverSystem · MonsoonSystem ·
-    OceanCurrent · MineralSystem · SoilSystem · WildCropsSystem ·
-    PlanetPipeline · MapGenerator · CivEngine · CivSimContext
-        │  只依赖 L0
-L0 纯模型/数学层（不依赖 Godot 节点；纯 C# 优先，可直接单元测试）
-    HexPlanet（GoldbergBuilder/HexTile/Icosahedron/SubdividedMesh）
-    LogicGrid（GameGrid/ArchiveLayout/GameMapArchive）
-    CivSim 纯模型（CivModels/DeterministicRandom/CommodityTable/TechTable/
-                   CapabilityTable/Habitation/Polity）
-    MapGen/Model（ClimateFields/PipelineFields/ClimateLoops/ModelBase）
-    Tectonics 纯数学（SphereGrid/FieldOps）
+Placement（生成依据）→ Final（世界事实）→ SpatialIndex（查询）→ World Simulation（世界如何运行）→ 表现层（怎么画）
 ```
 
-## 3. 依赖规则（宪法条文）
+| 层 | 回答 | 代表类型 | 命名空间 |
+|---|---|---|---|
+| **Placement** | 世界如何生成 | `ContinentLayout` / `LandSeaField` / `H3LandSeaProjector` / `SurfaceResolver` / `GeologicalRegions` / `TectonicField` / `MountainSkeleton` / `RegionalLandforms` / `VolcanoField` / `HeightComposer` | `World.NoiseWorld.WorldGen` |
+| **Final** | 世界究竟是什么 | **`FinalGeography`**（FinalLand / FinalLandmassId / FinalDistToCoast / FinalRegionOfCell） | 同上 |
+| **SpatialIndex** | 如何高效询问 | **`FinalSpatialIndex`**（nearest / distance / within） | 同上 |
+| **World Simulation** | 这个世界如何运行 | `PrecipitationModel` → `RiverNetwork` → `RiverGraph` / `BasinGraph` / `LakeState` → `WaterTopology` | 同上 |
+| **表现层** | 怎么画 | `BallView` / `MapMode` / `CellQuery` / `MapDock` / `CellInfoCard` / `RiverLineOverlay` | `World.Render` / `World.Render.UI` |
 
-1. **依赖只向下**：L3→L2→L1→L0。反向引用（如模型里出现 UI、系统里访问场景树）禁止。
-2. L0/L1 不得引用 Godot 节点、`SceneTree`、UI 类型；允许 Godot 数学类型（`Vector3` 等），
-   纯 C# 更佳——可测试性是硬指标。
-3. **场景之间禁止直接互访**（跨场景 `GetNode` 直调、单例互指）；一律经 L2 服务或 C# 事件。
-4. 存档统一走 `ArchiveService`；`.mpa/.cmp` 格式与随机状态入档规则不许散落各处。
-5. **单类单文件**；拆大类用 `partial` 分片，新文件放**同目录**、命名 `原类名.职责.cs`
-   （.tscn 的脚本绑定路径不变，移动文件必须同步改场景引用并验证）。
-6. 诊断场景统一继承 `DiagSceneBase`（行星搭建/截图/参数面板在基类，子类只写"测什么"）。
-7. 一切随机性走 `DeterministicRandom`；禁止裸 `System.Random` 实例与时间种子。
-8. **日志统一走 `LogService.Log/LogErr`**（ADR-0004）：L1 系统层允许调用（日志为横切关注点，
-   L1→L2 的此项依赖是唯一豁免）；L0 纯模型禁止打印（调试残留一律删除，不依赖 Godot）；
-   后台线程禁止调用（低频错误打印保留 GD.Print 直调 + 注释，见 ADR-0004 §决策 4）。
+装配序（依赖序）唯一接线点：`worldgen/WorldGenPlanet.Regenerate()`。
+
+**冻结日期 2026-10-03**（用户拍板 "Terrain Genesis Architecture v1 冻结"）。
+详见 `docs/newdecision/设计-世界生成空间-08-架构冻结与旧线清退.md`。
+
+### 2.1 Field / Feature / Morphology 三层
+
+| 层 | 回答 | 不回答 |
+|---|---|---|
+| **Field** | 哪里容易发生什么 | 任何形状 |
+| **Feature** | 具体生成了什么（离散对象，自带尺度 / 走向 / 影响场） | 为什么长在这里 |
+| **Morphology** | 这东西具体长成什么样 | — |
+
+组合器只认 `ITerrainField` 口；高度合成是**绝对高度 lerp**
+（`FinalHeight = lerp(当前, TargetM, Influence)`），**不是 "+N 米增量"**。
+
+### 2.2 四个水系统概念不互相吞并（永久）
+
+`RiverGraph`（河流内部拓扑）/ `BasinGraph`（流域归属与终止，**不判湖**）/
+`LakeState`（湖泊状态）/ `WaterTopology`（水体之间的连接）。
+
+---
+
+## 3. 依赖规则（宪法条文 · 仍然有效）
+
+1. **依赖只向下**：表现层 → World Simulation → SpatialIndex → Final → Placement → 基础设施。
+   反向引用（模型里出现 UI、Final 里读 Placement）禁止。
+2. **Final 层是唯一世界事实源**。下游（World Simulation / 表现层）**只消费 Final**，
+   不看生成依据。`FinalGeography` 不得引用任何 Placement 投影器或具体 Feature 类。
+3. **允许 Godot 数学类型**（`Vector3` 等值类型），纯 C# 更佳——可测试性是硬指标。
+4. **单类单文件**；拆大类用 `partial` 分片，新文件放**同目录**、命名 `原类名.职责.cs`。
+5. 一切随机性走 `DeterministicRandom`；**禁止裸 `System.Random` 与时间种子**。
+6. **日志统一走 `LogService`**；后台线程禁止调用（调试残留见 ADR-0004）。
+7. **单一事实源**：任何"面积 / 距离 / 海陆比例 / 颜色表"只允许有一处权威定义，
+   不建平行真相源（`SpatialScale` 是唯一面积 / 距离口径；`SurfaceResolver` 是唯一海陆口径）。
+
+### 3.1 架构契约测试（边界的可执行形式）
+
+`tests/World.Tests/ArchitectureContractTests.cs` —— **20 条**，反射扫描
+"方法参数 / 返回 + 字段 / 属性"。新增子系统时把类型加进 `NewWorldLineTypes` 单字段
+（漏扫= 契约静默失效，比不写更危险）。
+
+三类钉，各有其不可替代的作用：
+
+| 类别 | 代表 | 作用 |
+|---|---|---|
+| **方向** | `NewWorldLine_DoesNotDependOnLegacyWorldLine` | 防重新耦合 |
+| **结果** | `LegacyWorldGenerationChain_IsGone` / `LegacyNoiseWorldLine_IsGone` | 防"没人用但还留着" |
+| **行为** | `EmptyFeatureList_EqualsPureBaseline` | 防"影响来自未注册的地方" |
+
+★**方向与结果两者都要有**：只有方向 ⇒ 旧代码删不掉；只有结果 ⇒ 重新引入测不出来。
+
+### 3.2 表现层依赖白名单（唯一跨层豁免）
+
+新线命名空间 `World.NoiseWorld.WorldGen` 曾是旧线 `World.NoiseWorld` 的**子命名空间**
+⇒ C# 作用域让新线不加 `using` 就能看到父命名空间类型。决策 08 §4.4 已把这条例外
+**正式编码**（`NewWorldLine_MayDependOnApprovedRenderContracts`）。
+
+**当前状态（2026-10-05 P1 后）**：`World.NoiseWorld` 根命名空间**已彻底清空**，
+4 类表现资产全部迁入 `World.Render` / `World.Render.UI` ⇒
+这条豁免**事实上已关闭**，新线只准依赖 Render 层。
+
+---
 
 ## 4. 确定性纪律（本项目的命根子）
 
-- 生成/模拟全部由 `DeterministicRandom` 驱动，状态可序列化（SplitMix64）。
-- **读档续跑 = 从存档随机状态继续消耗，与从头跑 N+M ticks 完全一致**（防分叉）。
-- 回归双保险：`scripts/verify.sh` 四组 headless 回归 + `docs/screenshots/` 黄金截图对比。
+- 生成 / 模拟全部由 `DeterministicRandom` 驱动（SplitMix64），状态可序列化。
+- **层种子按固定次序派生**（`worldgen/SeedDerivation.cs` 集中 13 个标签，`seed ^ tag`）
+  ⇒ 新增子系统不挪别的层的场。**标签唯一性有测试钉**（防复制粘贴导致两子系统同流）。
+- **连续优先**：每层暴露 `Sample(dir)` 连续查询口，逐格数组降级为"该连续函数在格心的一次采样"。
+- 文明模拟：**读档续跑 = 从存档随机状态继续消耗，与从头跑 N+M ticks 完全一致**。
 
-## 5. 工程质量（"国家机器"）
+---
 
-- **提交门槛**：`.githooks/pre-commit`（build + 单元测试；安装 `git config core.hooksPath .githooks`）。
-- **测试**：`tests/World.Tests`（NUnit，见 ADR-0001）。L0 纯模型与 L1 系统的不变量必须进测试，
-  不变量包括：同 seed 同输出、边界合法、存档往返一致。
+## 5. 尺度纪律（D-10 · 永久）
+
+三类参数**本体不同，不得混用**：
+
+| 类 | 内容 | 单位 | 与 `res` 的关系 |
+|---|---|---|---|
+| **A 拓扑** | BFS 距离 / hop / 邻居数 / 图深度 | cell / hop | **强相关** |
+| **B 几何** | 面积 / 距离 / 山脉宽度 / 河长 | km / km² / km³ | 无关 |
+| **C 物理** | 降水 / 蒸发 / 径流 / 水量 | mm / mm·a⁻¹ / km³ | 无关 |
+
+> ★**res 只决定"一个格子有多大"；物理参数决定"现实世界有多大"；两者不得混用。**
+
+- 面积默认 = `SpatialScale.CellAreaKm2`（**等积** `4πR²/n`）；H3 精确面积只进判读 / 渲染
+- 物理距离 = `SpatialScale.DistanceKm`（唯一）；`HopDistanceKm` **禁止进入模拟**
+- **`SpatialScale` 新增成员必须配"与独立实现逐点对照"测试**（不是只看公式自洽）
+  ——依据：`DistanceKm` 初版把弧度又乘了一次 `d2r`，距离缩小 57 倍，
+  **静态看公式完全正常**，是逐邻居实测照出来的。
+
+### 5.1 四项 FROZEN（不得被任何子系统反向绑架）
+
+| 项 | 值 |
+|---|---|
+| `ProductionRes` | **4** |
+| `DefaultUseDepressionFill` | `true` |
+| 河流阈值 | **70,800 km²**（工程标定值，**不是**自然常数） |
+| `CoastDecayKm` | **450km**（= 10 跳 × 45.2 km 的**跳距**口径，勿与格边长混） |
+
+### 5.2 双高度语义（D-11 · 永久）
+
+```
+FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
+     └── (填洼后) HydrologyRoutingHeight ──→ FlowDirection / Basin / FlowAccum
+```
+
+填洼是**水文计算的派生预处理**，不是世界地形被填平；**绝不回写 `FinalHeight`**。
+`DepressionCount` / `FillDepthM` 始终基于**原始**高度。
+
+---
+
+## 6. 表现层渲染规范（永久）
+
+> **地图表现层不得通过 world-space radial lift 实现图层排序；需要分层时，几何保持真实表面位置，
+> 排序通过 depth / NDC bias、stencil 或专用overlay pass 实现。**
+
+三个概念必须分离：`R 上的真实轮廓`（位置偏移 0）｜`screen-space expand`（视觉宽度）｜
+`NDC depth bias`（渲染顺序）。
+
+- ⚠️ 严禁 `radius * 1.0005f` 这类径向抬升：掠射角下会换算成横向屏幕位移
+  （实测旧写法在 1.02R 最近视距的屏幕边缘位移 14.6px ≈ 10% 格宽）
+- **顶点色 `COLOR.a` 会被夹到 `[0,1]`** ⇒ 宽度 / 非颜色量走 `UV2` / `CUSTOM0`
+- Godot 4 RenderingDevice 在 D3D12/Vulkan 下用 **reversed-Z** ⇒ `POSITION.z += bias * POSITION.w`
+  （写 `-=` 会被地形遮住）
+- **质心偏移不能判定"有没有浮起"**（径向缩放 ≈ 以屏幕中心为原点的均匀放大）
+
+---
+
+## 7. 防膨胀三问（建任何"层"之前必过）
+
+1. **能否由既有事实表达？**（能 ⇒ 加字段 / 查询，**不加层**）
+2. **能否由组合层表达？**（能 ⇒ 放 `WaterTopology` 一类，不新建实体层）
+3. **现在有真实消费者吗？**（没有 ⇒ **不建**）
+
+> ★"旧代码质量很高"**不是**迁移理由。危险链条：
+> 旧系统有好算法 → 新系统没有 → 迁过来 → **新系统复杂度上升** → 开始解释为什么存在。
+> 资产价值用**文档封存**，不用代码承载（见 `docs/newdecision/封存-NoiseWorld设计史料.md`）。
+
+### 7.1 停退化的元原则
+
+1. **退化解原则**：新物理量 / 权重 / 场进入既有算法，必须有可验证退化解
+   （新输入设常量时输出**精确**退化到旧公式）。
+2. **原子事实优先于分类**：分类不得覆盖事实。
+3. **契约三件套**（清退 / 隔离 / 分层）：结果（类型已不存在）+ 方向（A 不引用 B）+
+   边界（保留者依赖白名单）。三者齐备才算收口。
+4. **守语义边界，不追求单向依赖树**：`Archive → CivSim`、`Domain → LogicGrid`
+   等有意保留的引用不算违规。
+
+---
+
+## 8. 工程质量
+
+- **提交门槛**：`.githooks/pre-commit`（build + 单元测试；
+  安装 `git config core.hooksPath .githooks`）。
+- **测试**：`tests/World.Tests`（NUnit，**417 条 `[Test]`**）+
+  本地执行器 `tests/World.Tests.Local` + 性能台 `tests/PerfBench`。
+  - 纪律：**只用 `[Test]`**（不写 `[TestCase]` 参数化）；**不写文件**；
+    **不触碰 `GD.*` / `LogService`**。
+  - 注意：`[Test]` 特性数 ≠ 用例数（参数化会展开）。
+- **底层类固定门槛**：`SpatialScale` 等底层类新增成员须配"与独立实现逐点对照"测试。
 - **规范**：`.editorconfig` + `dotnet format`（CI 强制校验）。
-- **CI**：GitHub Actions —— `dotnet build` → `dotnet test` → `dotnet format --verify` →
-  Godot `--headless` 冒烟。
-- **决策记录**：`docs/decisions/*.md`（ADR），记录"为什么"，不是"做了什么"。
+- **CI**：GitHub Actions —— `dotnet build` → `dotnet test` → `dotnet format --verify`。
 
-## 6. 现状对照表（建国进度 v2）
+---
 
-| 条目 | 状态 | 说明 |
-|---|---|---|
-| 分层文档 | ✅ | 本文档 + ADR-0001~0004 |
-| 单元测试项目 | ✅ | `tests/World.Tests`（NUnit 48 用例）+ 本地执行器 `World.Tests.Local` + pre-commit 门槛 |
-| 服务层 | ✅ | EventBus / LogService / ArchiveService（ADR-0002） |
-| CI | ✅ | GitHub Actions `build+test+format` + T40 性能基线作业（workflow_dispatch，自托管 runner）；headless 回归由本地 `scripts/verify.sh` 承担（本机已跑通） |
-| 诊断场景统一 | ✅ | 18 个诊断场景全迁 DiagSceneBase（ADR-0003） |
-| 重复场景 | ✅ | 已删重复 MainMenu |
-| 超大文件 | ✅ | TectonicsSimulation（6 分片）/ CivModels（21 文件）/ MapViewer（3 分片）/ CivSimDiag（4 分片） |
-| GD.Print 收编 | ✅ | 全量迁移 LogService（L3/L2/L1；断言输出与后台线程直调例外，ADR-0004） |
+## 9. 命名与目录约定
 
-## 7. 命名与目录约定
+- 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
+  `World.Render(.UI)` / `World.NoiseWorld.WorldGen` / `World.Domain` / `World.Archive` /
+  `World.CivSim.*` / `World.LogicGrid` / `World.HexPlanet` / `World.NewHexWorld` /
+  `World.PlanetLOD` / `World.Surface` / `World.Utils(.H3)` / `World.Services` /
+  `World.Camera` / `World.Diagnostics` / `World.Gameplay`。
+- ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
+  已实证：`scripts/CivSim/Engine/CivSimContext.cs` 的命名空间是 `World.CivSim`（子目录不进命名空间）。
+- 文件名 = 类名；`partial` 分片用 `原类名.职责.cs` 后缀放同目录。
+- ⚠️ **移动文件必须同步改 `.tscn` 的 `ext_resource` 路径与节点名**——
+  Godot 的**场景挂载本身就是引用边**，只改 `.cs` 会漏（决策 08 §4.3 实测教训）。
+- Godot 4.4+ 的 `.uid` 文件**一律入库**（与场景 `ext_resource` 的 `uid=` 引用配套）。
 
-- 命名空间：`World.<领域>`（CivSim / Tectonics / Biome / MapGen / HexPlanet /
-  MapView / LogicGrid / Diagnostics / UI / Camera）。
-- 文件名 = 类名；`partial` 分片用 `原类名.职责.cs` 后缀，放同目录。
-- 场景放 `scenes/<层>/`，脚本放 `scripts/<领域>/`，一一对应。
+---
 
-## 8. 迁移路线（进度勾选）
+## 10. 清退记录（两条旧线 · 已完成）
 
-- [x] ① 立宪：本文档
-- [x] ② 建军：tests/ 项目 + 首批测试（48 用例全绿）
-- [x] ③ 拆酋长：✅TectonicsSimulation（6 分片）→ ✅CivModels（21 模型文件）→ ✅MapViewer（3 分片）→ ✅CivSimDiag（4 分片）
-- [x] ④ 国家机关：服务层 scripts/Services/（EventBus 替代 ViewerLauncher、LogService、ArchiveService）——ADR-0002
-- [x] ⑤ 收税与官僚：GitHub Actions CI（build+test+format；headless 回归由本地 verify.sh 承担，见 ADR-0001）
-- [x] ⑥ 裁并重复：✅ DiagSceneBase（全部 18 个诊断场景已迁移，ADR-0003）+ ✅ 删重复 MainMenu
-- [x] ⑦ 日志收编：✅ GD.Print 全量迁移 LogService（ADR-0004；断言输出/后台线程直调例外）+ ✅ 本机 headless 回归跑通
+| 线 | 范围 | 状态 |钉住它的测试 |
+|---|---|---|---|
+| **A 线**（更早） | `World.Biome` / `MapGen` / `MapView` / `Tectonics`（206 `.cs` + 31 场景） | ✅ 已清退 | `LegacyWorldGenerationChain_IsGone` |
+| **B 线**（噪声单体） | `World.NoiseWorld`（`NoiseTerrain` / `NoisePlates` / `NoiseClimate` / `TerrainNoiseParams` / UI + 场景） | ✅ 已清退 | `LegacyNoiseWorldLine_IsGone` |
+
+**A 线保留项**（按类型语义而非目录切分，7 项重命名）：
+`MapArchive` / `FieldCodec` → `World.Archive`；
+`BiomeType` / `BiomeColors` / `PowerPalette` / `WildCropsSystem` → `World.Domain`；
+`SphereGrid` → `World.HexPlanet`。
+
+**B 线保留项**（4 类纯表现资产迁入 Render 层）：
+`NoiseBallView` → `Render.BallView`（+ `CellQuery` 拆出高亮 / 拾取纯函数）、
+`NoiseMapMode` → `Render.MapMode`（+ `ElevationBandMode`）、
+`NoiseDock` → `Render.UI.MapDock`、`NoiseCellPanel` → `Render.UI.CellInfoCard`。
+
+**暂缓项**（无消费者 ⇒ 不迁）：地球拟合 LUT / Fritsch–Carlson 样条 / `PropagateMax`
+⇒ 知识封存于 `docs/newdecision/封存-NoiseWorld设计史料.md`。
+
+**独立第二阶段**：`World.NoiseWorld.WorldGen` → `World.WorldGen` 的namespace 重构
+（父命名空间已消失，新线成了"没有父的子命名空间"；语义上需要理顺，但**不与本轮混做**）。
+
+---
 
 > 红线：每次提交可编译可运行；重构期间不加新功能；一次只拆一个文件。
+> **先加新东西 → 改消费者 → 跑测试 → 再删旧东西**（反序会炸编译，已实证：
+> `ElevationBandMode.BandName` 曾被 `BallView` 静态引用）。

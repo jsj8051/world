@@ -2,12 +2,14 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.Camera;             // OrbitalCamera
+using World.Render;             // BallView / MapMode（决策 08 §4.4 表现层保留资产）
+using World.Render.UI;          // MapDock / CellInfoCard
 using World.Utils.H3;           // H3（格 id → 经纬）
 
 namespace World.NoiseWorld.WorldGen;
 
 // 世界生成空间 · 主场景运行期接线（WorldGenWorld.tscn = WorldGenPlanet + OrbitalCamera +
-// PanelLayer/NoiseCellPanel + PanelLayer/NoiseDock，编辑器拼装——与 NoiseWorld.tscn 同构）：
+// PanelLayer/CellInfoCard + PanelLayer/MapDock，编辑器拼装）：
 // ① 相机设为当前；② 地图坞接模式表（模式持 planet 现取数据，点按钮 → 视图重烘颜色纹理）；
 // ③ 每帧 LOD/剔除刷新；④ 左键点选 → 高亮 + 信息卡（海陆/大陆/区域类型/距离/海拔）。
 // ⚠️ 星球 Radius 导出与相机 _planetRadius 场景覆写须同值（取景/裁剪 ∝ R）。
@@ -15,9 +17,9 @@ public partial class WorldGenManager : Node3D
 {
 	WorldGenPlanet _planet;
 	Camera3D _camera;
-	NoiseCellPanel _cellPanel;
-	NoiseDock _dock;
-	List<NoiseMapMode> _modes;
+	CellInfoCard _cellPanel;
+	MapDock _dock;
+	List<MapMode> _modes;
 	int _pickDiag;   // 点选打印限次
 
 	// 点选判定：按下记位，抬起时位移 < 6px 才算点选（拖转球是 OrbitalCamera 的手势，不抢）
@@ -29,11 +31,11 @@ public partial class WorldGenManager : Node3D
 		_planet = GetNode<WorldGenPlanet>("WorldGenPlanet");
 		_camera = GetNode<OrbitalCamera>("OrbitalCamera").Cam;   // 子节点 _Ready 先跑 ⇒ 相机已建
 		_camera.MakeCurrent();
-		_cellPanel = GetNode<NoiseCellPanel>("PanelLayer/NoiseCellPanel");
+		_cellPanel = GetNode<CellInfoCard>("PanelLayer/CellInfoCard");
 
 		// 地图坞：模式表 = WorldGenMapModes.CreateAll（模式持 planet 现取数据 ⇒ Regenerate 换实例安全）
 		_modes = WorldGenMapModes.CreateAll(_planet);
-		_dock = GetNode<NoiseDock>("PanelLayer/NoiseDock");
+		_dock = GetNode<MapDock>("PanelLayer/MapDock");
 		var names = new string[_modes.Count];
 		for (int i = 0; i < names.Length; i++) names[i] = _modes[i].Name;
 		_dock.BindModes(names);
@@ -46,7 +48,7 @@ public partial class WorldGenManager : Node3D
 
 	public override void _Process(double delta) => _planet.UpdateVisibility(_camera);
 
-	// _UnhandledInput：GUI 消费过的事件不会到这里（与 NoiseWorldManager 同纪律）
+	// _UnhandledInput：GUI 消费过的事件不会到这里（不抢 GUI 的输入）
 	public override void _UnhandledInput(InputEvent @event)
 	{
 		if (@event is not InputEventMouseButton mb || mb.ButtonIndex != MouseButton.Left) return;
