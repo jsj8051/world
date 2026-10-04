@@ -21,13 +21,17 @@ public class H3TerrainSamplerTests
 	static readonly Lazy<Ball> SharedBall = new(() => new Ball(1, 1f));   // 842 格（含 12 五边形）
 	static Ball Ball => SharedBall.Value;
 
-	static ElevationFieldStack MakeStack(int seed) =>
-		new(new WorldGenParams { Seed = seed });
+	// ★测试夹具（决策 08 §9 第三层）：测试为构造输入**不需要**生产抽象
+	//   `ElevationFieldStack`——它只提供"一个可采样、确定性、振幅已知的连续场"，
+	//   这条最小能力由 `TestElevationFieldBuilder` 提供（只存在于测试层）。
+	//   本文件测的是 **H3TerrainSampler**（生产侧有真实消费者：
+	//   `H3LandSeaProjector` / `LandSeaFields`），不是被夹具替代的那个组合层。
+	static SphericalField MakeField(int seed) => TestElevationFieldBuilder.Build(seed);
 
 	[Test]
 	public void CenterOnly_MatchesDirectCellDirSampling()
 	{
-		var field = MakeStack(42).Elevation;
+		var field = MakeField(42);
 		var sampler = new H3TerrainSampler(Ball);
 		var elev = sampler.SampleField(field, H3TerrainSampler.Mode.CenterOnly);
 		var dirs = Ball.CellDirs;
@@ -40,7 +44,7 @@ public class H3TerrainSamplerTests
 	[Test]
 	public void MultiSample_ValueWithinSamplePointsEnvelope()
 	{
-		var field = MakeStack(42).Elevation;
+		var field = MakeField(42);
 		var sampler = new H3TerrainSampler(Ball) { CenterWeight = 0.5f };
 		var elev = sampler.SampleField(field, H3TerrainSampler.Mode.CenterAndCorners);
 		var dirs = Ball.CellDirs;
@@ -66,7 +70,7 @@ public class H3TerrainSamplerTests
 	[Test]
 	public void CenterWeightOne_DegradesToCenterOnly()
 	{
-		var field = MakeStack(42).Elevation;
+		var field = MakeField(42);
 		var multi = new H3TerrainSampler(Ball) { CenterWeight = 1f };
 		var single = new H3TerrainSampler(Ball);
 		CollectionAssert.AreEqual(
@@ -78,7 +82,7 @@ public class H3TerrainSamplerTests
 	[Test]
 	public void SameSeed_SamplesBitwiseIdentical()
 	{
-		var field = MakeStack(42).Elevation;
+		var field = MakeField(42);
 		var a = new H3TerrainSampler(Ball).SampleField(field, H3TerrainSampler.Mode.CenterAndCorners);
 		var b = new H3TerrainSampler(Ball).SampleField(field, H3TerrainSampler.Mode.CenterAndCorners);
 		CollectionAssert.AreEqual(a, b, "同种子同格网须逐位同（确定性红线）");
@@ -91,7 +95,7 @@ public class H3TerrainSamplerTests
 		// 同 res 两个 Ball 拓扑相同；半径不同 ⇒ 球面投影的舍入模式不同，CellDirs 本身就带
 		// ~1e-5 rad 级的方向差（×3 km 振幅 → dm 级场值差，实测 0.016 m）——断言容差 0.1 m：
 		// 采样管线不得把 Ball 的半径/实例状态泄漏进采样值（归一化末位差之外的任何放大都算泄漏）。
-		var field = MakeStack(42).Elevation;
+		var field = MakeField(42);
 		var a = new H3TerrainSampler(new Ball(1, 1f)).SampleField(field);
 		var b = new H3TerrainSampler(new Ball(1, 5f)).SampleField(field);
 		Assert.That(a.Length, Is.EqualTo(b.Length));

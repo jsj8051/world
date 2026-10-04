@@ -31,39 +31,38 @@ public class WorldGenFieldTests
 		return dirs;
 	}
 
-	static ElevationFieldStack MakeStack(int seed)
-	{
-		var p = new WorldGenParams { Seed = seed };
-		return new ElevationFieldStack(p);
-	}
+	// ★测试夹具（决策 08 §9 第三层）：下面这些测试测的是 **SphericalField 族**的
+	//   确定性与无状态性，不是 `ElevationFieldStack` 这个组合层。
+	//   它只被借来"造一个可采样的场"，该职责由测试层夹具承担。
+	static SphericalField MakeField(int seed) => TestElevationFieldBuilder.Build(seed);
 
 	[Test]
 	public void SameSeed_SamplesBitwiseIdentical()
 	{
-		var a = MakeStack(42);
-		var b = MakeStack(42);
-		CollectionAssert.AreEqual(a.Elevation.SampleAll(Dirs), b.Elevation.SampleAll(Dirs),
+		var a = MakeField(42);
+		var b = MakeField(42);
+		CollectionAssert.AreEqual(a.SampleAll(Dirs), b.SampleAll(Dirs),
 			"同种子同方向须逐位同（噪声线确定性红线）");
 	}
 
 	[Test]
 	public void DifferentSeed_GeneratesDifferentField()
 	{
-		var a = MakeStack(42);
-		var b = MakeStack(43);
-		CollectionAssert.AreNotEqual(a.Elevation.SampleAll(Dirs), b.Elevation.SampleAll(Dirs),
+		var a = MakeField(42);
+		var b = MakeField(43);
+		CollectionAssert.AreNotEqual(a.SampleAll(Dirs), b.SampleAll(Dirs),
 			"不同种子须给出不同的场（防止种子未接线）");
 	}
 
 	[Test]
 	public void SamplingIsStateless_OrderIndependent()
 	{
-		var s = MakeStack(7);
-		var baseline = s.Elevation.SampleAll(Dirs);
+		var f = MakeField(7);
+		var baseline = f.SampleAll(Dirs);
 		// 交错乱采样不改结果（Sample 无状态、不耗 rng ⇒ 采样次序无关）
 		var junk = new Vector3(0.3f, 0.5f, 0.81f);
-		for (int i = 0; i < 10; i++) s.Elevation.Sample(new Vector3(junk.X * i + 0.1f, junk.Y, junk.Z));
-		CollectionAssert.AreEqual(baseline, s.Elevation.SampleAll(Dirs),
+		for (int i = 0; i < 10; i++) f.Sample(new Vector3(junk.X * i + 0.1f, junk.Y, junk.Z));
+		CollectionAssert.AreEqual(baseline, f.SampleAll(Dirs),
 			"Sample 必须无状态：任意交错采样不得改变后续结果");
 	}
 
@@ -121,13 +120,21 @@ public class WorldGenFieldTests
 		}
 	}
 
+	/// <summary>米域振幅包络：**加权组合的输出必须被各项振幅之和包络**（无未加权来源）。
+	/// <para>★原测试挂在 `ElevationFieldStack`（已清退的框架期组合层）上。
+	/// 该不变量属于**组合子语义**而非那个组合层的私有实现 ⇒改挂`WeightedSumField`
+	/// 多项组合，测的是同一个不变量，且不再依赖被清退的结构。</para></summary>
 	[Test]
-	public void ElevationStack_RangeBoundedByAmplitudeSum()
+	public void WeightedCombination_RangeBoundedByAmplitudeSum()
 	{
-		var stack = MakeStack(42);
-		var p = stack.Params;
-		float bound = p.ContinentAmpM + p.MountainAmpM + p.PlateauAmpM + p.BasinAmpM + p.DetailAmpM + 1f;
-		foreach (float v in stack.Elevation.SampleAll(Dirs))
+		const float a1 = 3000f, a2 = 2500f, a3 = 1200f, a4 = 1500f;
+		var combo = new WeightedSumField(
+			(new FbmField(31, 9000f, 4), a1),
+			(new RidgedField(new FbmField(32, 350f, 4), 2f), a2),
+			(new FbmField(33, 2500f, 2), a3),
+			(new PositiveField(new FbmField(34, 3000f, 2)), -a4));
+		float bound = a1 + a2 + a3 + a4 + 1f;
+		foreach (float v in combo.SampleAll(Dirs))
 			Assert.That(MathF.Abs(v), Is.LessThan(bound),
 				"米域海拔必须被各项振幅之和包络（无未加权来源）");
 	}

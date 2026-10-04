@@ -8,12 +8,14 @@ namespace World.WorldGen;
 //   场 = 空间函数 Sample(单位方向)——**不建二维数组、不依赖 H3**；H3 只是后继采样（离散化）的结果。
 //   输入口径 = 球面单位方向向量（原典示意 Field(x,y)，落地球面化：3D 噪声直采 |p|=1，无接缝无极点畸变）。
 // 红线（沿噪声地形线纪律）：同种子同输入**逐位同**；Sample 无状态不耗 rng；
-//   层种子由 ElevationFieldStack 经 DeterministicRandom 按**固定次序**派生（开关/增删场不挪别的层的场）。
+//   层种子按**固定次序**派生（开关/增删场不挪别的层的场）——现役派生表见 `SeedDerivation`。
 // 组合子风格：基本场（FbmField）+ 整形（RidgedField）+ 域扭曲（WarpedField）+ 加权和（WeightedSumField），
 //   任意嵌套——决策原典的「大陆场/山脉场/盆地场… → Continuous Height」全部是这一族的具体配置。
 /// <summary>
 /// 连续球面标量场（世界生成空间的"空间函数"）：输入球面单位方向，输出场值。
-/// 值域口径由子类注明（无量纲 ≈[-1,1] / [0,1] / 米）；海拔米域 = ElevationFieldStack。
+/// 值域口径由子类注明（无量纲 ≈[-1,1] / [0,1] / 米）。
+/// ★框架期组合层 `ElevationFieldStack` 已随决策 08 清退——它把本族当零件拼装，
+///   而组合层的职责此后由 `HeightComposer`（绝对高度 lerp）承担，语义不同、不可复用。
 /// </summary>
 public abstract class SphericalField
 {
@@ -100,4 +102,15 @@ public sealed class WeightedSumField : SphericalField
 		}
 		return sum;
 	}
+}
+
+/// <summary>正瓣整形：inner ≈[-1,1] → max(0, inner) ∈[0,1]（"只在正值区起作用"的场源）。
+/// <para>★原在已清退的 `ElevationFieldStack.cs` 内，因与那个组合层同文件而被连带删除。
+/// 本算子语义自洽、有独立测试（`PositiveField_ClampsNegativesToZero`）、
+/// 且**不属于**那个组合层的私有实现 ⇒ 迁到此处与它的基类同处。</para></summary>
+public sealed class PositiveField : SphericalField
+{
+	readonly SphericalField _inner;
+	public PositiveField(SphericalField inner) => _inner = inner;
+	public override float Sample(Vector3 dir) => MathF.Max(0f, _inner.Sample(dir));
 }

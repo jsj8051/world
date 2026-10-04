@@ -267,6 +267,41 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
+	/// **框架期组合层清退钉（结果断言）**——`ElevationFieldStack` 与`WorldGenParams` 已不存在。
+	///
+	/// ★这个案例改写了"零调用"的判据（决策 08 §9 · 清退判定的第三层）：
+	///   上一轮我判它"零调用"——**那是错的**。准确表述是：
+	///     **零生产语义消费者，但有测试造场消费者**。
+	///   5 条 `H3TerrainSamplerTests` 借它构造输入（测的是采样器，生产侧有真实消费者
+	///   `H3LandSeaProjector` / `LandSeaFields`），3 条 `WorldGenFieldTests` 同理。
+	///   ⇒ "有引用"≠"该类型应留下"；"无生产引用"也≠"可以立即删"。
+	///   正确顺序：**先剥离测试造场职责（提取 TestElevationFieldBuilder）→ 再删生产侧**。
+	///   若是当初直接删文件，这8 条测试会直接编译失败。
+	///
+	/// 本条钉住"结果"，配合上面的方向钉，两者齐备才算收口。
+	/// </summary>
+	[Test]
+	public void FrameworkCompositionLayer_IsGone()
+	{
+		var dead = new[] { "ElevationFieldStack", "WorldGenParams" };
+		var survivors = typeof(FinalGeography).Assembly.GetTypes()
+			.Where(t => t.Name != null && dead.Contains(t.Name))
+			.Select(t => t.Name)
+			.ToList();
+		Assert.That(survivors, Is.Empty,
+			$"框架期组合层仍有类型存活：{string.Join(",", survivors)}——" +
+			"它的组合职责已由 `HeightComposer`（绝对高度 lerp）承担，语义不同不可复用；" +
+			"若新代码需要『把SphericalField 族当零件拼装』，先判断那是不是 HeightComposer 的职责" +
+			"（决策 08 §清退 · 组合层）；若只是**测试要造一个可采样的场**，用 `TestElevationFieldBuilder`" +
+			"（测试层夹具），不要为了测试方便把生产抽象留在树上" +
+			"（这条判据的由来：它曾让8 条测试依赖一个零生产消费者的类）");
+
+		// 反向钉：被清退后测试确实不再依赖它（防"删了又偷偷加回来造场"）
+		Assert.That(Directory.Exists(FindRepoDir("scripts", "worldgen")), Is.True,
+			"scripts/worldgen/ 应存在（世界生成主链目录）");
+	}
+
+	/// <summary>
 	/// **新线命名空间钉（namespace 重构后）**——世界生成主链必须落在 `World.WorldGen`。
 	///
 	/// ★为什么需要这条：2026-10-05 之前新线是 `World.NoiseWorld.WorldGen`
