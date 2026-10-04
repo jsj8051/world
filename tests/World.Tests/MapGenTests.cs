@@ -2,11 +2,10 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using NUnit.Framework;
-using World.Biome;
+using World.Domain;
 using World.HexPlanet;
 using World.LogicGrid;
-using World.MapGen;
-using World.MapGen.Model;
+using World.Archive;
 using World.Utils;    // DeterministicRandom（2026-09-03 迁至 World.Utils）
 
 namespace World.Tests;
@@ -72,7 +71,6 @@ public class MapGenTests
         return g;
     }
 
-    /// <summary>全海洋网格。</summary>
     private static GameGrid BuildOceanGrid(int n, int seed)
         => BuildGrid(n, seed, false, 15f, 550f, 0);
 
@@ -144,10 +142,6 @@ public class MapGenTests
         Assert.AreEqual(FieldCodec.TempMinC, FieldCodec.ByteToTemp(0), 0.3f);
         Assert.AreEqual(FieldCodec.TempMaxC, FieldCodec.ByteToTemp(255), 0.3f);
     }
-
-    // ═════════════════════════════════════════════════════════════════
-    // 2. WildCropsSystem
-    // ═════════════════════════════════════════════════════════════════
 
     [Test]
     public void Suitability_OceanCells_AllZero()
@@ -234,8 +228,6 @@ public class MapGenTests
         }
     }
 
-    // ── ComputeLivestock（草原 biome + 年产 300-1200mm）──
-
     [Test]
     public void ComputeLivestock_GrasslandWater_AllMarked()
     {
@@ -292,391 +284,11 @@ public class MapGenTests
         }
     }
 
-    // ═════════════════════════════════════════════════════════════════
-    // 3. SoilSystem（纯计算，无 Godot 对象依赖）
-    // ═════════════════════════════════════════════════════════════════
-
-    [TestCase((byte)BiomeType.Riparian, 5)]
-    [TestCase((byte)BiomeType.HumidSubtropical, 4)]
-    [TestCase((byte)BiomeType.Oceanic, 4)]
-    [TestCase((byte)BiomeType.ContinentalHot, 4)]
-    [TestCase((byte)BiomeType.TropicalRainforest, 3)]
-    [TestCase((byte)BiomeType.HotSteppe, 3)]
-    [TestCase((byte)BiomeType.Subarctic, 2)]
-    [TestCase((byte)BiomeType.Tundra, 1)]
-    [TestCase((byte)BiomeType.IceCap, 1)]
-    [TestCase((byte)BiomeType.HotDesert, 1)]
-    [TestCase((byte)BiomeType.DeepOcean, 0)]
-    [TestCase((byte)BiomeType.Ocean, 0)]
-    public void Soil_BiomeBase_Lookup(byte biome, int expected)
-    {
-        Assert.AreEqual(expected, SoilSystem.BiomeBase(biome));
-    }
-
-    [Test]
-    public void ComputeSoil_OceanIsZero_LandInRange()
-    {
-        int n = BuildGrid(4, 1, true, 15f, 550f, (byte)BiomeType.TropicalRainforest).N;
-        var elevNorm = new float[n];
-        var biome = new byte[n];
-        var precip = new float[n];
-        var temp = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            // 前 10 格海洋（elevNorm<0），其余陆地（elevNorm 0.5）
-            elevNorm[i] = i < 10 ? -1f : 0.5f;
-            biome[i] = (byte)BiomeType.TropicalRainforest;
-            precip[i] = 1800f;
-            temp[i] = 26f;
-        }
-        SoilSystem.ComputeSoil(elevNorm, biome, precip, temp, null, null, out byte[] soil);
-
-        for (int i = 0; i < n; i++)
-        {
-            if (elevNorm[i] < 0f)
-                Assert.AreEqual((byte)0, soil[i], "海洋格土壤应为 0");
-            else
-                Assert.That(soil[i], Is.InRange((byte)1, (byte)5), "陆地格肥力应 1-5");
-        }
-    }
-
-    [Test]
-    public void ComputeSoil_Deterministic()
-    {
-        int n = BuildGrid(4, 2, true, 15f, 550f, (byte)BiomeType.Oceanic).N;
-        var elevNorm = new float[n];
-        var biome = new byte[n];
-        var precip = new float[n];
-        var temp = new float[n];
-        var flow = new int[n];
-        for (int i = 0; i < n; i++)
-        {
-            elevNorm[i] = 0.4f;
-            biome[i] = (byte)BiomeType.HumidSubtropical;
-            precip[i] = 1000f + i % 7;
-            temp[i] = 20f;
-            flow[i] = i;
-        }
-        SoilSystem.ComputeSoil(elevNorm, biome, precip, temp, null, flow, out byte[] a);
-        SoilSystem.ComputeSoil(elevNorm, biome, precip, temp, null, flow, out byte[] b);
-        CollectionAssert.AreEqual(a, b);
-    }
-
-    // ═════════════════════════════════════════════════════════════════
-    // 4. MineralSystem（纯计算，无 Godot 对象依赖；Crust 可空）
-    // ═════════════════════════════════════════════════════════════════
-
-    [TestCase((byte)0x00, 0, 0)]        // 无矿
-    [TestCase((byte)0x11, 1, 1)]        // 富度1 铁
-    [TestCase((byte)0x35, 3, 5)]        // 富度3 煤
-    [TestCase((byte)0x28, 2, 8)]        // 富度2 宝石
-    [TestCase((byte)0x47, 0, 7)]        // 越界富度码：RichnessOf 用 &0x03 掩码（富度 3 档设计），4 被截为 0
-    public void Mineral_ByteEncoding_Decode(byte b, int rich, int type)
-    {
-        Assert.AreEqual(type, MineralSystem.TypeOf(b));
-        Assert.AreEqual(rich, MineralSystem.RichnessOf(b));
-    }
-
-    [Test]
-    public void ComputeMinerals_OceanIsZero_EncodingValid()
-    {
-        int n = BuildGrid(4, 5, true, 15f, 800f, (byte)BiomeType.HotSteppe).N;
-        var verts = BuildGrid(4, 5, true, 15f, 800f, (byte)BiomeType.HotSteppe).Verts;
-        var neighbors = BuildGrid(4, 5, true, 15f, 800f, (byte)BiomeType.HotSteppe).Neighbors;
-        var elevNorm = new float[n];
-        var precip = new float[n];
-        var age = new float[n];
-        var hydro = new float[n];
-        var sedM = new float[n];
-        var metaM = new float[n];
-        for (int i = 0; i < n; i++)
-        {
-            elevNorm[i] = i < 10 ? -1f : 0.3f + 0.5f * (float)(i % 5) / 5f;
-            precip[i] = 700f + i % 13;
-            age[i] = 0.5f;
-            hydro[i] = 0.4f;
-            sedM[i] = 0.4f;
-            metaM[i] = 0.4f;
-        }
-        // Crust 唯一构造需 SphereGrid（引擎对象，无引擎进程不可建）→ 传 null（代码 `crust?.` 安全）
-        MineralSystem.ComputeMinerals(verts, neighbors, null, elevNorm, precip, age,
-            hydro, sedM, metaM, null, 42, out byte[] minerals);
-
-        for (int i = 0; i < n; i++)
-        {
-            if (elevNorm[i] < 0f)
-            {
-                Assert.AreEqual((byte)0, minerals[i], "海洋格不应有矿");
-            }
-            else
-            {
-                Assert.That(MineralSystem.TypeOf(minerals[i]), Is.InRange(0, 8));
-                Assert.That(MineralSystem.RichnessOf(minerals[i]), Is.InRange(0, 3));
-                if (MineralSystem.TypeOf(minerals[i]) != 0)
-                    Assert.That(MineralSystem.RichnessOf(minerals[i]), Is.InRange(1, 3), "有矿必有富度");
-            }
-        }
-    }
-
-    [Test]
-    public void ComputeMinerals_Deterministic()
-    {
-        int n = BuildGrid(4, 5, true, 15f, 800f, (byte)BiomeType.HotSteppe).N;
-        var grid = BuildGrid(4, 5, true, 15f, 800f, (byte)BiomeType.HotSteppe);
-        float Seed(int i) => 0.3f + 0.5f * ((float)(i % 7)) / 7f;
-
-        MineralSystem.ComputeMinerals(grid.Verts, grid.Neighbors, null, Map(n, Seed),
-            Map(n, i => 700f + i % 13), Map(n, i => 0.5f),
-            Map(n, i => 0.4f), Map(n, i => 0.4f), Map(n, i => 0.4f),
-            null, 42, out byte[] a);
-        MineralSystem.ComputeMinerals(grid.Verts, grid.Neighbors, null, Map(n, Seed),
-            Map(n, i => 700f + i % 13), Map(n, i => 0.5f),
-            Map(n, i => 0.4f), Map(n, i => 0.4f), Map(n, i => 0.4f),
-            null, 42, out byte[] b);
-        CollectionAssert.AreEqual(a, b);
-    }
-
-    // ═════════════════════════════════════════════════════════════════
-    // 5. RiverSystem（纯计算）
-    // ═════════════════════════════════════════════════════════════════
-
-    /// <summary>构造单调下坡世界：北半球陆地（Y&gt;0）向南（Y 减）流向海洋（Y&lt;0）。</summary>
     private static GameGrid BuildSlopeWorld(int n)
     {
         Icosahedron.Subdivide(n, 6000f, out var verts, out var indices);
         return new GameGrid { N = verts.Count, GridN = n, Verts = verts.ToArray() };
     }
-
-    [Test]
-    public void RiverCompute_FlowOceanSelf_LandDownhill()
-    {
-        var world = BuildSlopeWorld(4);
-        int n = world.N;
-        var elevNorm = new float[n];
-        for (int i = 0; i < n; i++) elevNorm[i] = 0.6f * world.Verts[i].Y;   // Y>0 陆地，Y<0 海洋
-
-        RiverSystem.Compute(world.Verts, world.Neighbors, elevNorm,
-            out int[] flow, out float[] area, out byte[] riverLevel,
-            out var riverPaths, out var lakeIds, out var lakeLevel,
-            areaThreshold: 3f);
-
-        for (int i = 0; i < n; i++)
-        {
-            Assert.That(flow[i], Is.InRange(0, n - 1), $"flow[{i}] 应始终为合法顶点 id");
-            if (elevNorm[i] < 0f)
-            {
-                Assert.AreEqual(i, flow[i], "海洋格流向自身（终点）");
-            }
-            else if (flow[i] != i)
-            {
-                // 陆地非盆地：流向必须是最低邻居且严格更低（河流只从高处流向低处）
-                Assert.IsTrue(Array.IndexOf(world.Neighbors[i], flow[i]) >= 0,
-                    $"陆地格 {i} 流向 {flow[i]} 不是其邻居");
-                Assert.Less(elevNorm[flow[i]], elevNorm[i],
-                    $"陆地格 {i} 从低处流向高处，违反单调下坡");
-            }
-        }
-        // ⚠️ 不在球面斜率世界断言"必成河"：n=4 半球水系被海岸线切成大量小出水口，
-        //   单一出水口汇水 < 阈值——成河由下方链式流域确定性测试覆盖。
-        // 湖泊候选 = 陆地盆地（flow==自身）
-        foreach (int lk in lakeIds)
-        {
-            Assert.That(lk, Is.InRange(0, n - 1));
-            Assert.AreEqual(lk, flow[lk], "湖泊候选必须是盆地（无出流）");
-        }
-    }
-
-    /// <summary>
-    /// 确定性链式流域：6 格陆地链 L0→L1→…→L4→O，O 入海（W）。全部水量汇聚到 O → 必成河。
-    /// 契约：汇水 ≥ 阈值成河；流向单调下坡；海洋自指；湖泊候选=陆地盆地。
-    /// </summary>
-    [Test]
-    public void RiverCompute_ChainWorld_AccumulatesAndFormsRiver()
-    {
-        // 手工构造图：链 L0..L4 → O（出口）→ W（海洋）
-        var verts = new[] {
-            new Vector3(0f, 1f, 0f),     // 0 L0 最高
-            new Vector3(0f, 0.8f, 0f),   // 1 L1
-            new Vector3(0f, 0.6f, 0f),   // 2 L2
-            new Vector3(0f, 0.4f, 0f),   // 3 L3
-            new Vector3(0f, 0.2f, 0f),   // 4 L4
-            new Vector3(0f, 0.05f, 0f),  // 5 O 出海口（最低陆地）
-            new Vector3(0f, -0.3f, 0f),  // 6 W 海洋
-        };
-        var neighbors = new[] {
-            new[] { 1 },          // L0 → L1
-            new[] { 0, 2 },       // L1
-            new[] { 1, 3 },       // L2
-            new[] { 2, 4 },       // L3
-            new[] { 3, 5 },       // L4
-            new[] { 4, 6 },       // O → L4 / W
-            new[] { 5 },          // W
-        };
-        var elevNorm = new[] { 1.0f, 0.8f, 0.6f, 0.4f, 0.2f, 0.05f, -0.3f };
-
-        RiverSystem.Compute(verts, neighbors, elevNorm,
-            out int[] flow, out float[] area, out byte[] riverLevel,
-            out var riverPaths, out var lakeIds, out var lakeLevel,
-            areaThreshold: 3f);
-
-        // 流向：L0..L4 单调下坡至 O；O 入海；W 自指
-        Assert.AreEqual(1, flow[0]);
-        Assert.AreEqual(2, flow[1]);
-        Assert.AreEqual(3, flow[2]);
-        Assert.AreEqual(4, flow[3]);
-        Assert.AreEqual(5, flow[4]);
-        Assert.AreEqual(6, flow[5], "出海口流向海洋");
-        Assert.AreEqual(6, flow[6], "海洋格流向自身");
-
-        // 汇水面积：L0 上游 1 + 自身 = 1；O = 6 全部汇聚；W = 6（O 汇入）
-        Assert.AreEqual(1f, area[0], 1e-4f);
-        Assert.AreEqual(2f, area[1], 1e-4f);
-        Assert.AreEqual(6f, area[5], 1e-4f);
-
-        // 成河：water ≥ 3 的陆地格 L2(3) L3(4) L4(5) O(6)
-        Assert.AreEqual((byte)1, riverLevel[2]);
-        Assert.AreEqual((byte)1, riverLevel[3]);
-        Assert.AreEqual((byte)1, riverLevel[4]);
-        Assert.AreEqual((byte)1, riverLevel[5], "汇聚最多的出海口必是河");
-        Assert.AreEqual((byte)0, riverLevel[6], "海洋格不标河");
-        // 河流路径：源头 L2（无上游河格，water=3 首次超阈）→ 沿流向到出海口
-        // ⚠️ 海洋格不标河（riverLevel=0）→ 路径在出海口 O 断流，不含海洋格
-        Assert.AreEqual(1, riverPaths.Count, "链式流域应恰好一条主河道");
-        CollectionAssert.AreEqual(new[] { 2, 3, 4, 5 }, riverPaths[0]);
-        // 无陆地盆地 → 无湖泊
-        Assert.AreEqual(0, lakeIds.Count);
-    }
-
-    [Test]
-    public void RiverCompute_Deterministic()
-    {
-        var world = BuildSlopeWorld(4);
-        int n = world.N;
-        var elevNorm = new float[n];
-        for (int i = 0; i < n; i++) elevNorm[i] = 0.6f * world.Verts[i].Y;
-
-        RiverSystem.Compute(world.Verts, world.Neighbors, elevNorm,
-            out int[] flowA, out float[] areaA, out byte[] rlA, out var pA, out var lIdA, out var llA);
-        RiverSystem.Compute(world.Verts, world.Neighbors, elevNorm,
-            out int[] flowB, out float[] areaB, out byte[] rlB, out var pB, out var lIdB, out var llB);
-
-        CollectionAssert.AreEqual(flowA, flowB);
-        CollectionAssert.AreEqual(areaA, areaB);
-        CollectionAssert.AreEqual(rlA, rlB);
-        CollectionAssert.AreEqual(lIdA, lIdB);
-        CollectionAssert.AreEqual(llA, llB);
-        Assert.AreEqual(pA.Count, pB.Count);
-    }
-
-    [Test]
-    public void RiverRebuildPaths_MonotonicToSink()
-    {
-        var world = BuildSlopeWorld(4);
-        int n = world.N;
-        var elevNorm = new float[n];
-        for (int i = 0; i < n; i++) elevNorm[i] = 0.6f * world.Verts[i].Y;
-
-        RiverSystem.Compute(world.Verts, world.Neighbors, elevNorm,
-            out int[] flow, out _, out byte[] riverLevel, out _, out _, out _);
-        var paths = RiverSystem.RebuildPaths(flow, riverLevel, elevNorm);
-
-        foreach (int[] path in paths)
-        {
-            Assert.GreaterOrEqual(path.Length, 3, "河流路径应为源头→入海/盆地（≥3 格）");
-            Assert.That(path[0], Is.InRange(0, n - 1));
-            for (int k = 0; k < path.Length; k++)
-                Assert.That(path[k], Is.InRange(0, n - 1));
-            // 沿流向单调下坡（或终止于海洋/盆地），见 Compute 同步逻辑
-            for (int k = 0; k + 1 < path.Length; k++)
-            {
-                if (elevNorm[path[k + 1]] < 0f) break;
-                Assert.Less(elevNorm[path[k + 1]], elevNorm[path[k]],
-                    $"路径 {k}→{k + 1} 非单调下坡");
-            }
-        }
-    }
-
-    // ═════════════════════════════════════════════════════════════════
-    // 6. ClimateModel / Model 注册表（实例构造纯：只存 pipe，不触引擎）
-    // ═════════════════════════════════════════════════════════════════
-
-    [Test]
-    public void Models_FieldAndLoopCounts()
-    {
-        var pipe = new PlanetPipeline();
-        var models = ClimateModel.Models(pipe);
-
-        int fields = 0, loops = 0, closed = 0, cut = 0, ignored = 0;
-        foreach (var m in models)
-        {
-            if (m is IFieldRole) fields++;
-            else if (m is ILoopRole l)
-            {
-                loops++;
-                if (l.Status == "Closed") closed++;
-                else if (l.Status == "Cut") cut++;
-                else if (l.Status == "Ignored") ignored++;
-            }
-        }
-        Assert.AreEqual(17, fields, "13 Stage1/Stage2 气候场 + 水文/资源/土壤 4 场");
-        Assert.AreEqual(8, loops, "8 个反馈环");
-        Assert.AreEqual(2, closed);
-        Assert.AreEqual(4, cut);
-        Assert.AreEqual(2, ignored);
-    }
-
-    [Test]
-    public void Models_FirstFieldIsElevation()
-    {
-        var pipe = new PlanetPipeline();
-        var models = ClimateModel.Models(pipe);
-        Assert.IsInstanceOf<ElevationField>(models[0]);
-    }
-
-    [Test]
-    public void ModelBase_VerifyTracksFieldPresence()
-    {
-        // 空 pipe：场未算 → Verify false；注入后 Verify true。
-        var empty = new PlanetPipeline();
-        Assert.IsFalse(new ElevationField(empty).Verify(), "未注入海拔时不应通过验证");
-
-        var filled = new PlanetPipeline { Elev = new float[1] };
-        Assert.IsTrue(new ElevationField(filled).Verify(), "注入海拔后应通过验证");
-
-        // 环：ModelBase 默认 Verify=true（无产出状态需验证）
-        Assert.IsTrue(new WetCoolingLoop(new PlanetPipeline()).Verify());
-    }
-
-    [Test]
-    public void ModelBase_NameMagnitude_Populated()
-    {
-        var pipe = new PlanetPipeline();
-        var models = ClimateModel.Models(pipe);
-        foreach (var m in models)
-        {
-            Assert.IsFalse(string.IsNullOrWhiteSpace(m.Name));
-            Assert.GreaterOrEqual(m.Magnitude, 0f);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(m.ToString()));
-        }
-    }
-
-    [Test]
-    public void ModelBase_DependenciesResolvedInsideRegistry()
-    {
-        var pipe = new PlanetPipeline();
-        var models = ClimateModel.Models(pipe);
-        var byName = new Dictionary<string, ModelBase>();
-        foreach (var m in models) byName[m.Name] = m;
-
-        // 每个模型的依赖名都注册在册（环存在 → TopoSort 不抛）
-        foreach (var m in models)
-            foreach (var dep in m.DependsOn())
-                Assert.IsTrue(byName.ContainsKey(dep), $"{m.Name} 依赖未注册：'{dep}'");
-    }
-
-    // ═════════════════════════════════════════════════════════════════
-    // 7. 模块测试：FieldCodec 编解码 → WildCrops 的端到端（小网格）
-    // ═════════════════════════════════════════════════════════════════
 
     [Test]
     public void Module_ByteEncodedGrid_WildCropsDeterministicAndBounded()
@@ -700,10 +312,6 @@ public class MapGenTests
             Assert.AreEqual(0, b & 0xE0, "不应出现超过 5 种子之外的非法位");
     }
 
-    // ═════════════════════════════════════════════════════════════════
-    // 工具
-    // ═════════════════════════════════════════════════════════════════
-
     private static bool ArraysEqual(byte[] a, byte[] b)
     {
         if (a.Length != b.Length) return false;
@@ -725,4 +333,5 @@ public class MapGenTests
         for (int i = 0; i < n; i++) a[i] = fn(i);
         return a;
     }
+
 }

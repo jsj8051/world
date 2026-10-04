@@ -149,8 +149,8 @@ public class GeologicalRegionsTests
 			Assert.That(d, Is.LessThanOrEqualTo(median + 1f), "COASTAL 区域平均离海须不高于全体中位（沿岸约束生效）");
 	}
 
-	[Test]
-
+	// 邻接表辅助（不是测试：此处曾遗留一个孤立的 [Test]，NUnit 会把私有辅助当测试报
+	// "Method is not public"——已移除；新增测试时勿在辅助方法前留悬空特性）
 	Dictionary<int, HashSet<int>> BuildAdjacency(GeologicalRegions g)
 	{
 		var neighbors = Ball.CellNeighbors;

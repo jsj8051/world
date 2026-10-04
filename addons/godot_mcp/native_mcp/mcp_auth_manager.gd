@@ -50,7 +50,18 @@ func validate_request(headers: Dictionary) -> bool:
 	# 如果认证未启用，直接通过
 	if not _enabled:
 		return true
-	
+
+	# ★安全修复（2026-10-04，P0 S-1）：fail-closed，空 token 一律拒绝。
+	#   背景：set_token() 会**静默拒绝**短于 16 字符的 token（只 push_error 后 return，
+	#   _token 保持 ""）。而原实现直接拿 _token 做逐字符比对 ⇒ 若 _token 为 ""，
+	#   客户端只要发一个 `Authorization: Bearer `（token 部分为空）就会被判定通过。
+	#   即「auth_enabled=true + token 太短/未设置」在旧行为下**完全等价于无鉴权**——
+	#   正是"配置看起来安全、实际漏洞仍在"的典型形态。
+	#   安全方向必须是 deny-by-default：token 未正确设置 ⇒ 拒绝**一切**请求。
+	if _token.is_empty():
+		push_error("[MCP Auth] Auth enabled but no valid token configured (>=16 chars). Denying ALL requests (fail-closed).")
+		return false
+
 	# 检查是否存在 Authorization 头
 	if not headers.has(HEADER_NAME):
 		return false  # 缺少认证头

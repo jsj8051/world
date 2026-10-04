@@ -64,10 +64,11 @@ public sealed class VolcanoField : ITerrainField
 	public void Place(Ball ball, GeologicalRegions regions, TectonicField tectonic, int seed,
 		IReadOnlyList<(Vector3 anchor, float azRad)> placedRangeAnchors)
 	{
-		var rnd = new DeterministicRandom(seed ^ 0x30A5);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Volcano_Place));
 		float radPerKm = 1f / SphericalFbmNoise.EarthRadiusKm;
 		int n = ball.CellDirs.Length;
-		float cellAreaKm2 = 4f * MathF.PI * SphericalFbmNoise.EarthRadiusKm * SphericalFbmNoise.EarthRadiusKm / n;
+		// 格面积统一走 SpatialScale（收口 D-10）
+		float cellAreaKm2 = (float)SpatialScale.Of(ball).CellAreaKm2;
 
 		// 陆块分组（强度过滤先行：候选格 = 陆 ∧ 构造强度 ≥ 门槛）
 		var landmassCells = new SortedDictionary<int, List<int>>();

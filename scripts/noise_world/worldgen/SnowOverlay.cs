@@ -21,7 +21,7 @@ public sealed class SnowOverlay
 
 	public SnowOverlay(int seed)
 	{
-		var rnd = new DeterministicRandom(seed ^ 0x5E0B);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Snow_Climate));
 		_climate = new SphericalFbmNoise(rnd.Next(), 2500f, 2);
 	}
 

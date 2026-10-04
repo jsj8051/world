@@ -1,5 +1,5 @@
 using NUnit.Framework;
-using World.Biome;
+using World.Domain;
 using World.CivSim;
 
 namespace World.Tests;

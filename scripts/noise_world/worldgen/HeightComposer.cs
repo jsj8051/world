@@ -42,9 +42,9 @@ public sealed class HeightComposer
 	public HeightComposer(int seed)
 	{
 		_seed = seed;
-		_large = new SphericalFbmNoise(seed ^ 0x1A6E, 5000f, 2);
-		_medium = new SphericalFbmNoise(seed ^ 0x4E02, 600f, 3);
-		_detail = new SphericalFbmNoise(seed ^ 0x4E01, 90f, 2);
+		_large = new SphericalFbmNoise(SeedDerivation.Derive(seed, SeedDerivation.Composer_Large), 5000f, 2);
+		_medium = new SphericalFbmNoise(SeedDerivation.Derive(seed, SeedDerivation.Composer_Medium), 600f, 3);
+		_detail = new SphericalFbmNoise(SeedDerivation.Derive(seed, SeedDerivation.Composer_Detail), 90f, 2);
 	}
 
 	static float Lerp(float a, float b, float t) => a + (b - a) * t;

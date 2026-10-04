@@ -33,7 +33,7 @@ public sealed class TectonicField
 		SeedUsed = seed;
 		_ball = ball;
 		_regions = regions;
-		var rnd = new DeterministicRandom(seed ^ 0x7EC7);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Tectonic_Orient));
 		_orientNoise = new SphericalFbmNoise(rnd.Next(), 6000f, 2);
 		_rndSrc = Random.Shared;   // 构建期无随机需求（帽几何是确定函数）——占位不用
 		_intensityCaps = BuildIntensityCaps();

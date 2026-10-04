@@ -12,8 +12,23 @@ namespace World.NoiseWorld.WorldGen;
 public partial class WorldGenPlanet : Node3D
 {
 	[ExportGroup("星球")]
-	[Export(PropertyHint.Enum, "res3 (41k 格)/res4 (288k 格)")]
-	public int ResLevel = 4;                    // H3 分辨率档（res4 = 渲染预算实算舒适档）
+	/// <summary>
+	/// **世界生产分辨率 = res4（冻结）**（用户 2026-10-04 拍板，§07 §5.1 F）。
+	/// res4 是**世界本身的空间离散尺度**（288,122 格，格边长 ≈26 km），
+	/// 地质 / 地貌 / 水文 / 火山 / 人文等**各模拟系统都应适配这个尺度**。
+	///
+	/// ★**不得通过降低生产分辨率来规避某个子系统的尺度适配缺陷**（§07 §5.5）：
+	/// 实测当前水文模型的**有效工作尺度集中在 res2 附近**（res4 河流格仅占陆地 0.98%），
+	/// 但该差异被认定为**水文模型的尺度适配缺陷（D-11）**，
+	/// 正确处置是**让水文适配 res4**，而不是把世界降级到 res2。
+	/// 否则会滑向"发现某模块在 res4 不工作 → 换 res3 → 另一个不工作 → 换 res2"的架构倒退。
+	///
+	/// res1~res4 同时用作**诊断实验档**（跑尺度行为测试），不是从中挑生产档。
+	/// </summary>
+	public const int ProductionRes = 4;
+
+	[Export(PropertyHint.Enum, "res2 (5.9k 格)/res3 (41k 格)/res4 (288k 格)")]
+	public int ResLevel = ProductionRes;   // 生产默认 = 世界生产分辨率（诊断时可手动切档）
 	[Export] public float Radius = 2.0f;        // 球半径（与轨道相机 _planetRadius 同值时取景正确）
 	[Export] public int ContinentCount = 7;     // 大陆锚点数（蓝噪声撒布；海陆场塑形用，地图量=陆块连通分量）
 	[Export(PropertyHint.Range, "0.02,0.9,0.01")]
@@ -35,7 +50,20 @@ public partial class WorldGenPlanet : Node3D
 	public SurfaceResolver Surface { get; private set; }    // 唯一海陆口径（Placement 阶段）
 	public FinalGeography Final { get; private set; }      // 最终地理（FinalLand/Landmass/Region/Coast——世界事实层）
 	public VolcanoField Volcanoes { get; private set; }    // 火山（Feature 实证第一例；决策 08 冻结后首例）
+	public PrecipitationModel Precipitation { get; private set; }  // 降水模型（River 2A：World Simulation 输入）
 	public RiverNetwork Rivers { get; private set; }      // 河网（World Simulation 第一下游消费者；只读 Final 层）
+	public RiverGraph RiverTopology { get; private set; } // 河网图（River 2B 水文事实：source/汇流/outlet/干支流）
+	public RiverGeometry RiverLines { get; private set; } // 连续河线（River 2B 几何表现：图的表达，不改图）
+	public BasinGraph Basins { get; private set; }        // 流域拓扑（River 2C-A：Ocean/Endorheic + BasinId；**不判湖**）
+	/// <summary>
+	/// **原始地形的内流洼地分区**（D-16）。与 `Basins`（水文路由表面上的流域）**并列且不同**：
+	/// 它始终由 `Composer.HeightM`（未填洼）算出，故开启填洼时 `LakeState` 的湖不会消失。
+	/// </summary>
+	public BasinGraph DepressionBasins { get; private set; }
+	/// <summary>原始高度上的汇流（D-16：内流洼地分区的输入；**不是**水文路由）。</summary>
+	public H3Hydrology RawHydro { get; private set; }
+	public LakeState Lakes { get; private set; }          // 湖泊状态层（River 2C-B：水量平衡；与 Basin 并列，不改拓扑）
+	public WaterTopology WaterSystem { get; private set; } // 水系拓扑（River 2C-C：水体之间的连接；组合层，不重新定义河流/湖泊）
 	public FinalSpatialIndex Index { get; private set; }   // Final 空间索引（#13：nearest/distance/within 查询基础设施）
 	public NoiseBallView View { get; private set; }         // 视图（复用现役渲染：LOD/剔除/拾取）
 	/// <summary>显示海拔（= Composer.HeightM；信息卡/判读口）。</summary>
@@ -43,6 +71,7 @@ public partial class WorldGenPlanet : Node3D
 
 	Ball _ball;
 	int _timingDiag;   // 生成耗时打印限次
+	RiverLineOverlay _riverLines;   // 连续河线叠加（表现层消费端；不改水文/拓扑）
 
 	public override void _Ready()
 	{
@@ -52,6 +81,10 @@ public partial class WorldGenPlanet : Node3D
 			lodNearRatio: LodNearRatio, backfaceCullRatio: BackfaceCullRatio);
 		AddChild(View);
 		View.BuildChunks();
+		// 连续河线叠加（表现层；消费 RiverGeometry，不改图）
+		_riverLines = new RiverLineOverlay { Name = "RiverLines" };
+		View.AddChild(_riverLines);
+		_riverLines.Build(_ball, RiverLines, RiverTopology);
 	}
 
 	/// <summary>全量重算（锚点 → 场 → 投影 → 区域 → 骨架 → 地貌 → 合成）+ 重烘颜色纹理。</summary>
@@ -87,8 +120,33 @@ public partial class WorldGenPlanet : Node3D
 		// 最终地理（决策 07 ④⑤）：FinalLand/Landmass/Region/Coast 全部由最终高度派生
 		Final = new FinalGeography();
 		Final.Generate(_ball, Composer, Regions);
+		Precipitation = new PrecipitationModel();
+		Precipitation.Generate(_ball, Final);
 		Rivers = new RiverNetwork();
-		Rivers.Generate(_ball, Final, Composer);
+		Rivers.Generate(_ball, Final, Composer, annualPrecipMm: Precipitation.AnnualMm);
+		// River 2B：水文事实（图）与几何表现（连续河线）分离——线只表达图，不改图
+		RiverTopology = new RiverGraph();
+		RiverTopology.Generate(_ball, Final, Rivers);
+		RiverLines = new RiverGeometry();
+		RiverLines.Generate(_ball, RiverTopology, Rivers);
+		// River 2C-A：流域拓扑（只读 flow graph 的终止事实；**本轮不判湖**，Lake 属 2C-B）
+		Basins = new BasinGraph();
+		Basins.Generate(_ball, Final, Rivers);
+		// ── D-16（2026-10-04）：**原始地形的内流洼地分区** ────────────────────────
+		//   Raw FinalHeight ─┬─ DetectDepressions（本段）──→ LakeState（湖是否存在）
+		//                    └─ HydrologyRoutingSurface ──→ FlowDirection/Basin/FlowAccum（水怎么走）
+		// ★填洼只改变"水怎么走"，不改变"湖是否存在" ⇒ LakeState 绝不能从 `Basins`
+		//   （路由表面上的流域）派生，否则开启填洼后内流湖会全部消失（实测 3,671 → 0）。
+		RawHydro = new H3Hydrology();
+		RawHydro.Generate(_ball, Composer.HeightM, 0f, Precipitation.AnnualMm);
+		DepressionBasins = new BasinGraph();
+		DepressionBasins.Generate(_ball, Final, RawHydro.Downstream, RawHydro.WeightedAccum);
+		// River 2C-B：湖泊状态层（水量平衡；只消费原始洼地分区/降水/地形，**不回写任何冻结层**）
+		Lakes = new LakeState();
+		Lakes.Generate(_ball, Final, Composer.HeightM, DepressionBasins, Precipitation.AnnualMm);
+		// River 2C-C：水系拓扑（组合层——只连接既有水体，不改 River/Basin/Lake 任何事实）
+		WaterSystem = new WaterTopology();
+		WaterSystem.Generate(_ball, Final, Rivers, RiverTopology, Basins, Lakes);
 		// Final 空间索引（#13 v1：Final World 事实的 nearest/distance/within 查询基础设施）
 		var mountainAnchors = new System.Collections.Generic.List<Godot.Vector3>();
 		foreach (var sys in Mountains.Systems) mountainAnchors.Add(sys.Anchor);
@@ -104,6 +162,9 @@ public partial class WorldGenPlanet : Node3D
 			GD.Print($"[WORLDGEN-TIMING] n={_ball.CellIds.Length} res={_ball.Res} " +
 					 $"land={Projector.LandFraction:P1} regions={Regions.Regions.Length} " +
 					 $"ridges={Mountains.Ridges.Length} " +
+					 // 2C-A 判读读数：流域总数 / 内流流域数（内流 = 湖泊候选，2C-B 才判定）
+					 $"basins={Basins.BasinCount}(endorheic {Basins.EndorheicBasinCount}) " +
+					 $"lakes={Lakes.LakeCount} " +
 					 $"thr={Projector.ThresholdUsed:F3} {sw.Elapsed.TotalMilliseconds:F0} ms");
 		if (View != null)
 		{
@@ -111,10 +172,18 @@ public partial class WorldGenPlanet : Node3D
 			View.SetElevationSource(DisplayElevation);
 			View.RefreshColors();
 		}
+		// 表现层消费端（River 2B 收尾）：河线叠加只 RiverGeometry.Lines + RiverGraph.NodeKind，
+		// 不改任何水文/拓扑事实
+		_riverLines?.Build(_ball, RiverLines, RiverTopology);
 	}
 
 	static TectonicField TectonicOf(MountainSkeleton m) => m.Tectonic;
 
 	/// <summary>每帧剔除 + LOD 刷新（宿主传当前相机）。</summary>
-	public void UpdateVisibility(Camera3D camera) => View?.UpdateVisibility(camera);
+	public void UpdateVisibility(Camera3D camera)
+	{
+		View?.UpdateVisibility(camera);
+		// v1.2：相机只影响**表现宽度**（单向：Camera → 表现层），不改 chain/档位/任何水文事实
+		_riverLines?.UpdateCameraScale(camera);
+	}
 }

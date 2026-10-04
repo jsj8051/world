@@ -3,10 +3,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using World.Biome;
+using World.Domain;
 using World.CivSim;
 using World.LogicGrid;
-using World.MapGen;
+using World.Archive;
 using World.Services;
 
 using World.CivSim.Entities;
@@ -181,7 +181,6 @@ public partial class CivSimDiag : DiagSceneBase
         if (Want("T37")) T37_CultivationGrowth();
         if (Want("T38")) T38_EquiMarginal();
         if (Want("T39")) T39_SettleStorage();
-        if (WantExplicit("T40")) T40_PerfSegments();   // ⚠️ n16 快生成 ~3-5s——仅显式 --only=T40 定期跑（不进全量默认）
         if (Want("T41")) T41_PerfHistory();    // ⚠️ 只读历史汇总，秒级——可进全量；默认不进（避免输出噪音）
         if (Want("T42")) T42_PrestigeAccumulation();
         if (Want("T43")) T43_BigManEmergence();

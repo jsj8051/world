@@ -2,7 +2,8 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.LogicGrid;
-using World.MapGen;
+using World.Domain;
+using World.Archive;
 
 using World.CivSim.Entities;
 using World.CivSim.Mechanics.Territory;

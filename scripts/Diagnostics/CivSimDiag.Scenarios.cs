@@ -4,10 +4,10 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using World.Biome;
+using World.Domain;
 using World.CivSim;
 using World.LogicGrid;
-using World.MapGen;
+using World.Archive;
 using World.Services;
 
 using World.CivSim.Entities;
@@ -27,7 +27,7 @@ public partial class CivSimDiag
     /// 只跑能量+增长（防发明/分裂污染单格场景）。</summary>
     private void S1_GrowthAndEnergy()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 1f, TechTable.StoneCore);
         // 手造领地 1 格（驻扎点格）：新模型 F = R×A×w(0)×劳动力爬坡；平衡 P → R×A
@@ -71,7 +71,7 @@ public partial class CivSimDiag
     /// 新公式（两层模型 2026-08-17）：转农条件 R_农/R × F·φ > 0.97M；Soil3（冲积土=1）下 场景A 4×1.0 > 1.41、场景B 4×0.3 < 1.41。</summary>
     private void S2_ModeMatrix()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);   // Soil3：冲积土因子=1（薄地，农业潜在=种子×φ×R×面积）
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);   // Soil3：冲积土因子=1（薄地，农业潜在=种子×φ×R×面积）
         var ctx = MakeCtx(g);
         float y0 = ctx.R[0] * g.CellAreaKm2;   // 基础狩猎产出（无工具）
 
@@ -108,7 +108,7 @@ public partial class CivSimDiag
             $"φ=1.0 农={aFarms}（应 True） φ=0.3 农={bFarms}（应 False）");
 
         // 滞回：交叉点 P≈13.8y0 处 |e_猎−e_农|<0.02 → 保持当前方式（独立 ctx 防干扰；Soil3 下 yF=4y0 交叉点不变）
-        var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g2 = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx2 = MakeCtx(g2);
         var eh = AddPolity(ctx2, 0, 13.8f * y0, TechTable.StoneCore, TechTable.Handaxe, TechTable.Grinding, TechTable.SeedWheat);
         ctx2.Suit[0, 0] = 1.0f;
@@ -131,7 +131,7 @@ public partial class CivSimDiag
     /// <summary>S3：份额守恒——3 实体同格，同化 30 tick 后 Σ=1 恒成立，主导单调增。</summary>
     private void S3_ShareConservation()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         AddPolity(ctx, 0, 100f, TechTable.StoneCore);
@@ -172,7 +172,7 @@ public partial class CivSimDiag
     {
         // 8 格赤道环（RingLinks 精确邻接）：
         // 格 0-3 母体领地（dist 0/1/2/3），格 4 无主 → 殖民目标（distance best）
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.Fire, TechTable.Handaxe);
@@ -206,7 +206,7 @@ public partial class CivSimDiag
     /// <summary>S5：传播依赖——前置缺失不传；补全后按 SpreadBase 传（同格接触，不依赖邻格表）。</summary>
     private void S5_SpreadDependency()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         // ⚠️ 2026-08-18 阶段2 一格一实体：传播只在**邻格**（占据格接触），无同格对——
         //   a/b 分置相邻格（cell 0/1，赤道均分互邻）。
@@ -237,7 +237,7 @@ public partial class CivSimDiag
     /// <summary>S6：宗教锁——盈余+细石器 → 萨满；持种子但狩猎 → 不升祖先（不读时代）。</summary>
     private void S6_ReligionLock()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // ⚠️ 8 格：e3 需独立格（同格会触发传播段同化稀释份额）
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // ⚠️ 8 格：e3 需独立格（同格会触发传播段同化稀释份额）
         var ctx = MakeCtx(g);
         var e1 = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith);
         e1.Surplus = 0.5f;   // 盈余期
@@ -275,7 +275,7 @@ public partial class CivSimDiag
     /// ⚠️ 2026-08-18 阶段2 一格一实体：凝聚边 = 邻格占据部落对（无同格对）——a/b 分置相邻格。</summary>
     private void T24_TerritoryCohesion()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 200f, TechTable.StoneCore);
         var b = AddPolity(ctx, 7, 200f, TechTable.StoneCore);   // 邻格（赤道环 0↔7 相邻——探针实测）；AddPolity 默认同语言群 test_grp
@@ -300,7 +300,7 @@ public partial class CivSimDiag
     private void T25_FissionPressure()
     {
         // ctxA：饥荒 P=20（<SplitPop25 但缺口够大）, FLast=5（压力 0.75）→ P_eff=35>25 → 裂变（纯饥荒驱动，张力=0）
-        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var gA = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
         var famine = AddPolity(ctxA, 0, 20f, TechTable.StoneCore);
         famine.FLast = 5f;            // 产出 1/4（RefreshCellState 未跑，手工设 FLast 供裂变压力计算）
@@ -312,7 +312,7 @@ public partial class CivSimDiag
         sm.Execute(ctxA);
         bool famineFissioned = ctxA.Fissions == 1;
         // ctxB：盈余 P=20（<SplitPop25）, FLast=20 → 无压力无张力 → P_eff=20 不裂
-        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var gB = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
         var fed = AddPolity(ctxB, 0, 20f, TechTable.StoneCore);
         fed.FLast = 20f;
@@ -329,7 +329,7 @@ public partial class CivSimDiag
     /// <summary>T26 能力开关（单元）：canoe/seed 解锁条件正确；能力 id 全集完整（无引用缺失）。</summary>
     private void T26_CapabilitySwitches()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         var withCanoe = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.Fire, TechTable.Canoe);
         var noCanoe = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
@@ -349,7 +349,7 @@ public partial class CivSimDiag
     /// 新语义：Growth 缺口（FLast<P）从 Food 类 Stocks 补——预置存粮 → 不饿；无存粮 → 饿死因子。</summary>
     private void T27_StorageBuffer()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         var withS = AddPolity(ctx, 0, 100f, TechTable.Storage, TechTable.Fire);     // 有存储（预置存粮）
         var noS = AddPolity(ctx, 1, 100f, TechTable.Fire);                          // 无存储（无存粮）
@@ -369,7 +369,7 @@ public partial class CivSimDiag
     /// 存粮耗尽 → 缺口扩大 → 饿死。验证饥荒非硬标志、由存储枯竭自然驱动。</summary>
     private void T53_FamineFromStorage()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 100f, TechTable.Fire);
         e.Stocks[CommodityTable.Index(CommodityTable.Grain)] = 150f;   // 预置存粮（够补 3.75 tick 缺口）
@@ -400,7 +400,7 @@ public partial class CivSimDiag
     /// 有 grinding 的**粮仓**存粮衰变更少（存储科技只保护粮仓，随身基础衰变）。</summary>
     private void T54_GrindingPreserves()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var withG = AddPolity(ctx, 0, 100f, TechTable.Grinding, TechTable.Storage);   // 加工+存储
         var noG = AddPolity(ctx, 1, 100f, TechTable.Storage);                          // 仅存储（无加工）
@@ -424,7 +424,7 @@ public partial class CivSimDiag
     /// 无地图依赖（8 格赤道环 0↔7 相邻——S5 探针实测 Neighbors[0]=[7]）。</summary>
     private void T55_BarterExchange()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
@@ -465,7 +465,7 @@ public partial class CivSimDiag
     /// 软断言（涌现趋势，非硬阈值）；确定性（固定对序/商品序，无 Rng）。</summary>
     private void T56_TradeConvergence()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
@@ -516,7 +516,7 @@ public partial class CivSimDiag
     /// 确定性构造：8 格赤道环 0↔7 相邻（S5 实测）；无 Rng。</summary>
     private void T57_CultureSpread()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var strong = AddPolity(ctx, 0, 200f, TechTable.StoneCore);
         var weak = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
@@ -547,7 +547,7 @@ public partial class CivSimDiag
     /// 确定性构造；0.02×255≈5/tick → 51 tick 全同化。</summary>
     private void T58_ReligionSectSpread()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var strong = AddPolity(ctx, 0, 200f, TechTable.StoneCore);
         var weak = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
@@ -568,7 +568,7 @@ public partial class CivSimDiag
     /// Z@25 双半径外（dist(0,25)=15、dist(10,25)=15 > 12）→ 独立。</summary>
     private void T59_ChiefdomPatronage()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 41);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 41);
         RingLinks(g);   // 精确环邻接——BFS 跳数 = 环距（ChiefReach=12 语义可靠）
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
@@ -594,7 +594,7 @@ public partial class CivSimDiag
     /// TradeEvents=2（皮革+羊毛各 1 次转移）、TradeVolume=12.0（6.0+6.0）——演化级观测计数正确。</summary>
     private void T60_TradeFlowStats()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         var b = AddPolity(ctx, 7, 100f, TechTable.StoneCore);
@@ -619,7 +619,7 @@ public partial class CivSimDiag
     /// 狩猎部落无聚落；重复执行不重复建（占位已设，幂等）。</summary>
     private void T61_SettlementFormation()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var farm = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
@@ -641,7 +641,7 @@ public partial class CivSimDiag
     /// 收益：粮仓容量 0.5×P×(1+0.5×TownTier)——城市 1.0×P、集镇 0.75×P、村庄 0.5×P。</summary>
     private void T62_TownFunction()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         // 城市：酋邦中心（至尊酋长聚落——HasAdmin 涌现）
         var chief = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -653,7 +653,7 @@ public partial class CivSimDiag
         sm.Execute(ctx);
         bool cityOk = city.HasAdmin && city.IsCity && city.TownTier == 2;
         // 集镇：仪式条件（宗教多样性——主导份额 < 0.7）
-        var g2 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g2 = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx2 = MakeCtx(g2);
         var e2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         e2.IsFarming = true;
@@ -663,7 +663,7 @@ public partial class CivSimDiag
         sm.Execute(ctx2);
         bool townOk = town.HasRitual && town.IsMarketTown && town.TownTier == 1;
         // 村庄：无职能（默认）
-        var g3 = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g3 = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx3 = MakeCtx(g3);
         var e3 = AddPolity(ctx3, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         e3.IsFarming = true;
@@ -683,7 +683,7 @@ public partial class CivSimDiag
     /// 新部落迁入 → 接管废墟（继承 Level）。</summary>
     private void T63_SettlementPersistence()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -714,7 +714,7 @@ public partial class CivSimDiag
     private void T64_StateEmergence()
     {
         // 构造国家：酋长 A（都城治理中心，BornTick 早）+ 成员 B/C（+贡赋池足）
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
         var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -728,7 +728,7 @@ public partial class CivSimDiag
         StateAssign.Rebuild(ctx);
         bool emerged = a.StateId == a.Id && b.StateId == a.Id && c.StateId == a.Id && a.StateSize == 3;
         // 反例①：贡赋不足（池 50 < 100）→ 非国家
-        var ctx2 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
+        var ctx2 = MakeCtx(MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx2.Tick = 50;
         var a2 = AddPolity(ctx2, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         var b2 = AddPolity(ctx2, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -741,7 +741,7 @@ public partial class CivSimDiag
         StateAssign.Rebuild(ctx2);
         bool noTribute = a2.StateId < 0 && b2.StateId < 0;
         // 反例②：都城非治理中心（HasAdmin=false → 无行政职能→非城市）→ 非国家（2026-08-24：原"无次级中心"反例随三条件拍板移除，改测 ① 都城）
-        var ctx3 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
+        var ctx3 = MakeCtx(MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx3.Tick = 50;
         var a3 = AddPolity(ctx3, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         var b3 = AddPolity(ctx3, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -754,7 +754,7 @@ public partial class CivSimDiag
         StateAssign.Rebuild(ctx3);
         bool noAdmin = a3.StateId < 0;
         // 反例③：都城存续不足（BornTick 近）→ 非国家
-        var ctx4 = MakeCtx(MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
+        var ctx4 = MakeCtx(MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8));
         ctx4.Tick = 50;
         var a4 = AddPolity(ctx4, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
         var b4 = AddPolity(ctx4, 1, 300f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -775,7 +775,7 @@ public partial class CivSimDiag
     /// 内部秩序（同国冲突 ×0.25 vs 同邦 ×0.5）。PrestigeModel 滞后 1 tick 读 StateId——直接置位验证。</summary>
     private void T65_StateMechanisms()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 10;
         var stateChief = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
@@ -832,7 +832,7 @@ public partial class CivSimDiag
     private void T66_StateCollapse()
     {
         // 先构造国家（复用 T64 构造）
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
         var a = AddPolity(ctx, 0, 500f, TechTable.StoneCore, TechTable.SeedWheat);
@@ -865,7 +865,7 @@ public partial class CivSimDiag
     /// （制度化缓和继承战争）；同酋邦窗口仍 ×2（继承战争，Polynesia 常态）。</summary>
     private void T67_SuccessionInstitutionalized()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
         var sa = new Polity { Id = 1, ChiefdomId = 9, StateId = 9, SuccessionUntil = 70 };
@@ -890,7 +890,7 @@ public partial class CivSimDiag
     /// 冷却过 → CanDeclare 允许；池不足 / 冷却中 / 不接触 → 拒绝。概率门控（WarDeclareChance）不在判定内。</summary>
     private void T70_WarDeclareGate()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // ⚠️ 精确环邻接：庇护 BFS/领地接触依赖跳数——BuildRing 桶邻接残缺（Builders 注释）
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
@@ -934,7 +934,7 @@ public partial class CivSimDiag
     /// 征服者、首领不效忠（流放）、战利品入池、原国家消失（下 tick 重建后成员并入战胜国）。</summary>
     private void T72_WarAnnex()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // ⚠️ 精确环邻接：ChiefdomModel.Rebuild 庇护 BFS 依赖跳数（Builders 注释）
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
@@ -966,7 +966,7 @@ public partial class CivSimDiag
     /// 每 tick 转移 战败国人口×WarTributeRate 入战胜国池 + 边境割地。</summary>
     private void T73_WarTribute()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // ⚠️ 精确环邻接（同 T72——割地边境判定依赖邻居表）
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
@@ -995,7 +995,7 @@ public partial class CivSimDiag
     /// <summary>T74 停战（2026-08-19 阶段5）：战争持续 ≥ WarMaxTicks 未决出 → 移除（无赔偿，损耗已发生）。</summary>
     private void T74_WarTruce()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
         ctx.Wars.Add(new War { StateIdA = 1, StateIdB = 2, Defender = 2, StartTick = ctx.Tick - CivSimContext.WarMaxTicks, LastBattleTick = ctx.Tick, WinsA = 1, WinsB = 1 });
@@ -1009,7 +1009,7 @@ public partial class CivSimDiag
     /// IsAtWar 判定（交战/朝贡敌对，非战争国不受影响）。</summary>
     private void T75_WarDiplomacy()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 50;
         ctx.Wars.Add(new War { StateIdA = 9, StateIdB = 8, Defender = 8, StartTick = ctx.Tick });
@@ -1033,7 +1033,7 @@ public partial class CivSimDiag
     /// 布局（环 8 格）：0,1 陆（母岸，格1 占据防同岸目标）/ 2,3 海 / 4,5,6 陆（对岸）/ 7 海（接缝防绕行）。</summary>
     private void T76_SeaColonization()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);
         for (int c = 0; c < g.N; c++) g.Elev[c] = (c == 2 || c == 3 || c == 7) ? -100f : 100f;
         // canoe 部落：渡海到对岸
@@ -1114,7 +1114,7 @@ public partial class CivSimDiag
     /// 2026-08-17 畜牧落地：走等边际分配器（牧场建筑并入采集档）。</summary>
     private void T28_LivestockEmergence()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0 草原可牧；格1 无生态位
@@ -1135,7 +1135,7 @@ public partial class CivSimDiag
     /// 畜牧暂缓（FHerdLast=0）→ 羊毛暂缓断言（等领地畜牧落地）。</summary>
     private void T29_GoodsAccumulation()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3);
         var ctx = MakeCtx(g);
         // ⚠️ 2026-08-17 畜牧接入分配器后：采集档潜在 = 采集+牧场（3×）→ 农田激活需 N > ΣPc/24.3 ≈ 2110——P 改 4000
         //   2026-08-17 牧场受开垦挤压（用户拍板）：田格（格0 开垦1）与牧格（格1 草场）分开，各产秸秆/羊毛
@@ -1170,7 +1170,7 @@ public partial class CivSimDiag
     /// 按潜在比例分配工人 → 凹产出比 = 2:1（2026-08-17 畜牧接入分配器；旧 4:1 是 FOf 份额公式口径）。</summary>
     private void T30_WeightAllocation()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // 草原
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);   // 草原
         var ctx = MakeCtx(g);
         g.WildLivestock = new byte[g.N];
         g.WildLivestock[0] = 1;   // 格0 可牧（采集+牧场同格：潜在 1:2）
@@ -1195,7 +1195,7 @@ public partial class CivSimDiag
     private void T31_DepletionMigrate()
     {
         // ctxA：饿（FLast=0.5 < P=1）→ 迁移
-        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var gA = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
         var eA = AddPolity(ctxA, 0, 1f, TechTable.StoneCore);
         eA.FLast = 0.5f;   // 饿（F<D；砍存量后由土地饱和/超载产生）
@@ -1206,7 +1206,7 @@ public partial class CivSimDiag
         new SplitMigrateModel().Execute(ctxA);
         bool migrated = eA.Cell != 0 && eA.LastMigrateTick >= 0;
         // ctxB：不饿（FLast=2 > P=1）→ 不迁移
-        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var gB = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
         var eB = AddPolity(ctxB, 0, 1f, TechTable.StoneCore);
         eB.FLast = 2f;
@@ -1227,7 +1227,7 @@ public partial class CivSimDiag
     {
         // ⚠️ 2026-08-17 审查：以下手算隐含假设 stone_core CarryMult=1.1（I = P×M×w）——若科技表乘数变动本测试静默失效（数字重算时同步检查）
         // 场景 A：强覆盖——A P=200 → I_A=220×0.79=173.8 > I_B×1.15=43.5×1.15 → 易主
-        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var gA = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
         var aA = AddPolity(ctxA, 0, 200f, TechTable.StoneCore);
         var bA = AddPolity(ctxA, 11, 50f, TechTable.StoneCore);
@@ -1237,7 +1237,7 @@ public partial class CivSimDiag
         new InfluenceModel().Execute(ctxA);
         bool strongTook = ctxA.CellOwner[1] == 0;
         // 场景 B：势均力敌——A P=50 → I_A=43.5 = I_B → 粘性保住 B
-        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var gB = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxB = MakeCtx(gB);
         var aB = AddPolity(ctxB, 0, 50f, TechTable.StoneCore);
         var bB = AddPolity(ctxB, 11, 50f, TechTable.StoneCore);
@@ -1255,7 +1255,7 @@ public partial class CivSimDiag
     /// 2026-08-17：掠夺改纯控制权（砍存量后无货可抢）——不再断言存量转移，验证归属变化。</summary>
     private void T33_ConflictBurst()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         ctx.Tick = 10;
         var ch = AddPolity(ctx, 0, 130f, TechTable.StoneCore, TechTable.Microlith, TechTable.Bow);   // 军事 2.7
@@ -1279,7 +1279,7 @@ public partial class CivSimDiag
     /// 胜率公式断言 + 固定 seed 采样统计。</summary>
     private void T34_WeaponAdvantage()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var withBow = AddPolity(ctx, 0, 50f, TechTable.StoneCore, TechTable.Handaxe, TechTable.Microlith, TechTable.Bow);
         var plain = AddPolity(ctx, 1, 50f, TechTable.StoneCore);
@@ -1308,7 +1308,7 @@ public partial class CivSimDiag
     private void T35_LockHoldReclaim()
     {
         // 场景 A：锁定内——A 武力夺取格 1（P=200），锁定 8 tick；场重算不碰
-        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var gA = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxA = MakeCtx(gA);
         ctxA.Tick = 10;
         var aA = AddPolity(ctxA, 0, 200f, TechTable.StoneCore);
@@ -1320,7 +1320,7 @@ public partial class CivSimDiag
         new InfluenceModel().Execute(ctxA);
         bool held = ctxA.CellOwner[1] == 0;   // 锁定内不被场覆盖
         // 场景 B：锁定过期——B 人口涨强于 A → 场收回
-        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
+        var gB = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 12);
         var ctxB = MakeCtx(gB);
         ctxB.Tick = 10;
         var aB = AddPolity(ctxB, 0, 50f, TechTable.StoneCore);
@@ -1340,7 +1340,7 @@ public partial class CivSimDiag
     /// （浆果 ×(1−开垦) 直接被替代、猎物 ×(1−0.5×开垦) 栖息地破碎）。</summary>
     private void T36_LandCompetition()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 1000f, TechTable.StoneCore);   // P=1000 ≫ 0.1×pot → 劳动力充足（土地受限区，开垦减产可见）
         ctx.CellOwner[0] = 0;
@@ -1358,7 +1358,7 @@ public partial class CivSimDiag
     /// <summary>T37 农田开垦增长（2026-08-17）：IsFarming band 每 tick 提高驻扎格开垦率（收敛向 1）；非农格不动。</summary>
     private void T37_CultivationGrowth()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var fa = AddPolity(ctx, 0, 50f, TechTable.StoneCore, TechTable.SeedWheat);
         fa.IsFarming = true;
@@ -1382,7 +1382,7 @@ public partial class CivSimDiag
     /// ④ 农田未激活（段 A）时无农业产出（负分配截断——T29 修复的 bug 回归防护）。</summary>
     private void T38_EquiMarginal()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var e = AddPolity(ctx, 0, 0f, TechTable.StoneCore, TechTable.SeedWheat);
         e.IsFarming = true;
@@ -1423,7 +1423,7 @@ public partial class CivSimDiag
     /// ③ 定居生育跃迁：盈余下 settle 实体增长 r×1.5 更快。</summary>
     private void T39_SettleStorage()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var farm = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         farm.IsFarming = true;
@@ -1451,83 +1451,6 @@ public partial class CivSimDiag
         bool growthBoost = gB.P > gA.P * 1.05f;
         Check("T39 定居+存储", settleOk && layered && growthBoost,
             $"settle派生={settleOk} 存储分层(storage粮仓剩{st1.Stocks[gi]:F1} < +陶器剩{st2.Stocks[gi]:F1}) 定居增长(gA={gA.P:F1} < gB={gB.P:F1})");
-    }
-
-
-    /// <summary>T40 性能分段基线（2026-08-17 审查新增，防优化劣化）：
-    /// MapGen 快管线（n16/600My，与真实生成同参数）分段计时——板块/管线/存档/总。
-    /// 基线存 user://perf_baseline.json（首次记录），后续对比阈值 ×1.5（+50% 报警）。
-    /// 运行：headless -- --only=T40（~30-40s）；⚠️ 不进全量默认（贵）。
-    /// 基线释义：n16 板块 ~26s 基线（n64 的 1/16 时间）——任何模型算法改动后跑一次防回归。</summary>
-    private void T40_PerfSegments()
-    {
-        string baselinePath = "user://perf_baseline.json";
-        string outPath = "user://maps/perf_n16.mpa";
-        var gen = new MapGenerator
-        {
-            Seed = 42,
-            RadiusKm = 128f,
-            TectonicsGridN = 16,       // n16 快基线（n64 的 1/16）
-            SimMegayears = 600f,
-            OutputPath = outPath,
-        };
-        gen.Generate();
-        bool hasTec = MapGenerator.LastTimings.TryGetValue("tectonics_ms", out long tec);
-        bool hasPipe = MapGenerator.LastTimings.TryGetValue("pipeline_ms", out long pipe);
-        bool hasArc = MapGenerator.LastTimings.TryGetValue("archive_ms", out long arc);
-        long total = tec + pipe + arc;
-        // 基线读写（user:// 可写；JSON 简单格式）
-        bool baselineOk = true;
-        string oldBaseline = null;
-        if (FileAccess.FileExists(baselinePath))
-            oldBaseline = FileAccess.GetFileAsString(baselinePath);
-        if (oldBaseline == null || oldBaseline.Length == 0 || !oldBaseline.Contains("tectonics_ms"))
-        {
-            using var f = FileAccess.Open(baselinePath, FileAccess.ModeFlags.Write);
-            if (f != null)
-            {
-                f.StoreString($"{{\"tectonics_ms\":{tec},\"pipeline_ms\":{pipe},\"archive_ms\":{arc},\"total_ms\":{total},\"n\":16,\"seed\":42}}");
-                LogService.Log("T40", $"首次基线已记录 → {baselinePath}（板块{tec}ms 管线{pipe}ms 存档{arc}ms 总{total}ms）");
-            }
-            else
-            {
-                baselineOk = false;
-                LogService.Log("T40", "⚠️ 无法写基线文件（仅本次耗时报告）");
-            }
-        }
-        else
-        {
-            // 解析基线（简单解析 "key":value）
-            float bTec = 0, bPipe = 0, bArc = 0, bTotal = 0;
-            var parts = oldBaseline.Split(',');
-            foreach (var p in parts)
-            {
-                var kv = p.Split(':');
-                if (kv.Length != 2) continue;
-                string k = kv[0].Trim('{', '}', '"', ' ');
-                if (float.TryParse(kv[1].Trim('}', '"', ' '), out float v))
-                {
-                    if (k == "tectonics_ms") bTec = v;
-                    else if (k == "pipeline_ms") bPipe = v;
-                    else if (k == "archive_ms") bArc = v;
-                    else if (k == "total_ms") bTotal = v;
-                }
-            }
-            const float threshold = 1.5f;   // +50% 报警（机器波动容忍）
-            bool tecOk = tec <= bTec * threshold;
-            bool pipeOk = pipe <= bPipe * threshold;
-            // ⚠️ 2026-08-18 修复：archive 基线可能为 0ms（当时太快记 0）→ 本次 1ms 即超 0×1.5=0 误报劣化。
-            //   基线 ≤2ms 视为噪声容差（存档 n16 极小），直接达标。
-            bool arcOk = bArc <= 2f ? true : arc <= bArc * threshold;
-            bool totalOk = total <= bTotal * threshold;
-            baselineOk = tecOk && pipeOk && arcOk && totalOk;
-            LogService.Log("T40", $"基线 板块{bTec:F0} 管线{bPipe:F0} 存档{bArc:F0} 总{bTotal:F0} | 本次 {tec}/{pipe}/{arc}/{total} | 阈值 ×{threshold}");
-            if (!baselineOk)
-                LogService.Log("T40", $"⚠ 性能劣化！超基线 +50%——检查近期 MapGen/管线改动（算法回归或死循环）");
-        }
-        Check("T40 MapGen 分段基线（n16）", baselineOk && hasTec && hasPipe && hasArc,
-            $"板块={tec}ms 管线={pipe}ms 存档={arc}ms 总={total}ms");
-        PerfLog.Summarize("mapgen", "MapGen 分段");
     }
 
 
@@ -1559,7 +1482,7 @@ public partial class CivSimDiag
     /// 缺口→不涨。绝对盈余 2 人 × 60 tick → 声望 0.6（未达 BigMan 阈值 1.0——阈值边界验证）。</summary>
     private void T42_PrestigeAccumulation()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
@@ -1579,7 +1502,7 @@ public partial class CivSimDiag
     /// 声望 3.0 ≥ 1.0 → BigMan；缺口 band 永不。</summary>
     private void T43_BigManEmergence()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
         var b = AddPolity(ctx, 1, 100f, TechTable.StoneCore);
@@ -1598,7 +1521,7 @@ public partial class CivSimDiag
     /// BigMan + 泛灵（无谱系）→ 卡在 BigMan。</summary>
     private void T44_ChiefInstitutionalize()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         a.IsFarming = true;   // settle → 祖先宗教可达
@@ -1619,7 +1542,7 @@ public partial class CivSimDiag
     /// 确定性构造：28 格赤道环（dist(0,14)=14 > 12，dist(0,3)=3 ≤ 12）。</summary>
     private void T45_ChiefdomCoalesce()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 28);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 28);
         RingLinks(g);   // 精确环邻接——BFS 跳数 = 环距
         var ctx = MakeCtx(g);
         // 酋长 A：格 0（领地 {0,1}），声望 1.2 + 祖先宗教 → IsChief
@@ -1659,7 +1582,7 @@ public partial class CivSimDiag
     /// 但 b 仍在 a 的 ChiefReach 内 → 酋邦庇护保持（史实：patron-client 可跨族；政治体不依赖领地/语言网络）。</summary>
     private void T46_PolityIndependence()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // 精确环邻接
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);
@@ -1682,7 +1605,7 @@ public partial class CivSimDiag
     /// 未贡献不受赈——同一酋邦内对比衰减。</summary>
     private void T47_TributeReciprocity()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctx = MakeCtx(g);
         var chief = AddPolity(ctx, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         chief.IsFarming = true;
@@ -1708,7 +1631,7 @@ public partial class CivSimDiag
     private void T48_EliteSupport()
     {
         // 场景 A：贡赋充足
-        var gA = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var gA = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxA = MakeCtx(gA);
         var ca = AddPolity(ctxA, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         ca.IsFarming = true;
@@ -1720,7 +1643,7 @@ public partial class CivSimDiag
         new PrestigeModel().Execute(ctxA);
         bool fed = ca.P == 100f;   // 精英被供养 → P 不变
         // 场景 B：贡赋不足
-        var gB = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var gB = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         var ctxB = MakeCtx(gB);
         var cb = AddPolity(ctxB, 0, 100f, TechTable.StoneCore, TechTable.SeedWheat);
         cb.IsFarming = true;
@@ -1740,7 +1663,7 @@ public partial class CivSimDiag
     /// 酋邦时胜率显著更低（采样统计）。</summary>
     private void T49_AllianceStrength()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         // ⚠️ 2026-08-17 审查修正：相等初始 P（ch=100/ow=100）单轮判定 ch.P>ow.P 才有效
         //   （不等 P 时 challenger 输了 P 仍高——判定恒真）；联盟 ow=100+70=170 → winChance 0.37 vs 0.5
         // 场景 A：单部落 owner P=100 vs 入侵 100
@@ -1769,7 +1692,7 @@ public partial class CivSimDiag
     /// 给 Prestige 最高者设 SuccessionUntil（窗口）；窗口内 ConflictModel 冲突概率 ×2（代码路径）。</summary>
     private void T50_SuccessionWindow()
     {
-        var g = MakeGrid(100f, (byte)Biome.BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
+        var g = MakeGrid(100f, (byte)BiomeType.HotSteppe, 20f, 800f, 3, nCells: 8);
         RingLinks(g);   // 精确环邻接（庇护 BFS 跳数可靠）
         var ctx = MakeCtx(g);
         var a = AddPolity(ctx, 0, 100f, TechTable.StoneCore);

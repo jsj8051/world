@@ -53,7 +53,7 @@ public sealed class RegionalLandforms : ITerrainField
 	public RegionalLandforms(int seed)
 	{
 		_seed = seed;
-		var rnd = new DeterministicRandom(seed ^ 0x71A0);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Landform_TopNoise));
 		_topNoise = new SphericalFbmNoise(rnd.Next(), 350f, 2);   // 顶面纹理波长 ~ 台地内部结构
 	}
 

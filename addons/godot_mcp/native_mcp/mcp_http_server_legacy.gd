@@ -103,23 +103,33 @@ func start() -> bool:
 		return false
 	
 	_tcp_server = TCPServer.new()
-	
-	var error: Error = _tcp_server.listen(_port)
+
+	# ★安全修复（2026-10-04，P0 S-1）：显式绑定地址，禁止默认 0.0.0.0。
+	#   原实现 `_tcp_server.listen(_port)` 未传 bind_address ⇒ Godot 默认 "*" = 0.0.0.0，
+	#   即**监听全部网卡**，局域网内任何机器都能连上本机的 MCP 调试端口。
+	#   同时 `_allow_remote` 此前只是存了个变量、在 listen 处**完全没有参与决策**
+	#   （只影响 CORS 头）⇒ `allow_remote=false` 是个"看起来安全、实际无效"的假配置项。
+	#   现在让它**真正生效**：allow_remote=false ⇒ 只绑定 127.0.0.1（回环），
+	#   内核层面拒绝一切非本机连接；这比单靠应用层鉴权更彻底。
+	#   ⚠️ 若将来确实需要远程调试，须显式设 allow_remote=true **并且** 开启鉴权。
+	var bind_address: String = "*" if _allow_remote else "127.0.0.1"
+	var error: Error = _tcp_server.listen(_port, bind_address)
 	if error != OK:
-		var error_msg: String = "Failed to listen on port " + str(_port) + ": " + str(error)
+		var error_msg: String = "Failed to listen on " + bind_address + ":" + str(_port) + ": " + str(error)
 		server_error.emit(error_msg)
 		if _log_callback.is_valid():
 			_log_callback.call("ERROR", error_msg)
 		return false
-	
+
 	_active = true
 	_thread = Thread.new()
 	_thread.start(_http_server_loop)
-	
+
 	server_started.emit()
 	if _log_callback.is_valid():
-		_log_callback.call("INFO", "Server started on port " + str(_port))
-	
+		_log_callback.call("INFO", "Server started on " + bind_address + ":" + str(_port) +
+			" (allow_remote=" + str(_allow_remote) + ")")
+
 	return true
 
 func _check_port_conflict(port: int) -> String:

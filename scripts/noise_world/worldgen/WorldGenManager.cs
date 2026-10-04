@@ -84,8 +84,10 @@ public partial class WorldGenManager : Node3D
 		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, _planet.DisplayElevation[i]);
 
 		if (_pickDiag++ >= 20) return;   // 控制台判读限次（信息卡常驻）
-		string region = g.RegionOfCell[i] >= 0
-			? $"区域{g.RegionOfCell[i]}({GeologicalRegions.TypeName(g.Regions[g.RegionOfCell[i]].Type)})"
+		// 收口（§07 D-1）：判读口与地图模式同读 Final 口径（同一行里其它字段本来就都是 Final）
+		int rid = f.FinalRegionOfCell[i];
+		string region = rid >= 0
+			? $"区域{rid}({GeologicalRegions.TypeName(g.Regions[rid].Type)})"
 			: "区域−";
 		GD.Print($"[WORLDGEN-PICK] 格 {i} lat={latDeg:F1} lng={lngDeg:F1} " +
 				 $"land={f.FinalLand[i]}({f.FinalLandFraction[i]:P0}) 陆块={f.FinalLandmassId[i]} {region} " +

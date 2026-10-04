@@ -95,7 +95,7 @@ public sealed class GeologicalRegions
 	public GeologicalRegions(int seed)
 	{
 		_seed = seed;
-		var rnd = new DeterministicRandom(seed ^ 0x600D);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Regions_Noise));
 		_sizeNoise = new SphericalFbmNoise(rnd.Next(), 8000f, 2);   // 低频：相邻区域大小相关
 		_w1 = new SphericalFbmNoise(rnd.Next(), 2500f, 3);
 		_w2 = new SphericalFbmNoise(rnd.Next(), 2500f, 3);
@@ -116,7 +116,9 @@ public sealed class GeologicalRegions
 		if (proj == null) throw new ArgumentNullException(nameof(proj));
 		int n = ball.CellDirs.Length;
 		var rnd = new DeterministicRandom(_seed);
-		float cellAreaKm2 = 4f * MathF.PI * SphericalFbmNoise.EarthRadiusKm * SphericalFbmNoise.EarthRadiusKm / n;
+		// 格面积统一走 SpatialScale（收口 D-10）：此前是各处内联的 4πR²/n，
+		// 与 LakeState 的 H3 平均表并存 ⇒ 同一世界两套"一格多大"。现只有 SpatialScale 一个真相源。
+		float cellAreaKm2 = (float)SpatialScale.Of(ball).CellAreaKm2;
 
 		// ── ① 大陆格集合 + 面积口径区域数（×random(0.8,1.2) 抖动，决策 §四）──
 		var continentCells = new List<int>[proj.LandmassCount];
@@ -273,7 +275,7 @@ public sealed class GeologicalRegions
 	void BuildBaseElevationField(Ball ball, int[] regionBase, int[] kPerContinent)
 	{
 		int n = ball.CellDirs.Length;
-		var rnd = new DeterministicRandom(_seed ^ 0xB4E5);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(_seed, SeedDerivation.Regions_BaseElevation));
 		foreach (var region in Regions)
 		{
 			var (lo, hi) = BaseElevBandM[(int)region.Type];
@@ -366,7 +368,7 @@ public sealed class GeologicalRegions
 	{
 		int regionCount = Regions.Length;
 		var scores = new float[regionCount, 7];
-		var rndType = new DeterministicRandom(_seed ^ 0x5EED);
+		var rndType = new DeterministicRandom(SeedDerivation.Derive(_seed, SeedDerivation.Regions_TypeAssign));
 		for (int r = 0; r < regionCount; r++)
 		{
 			var g = Regions[r];

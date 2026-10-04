@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using World.CivSim;
 using World.LogicGrid;
-using World.MapView;
+using World.Domain;
 using World.Services;
 
 using World.CivSim.Entities;

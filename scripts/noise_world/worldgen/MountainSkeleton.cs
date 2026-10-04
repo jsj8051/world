@@ -66,7 +66,7 @@ public sealed class MountainSkeleton : ITerrainField
 		_seed = seed;
 		_baseSigmaKm = baseSigmaKm ?? BaseSigmaKm;
 		_baseHeightM = baseHeightM ?? BaseHeightM;
-		var rnd = new DeterministicRandom(seed ^ 0x9E57);
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Mountain_Noise));
 		_rugged = new SphericalFbmNoise(rnd.Next(), 90f, 3);
 		_axialMedium = new SphericalFbmNoise(rnd.Next(), 350f, 2);
 	}
@@ -83,10 +83,11 @@ public sealed class MountainSkeleton : ITerrainField
 		var regionOfCell = regions.RegionOfCell;
 		int n = ball.CellDirs.Length;
 		var rnd = new DeterministicRandom(_seed);
-		_walkMain = new DeterministicRandom(_seed ^ 0x1111);
-		_walkBranch = new DeterministicRandom(_seed ^ 0x2222);
+		_walkMain = new DeterministicRandom(SeedDerivation.Derive(_seed, SeedDerivation.Mountain_WalkMain));
+		_walkBranch = new DeterministicRandom(SeedDerivation.Derive(_seed, SeedDerivation.Mountain_WalkBranch));
 		var dirs = ball.CellDirs;
-		float cellAreaKm2 = 4f * MathF.PI * SphericalFbmNoise.EarthRadiusKm * SphericalFbmNoise.EarthRadiusKm / n;
+		// 格面积统一走 SpatialScale（收口 D-10）
+		float cellAreaKm2 = (float)SpatialScale.Of(ball).CellAreaKm2;
 
 		// ── Field 层：构造场（主轴/强度/锚点池——决策 06，从本类上收）──
 		Tectonic = new TectonicField(_seed, ball, regions);

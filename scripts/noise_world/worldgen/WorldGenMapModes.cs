@@ -54,7 +54,8 @@ public static class WorldGenMapModes
 		public override string Name => "地质区域";
 		public override Color CellColorAt(int i)
 		{
-			int r = _p.Regions.RegionOfCell[i];
+			// 收口（§07 D-1）：地图语义一律读 **Final 口径**（最终区域归属；Placement 版仅供生成内部）
+			int r = _p.Final.FinalRegionOfCell[i];
 			if (r < 0) return new Color(OceanR, OceanG, OceanB);
 			return _p.Regions.Regions[r].Type switch
 			{
@@ -79,10 +80,11 @@ public static class WorldGenMapModes
 		public override string Name => "离岸距离";
 		public override Color CellColorAt(int i)
 		{
-			var pr = _p.Projector;
-			int d = pr.PlacementLand[i] ? pr.DistToCoast[i] : pr.DistToLand[i];
+			// 收口（§07 D-1）：离岸距离同样读 **Final 口径**（FinalDistToCoast/Land 由 FinalLand 派生）
+			var f = _p.Final;
+			int d = f.FinalLand[i] ? f.FinalDistToCoast[i] : f.FinalDistToLand[i];
 			float t = System.Math.Clamp(d / 12f, 0f, 1f);   // 12 跳满域（res4 实测量级）
-			return pr.PlacementLand[i]
+			return f.FinalLand[i]
 				? new Color(0.93f - 0.45f * t, 0.78f - 0.30f * t, 0.32f + 0.15f * t)   // 陆：近岸米白 → 内陆深棕
 				: new Color(0.55f - 0.50f * t, 0.75f - 0.59f * t, 0.80f - 0.38f * t);  // 海：近岸青白 → 深海蓝
 		}

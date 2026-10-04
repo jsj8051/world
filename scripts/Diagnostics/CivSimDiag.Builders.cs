@@ -4,11 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using World.Biome;
+using World.Domain;
 using World.CivSim;
 using World.Utils;
 using World.LogicGrid;
-using World.MapGen;
+using World.Archive;
 using World.Services;
 
 using World.CivSim.Entities;
@@ -44,9 +44,9 @@ public partial class CivSimDiag
             g.RiverFlow[c] = -1;
             g.SoilLevel[c] = soil;
         }
-        g.MonthPrecip = new byte[MonsoonSystem.MonthCount][];
-        g.MonthTemp = new byte[MonsoonSystem.MonthCount][];
-        for (int mm = 0; mm < MonsoonSystem.MonthCount; mm++)
+        g.MonthPrecip = new byte[Calendar.MonthsPerYear][];
+        g.MonthTemp = new byte[Calendar.MonthsPerYear][];
+        for (int mm = 0; mm < Calendar.MonthsPerYear; mm++)
         {
             g.MonthPrecip[mm] = new byte[m];
             g.MonthTemp[mm] = new byte[m];
@@ -258,8 +258,8 @@ public partial class CivSimDiag
         for (int i = 0; i < 2; i++) f.Store8(0);          // mineral
         for (int i = 0; i < 2; i++) f.Store8(3);          // soil
         for (int i = 0; i < 2; i++) f.Store8(0);          // monsoon
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++) for (int i = 0; i < 2; i++) f.Store8(21);   // monthPrecip
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++) for (int i = 0; i < 2; i++) f.Store8(170);  // monthTemp
+        for (int m = 0; m < Calendar.MonthsPerYear; m++) for (int i = 0; i < 2; i++) f.Store8(21);   // monthPrecip
+        for (int m = 0; m < Calendar.MonthsPerYear; m++) for (int i = 0; i < 2; i++) f.Store8(170);  // monthTemp
         for (int i = 0; i < 2; i++) { f.StoreFloat(0); f.StoreFloat(0); f.StoreFloat(0); }   // currentDirs
         for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // warmth
         for (int i = 0; i < 2; i++) f.StoreFloat(0f);     // strength

@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
-using World.Biome;
+using World.Domain;
 using World.CivSim;
 using World.HexPlanet;
 using World.LogicGrid;

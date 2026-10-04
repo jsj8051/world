@@ -2,10 +2,10 @@ using System.Collections.Generic;
 using System.Reflection;
 using Godot;
 using NUnit.Framework;
-using World.Biome;
+using World.Domain;
 using World.HexPlanet;
 using World.LogicGrid;
-using World.MapGen;
+using World.Archive;
 
 using World.CivSim.Entities;
 namespace World.Tests;
@@ -26,7 +26,7 @@ public class ArchiveLayoutTests
         ArchiveLayout.FType.I32 => 4,
         ArchiveLayout.FType.F32 => 4,
         ArchiveLayout.FType.V3 => 12,
-        ArchiveLayout.FType.Month2D => MonsoonSystem.MonthCount,
+        ArchiveLayout.FType.Month2D => Calendar.MonthsPerYear,
         _ => 0,
     };
 
@@ -151,8 +151,8 @@ public class GameGridTests
 
     private static byte[][] NewMonthArrays(int n)
     {
-        var a = new byte[MonsoonSystem.MonthCount][];
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++) a[m] = new byte[n];
+        var a = new byte[Calendar.MonthsPerYear][];
+        for (int m = 0; m < Calendar.MonthsPerYear; m++) a[m] = new byte[n];
         return a;
     }
 
@@ -173,11 +173,11 @@ public class GameGridTests
             g.Biome[i] = (byte)BiomeType.Oceanic;
             g.LakeLevel[i] = 0;
         }
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+        for (int m = 0; m < Calendar.MonthsPerYear; m++)
             for (int i = 0; i < g.N; i++)
             {
                 g.MonthTemp[m][i] = FieldCodec.TempToByte(g.Temp[i]);
-                g.MonthPrecip[m][i] = FieldCodec.RatioToByte(1f / MonsoonSystem.MonthCount);
+                g.MonthPrecip[m][i] = FieldCodec.RatioToByte(1f / Calendar.MonthsPerYear);
             }
     }
 
@@ -364,7 +364,7 @@ public class GameGridTests
         CollectionAssert.AreEqual(g.CurrentDirs, g2.CurrentDirs);
         CollectionAssert.AreEqual(g.CurrentWarmth, g2.CurrentWarmth);
         CollectionAssert.AreEqual(g.CurrentStrength, g2.CurrentStrength);
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+        for (int m = 0; m < Calendar.MonthsPerYear; m++)
         {
             CollectionAssert.AreEqual(g.MonthPrecip[m], g2.MonthPrecip[m]);
             CollectionAssert.AreEqual(g.MonthTemp[m], g2.MonthTemp[m]);
@@ -409,7 +409,7 @@ public class GameGridTests
             g.CurrentStrength[i] = 0.3f + i * 0.01f;
             g.CurrentDirs[i] = new Vector3((float)(i % 5), 0.5f, (float)(i % 3)).Normalized();
         }
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+        for (int m = 0; m < Calendar.MonthsPerYear; m++)
             for (int i = 0; i < g.N; i++)
             {
                 g.MonthPrecip[m][i] = (byte)((m + i) % 256);

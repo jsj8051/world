@@ -30,7 +30,14 @@ public sealed class H3Hydrology
 	/// <summary>内流洼地格数（陆格中无严格更低邻居者；湖泊/内流河语义的候选集，框架期只计数）。</summary>
 	public int SinkCount { get; private set; }
 
-	public void Generate(Ball ball, float[] elevationM, float seaLevelM = 0f)
+	/// <summary>径流加权累积（River 2A：权重 = 逐格年降水 mm；null = 未启用）。</summary>
+	public float[] WeightedAccum { get; private set; } = Array.Empty<float>();
+
+	/// <summary>
+	/// 水文（单流向 + 汇流累积）。cellWeight 可选：逐格径流权重（River 2A = 年降水 mm）——
+	/// null = 均匀（每格 1，纯格数累积，W1 行为不变）。
+	/// </summary>
+	public void Generate(Ball ball, float[] elevationM, float seaLevelM = 0f, float[] cellWeight = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (elevationM == null) throw new ArgumentNullException(nameof(elevationM));
@@ -41,6 +48,7 @@ public sealed class H3Hydrology
 		var neighbors = ball.CellNeighbors;
 		Downstream = new int[n];
 		FlowAccum = new int[n];
+		WeightedAccum = new float[n];
 		IsOcean = new bool[n];
 		SinkCount = 0;
 
@@ -74,10 +82,16 @@ public sealed class H3Hydrology
 			.OrderByDescending(i => elevationM[i])
 			.ThenBy(i => i)
 			.ToArray();
+		for (int i = 0; i < n; i++)
+			WeightedAccum[i] = cellWeight != null ? cellWeight[i] : 1f;
 		foreach (int i in order)
 		{
 			int d = Downstream[i];
-			if (d >= 0 && !IsOcean[d]) FlowAccum[d] += FlowAccum[i];
+			if (d >= 0 && !IsOcean[d])
+			{
+				FlowAccum[d] += FlowAccum[i];
+				WeightedAccum[d] += WeightedAccum[i];
+			}
 		}
 	}
 }

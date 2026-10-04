@@ -1,12 +1,17 @@
 using Godot;
-using World.MapGen;
 
 namespace World.Camera
 {
 
     public partial class OrbitalCamera : Node3D
     {
-        [Export] private float _planetRadius = MapArchive.DefaultRadiusKm;   // 默认地球 6371；读档后 SetPlanetRadius 按存档覆盖
+        // ★D-3 切分清退（2026-10-04）：原值取自 `World.MapGen.MapArchive.DefaultRadiusKm`，
+        //   仅为拿到一个 6371 常量，却让**主场景**（`WorldGenWorld.tscn:5` 实例化本节点）
+        //   在编译期耦合整条旧世界生成链。该常量与存档系统无关，故就地定义，
+        //   解除主入口对旧线的唯一一条编译期依赖。
+        private const float DefaultPlanetRadiusKm = 6371f;
+
+        [Export] private float _planetRadius = DefaultPlanetRadiusKm;   // 默认地球 6371；读档后 SetPlanetRadius 按存档覆盖
 
         // 球坐标参数
         private float _theta = 0.8f;       // 水平角度

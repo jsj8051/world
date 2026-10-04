@@ -1,8 +1,8 @@
 using Godot;
 using System;
-using World.Biome;
+using World.Domain;
 using World.LogicGrid;
-using World.MapGen;
+using World.Archive;
 using World.Services;
 
 using World.CivSim.Entities;

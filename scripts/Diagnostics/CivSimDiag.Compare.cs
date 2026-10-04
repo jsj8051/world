@@ -4,11 +4,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
-using World.Biome;
+using World.Domain;
 using World.CivSim;
 using World.Utils;
 using World.LogicGrid;
-using World.MapGen;
+using World.Archive;
 using World.Services;
 
 using World.CivSim.Entities;
@@ -206,7 +206,7 @@ public partial class CivSimDiag
             if (a.MonsoonLevel[i] != b.MonsoonLevel[i]) return false;
             if (!FloatEq(a.CurrentWarmth[i], b.CurrentWarmth[i]) || !FloatEq(a.CurrentStrength[i], b.CurrentStrength[i])) return false;
             if (a.CurrentDirs[i] != b.CurrentDirs[i]) return false;
-            for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+            for (int m = 0; m < Calendar.MonthsPerYear; m++)
             {
                 if (a.MonthPrecip[m][i] != b.MonthPrecip[m][i]) return false;
                 if (a.MonthTemp[m][i] != b.MonthTemp[m][i]) return false;

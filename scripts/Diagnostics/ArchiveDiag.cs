@@ -2,9 +2,8 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using World.HexPlanet;
-using World.MapGen;
+using World.Archive;
 using World.Services;
-using World.Tectonics;
 
 namespace World.Diagnostics;
 
@@ -115,8 +114,8 @@ public static class ArchiveDiag
         }
         // 存档 n 反推：顶点数 = 10n²+2（10242→32, 40962→64, 2562→16）
         int n = Icosahedron.GridNFromVertexCount(map.Verts.Length);
-        var sim = new TectonicsSimulation(n);
-        ctx = new DiagContext(map, sim.GlobalGrid);
+        var grid = new SphereGrid(n);
+        ctx = new DiagContext(map, grid);
         LogService.Log("ArchiveDiag", $"直读 {path} n={n} verts={map.Verts.Length}（跳板块模拟）");
         return true;
     }

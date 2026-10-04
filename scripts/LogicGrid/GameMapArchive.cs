@@ -1,7 +1,7 @@
 using Godot;
 using System;
 using System.IO;
-using World.Biome;
+using World.Domain;
 using World.HexPlanet;
 using World.Services;
 using World.Utils;
@@ -90,9 +90,9 @@ public static class GameMapArchive
         foreach (var v in g.MineralLevel) f.Store8(v);
         foreach (var v in g.SoilLevel) f.Store8(v);
         foreach (var v in g.MonsoonLevel) f.Store8(v);
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+        for (int m = 0; m < Calendar.MonthsPerYear; m++)
             foreach (var v in g.MonthPrecip[m]) f.Store8(v);
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++)
+        for (int m = 0; m < Calendar.MonthsPerYear; m++)
             foreach (var v in g.MonthTemp[m]) f.Store8(v);
         foreach (var v in g.CurrentDirs) { f.StoreFloat(v.X); f.StoreFloat(v.Y); f.StoreFloat(v.Z); }
         foreach (var v in g.CurrentWarmth) f.StoreFloat(v);
@@ -187,10 +187,10 @@ public static class GameMapArchive
         grid.MineralLevel = ReadBytes(f, n);
         grid.SoilLevel = ReadBytes(f, n);
         grid.MonsoonLevel = ReadBytes(f, n);
-        grid.MonthPrecip = new byte[MonsoonSystem.MonthCount][];
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++) grid.MonthPrecip[m] = ReadBytes(f, n);
-        grid.MonthTemp = new byte[MonsoonSystem.MonthCount][];
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++) grid.MonthTemp[m] = ReadBytes(f, n);
+        grid.MonthPrecip = new byte[Calendar.MonthsPerYear][];
+        for (int m = 0; m < Calendar.MonthsPerYear; m++) grid.MonthPrecip[m] = ReadBytes(f, n);
+        grid.MonthTemp = new byte[Calendar.MonthsPerYear][];
+        for (int m = 0; m < Calendar.MonthsPerYear; m++) grid.MonthTemp[m] = ReadBytes(f, n);
         grid.CurrentDirs = new Vector3[n];
         for (int i = 0; i < n; i++)
             grid.CurrentDirs[i] = new Vector3(f.GetFloat(), f.GetFloat(), f.GetFloat());

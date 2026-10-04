@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using NUnit.Framework;
+using World.Archive;
 using World.Utils;
 
 using World.CivSim.Entities;
@@ -142,7 +143,7 @@ public class ArchiveChunkTests
         var verts = new Godot.Vector3[n];
         for (int i = 0; i < n; i++)
             verts[i] = new Godot.Vector3(1f, 0.3f * i, 0.5f).Normalized();
-        var map = new World.MapGen.MapData
+        var map = new MapData
         {
             Verts = verts,
             Seed = 7,

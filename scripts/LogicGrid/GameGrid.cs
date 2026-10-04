@@ -1,7 +1,7 @@
 using Godot;
 using System.Collections.Generic;
-using World.Biome;
-using World.MapGen;
+using World.Domain;
+using World.Archive;
 using World.Services;
 
 namespace World.LogicGrid;
@@ -15,8 +15,11 @@ namespace World.LogicGrid;
 /// </summary>
 public class GameGrid
 {
-    /// <summary>星球半径默认值（km；.mpa v5 起存档含半径，旧档默认地球）。标度统一源 = MapArchive.DefaultRadiusKm。</summary>
-    public const float DefaultRadiusKm = MapArchive.DefaultRadiusKm;
+    /// <summary>星球半径默认值（km；.mpa v5 起存档含半径，旧档默认地球）。
+    /// ★D-3 切分清退（2026-10-04）：原值取自 <c>World.MapGen.MapArchive.DefaultRadiusKm</c>，
+    ///   仅为借一个 6371 常量，却让 CivSim 的运行网格编译期耦合旧世界生成链。
+    ///   与 <see cref="World.Camera.OrbitalCamera"/> 同属「借常量形成的假依赖」，就地定义摘除。</summary>
+    public const float DefaultRadiusKm = 6371f;
 
     // ── 头部参数 ──
     public int GridN;              // 原始网格参数 n（顶点数 = 10n²+2）
@@ -122,8 +125,8 @@ public class GameGrid
 
     private static byte[][] Empty2D(int n)
     {
-        var a = new byte[MonsoonSystem.MonthCount][];
-        for (int m = 0; m < MonsoonSystem.MonthCount; m++) a[m] = new byte[n];
+        var a = new byte[Calendar.MonthsPerYear][];
+        for (int m = 0; m < Calendar.MonthsPerYear; m++) a[m] = new byte[n];
         return a;
     }
 
@@ -191,11 +194,11 @@ public class GameGrid
     }
 
     /// <summary>野生作物位（惰性重建：确定性 f(seed, 气候场)，不存档；读档后现场重推导）。</summary>
-    public byte[] EnsureWildCrops() => WildCrops ??= World.MapGen.WildCropsSystem.Compute(this, Seed);
+    public byte[] EnsureWildCrops() => WildCrops ??= WildCropsSystem.Compute(this, Seed);
 
     /// <summary>野生畜牧位（1=草原可驯；同 WildCrops 同构：确定性重建，不存档；2026-08-09）。</summary>
     public byte[] WildLivestock;   // null=未生成，读档后惰性重建
-    public byte[] EnsureWildLivestock() => WildLivestock ??= World.MapGen.WildCropsSystem.ComputeLivestock(this, Seed);
+    public byte[] EnsureWildLivestock() => WildLivestock ??= WildCropsSystem.ComputeLivestock(this, Seed);
 
     /// <summary>每格胞面积（km²；均匀近似 4πR²/N——Icosahedron 胞面积几乎相等）。</summary>
     public float CellAreaKm2 => 4f * Mathf.Pi * RadiusKm * RadiusKm / N;

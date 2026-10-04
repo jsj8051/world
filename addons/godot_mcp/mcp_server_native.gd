@@ -165,6 +165,16 @@ func _enter_tree() -> void:
 	# 如果启用了认证，创建认证管理器
 	if auth_enabled and transport_mode == "http":
 		var auth_manager: McpAuthManager = McpAuthManager.new()
+		# ★安全修复（2026-10-04，P0 S-1）：token 长度必须显式校验并**大声报错**。
+		#   McpAuthManager.set_token() 对 <16 字符的 token 只 push_error 后 return，
+		#   不抛异常、不改变调用结果 ⇒ 调用方完全看不出失败。
+		#   此处补上显式诊断；真正的兜底在 validate_request() 的 fail-closed（空 token 拒绝全部）。
+		if auth_token.length() < 16:
+			_log_error("auth_enabled=true but auth_token is " + str(auth_token.length()) +
+				" chars (minimum 16). Auth manager will DENY ALL requests until a valid token is set.")
+			push_error("[MCP] auth_token too short (" + str(auth_token.length()) + " < 16). Denying all requests.")
+		else:
+			_log_info("Auth manager configured with token of length " + str(auth_token.length()))
 		auth_manager.set_token(auth_token)
 		auth_manager.set_enabled(true)
 		_native_server.set_auth_manager(auth_manager)

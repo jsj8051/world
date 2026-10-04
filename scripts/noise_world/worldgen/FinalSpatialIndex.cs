@@ -18,6 +18,14 @@ namespace World.NoiseWorld.WorldGen;
 //   格宽（调用方按 res 折算）。任意方向查询经 dir → H3 格 → 表（格粒度精度）。
 // 消费者（River 第二批/Settlement/Biome/道路/政治地理）只问 nearest/distance/within，
 //   不需要知道内部是 BFS 场还是暴力（API 层验收 ②）。
+// ★永久验收原则（#13 BFS label bug 的沉淀）：所有 nearest 查询必须**同时验证距离正确**
+//   与**对象身份（label）正确**——BFS 结构对而 label 错时，distance 全对但"是谁"失效
+//   （实测：河流 label 恒 0 时全部 dist 正确、NearestRiver 恒返回格 0）。现有钉子：
+//   NearestLandmass_MatchesBruteForce（label+dist 双验）/ NearestMountain_MatchesBruteForce
+//   （anchor+dist）/ NearestRiver_Behavior（identity+dist+within）。
+// ★River 2 契约（决策 08 v2 §2）：**RiverNetwork 不得依赖 FinalSpatialIndex**——
+//   基础水文拓扑由自身 flow graph 决定；SpatialIndex 只做二级操作（排序/邻近挂接/查询）。
+//   反射钉子在 ArchitectureContractTests.RiverNetwork_OnlyDependsOnFinalLayer。
 /// <summary>
 /// Final World 空间索引：陆块/区域/河流/山系/火山的 nearest/distance/within 查询。
 /// </summary>

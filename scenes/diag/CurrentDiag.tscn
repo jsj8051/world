@@ -1,6 +1,0 @@
-[gd_scene load_steps=2 format=3]
-
-[ext_resource type="Script" path="res://scripts/Diagnostics/CurrentDiag.cs" id="1_cd"]
-
-[node name="CurrentDiag" type="Node"]
-script = ExtResource("1_cd")

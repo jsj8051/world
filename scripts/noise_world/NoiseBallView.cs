@@ -79,6 +79,7 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 	public void UpdateVisibility(Camera3D camera)
 	{
 		if (camera == null || _chunks.Count == 0) return;
+		SyncRingViewport(camera.GetViewport());   // 选中环带恒 px 依赖 u_viewport（尺寸变了才写）
 		Vector3 camPos = camera.GlobalPosition;
 		bool near = camPos.Length() < _ball.Radius * _lodNearRatio;
 		Vector3 camDir = camPos / Math.Max(camPos.Length(), 1e-6f);
@@ -236,18 +237,12 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		return _mat;
 	}
 
-	// 一格 = 格心 + m 角点 + m 扇形三角（外向缠绕）。单半径：所有顶点 = 方向 × R。
-	// 全部顶点 UV = 本格纹素中心 ⇒ 一格一色（nearest ⇒ 色档按格离散，边界即等高线）。
-	// ★顶点必须排成环序：H3 CellToVertexes 返回集不保证顺序，乱序扇面会交叉重叠
-	//   （不透明地形块被同色 overdraft 掩盖，半透明高亮则缩成中心小多边形——实测踩坑）。
-	void AddCellFan(List<Vector3> verts, List<Vector2> uvs, List<int> idx,
-		ulong cell, Vector3 centerDir, Vector2 cellUv, float R)
+	/// <summary>格 cell 的边界角点**单位方向**，按环序返回（格心切平面上方位角升序 ⇒ 外视 CCW）。
+	/// ★必须环序：H3 CellToVertexes 返回集不保证顺序，乱序扇面会交叉重叠
+	///   （不透明地形块被同色 overdraft 掩盖，半透明高亮则缩成中心小多边形——实测踩坑）。
+	/// 地形扇面（AddCellFan）与选中环带（AddCellRing）共用，保证两者边界**逐角点一致**。</summary>
+	static Vector3[] RingOrdered(ulong cell, Vector3 centerDir)
 	{
-		int centerIdx = verts.Count;
-		verts.Add(centerDir * R);
-		uvs.Add(cellUv);
-
-		// 环序化：格心切平面（t1,t2 与 centerDir 构成右手系）上按方位角升序 = 外视 CCW。
 		ulong[] vids = H3.CellToVertexes(cell);
 		int m = vids.Length;
 		Vector3 refUp = MathF.Abs(centerDir.Y) < 0.9f ? Vector3.Up : Vector3.Right;
@@ -261,12 +256,30 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 			ring[k] = (MathF.Atan2(tangent.Dot(t2), tangent.Dot(t1)), vdir);
 		}
 		Array.Sort(ring, (a, b) => a.ang.CompareTo(b.ang));
+		var outArr = new Vector3[m];
+		for (int k = 0; k < m; k++) outArr[k] = ring[k].dir;
+		return outArr;
+	}
+
+	// 一格 = 格心 + m 角点 + m 扇形三角（外向缠绕）。单半径：所有顶点 = 方向 × R。
+	// 全部顶点 UV = 本格纹素中心 ⇒ 一格一色（nearest ⇒ 色档按格离散，边界即等高线）。
+	// ★顶点必须排成环序：H3 CellToVertexes 返回集不保证顺序，乱序扇面会交叉重叠
+	//   （不透明地形块被同色 overdraft 掩盖，半透明高亮则缩成中心小多边形——实测踩坑）。
+	void AddCellFan(List<Vector3> verts, List<Vector2> uvs, List<int> idx,
+		ulong cell, Vector3 centerDir, Vector2 cellUv, float R)
+	{
+		int centerIdx = verts.Count;
+		verts.Add(centerDir * R);
+		uvs.Add(cellUv);
+
+		var ringDirs = RingOrdered(cell, centerDir);
+		int m = ringDirs.Length;
 
 		var corner = new int[m];
 		for (int k = 0; k < m; k++)
 		{
 			corner[k] = verts.Count;
-			verts.Add(ring[k].dir * R);
+			verts.Add(ringDirs[k] * R);
 			uvs.Add(cellUv);
 		}
 		for (int k = 0; k < m; k++)            // 外向缠绕：心 → 角k → 角k+1
@@ -349,21 +362,43 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 		return false;
 	}
 
-	MeshInstance3D _highlight;
+	// ── 选中高亮：R 上的球面环带（2026-10-04 用户拍板）────────────────────────────
+	//
+	// ★★规则（与河流同一套表现层渲染规范，勿退回旧写法）：
+	//   ① **几何必须贴真实表面**——内外两条轮廓都在半径 R 上 ⇒ distance(顶点, 地形) = 0；
+	//   ② **环带厚度**由 shader 沿**切向**在屏幕空间展开（恒 px）⇒ 与相机距离无关；
+	//   ③ **图层分层只由 clip-space Z 偏移（UV2.y）解决**，不产生任何世界位移。
+	//   ⚠️ 严禁 `radius * 1.0005f` 这类 world-space radial lift：那会把"浮起来的整格"
+	//      变成"浮起来的边框"——径向抬升在掠射角下换算成横向屏幕位移，
+	//      实测旧写法在 1.02R 最近视距的屏幕边缘位移达 14.6 px（≈10% 格宽）。
+	//
+	// 顶点属性契约（与 river_surface.gdshader **完全一致**，改动须同步）：
+	//   VERTEX  = 角点方向 × R（内外轮廓同位置）
+	//   NORMAL  = 角点切平面内的**内角平分线**单位向量（指向格心）
+	//   UV.y    = ∓1 ⇒ 片元里插值为 [-1,+1]，shader 据此在屏幕空间向内外各展开半个宽度
+	//   UV2.x   = 目标屏幕宽度（px）★不能走 COLOR.a（Godot 会把顶点色夹到 [0,1]）
+	//   UV2.y   = NDC 深度偏移（只改 z，不改 x/y ⇒ 零视差）
+	//   COLOR   = 高亮色
 
-	/// <summary>选中格高亮：单格扇面微抬升的半透明白片；传 null 隐藏。</summary>
+	const string HighlightShaderPath = "res://shaders/river_surface.gdshader";
+	public const string HighlightNodeName = "CellHighlight";
+	public const float HighlightWidthPx = 3.0f;      // 目标屏幕宽度（px）
+	public const float HighlightDepthBias = 4.0e-4f; // 深度层次：> 河流最粗档(3e-4) ⇒ 选中压在河线之上
+	public const float HighlightCore = 0.85f;        // |cross| < core ⇒ 实心；core→1 为抗锯齿淡出
+	static readonly Color HighlightColor = new(1f, 1f, 1f);
+
+	MeshInstance3D _highlight;
+	ShaderMaterial _ringMat;
+	bool _ringTried;
+	Vector2 _ringViewport = Vector2.Zero;
+
+	/// <summary>选中格高亮：**贴地闭合环带**（只描边界，不填整格）；传 null 隐藏。</summary>
 	public void HighlightCell(ulong? cell)
 	{
 		if (_highlight == null)
 		{
-			var mat = new StandardMaterial3D
-			{
-				ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
-				Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
-				CullMode = BaseMaterial3D.CullModeEnum.Disabled,
-				AlbedoColor = new Color(1f, 1f, 1f, 0.55f),
-			};
-			_highlight = new MeshInstance3D { MaterialOverride = mat, Visible = false };
+			// ★命名：诊断（CellHighlightDiag）与调试都靠它在场景树里定位选中环带
+			_highlight = new MeshInstance3D { Name = HighlightNodeName, Visible = false };
 			AddChild(_highlight);
 		}
 		if (cell == null)
@@ -371,23 +406,105 @@ public sealed partial class NoiseBallView : Node3D   // partial = Godot 源生�
 			_highlight.Visible = false;
 			return;
 		}
+		if (!EnsureRingMaterial()) return;   // shader 缺失 ⇒ 宁可不画，也不退回整格扇面
 
 		ulong c = cell.Value;
 		var ll = H3.CellToLatLng(c);
 		var dir = CoordUtil.LatLngToSphere(ll, 1f);
-		var verts = new List<Vector3>(8);
-		var uvs = new List<Vector2>(8);
-		var idx = new List<int>(14);
-		// 抬升 1.0005：够防 z-fighting，又不会在斜视角出现"悬浮片"的脱离感
-		AddCellFan(verts, uvs, idx, c, dir, Vector2.Zero, _ball.Radius * 1.0005f);
+
+		var verts = new List<Vector3>(16);
+		var norms = new List<Vector3>(16);
+		var uvs = new List<Vector2>(16);
+		var uv2 = new List<Vector2>(16);
+		var cols = new List<Color>(16);
+		var idx = new List<int>(24);
+		AddCellRing(verts, norms, uvs, uv2, cols, idx, c, dir, _ball.Radius,
+			HighlightWidthPx, HighlightColor, HighlightDepthBias);
+
 		var am = new ArrayMesh();
 		var arr = new Godot.Collections.Array();
 		arr.Resize((int)Mesh.ArrayType.Max);
 		arr[(int)Mesh.ArrayType.Vertex] = verts.ToArray();
+		arr[(int)Mesh.ArrayType.Normal] = norms.ToArray();
 		arr[(int)Mesh.ArrayType.TexUV] = uvs.ToArray();
+		arr[(int)Mesh.ArrayType.TexUV2] = uv2.ToArray();
+		arr[(int)Mesh.ArrayType.Color] = cols.ToArray();
 		arr[(int)Mesh.ArrayType.Index] = idx.ToArray();
 		am.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles, arr);
 		_highlight.Mesh = am;
+		_highlight.MaterialOverride = _ringMat;
 		_highlight.Visible = true;
+		SyncRingViewport(GetViewport());
+	}
+
+	/// <summary>一格 = 闭合环带：m 个角点各 emit 内外两个顶点 ⇒ m 个四边形（2m 三角）。
+	/// ★没有格心顶点、没有共面填充 ⇒ z-fighting 面积为零，且天然只描边界。
+	/// ★两条轮廓都落在半径 R 上（顶点 = 角点方向 × R），**不做任何径向抬升**。</summary>
+	internal static void AddCellRing(List<Vector3> verts, List<Vector3> normals, List<Vector2> uvs,
+		List<Vector2> uv2, List<Color> cols, List<int> idx,
+		ulong cell, Vector3 centerDir, float R, float widthPx, Color color, float depthBias)
+	{
+		var ringDirs = RingOrdered(cell, centerDir);
+		int m = ringDirs.Length;
+
+		// ★正 m 边形下"角点的径向"恰好是**内角平分线** ⇒ 就是标准 miter 接头，六个转角不断、不豁口。
+		//   但沿平分线偏移 h 时，环带垂直于边的净宽度 = h·cos(π/m)（两端点垂距相同 ⇒ 外边界与边平行，
+		//   整条边等宽，转角**不会**变细）。故此处预先补 1/cos(π/m)，使实测宽度等于 widthPx。
+		float miterComp = 1f / MathF.Cos(MathF.PI / m);
+		float w = widthPx * miterComp;
+
+		int base0 = verts.Count;
+		for (int k = 0; k < m; k++)
+		{
+			Vector3 v = ringDirs[k];
+			// 角点 v 处切平面内指向格心的单位方向（= 内角平分线；退化时取任一切向）
+			Vector3 t = centerDir - v * centerDir.Dot(v);
+			if (t.LengthSquared() < 1e-18f)
+			{
+				Vector3 ru = MathF.Abs(v.Y) < 0.9f ? Vector3.Up : Vector3.Right;
+				t = ru.Cross(v);
+			}
+			t = t.Normalized();
+
+			var uv2v = new Vector2(w, depthBias);
+			verts.Add(v * R); normals.Add(t); uvs.Add(new Vector2(0f, +1f)); uv2.Add(uv2v); cols.Add(color);
+			verts.Add(v * R); normals.Add(t); uvs.Add(new Vector2(0f, -1f)); uv2.Add(uv2v); cols.Add(color);
+		}
+		for (int k = 0; k < m; k++)
+		{
+			int k2 = (k + 1) % m;
+			int a = base0 + 2 * k;          // 外 k
+			int b = a + 1;                  // 内 k
+			int c = base0 + 2 * k2 + 1;     // 内 k+1
+			int d = base0 + 2 * k2;         // 外 k+1
+			idx.Add(a); idx.Add(b); idx.Add(c);
+			idx.Add(a); idx.Add(c); idx.Add(d);
+		}
+	}
+
+	bool EnsureRingMaterial()
+	{
+		if (_ringMat != null) return true;
+		if (_ringTried) return false;
+		_ringTried = true;
+		var sh = GD.Load<Shader>(HighlightShaderPath);
+		if (sh == null) return false;
+		_ringMat = new ShaderMaterial { Shader = sh };
+		_ringMat.SetShaderParameter("u_screen_space", 1.0f);   // 恒 px（河流 v2 正式路径）
+		_ringMat.SetShaderParameter("u_core", HighlightCore);
+		_ringMat.SetShaderParameter("u_edge", 1.0f);
+		_ringMat.SetShaderParameter("u_edge_gain", 1.0f);      // ★不要河流的"边缘提亮"（那是水色效果）
+		_ringMat.SetShaderParameter("u_viewport", new Vector2(1920f, 1080f));
+		return true;
+	}
+
+	// 恒 px 依赖 u_viewport；视口尺寸变化时只改 uniform，**不重烘几何**（窗口缩放/切档都要跟上）。
+	void SyncRingViewport(Viewport vp)
+	{
+		if (_ringMat == null || vp == null) return;
+		var size = vp.GetVisibleRect().Size;
+		if (size == _ringViewport) return;
+		_ringViewport = size;
+		_ringMat.SetShaderParameter("u_viewport", size);
 	}
 }

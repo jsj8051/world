@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RootNamespace>World.PerfBench</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <!-- 收口 §07 §4：性能基线工具。非测试项目（无 IsTestProject），不进游戏程序集
+         （world.csproj 已排除 tests/**）。纯托管跑，不需要 Godot 运行时。 -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\world.csproj" />
+    <None Include="..\..\native\h3\h3.dll" Link="h3.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
