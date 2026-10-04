@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using World.Services;                    // UserPaths
 using World.Render;                      // BallView / CellQuery
-using World.NoiseWorld.WorldGen;         // WorldGenPlanet
+using World.WorldGen;         // WorldGenPlanet
 using World.Utils;                       // CoordUtil
 using World.Utils.H3;
 

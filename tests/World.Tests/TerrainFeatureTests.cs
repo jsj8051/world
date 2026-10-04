@@ -1,7 +1,7 @@
 using System;
 using Godot;
 using NUnit.Framework;
-using World.NoiseWorld.WorldGen;
+using World.WorldGen;
 using World.Utils;
 
 namespace World.Tests;

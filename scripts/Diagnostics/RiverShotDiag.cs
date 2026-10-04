@@ -3,7 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using World.Services;                    // UserPaths（写盘不落 C 盘纪律：统一经 UserPaths）
-using World.NoiseWorld.WorldGen;         // WorldGenPlanet / RiverLineOverlay / RiverGeometry / RiverPresentationSpline
+using World.WorldGen;         // WorldGenPlanet / RiverLineOverlay / RiverGeometry / RiverPresentationSpline
 
 namespace World.Diagnostics;
 

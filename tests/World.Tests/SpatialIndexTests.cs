@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Godot;
 using NUnit.Framework;
 using World.NewHexWorld;
-using World.NoiseWorld.WorldGen;
+using World.WorldGen;
 
 namespace World.Tests;
 

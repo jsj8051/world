@@ -285,27 +285,27 @@ public static class Program
                 try
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    var layout = new World.NoiseWorld.WorldGen.ContinentLayout(seed, 7);
-                    var field = new World.NoiseWorld.WorldGen.LandSeaField(layout,
-                        new World.NoiseWorld.WorldGen.LandSeaParams { Seed = seed });
-                    var proj = new World.NoiseWorld.WorldGen.H3LandSeaProjector();
+                    var layout = new World.WorldGen.ContinentLayout(seed, 7);
+                    var field = new World.WorldGen.LandSeaField(layout,
+                        new World.WorldGen.LandSeaParams { Seed = seed });
+                    var proj = new World.WorldGen.H3LandSeaProjector();
                     proj.Generate(ball, field, 0.29f);
-                    var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
+                    var regions = new World.WorldGen.GeologicalRegions(seed);
                     regions.Generate(ball, proj);
-                    var surface = new World.NoiseWorld.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
-                    var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
+                    var surface = new World.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
+                    var mountains = new World.WorldGen.MountainSkeleton(seed);
                     mountains.Generate(ball, regions, surface);
-                    var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
+                    var landforms = new World.WorldGen.RegionalLandforms(seed);
                     landforms.Generate(ball, regions);
-                    var volcanoes = new World.NoiseWorld.WorldGen.VolcanoField();
+                    var volcanoes = new World.WorldGen.VolcanoField();
                     volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
-                    var features = new List<World.NoiseWorld.WorldGen.FeatureField>
+                    var features = new List<World.WorldGen.FeatureField>
                     {
-                        new(landforms, World.NoiseWorld.WorldGen.TerrainDomain.LandOnly),
-                        new(mountains, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
-                        new(volcanoes, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
+                        new(landforms, World.WorldGen.TerrainDomain.LandOnly),
+                        new(mountains, World.WorldGen.TerrainDomain.LandAndSea),
+                        new(volcanoes, World.WorldGen.TerrainDomain.LandAndSea),
                     };
-                    var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
+                    var composer = new World.WorldGen.HeightComposer(seed);
                     composer.Generate(ball, surface, regions, features);
 
                     var rgb = new byte[width * height * 3];
@@ -324,7 +324,7 @@ public static class Program
                         }
                         relief[i] = h[i] - sum / cnt;
                     }
-                    var snow = new World.NoiseWorld.WorldGen.SnowOverlay(seed);
+                    var snow = new World.WorldGen.SnowOverlay(seed);
                     for (int p = 0; p < cellOfPixel.Length; p++)
                     {
                         int i = cellOfPixel[p];
@@ -384,27 +384,27 @@ public static class Program
         Console.WriteLine($"== 连续图：seed {seed} res{res} {frames} 帧 {size}×{size} 倾角 {tiltDeg}° → {outDir} ==");
 
         var ball = new World.NewHexWorld.Ball(res, 1f);
-        var layout = new World.NoiseWorld.WorldGen.ContinentLayout(seed, 7);
-        var field = new World.NoiseWorld.WorldGen.LandSeaField(layout,
-            new World.NoiseWorld.WorldGen.LandSeaParams { Seed = seed });
-        var proj = new World.NoiseWorld.WorldGen.H3LandSeaProjector();
+        var layout = new World.WorldGen.ContinentLayout(seed, 7);
+        var field = new World.WorldGen.LandSeaField(layout,
+            new World.WorldGen.LandSeaParams { Seed = seed });
+        var proj = new World.WorldGen.H3LandSeaProjector();
         proj.Generate(ball, field, 0.29f);
-        var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
+        var regions = new World.WorldGen.GeologicalRegions(seed);
         regions.Generate(ball, proj);
-        var surface = new World.NoiseWorld.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
-        var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
+        var surface = new World.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
+        var mountains = new World.WorldGen.MountainSkeleton(seed);
         mountains.Generate(ball, regions, surface);
-        var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
+        var landforms = new World.WorldGen.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
-        var volcanoes = new World.NoiseWorld.WorldGen.VolcanoField();
+        var volcanoes = new World.WorldGen.VolcanoField();
         volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
-        var features = new List<World.NoiseWorld.WorldGen.FeatureField>
+        var features = new List<World.WorldGen.FeatureField>
         {
-            new(landforms, World.NoiseWorld.WorldGen.TerrainDomain.LandOnly),
-            new(mountains, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
-            new(volcanoes, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
+            new(landforms, World.WorldGen.TerrainDomain.LandOnly),
+            new(mountains, World.WorldGen.TerrainDomain.LandAndSea),
+            new(volcanoes, World.WorldGen.TerrainDomain.LandAndSea),
         };
-        var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
+        var composer = new World.WorldGen.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);
         Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）");
 
@@ -521,35 +521,35 @@ public static class Program
         Console.WriteLine($"== 连续地形图：seed {seed} res{res} {width}×{height} → {outDir} ==");
 
         var ball = new World.NewHexWorld.Ball(res, 1f);
-        var layout = new World.NoiseWorld.WorldGen.ContinentLayout(seed, 7);
-        var field = new World.NoiseWorld.WorldGen.LandSeaField(layout,
-            new World.NoiseWorld.WorldGen.LandSeaParams { Seed = seed });
-        var proj = new World.NoiseWorld.WorldGen.H3LandSeaProjector();
+        var layout = new World.WorldGen.ContinentLayout(seed, 7);
+        var field = new World.WorldGen.LandSeaField(layout,
+            new World.WorldGen.LandSeaParams { Seed = seed });
+        var proj = new World.WorldGen.H3LandSeaProjector();
         proj.Generate(ball, field, 0.29f);
-        var regions = new World.NoiseWorld.WorldGen.GeologicalRegions(seed);
+        var regions = new World.WorldGen.GeologicalRegions(seed);
         regions.Generate(ball, proj);
-        var surface = new World.NoiseWorld.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
-        var mountains = new World.NoiseWorld.WorldGen.MountainSkeleton(seed);
+        var surface = new World.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
+        var mountains = new World.WorldGen.MountainSkeleton(seed);
         mountains.Generate(ball, regions, surface);
-        var landforms = new World.NoiseWorld.WorldGen.RegionalLandforms(seed);
+        var landforms = new World.WorldGen.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
-        var volcanoes = new World.NoiseWorld.WorldGen.VolcanoField();
+        var volcanoes = new World.WorldGen.VolcanoField();
         volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
-        var features = new List<World.NoiseWorld.WorldGen.FeatureField>
+        var features = new List<World.WorldGen.FeatureField>
         {
-            new(landforms, World.NoiseWorld.WorldGen.TerrainDomain.LandOnly),
-            new(mountains, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
-            new(volcanoes, World.NoiseWorld.WorldGen.TerrainDomain.LandAndSea),
+            new(landforms, World.WorldGen.TerrainDomain.LandOnly),
+            new(mountains, World.WorldGen.TerrainDomain.LandAndSea),
+            new(volcanoes, World.WorldGen.TerrainDomain.LandAndSea),
         };
-        var composer = new World.NoiseWorld.WorldGen.HeightComposer(seed);
+        var composer = new World.WorldGen.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);
-        var finalGeo = new World.NoiseWorld.WorldGen.FinalGeography();
+        var finalGeo = new World.WorldGen.FinalGeography();
         finalGeo.Generate(ball, composer, regions);
-        var rivers = new World.NoiseWorld.WorldGen.RiverNetwork();
+        var rivers = new World.WorldGen.RiverNetwork();
         rivers.Generate(ball, finalGeo, composer, riverThresholdCells: 20);
         Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length} rivers={rivers.IsRiver.Count(x => x)}）——以下为逐像素表现层采样（世界真相 = SampleSurface 单一事实源）");
 
-        var snowCont = new World.NoiseWorld.WorldGen.SnowOverlay(seed);
+        var snowCont = new World.WorldGen.SnowOverlay(seed);
         var heights = new float[width * height];
         var lands = new bool[width * height];
         Parallel.For(0, height, y =>

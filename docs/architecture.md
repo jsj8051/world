@@ -28,7 +28,7 @@ Placement（生成依据）→ Final（世界事实）→ SpatialIndex（查询�
 
 | 层 | 回答 | 代表类型 | 命名空间 |
 |---|---|---|---|
-| **Placement** | 世界如何生成 | `ContinentLayout` / `LandSeaField` / `H3LandSeaProjector` / `SurfaceResolver` / `GeologicalRegions` / `TectonicField` / `MountainSkeleton` / `RegionalLandforms` / `VolcanoField` / `HeightComposer` | `World.NoiseWorld.WorldGen` |
+| **Placement** | 世界如何生成 | `ContinentLayout` / `LandSeaField` / `H3LandSeaProjector` / `SurfaceResolver` / `GeologicalRegions` / `TectonicField` / `MountainSkeleton` / `RegionalLandforms` / `VolcanoField` / `HeightComposer` | `World.WorldGen` |
 | **Final** | 世界究竟是什么 | **`FinalGeography`**（FinalLand / FinalLandmassId / FinalDistToCoast / FinalRegionOfCell） | 同上 |
 | **SpatialIndex** | 如何高效询问 | **`FinalSpatialIndex`**（nearest / distance / within） | 同上 |
 | **World Simulation** | 这个世界如何运行 | `PrecipitationModel` → `RiverNetwork` → `RiverGraph` / `BasinGraph` / `LakeState` → `WaterTopology` | 同上 |
@@ -88,7 +88,8 @@ Placement（生成依据）→ Final（世界事实）→ SpatialIndex（查询�
 
 ### 3.2 表现层依赖白名单（唯一跨层豁免）
 
-新线命名空间 `World.NoiseWorld.WorldGen` 曾是旧线 `World.NoiseWorld` 的**子命名空间**
+新线命名空间~~`World.NoiseWorld.WorldGen`~~ 曾是旧线 `World.NoiseWorld` 的**子命名空间**
+（★2026-10-05 已重构为 `World.WorldGen`，两者现为**平级**）
 ⇒ C# 作用域让新线不加 `using` 就能看到父命名空间类型。决策 08 §4.4 已把这条例外
 **正式编码**（`NewWorldLine_MayDependOnApprovedRenderContracts`）。
 
@@ -204,7 +205,7 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 ## 9. 命名与目录约定
 
 - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
-  `World.Render(.UI)` / `World.NoiseWorld.WorldGen` / `World.Domain` / `World.Archive` /
+  `World.Render(.UI)` / `World.WorldGen` / `World.Domain` / `World.Archive` /
   `World.CivSim.*` / `World.LogicGrid` / `World.HexPlanet` / `World.NewHexWorld` /
   `World.PlanetLOD` / `World.Surface` / `World.Utils(.H3)` / `World.Services` /
   `World.Camera` / `World.Diagnostics` / `World.Gameplay`。
@@ -243,8 +244,13 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 **暂缓项**（无消费者 ⇒ 不迁）：地球拟合 LUT / Fritsch–Carlson 样条 / `PropagateMax`
 ⇒ 知识封存于 `docs/newdecision/封存-NoiseWorld设计史料.md`。
 
-**独立第二阶段**：`World.NoiseWorld.WorldGen` → `World.WorldGen` 的namespace 重构
-（父命名空间已消失，新线成了"没有父的子命名空间"；语义上需要理顺，但**不与本轮混做**）。
+**namespace 重构（✅ 2026-10-05 已完成，独立提交）**：
+`World.NoiseWorld.WorldGen` → **`World.WorldGen`**，目录
+`scripts/noise_world/worldgen/` → `scripts/worldgen/`，场景
+`scenes/noise_world/` → `scenes/worldgen/`。
+纯结构重构：34 个 `.cs` + 34 个 `.uid` 全部 `git mv`（68 条rename 记录），
+不碰任何生成逻辑 / 渲染逻辑 / 参数体系 / 算法资产。
+由 `NewWorldLine_NamespaceIsWorldGen` 契约钉住名字 + 目录 + 旧命名空间不得复活。
 
 ---
 

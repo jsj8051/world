@@ -2,10 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.IO;
 using NUnit.Framework;
 using Godot;
 using World.NewHexWorld;
-using World.NoiseWorld.WorldGen;
+using World.WorldGen;
 
 namespace World.Tests;
 
@@ -170,7 +171,7 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
-	/// 新世界线（`World.NoiseWorld.WorldGen`）的类型清单——**架构契约的扫描面**。
+	/// 新世界线（`World.WorldGen`）的类型清单——**架构契约的扫描面**。
 	/// ★集中于此而非各测试内联：新增子系统时只改这一处，就不会漏进任何一条契约的扫描面
 	///   （漏扫 = 契约静默失效，比契约本身不写更危险）。
 	/// </summary>
@@ -198,7 +199,7 @@ public class ArchitectureContractTests
 	///   （B 线生成逻辑 + 表现层全部清退/迁走），本条从"例外白名单"收紧为
 	///   "**新线的表现依赖必须且只能落在 World.Render / World.Render.UI**"。
 	///
-	/// 背景：新线命名空间是 `World.NoiseWorld.WorldGen`，而 B 线旧单体在**父**命名空间
+	/// 背景：新线命名空间是 `World.WorldGen`，而 B 线旧单体在**父**命名空间
 	/// `World.NoiseWorld` ⇒ C# 作用域规则让新线**不加using 就能直接看到**父命名空间的类型。
 	/// 于是 `NewWorldLine_DoesNotDependOnLegacyWorldLine` 的四命名空间黑名单
 	///（World.Biome / MapGen / MapView / Tectonics）**完全管不到这一条**：
@@ -266,6 +267,54 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
+	/// **新线命名空间钉（namespace 重构后）**——世界生成主链必须落在 `World.WorldGen`。
+	///
+	/// ★为什么需要这条：2026-10-05 之前新线是 `World.NoiseWorld.WorldGen`
+	///   （B 线旧单体的**子命名空间**）。B 线清退后父命名空间已消失，
+	///   新线成了"没有父的子命名空间"⇒ 语义上是历史遗留的碎片。
+	///   已重构为 `World.WorldGen`（平级、语义自洽）。
+	///
+	/// 钉住"名字 + 位置"两件事：
+	///   名字 = `World.WorldGen`（防止有人改回带NoiseWorld 的名字）
+	///   位置 = 目录 `scripts/worldgen/`（防止代码与目录再次脱节）
+	/// </summary>
+	[Test]
+	public void NewWorldLine_NamespaceIsWorldGen()
+	{
+		// ① 抽样核心类型：命名空间必须是 World.WorldGen（平级，不再挂 NoiseWorld）
+		var core = new[]
+		{
+			typeof(FinalGeography), typeof(HeightComposer), typeof(FinalSpatialIndex),
+			typeof(RiverNetwork), typeof(WaterTopology), typeof(WorldGenPlanet),
+		};
+		var wrong = core.Where(t => t.Namespace != "World.WorldGen")
+			.Select(t => $"{t.Name}@{t.Namespace}")
+			.ToList();
+		Assert.That(wrong, Is.Empty,
+			$"世界生成主链类型不在 World.WorldGen：{string.Join(",", wrong)}——" +
+			"新线命名空间是 World.WorldGen（决策 08 §namespace 重构）");
+
+		// ② 旧命名空间不得复活（它是B 线的痕迹，已清退）
+		var legacy = typeof(FinalGeography).Assembly.GetTypes()
+			.Where(t => t.Namespace != null && t.Namespace.StartsWith("World.NoiseWorld"))
+			.Select(t => $"{t.Namespace}.{t.Name}")
+			.ToList();
+		Assert.That(legacy, Is.Empty,
+			$"`World.NoiseWorld*` 命名空间复活了：{string.Join(",", legacy)}——" +
+			"B 线已清退、新线已改名为 World.WorldGen，不应再有 NoiseWorld 字样");
+
+		// ③ 目录与命名空间一致（D-3：按类型语义定位，但目录也不应误导）
+		//    ★用与 CellHighlightRingTests 相同的"向上查找仓库根"写法，
+		//    不用 Directory.GetParent 硬拼层级（测试输出目录深度会变）。
+		var worldgenDir = FindRepoDir("scripts", "worldgen");
+		Assert.That(worldgenDir, Is.Not.Null,
+			"未找到 scripts/worldgen/ —— namespace World.WorldGen 与目录 scripts/worldgen 必须一致");
+		// 旧目录不得复活
+		Assert.That(FindRepoDir("scripts", "noise_world"), Is.Null,
+			"scripts/noise_world/ 不应存在（B 线已清退，新线在 scripts/worldgen/）");
+	}
+
+	/// <summary>
 	/// **B 线清退完成钉（结果断言）**——旧父命名空间 `World.NoiseWorld` 已**彻底清空**。
 	///
 	/// ★为什么必须钉"结果"而不只是"方向"：
@@ -282,7 +331,8 @@ public class ArchitectureContractTests
 	public void LegacyNoiseWorldLine_IsGone()
 	{
 		const string legacyParent = "World.NoiseWorld";
-		// 只认根命名空间本身；`World.NoiseWorld.WorldGen` 是新线（子命名空间），不在此列。
+		// 只认根命名空间本身。★2026-10-05 namespace 重构后新线已是 `World.WorldGen`（不再是子命名空间），
+		// 两者现在是**平级**——所以这条断言不会误伤新线。
 		var survivors = typeof(FinalGeography).Assembly.GetTypes()
 			.Where(t => t.Namespace == legacyParent)
 			.Select(t => $"{t.Namespace}.{t.Name}")
@@ -338,7 +388,7 @@ public class ArchitectureContractTests
 			foreach (var r in ReferencedTypes(t))
 			{
 				if (r.Name == null) continue;
-				if (r.Namespace != "World.NoiseWorld" && r.Namespace != "World.NoiseWorld.WorldGen") continue;
+				if (r.Namespace != "World.NoiseWorld" && r.Namespace != "World.WorldGen") continue;
 				if (forbidden.Contains(r.Name)) offending.Add($"{t.Name}→{r.Namespace}.{r.Name}");
 			}
 		Assert.That(offending, Is.Empty,
@@ -371,6 +421,20 @@ public class ArchitectureContractTests
 		Assert.That(actual, Is.EqualTo(target).Within(0.08f),
 			$"新线 LandFraction 必须是面积占比（目标 {target} ⇒ 实测 {actual:F3}）——" +
 			"若本断言失效，说明『陆板数占比』口径（旧线 TerrainNoiseParams 语义）被接了进来");
+	}
+
+	/// <summary>从测试程序集位置向上找仓库根，再拼出相对路径；找不到返回 null。
+	/// （与 CellHighlightRingTests.FindRenderSources 同思路：输出目录深度会变，不能硬拼层级。）</summary>
+	static string FindRepoDir(params string[] rel)
+	{
+		var dir = Path.GetDirectoryName(typeof(FinalGeography).Assembly.Location);
+		for (int i = 0; i < 6 && dir != null; i++)
+		{
+			var candidate = Path.Combine(new[] { dir }.Concat(rel).ToArray());
+			if (Directory.Exists(candidate)) return candidate;
+			dir = Directory.GetParent(dir)?.FullName;
+		}
+		return null!;
 	}
 
 	/// <summary>类型自身声明的引用面：方法参数/返回 + 字段/属性类型（基类递归）。</summary>

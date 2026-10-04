@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using NUnit.Framework;
 using World.NewHexWorld;
-using World.NoiseWorld.WorldGen;
+using World.WorldGen;
 using World.Utils.H3;
 
 namespace World.Tests;
