@@ -297,8 +297,10 @@ public class ArchitectureContractTests
 			"（这条判据的由来：它曾让8 条测试依赖一个零生产消费者的类）");
 
 		// 反向钉：被清退后测试确实不再依赖它（防"删了又偷偷加回来造场"）
-		Assert.That(Directory.Exists(FindRepoDir("scripts", "worldgen")), Is.True,
-			"scripts/worldgen/ 应存在（世界生成主链目录）");
+		// ★2026-10-06 A 步目录正规化：路径 scripts/worldgen/ → scripts/WorldGen/
+		//   （大小写正规化 + 六子层拆分；namespace 仍是 World.WorldGen 不变）
+		Assert.That(Directory.Exists(FindRepoDir("scripts", "WorldGen")), Is.True,
+			"scripts/WorldGen/ 应存在（世界生成主链目录）");
 	}
 
 	/// <summary>
@@ -311,7 +313,10 @@ public class ArchitectureContractTests
 	///
 	/// 钉住"名字 + 位置"两件事：
 	///   名字 = `World.WorldGen`（防止有人改回带NoiseWorld 的名字）
-	///   位置 = 目录 `scripts/worldgen/`（防止代码与目录再次脱节）
+	///   位置 = 目录 `scripts/WorldGen/`（防止代码与目录再次脱节）
+	/// ★2026-10-06 A 步：目录由 `scripts/worldgen/` 正规化为 `scripts/WorldGen/`
+	///   （Windows 大小写不敏感 ⇒ 改名走 `git mv` 两步法；namespace 刻意不改，
+	///    因本契约第①段把 6 个核心类型钉死在 `World.WorldGen`）。
 	/// </summary>
 	[Test]
 	public void NewWorldLine_NamespaceIsWorldGen()
@@ -341,12 +346,24 @@ public class ArchitectureContractTests
 		// ③ 目录与命名空间一致（D-3：按类型语义定位，但目录也不应误导）
 		//    ★用与 CellHighlightRingTests 相同的"向上查找仓库根"写法，
 		//    不用 Directory.GetParent 硬拼层级（测试输出目录深度会变）。
-		var worldgenDir = FindRepoDir("scripts", "worldgen");
+		var worldgenDir = FindRepoDir("scripts", "WorldGen");
 		Assert.That(worldgenDir, Is.Not.Null,
-			"未找到 scripts/worldgen/ —— namespace World.WorldGen 与目录 scripts/worldgen 必须一致");
-		// 旧目录不得复活
+			"未找到 scripts/WorldGen/ —— namespace World.WorldGen 与目录 scripts/WorldGen 必须一致");
+		// ★大小写严格钉：Windows 上 Directory.Exists 大小写不敏感 ⇒ 写 "worldgen" 也能命中，
+		//   那样这条契约就再也拦不住"目录名又退回全小写"。故额外比对真实目录名。
+		//   （A 步起因：Windows 大小写不敏感导致 `scripts/WorldGen` 曾被解析成 `scripts/worldgen`，
+		//    正规化必须走 `git mv worldgen __tmp && git mv __tmp WorldGen` 两步法。）
+		if (worldgenDir != null)
+		{
+			var actualDirName = new DirectoryInfo(worldgenDir).Name;
+			Assert.That(actualDirName, Is.EqualTo("WorldGen"),
+				$"目录名实际是 '{actualDirName}'，应为 'WorldGen' —— 本契约钉的是" +
+				"namespace World.WorldGen 与目录名大小写**逐字一致**（大写 W/G），" +
+				"否则 namespace 与目录脱节（契约原意）就失效了");
+		}
+		// 旧目录不得复活（含改名前的全小写形式——大小写不敏感文件系统上它同名）
 		Assert.That(FindRepoDir("scripts", "noise_world"), Is.Null,
-			"scripts/noise_world/ 不应存在（B 线已清退，新线在 scripts/worldgen/）");
+			"scripts/noise_world/ 不应存在（B 线已清退，新线在 scripts/WorldGen/）");
 	}
 
 	/// <summary>

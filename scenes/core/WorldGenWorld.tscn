@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/worldgen/WorldGenManager.cs" id="1_mgr"]
+[ext_resource type="Script" path="res://scripts/WorldGen/Composition/WorldGenManager.cs" id="1_mgr"]
 [ext_resource type="PackedScene" path="res://scenes/worldgen/WorldGenPlanet.tscn" id="2_planet"]
 [ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="3_cam"]
 [ext_resource type="PackedScene" path="res://scenes/render/CellInfoCard.tscn" id="4_cellpanel"]
