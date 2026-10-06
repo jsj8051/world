@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Godot;
-using World.NewHexWorld;
+using World.Spatial;
 using World.WorldGen;
 using World.Utils.H3;    // H3.GetNumCells（纯标量换算，不需要 Ball）
 

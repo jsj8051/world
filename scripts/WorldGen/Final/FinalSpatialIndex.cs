@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
-using World.NewHexWorld;    // Ball（H3 球壳数据层）
+using World.Spatial;    // Ball（H3 球壳数据层）
 using World.Utils.H3;
 
 namespace World.WorldGen;

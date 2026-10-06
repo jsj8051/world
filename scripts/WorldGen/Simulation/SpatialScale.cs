@@ -1,5 +1,5 @@
 using System;
-using World.NewHexWorld;    // Ball（H3 球壳数据层）
+using World.Spatial;    // Ball（H3 球壳数据层）
 using World.Utils;           // SphericalFbmNoise
 using World.Utils.H3;        // H3（LatLng 单位是弧度）
 

@@ -5,10 +5,13 @@ using World.Utils;
 using World.Utils.H3;
 using Godot;
 
-namespace World.NewHexWorld
+// H3 球面网格数据层（纯数据可单测）：res 网格静态拓扑与几何，一次构建永久只读。
+// 内容层（noise_world 噪声世界等）持只读引用：场数组按下标与 CellIds 对齐。
+//
+// ★2026-10-06 E 步：目录 new_HexWorld/Ball → Spatial/Ball，命名空间
+//   World.NewHexWorld → World.Spatial（目录与命名空间恢复一致）。
+namespace World.Spatial
 {
-	// H3 球面网格数据层（纯数据可单测）：res 网格静态拓扑与几何，一次构建永久只读。
-	// 内容层（noise_world 噪声世界等）持只读引用：场数组按下标与 CellIds 对齐。
 	public class Ball
 	{
 		// ── 字段（全部 private，构建期写入，之后只读）──

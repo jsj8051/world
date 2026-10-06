@@ -1,7 +1,7 @@
 using System;
 using Godot;
 using NUnit.Framework;
-using World.NewHexWorld;
+using World.Spatial;
 using World.WorldGen;
 
 namespace World.Tests;

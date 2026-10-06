@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Godot;                            // 仅 Vector3 值类型
-using World.NewHexWorld;
+using World.Spatial;
 using World.WorldGen;
 using World.Utils;                       // SphericalFbmNoise
 using World.Utils.H3;                    // H3

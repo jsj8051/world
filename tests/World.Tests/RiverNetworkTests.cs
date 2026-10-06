@@ -2,7 +2,7 @@ using System;
 using System.Linq;
 using NUnit.Framework;
 using Godot;
-using World.NewHexWorld;
+using World.Spatial;
 using World.WorldGen;
 
 namespace World.Tests;

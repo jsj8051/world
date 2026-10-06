@@ -260,7 +260,7 @@ public static class Program
         var swAll = System.Diagnostics.Stopwatch.StartNew();
         Console.WriteLine($"== 批量判读图：{count} 张 res{res} {width}×{height} seed {startSeed}..{startSeed + count - 1} → {outDir}（并行 {parallel}）==");
 
-        var ball = new World.NewHexWorld.Ball(res, 1f);
+        var ball = new World.Spatial.Ball(res, 1f);
 
         // 像素 → 格索引表（一次预计算，全种子复用；等距圆柱：y=0 北极）
         var cellOfPixel = new int[width * height];
@@ -383,7 +383,7 @@ public static class Program
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Console.WriteLine($"== 连续图：seed {seed} res{res} {frames} 帧 {size}×{size} 倾角 {tiltDeg}° → {outDir} ==");
 
-        var ball = new World.NewHexWorld.Ball(res, 1f);
+        var ball = new World.Spatial.Ball(res, 1f);
         var layout = new World.WorldGen.ContinentLayout(seed, 7);
         var field = new World.WorldGen.LandSeaField(layout,
             new World.WorldGen.LandSeaParams { Seed = seed });
@@ -520,7 +520,7 @@ public static class Program
         var sw = System.Diagnostics.Stopwatch.StartNew();
         Console.WriteLine($"== 连续地形图：seed {seed} res{res} {width}×{height} → {outDir} ==");
 
-        var ball = new World.NewHexWorld.Ball(res, 1f);
+        var ball = new World.Spatial.Ball(res, 1f);
         var layout = new World.WorldGen.ContinentLayout(seed, 7);
         var field = new World.WorldGen.LandSeaField(layout,
             new World.WorldGen.LandSeaParams { Seed = seed });

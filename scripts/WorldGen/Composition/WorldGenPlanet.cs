@@ -2,7 +2,7 @@ using Godot;
 using System;
 using System.Diagnostics;
 using System.Collections.Generic;
-using World.NewHexWorld;        // Ball（H3 球壳数据层）
+using World.Spatial;        // Ball（H3 球壳数据层）
 using World.Render;             // BallView（决策 08 §4.4 表现层保留资产）
 
 namespace World.WorldGen;
