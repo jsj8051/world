@@ -8,65 +8,20 @@ using World.LogicGrid;
 using World.Domain;
 using World.Archive;
 using World.Services;
-using World.Surface;
 
 namespace World.Tests;
 
 /// <summary>
-/// EventBus 跨场景事件总线测试（L0 纯 C# 事件；无引擎依赖）。
-/// ⚠️ 静态状态（事件订阅 / pending 路径）跨测试存续：每个测试 try/finally 自清理，
-/// 不依赖 SetUp/TearDown（本地执行器不支持）。
+/// 势力调色板 + 星球配色测试（L0 纯 C#；无引擎依赖）。
+///
+/// ★2026-10-06 D-B：本文件原含 3 个 `PlanetColors.ElevationToColor` 测试，
+///   随 `scripts/Surface/PlanetColors.cs` 一并清退——该类型生产零消费者，
+///   其"海拔归一化值 → 颜色"能力已由 `World.Utils.ColorRamp`（通用色带算法）
+///   + 各处业务色带定义取代。
+/// ⚠️ 保留的 `PowerPalette` 测试属 `World.Domain`（保留区），**不随本次清退**。
 /// </summary>
 public class EventBusTests
 {
-    private static float L1(Color a, Color b) =>
-        Mathf.Abs(a.R - b.R) + Mathf.Abs(a.G - b.G) + Mathf.Abs(a.B - b.B);
-
-    [Test]
-    public void ElevationToColor_ExtremeAnchors()
-    {
-        AssertColor(PlanetColors.ElevationToColor(-1f), 0.01f, 0.05f, 0.18f);   // 深海
-        AssertColor(PlanetColors.ElevationToColor(-2f), 0.01f, 0.05f, 0.18f);   // 下限钳制
-        AssertColor(PlanetColors.ElevationToColor(1f), 0.95f, 0.97f, 1.00f);    // 雪顶
-        AssertColor(PlanetColors.ElevationToColor(2f), 0.95f, 0.97f, 1.00f);    // 上限钳制
-        AssertColor(PlanetColors.ElevationToColor(0f), 0.12f, 0.45f, 0.68f);    // 海平面 = 浅海色
-    }
-
-    [Test]
-    public void ElevationToColor_ContinuousAtRampBoundaries()
-    {
-        float[] bounds = { -0.05f, 0f, 0.05f, 0.35f, 0.65f };
-        const float eps = 1e-4f;
-        foreach (float b in bounds)
-        {
-            var left = PlanetColors.ElevationToColor(b - eps);
-            var mid = PlanetColors.ElevationToColor(b);
-            var right = PlanetColors.ElevationToColor(b + eps);
-            Assert.LessOrEqual(L1(left, mid), 0.01f, $"e={b} 左侧不连续");
-            Assert.LessOrEqual(L1(mid, right), 0.01f, $"e={b} 右侧不连续");
-        }
-    }
-
-    [Test]
-    public void ElevationToColor_RgbChannelsInRange_Deterministic()
-    {
-        for (float e = -1.5f; e <= 1.5f; e += 0.1f)
-        {
-            var c = PlanetColors.ElevationToColor(e);
-            Assert.That(c.R, Is.InRange(0f, 1f));
-            Assert.That(c.G, Is.InRange(0f, 1f));
-            Assert.That(c.B, Is.InRange(0f, 1f));
-            Assert.AreEqual(c, PlanetColors.ElevationToColor(e), "同输入必须同色");
-        }
-    }
-
-    private static void AssertColor(Color c, float r, float g, float b, float tol = 1e-3f)
-    {
-        Assert.AreEqual(r, c.R, tol);
-        Assert.AreEqual(g, c.G, tol);
-        Assert.AreEqual(b, c.B, tol);
-    }
-
     [Test]
     public void Build_Empty_ReturnsEmpty()
     {
