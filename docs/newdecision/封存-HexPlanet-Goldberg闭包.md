@@ -112,7 +112,7 @@
 
 | 被清退能力 | 现行替代 | 位置 |
 |---|---|---|
-| 逐格邻居查询 | `Ball.CellNeighbors` / `CellNeighborDirs` | `new_HexWorld/Ball/Ball.cs` |
+| 逐格邻居查询 | `Ball.CellNeighbors` / `CellNeighborDirs` | `Spatial/Ball/Ball.cs` |
 | 格中心方向 | `Ball.CellDirs` | 同上 |
 | 格顶点（角点）方向 | `Ball.VertexPositions` + `VertexIndexOf` | 同上 |
 | 渲染网格构建 | `Render/BallView`（分块 LOD + 颜色纹理） | `Render/BallView.cs` |

@@ -298,13 +298,24 @@ var actualDirName = new DirectoryInfo(worldgenDir).Name;
 Assert.That(actualDirName, Is.EqualTo("WorldGen"), ...);
 ```
 
-### 8.4 后续
+### 8.4 后续（✅ 已全部完成）
 
 - **B 步** `6410d49`：3 个表现层文件归位 `Render/{Modes,Overlays}/`（6 R100，0 ins/0 del）
 - **C 步** `88bf2d2`：`Utils/` 7 个根级文件按职责归入 `Foundation` 六子层（7 R100，0 ins/0 del）
   - 与矩阵原提案的差异：`ColorRamp` → `Color/`、`ArchiveChunk` → `Archive/`
     （不塞 `IO/`——前者是通用色带算法不含业务色，后者是 persistence format 而非 IO）
-- **未执行**：D（Legacy 逐项决策）、E（`new_HexWorld/Ball` → `Spatial/Ball`，24 处 using）
+- **D 步** `9f2dc52`(D-A) / `f4cc534`(D-B) / `c69142e`(D-C)：
+  Legacy 逐项取证与清退（HexPlanet 闭包 + PlanetColors）
+  —— 详见 `docs/审查报告-D-Legacy逐项决策.md`
+- **E 步** `139b898`：`new_HexWorld/Ball` → `Spatial/Ball`，
+  namespace `World.NewHexWorld` → `World.Spatial` + 全部引用同步
+  - ⚠️ **口径勘误**：本矩阵 §3.2 / §5.7 记「24 处 using」，那仅指 **`scripts/` 侧**。
+    实测总量 = **46 处 using（scripts 24 + tests 22）+ 3 处全限定名 = 49 处引用**，
+    另加 1 处 namespace 声明。差异来源：早期统计只扫 `scripts/`，
+    未含 `tests/` 侧与 `World.NewHexWorld.Ball` 全限定名形式。
+
+**五步完成后**：`scripts/` 一级目录 15 → **13**，`.cs` 151 → **146**，
+`.cs`/`.cs.uid` 配平 195/195、零孤儿；测试 511 → 492（D 步预期减少 19）。
 
 ---
 

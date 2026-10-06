@@ -1,12 +1,20 @@
 # 功能迁移对照清单：`strategy`（GDScript 板块构造原型） → `world`（Godot C# 分层世界生成）
 
-> **路径注记（2026-10-06 目录治理后）**：本文写作时新项目主链位于 `scripts/worldgen/`。
-> A/B/C 三步目录治理已完成，当前实际路径为 `scripts/WorldGen/` 六子层
-> （`Placement` / `Features` / `Discretization` / `Final` / `Simulation` / `Composition`），
-> 其中 `WorldGenMapModes.cs` → `Render/Modes/`、
-> `RiverLineOverlay.cs` / `SnowOverlay.cs` → `Render/Overlays/`。
-> 文中代码位置一律为 `world` 仓库的相对路径，请按上述新路径查找；
-> 表格中标注 `worldgen/` 的是**写作当时的路径写法**，为便于对照未逐行重写。
+> **路径注记（2026-10-06 A–E 五步目录治理后）**：本文写作时新项目主链位于 `scripts/worldgen/`。
+> 五步治理已完成，当前实际路径：
+> - `worldgen/` → **`scripts/WorldGen/`** 六子层
+>   （`Placement` / `Features` / `Discretization` / `Final` / `Simulation` / `Composition`）
+> - 表现层三文件 → `Render/Modes/`（`WorldGenMapModes`）/ `Render/Overlays/`
+>   （`RiverLineOverlay` / `SnowOverlay`）
+> - `Utils/` 根级 → `Utils/{Random,Noise,Math,IO,Color,Archive}/`（+ 既有 `H3/`）
+> - `new_HexWorld/Ball` → **`Spatial/Ball`**，
+>   namespace `World.NewHexWorld` → `World.Spatial`（E 步）
+> - D 步清退：`HexPlanet` 的 Goldberg 闭包（`GoldbergBuilder`/`SubdividedMesh`/`HexTile`）、
+>   `PlanetLOD/ChunkMeshBuilder`、`Surface/PlanetColors`；
+>   **保留** `HexPlanet/Icosahedron.cs` 与 `HexPlanet/SphereGrid.cs`
+>
+> 文中代码位置一律为 `world` 仓库的相对路径，已按上述新路径更新；
+> 表格中若仍见 `worldgen/` 字样，为**写作当时的路径写法**，为便于对照未逐行重写。
 
 - 日期：2026-10-06
 - 范围：`E:/godotGames/strategy`（旧） → `E:/godotGames/world`（新）
@@ -89,10 +97,10 @@
 
 | # | 旧项目功能 | 旧代码位置 | 新项目状态 | 新代码位置 | 差异点 / 依赖 / 难度 |
 |---|---|---|---|---|---|
-| 16 | 球面网格 | **经纬规则格** `planet_grid.gd:44-58`（`lat×lon`，`neighbors()` 4 邻域，**极点不环绕**） | ✅（不同） | **H3 六边形** `new_HexWorld/Ball/Ball.cs` + `Utils/H3/H3.cs` | **架构级不兼容，是全部迁移难度的根源**。经纬格在极点退化、格子物理尺寸随纬度剧烈变化；H3 六边形无极点奇点、6 邻域。旧项目代码里 `planet_forces.gd:_boundary_length_m` 专门用 `cos(lat)` 修正格长——这类纬度补丁在 H3 上**全部不需要**。 |
+| 16 | 球面网格 | **经纬规则格** `planet_grid.gd:44-58`（`lat×lon`，`neighbors()` 4 邻域，**极点不环绕**） | ✅（不同） | **H3 六边形** `Spatial/Ball/Ball.cs` + `Utils/H3/H3.cs` | **架构级不兼容，是全部迁移难度的根源**。经纬格在极点退化、格子物理尺寸随纬度剧烈变化；H3 六边形无极点奇点、6 邻域。旧项目代码里 `planet_forces.gd:_boundary_length_m` 专门用 `cos(lat)` 修正格长——这类纬度补丁在 H3 上**全部不需要**。 |
 | 17 | 格边长/面积口径 | `planet_grid.gd` 隐式（含 `cos(lat)` 修正） | ✅（更严格） | `worldgen/SpatialScale.cs`（179 行，四口径：等积面积 / haversine 距离 / `CellEdgeKm`） | 新项目把口径显式化为单一真相源。**迁旧代码时不要迁它的 `cos(lat)` 修正**，那是被新项目 `SpatialScale` 取代的东西 |
 | 18 | 确定性随机 | `RandomNumberGenerator` + `rng.seed`（GDScript 内置，非确定性序列保证） | ✅（更严格） | `Utils/DeterministicRandom.cs`（SplitMix64）+ `worldgen/SeedDerivation.cs`（魔数表） | 新项目随机纪律是硬约束（`SeedDerivation.Tags_AreUnique` 测试钉死）。迁移时**不能照抄 `rng.seed`**，须换成 `DeterministicRandom` + 派生子流 |
-| 19 | 球面三角/网格工具 | `core/planet_math.gd`（lat/lon↔cartesian、角距离、UV 球生成） | ✅ | `new_HexWorld/Ball/Ball.cs`、`HexPlanet/*` | `angular_distance` 已被 `SpatialScale.DistanceKm`（haversine）取代。**无可迁移需求** |
+| 19 | 球面三角/网格工具 | `core/planet_math.gd`（lat/lon↔cartesian、角距离、UV 球生成） | ✅ | `Spatial/Ball/Ball.cs`、`HexPlanet/*` | `angular_distance` 已被 `SpatialScale.DistanceKm`（haversine）取代。**无可迁移需求** |
 
 ### 2.3b 离散化桥（**迁移的关键接缝，此前遗漏**）
 
@@ -159,7 +167,7 @@
 | `Domain/` | 5 | ✅ | `HexPlanet/` | 5 | ✅ 标为旧线遗留 |
 | `Render/` | 5 | ✅ 含 `UI/` | `Archive/` | 2 | ✅ |
 | `Gameplay/` | 3 | ✅ | `Services/` | 2 | ✅ |
-| `new_HexWorld/` | 1 | ✅ `Ball/Ball.cs` | `Camera/` | 1 | ✅ |
+| `Spatial/` | 1 | ✅ `Ball/Ball.cs` | `Camera/` | 1 | ✅ |
 | `PlanetLOD/` | 1 | ✅ 标为旧线遗留 | `Surface/` | 1 | ✅ 标为旧线遗留 |
 
 **勘误记录**（初版三处数字有误，已在正文修正）：初版称 `worldgen` 34（实 33）、`Diagnostics` 15（实 18）、`HexPlanet` 4（实 5）；且初版**遗漏** `worldgen/H3TerrainSampler.cs` 与 `Utils/CoordUtil.cs` 两个文件——后者已补入风险 R4。

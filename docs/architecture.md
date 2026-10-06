@@ -282,11 +282,13 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 
 ## 9. 命名与目录约定
 
-- 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
-  `World.Render(.UI)` / `World.WorldGen` / `World.Domain` / `World.Archive` /
-  `World.CivSim.*` / `World.LogicGrid` / `World.HexPlanet` / `World.NewHexWorld` /
-  `World.PlanetLOD` / `World.Surface` / `World.Utils(.H3)` / `World.Services` /
-  `World.Camera` / `World.Diagnostics` / `World.Gameplay`。
+  - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
+    `World.Render(.UI)` / `World.WorldGen` / `World.Domain` / `World.Archive` /
+    `World.CivSim.*` / `World.LogicGrid` / `World.HexPlanet` / `World.Spatial` /
+    `World.Utils(.H3)` / `World.Services` / `World.Camera` / `World.Diagnostics` /
+    `World.Gameplay`。
+    （2026-10-06：D 步清退 `World.PlanetLOD` / `World.Surface`；
+      E 步 `World.NewHexWorld` → `World.Spatial`）
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
   已实证：`scripts/CivSim/Engine/CivSimContext.cs` 的命名空间是 `World.CivSim`（子目录不进命名空间）。
 - 文件名 = 类名；`partial` 分片用 `原类名.职责.cs` 后缀放同目录。
