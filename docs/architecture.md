@@ -329,11 +329,24 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 
 **namespace 重构（✅ 2026-10-05 已完成，独立提交）**：
 `World.NoiseWorld.WorldGen` → **`World.WorldGen`**，目录
-`scripts/noise_world/worldgen/` → `scripts/worldgen/`，场景
+`scripts/noise_world/worldgen/` → `scripts/worldgen/`（注：该目录已于次日经
+A 步正规化为 `scripts/WorldGen/`，见下节），场景
 `scenes/noise_world/` → `scenes/worldgen/`。
 纯结构重构：34 个 `.cs` + 34 个 `.uid` 全部 `git mv`（68 条rename 记录），
 不碰任何生成逻辑 / 渲染逻辑 / 参数体系 / 算法资产。
 由 `NewWorldLine_NamespaceIsWorldGen` 契约钉住名字 + 目录 + 旧命名空间不得复活。
+
+**目录治理（✅ 2026-10-06 已完成，A/B/C 三次独立提交）**：
+`scripts/worldgen/` → `scripts/WorldGen/`，并按 `Regenerate()` 的依赖 DAG 拆为六个子层
+（`Placement` / `Features` / `Discretization` / `Final` / `Simulation` / `Composition`）；
+表现层三个文件归位到 `scripts/Render/{Modes,Overlays}/`；
+`scripts/Utils/` 根级按职责归入 `Foundation` 六子层
+（`Random` / `Noise` / `Math` / `IO` / `Color` / `Archive`，`H3/` 保持原位）。
+累计 73 个文件全部 `git mv`（73 条 R100 = 100% 相似度），**tracked 内容语义零变化**，
+namespace 一律保持 `World.WorldGen` / `World.Utils` 不变。
+提交：`1eb6ecd`(A) → `6410d49`(B) → `88bf2d2`(C)。
+验收：build 0 警告 0 错误 · 511 测试全绿 · Godot headless 加载零 ERROR，
+`[WORLDGEN-TIMING]` 数值与迁移前逐字一致。
 
 ---
 

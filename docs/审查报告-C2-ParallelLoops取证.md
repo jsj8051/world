@@ -63,6 +63,11 @@
 > **性能**：逐脊**角帽预筛**（帽 = 脊点包围 + 3σ 余量；`exp(−9)≈1e-4` 截断）
 > + 海格跳过。**res4 全链 11.8 s，骨架增量 ~0.1 s** —— 空间索引待实测超预算再立。
 
+> **路径注记（2026-10-06 目录治理后）**：本报告取证时 `MountainSkeleton.cs` 位于
+> `scripts/worldgen/`；现已归位到 `scripts/WorldGen/Features/MountainSkeleton.cs`
+> （A 步，纯 `git mv`，内容未变）。下文保留取证当时的路径写法，不改写历史事实。
+> 引用该文件时请按新路径查找；其行号（198/207/211）在文件移动后仍有效。
+
 现行代码（`scripts/worldgen/MountainSkeleton.cs:198, 207, 211`）可见该优化：
 
 ```csharp

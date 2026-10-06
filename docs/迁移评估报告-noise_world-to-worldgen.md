@@ -176,6 +176,13 @@ B线最核心的设计决策（`NoiseTerrain.cs:8-13`，"是什么就是什么"�
 scripts/noise_world/worldgen/WorldGenPlanet.cs:68,80
     public NoiseBallView View { get; private set; }
     View = new NoiseBallView(_ball, DisplayElevation, ...)   ← float[] 重载
+> **路径注记（2026-10-06 目录治理后）**：本报告评估 B 线清退时，文中路径为
+> `scripts/noise_world/worldgen/`（B 线）与 `scripts/worldgen/`（当时的新线位置）。
+> 2026-10-06 完成 A/B/C 目录治理后，新线主链位于 `scripts/WorldGen/` 六子层，
+> 其中 `WorldGenMapModes.cs` → `Render/Modes/`、
+> `RiverLineOverlay.cs` / `SnowOverlay.cs` → `Render/Overlays/`。
+> 下文保留评估当时的历史路径与决策语境，不改写历史事实。
+
 scripts/noise_world/worldgen/WorldGenManager.cs:18,19,32,36
     NoiseCellPanel _cellPanel;  NoiseDock _dock;
 scripts/noise_world/worldgen/WorldGenMapModes.cs:16,26,39,45,49,75

@@ -41,6 +41,12 @@
 
 ### 2.1 地图模式层：没有任何边界线元素
 
+> **路径注记（2026-10-06 目录治理后）**：本报告取证时文中路径为
+> `scripts/worldgen/WorldGenMapModes.cs`；该文件现已归位到
+> `scripts/Render/Modes/WorldGenMapModes.cs`（B 步，纯 `git mv`，内容未变）。
+> 下文保留取证当时的路径写法，不改写历史事实。
+> 引用该文件时请按新路径查找。
+
 `scripts/worldgen/WorldGenMapModes.cs` 四个模式全部是**逐格填色**：
 
 | 模式 | 表达方式 |
