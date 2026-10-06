@@ -295,6 +295,13 @@ public sealed class CivSimContext
     // ── 土地挂钩（2026-08-17 用户拍板：砍存量再生——采集=建筑×可用土地×劳动力；农田占用土地）──
     public const float CultivateRate = 0.05f;    // 开垦速率/tick（农田占用增长：20 tick=2000 年满开垦；★ 待校准）
     public const float PreyHabitatLoss = 0.5f;   // 猎物栖息地破碎系数（开垦对猎物间接削减；浆果被直接替代）
+    // ── 渔业潜在（2026-10-06 ① FishPotential：Resource Potential 的完整性修补，零新增状态）──
+    //   与 PreyFrac 完全同构的**派生占比**（非独立场、不入档）：采集档三分 猎物/浆果/水产，和恒为 1。
+    //   ⚠️ 只依赖已存在且经过验证的世界事实（IsCoast / LakeLevel / Biome）——**不依赖 Riparian**
+    //      （WorldGen 当前不生成 BiomeType.Riparian，实测 Riparian 格 = 0；见 ② 独立变更）。
+    public const float FishFracCoast = 0.25f;     // 沿海格水产占比（海洋渔业；★ 首版标定）
+    public const float FishFracLake = 0.20f;      // 湖泊格水产占比（★ 首版标定）
+    public const float FishFracRiparian = 0.15f;  // 河岸格水产占比（★ 预留：Riparian 未点亮 ⇒ 当前恒不命中）
     // ── 冲突机制（2026-08-10 定稿 §十五）：归属两条途径——和平（场 argmax+粘性）/ 武力（冲突强制易主+实控锁定）──
     public const int ConflictLockTicks = 8;      // 实控锁定：武力夺取格 N tick 内场不重算（胜者持续产粮→人口增长窗口）
     public const float ConflictChance = 0.01f;   // 每僵持格/tick 触发概率（低频——旧石器战争是偶发事件，全演化 0~十几次）
@@ -667,6 +674,51 @@ public sealed class CivSimContext
         _ => 0.5f,
     };
 
+    /// <summary>水产占比（2026-10-06 ① FishPotential：Resource Potential 完整性修补）。
+    /// 与 `PreyFrac` **完全同构的派生函数**——非独立场、不入档、无 Rng、读档续跑无分叉。
+    /// 语义：**海岸 → 鱼；湖泊 → 鱼；两者皆无的内陆 → 0**（不凭空产鱼）。
+    /// 多条件并存取 max（顺序无关）：沿海湖格取较大档，不做叠加（防占比溢出）。
+    /// ⚠️ `isRiparian` 为**预留参数**：当前 WorldGen 不生成 `BiomeType.Riparian`（实测 Riparian 格 = 0），
+    ///   调用方按 `biome == Riparian` 传入 ⇒ 恒 false ⇒ **不参与输出**；
+    ///   ② Riparian 落地后**自动点亮，接口无需重构**。（用户拍板：Fish 与 Riparian 变更边界不同，分开做。）</summary>
+    public static float FishFrac(BiomeType biome, bool isCoast, bool isRiparian, bool hasLake)
+    {
+        float f = 0f;
+        if (isCoast) f = Mathf.Max(f, FishFracCoast);
+        if (hasLake) f = Mathf.Max(f, FishFracLake);
+        if (isRiparian) f = Mathf.Max(f, FishFracRiparian);
+        return f;
+    }
+
+    /// <summary>采集档三分潜在占比（猎物 / 浆果 / 水产）——**恒有 prey + berry + fish = 1**。
+    /// 水产自**浆果份**中划出（不追加总量），且**对开垦免疫**（渔场不被农田直接替代）——
+    /// ⇒ `fish = 0` 时精确退化为旧公式（退化解原则），纯内陆格行为逐位不变。
+    /// 裁剪：`fish ≤ 1 − prey`（常量下不会触发，作为不变量护栏保留）。</summary>
+    public static void ForageShares(BiomeType biome, bool isCoast, bool isRiparian, bool hasLake,
+                                    out float prey, out float berry, out float fish)
+    {
+        prey = PreyFrac(biome);
+        fish = Mathf.Min(FishFrac(biome, isCoast, isRiparian, hasLake), 1f - prey);
+        berry = 1f - prey - fish;
+    }
+
+    /// <summary>湖泊渔业可达性：自身有湖水，或邻格有湖水（与 `WaterRich` 的"邻湖"语义一致 —— 湖岸人口也能捕鱼）。</summary>
+    public bool LakeFishAccess(int cell)
+    {
+        if (Grid.LakeLevel[cell] > 0) return true;
+        foreach (int nb in Grid.Neighbors[cell])
+            if (Grid.LakeLevel[nb] > 0) return true;
+        return false;
+    }
+
+    /// <summary>格级三分便捷入口（从 Grid 推导 isCoast/isRiparian/hasLake）。</summary>
+    public void ForageSharesAt(int cell, out float prey, out float berry, out float fish)
+    {
+        var b = (BiomeType)Grid.Biome[cell];
+        ForageShares(b, Grid.IsCoast(cell), b == BiomeType.Riparian, LakeFishAccess(cell),
+                     out prey, out berry, out fish);
+    }
+
     /// <summary>影响力场重算：每格归属 = argmax(P×M×w(d))；粘性：非 owner 需超现 owner×1.15 才易主。
     /// band 驱动（每 band 写半径 R 内格，O(band×28)）；确定性（固定遍历顺序）。</summary>
     public void RebuildInfluence()
@@ -848,9 +900,10 @@ public sealed class CivSimContext
     ///   段 A（仅采集档激活，μ∈(5,10]）：√μ = √0.1·ΣPc / (N + 0.1·ΣPc)
     ///   段 B（采集+农田激活，μ≤5）：  √μ = (√0.1·ΣPc + √0.2·ΣPf) / (N + 0.1·ΣPc + 0.2·ΣPf)
     /// 每格 n_i = √LF·P_i/√μ − LF·P_i（max(0,·) 截断——未激活建筑 0 工人）；
-    /// FBerryLast 按浆果占比拆分（仅采集部分）；FHerdLast 独立缓存（羊毛副产）。
+    /// FBerryLast 按浆果占比拆分（仅采集部分）；FFishLast 按水产占比拆分（2026-10-06 ① FishPotential，
+    ///   对开垦免疫）；FHerdLast 独立缓存（羊毛副产）。
     /// 每 tick 派生重算、不入档、无 Rng——读档续跑无分叉。
-    /// 采集潜在 = R·A·w·[(1−0.5·开垦)·猎物占比 + (1−开垦)·浆果占比]；
+    /// 采集潜在 = R·A·w·[(1−0.5·开垦)·猎物占比 + (1−开垦)·浆果占比 + 1·水产占比]（三分和=1，水产不随开垦衰减）；
     /// 牧场潜在 = R·A·HerdMult·w·(1−开垦)（草原位——草场被农田直接替代，与浆果同敏感度；
     ///   2026-08-17 用户拍板：畜牧也是占用土地的建筑，无"游牧与田不冲突"豁免）；
     /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w。</summary>
@@ -863,17 +916,23 @@ public sealed class CivSimContext
         bool isFarm = e.IsFarming;
         bool canHerd = CapabilityTable.Has(this, e, CapabilityTable.Livestock);
         byte[] wild = canHerd ? Grid.EnsureWildLivestock() : null;
-        // 第一遍：Σ 采集/牧场/农田潜在 + 浆果潜在（分配只需总量，逐格 n 按潜在比例）
-        float sumPc = 0f, sumPh = 0f, sumPf = 0f, sumBerry = 0f;
+        // 第一遍：Σ 采集/牧场/农田潜在 + 浆果/水产潜在（分配只需总量，逐格 n 按潜在比例）
+        float sumPc = 0f, sumPh = 0f, sumPf = 0f, sumBerry = 0f, sumFish = 0f;
         for (int k = 0; k < terr.Count; k++)
         {
             int c = terr[k];
             if (R[c] <= 0f) continue;
             float w = ProductionWeight(dists[k]);
             float cult = Cultivation != null ? Cultivation[c] : 0f;
-            float frac = PreyFrac((BiomeType)Grid.Biome[c]);
-            float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
-            if (pc > 0f) { sumPc += pc; sumBerry += R[c] * A * w * (1f - cult) * (1f - frac); }
+            // 采集档三分（猎物/浆果/水产；和=1）——2026-10-06 ① FishPotential
+            ForageSharesAt(c, out float prey, out float berry, out float fish);
+            float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * prey + (1f - cult) * berry + fish);
+            if (pc > 0f)
+            {
+                sumPc += pc;
+                sumBerry += R[c] * A * w * (1f - cult) * berry;
+                sumFish += R[c] * A * w * fish;   // 水产对开垦免疫（渔场不被农田替代）
+            }
             if (canHerd && wild[c] != 0) sumPh += R[c] * HerdMult * A * w * (1f - cult);   // 草场被农田直接替代
             if (isFarm && cult > 0f)
             {
@@ -912,8 +971,8 @@ public sealed class CivSimContext
             if (R[c] <= 0f) continue;
             float w = ProductionWeight(dists[k]);
             float cult = Cultivation != null ? Cultivation[c] : 0f;
-            float frac = PreyFrac((BiomeType)Grid.Biome[c]);
-            float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * frac + (1f - cult) * (1f - frac));
+            ForageSharesAt(c, out float prey, out float berry, out float fish);
+            float pc = R[c] * A * w * ((1f - PreyHabitatLoss * cult) * prey + (1f - cult) * berry + fish);
             if (pc > 0f)
             {
                 float n = Mathf.Max(0f, Mathf.Sqrt(LaborFrac) * pc / sqrtMu - LaborFrac * pc);   // 未激活建筑 = 0 工人
@@ -954,6 +1013,7 @@ public sealed class CivSimContext
             }
         }
         e.FBerryLast = sumPc > 0f ? fHunt * (sumBerry / sumPc) : 0f;   // 浆果实际（仅采集部分，牧场无浆果）
+        e.FFishLast = sumPc > 0f ? fHunt * (sumFish / sumPc) : 0f;     // 水产实际（2026-10-06 ① FishPotential）
         e.FHerdLast = fHerd;
         e.FFarmLast = fFarm;
         return fHunt;   // ⚠️ 2026-08-17 修双计：返回**采集分量**（fHerd/fFarm 已入实体缓存；

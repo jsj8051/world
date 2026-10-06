@@ -44,10 +44,13 @@ public static class CommodityTable
         new() { Id = Berry,   Name = "浆果",   Kind = CommodityKind.Food,     BaseDecay = 0.5f,  Consumed = true,
                 Produce = e => e.FBerryLast },                                // 鲜果（不耐储，数天-数周）
         new() { Id = Meat,    Name = "猎物/奶肉", Kind = CommodityKind.Food,  BaseDecay = 0.4f,  Consumed = true,
-                Produce = e => Math.Max(0f, e.FHuntLast - e.FBerryLast) + e.FHerdLast },        // 猎物（除浆果）+ 畜牧奶肉
+                // ⚠️ 2026-10-06 ① FishPotential：扣除水产分量——否则鱼会被同时计为"猎物"（双计）。
+                //   FFishLast=0 时精确退化（纯内陆格逐位不变）。
+                Produce = e => Math.Max(0f, e.FHuntLast - e.FBerryLast - e.FFishLast) + e.FHerdLast },        // 猎物（除浆果/水产）+ 畜牧奶肉
         // ── Material（只存+衰变；贸易备货）──
         new() { Id = Leather, Name = "皮革",   Kind = CommodityKind.Material, BaseDecay = 0.03f, Consumed = false,
-                Produce = e => e.FHuntLast * CivSimContext.LeatherRate },
+                // 皮革 = 狩猎副产（扣水产——鱼不产皮革；浆果份沿用历史口径不动，避免非退化变更）
+                Produce = e => (e.FHuntLast - e.FFishLast) * CivSimContext.LeatherRate },
         new() { Id = Wool,    Name = "羊毛",   Kind = CommodityKind.Material, BaseDecay = 0.02f, Consumed = false,
                 Produce = e => e.FHerdLast * CivSimContext.WoolRate },
         new() { Id = Straw,   Name = "秸秆",   Kind = CommodityKind.Material, BaseDecay = 0.01f, Consumed = false,

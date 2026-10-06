@@ -409,6 +409,130 @@ public class CivSimMechanics2Tests
         Assert.Less(e.FBerryLast, e.FHuntLast + 1e-6f, "浆果 ≤ 采集总量");
     }
 
+    // ══════════════════════ ① FishPotential（2026-10-06）══════════════════════
+    //   验收：海岸→鱼 / 湖泊→鱼 / 纯内陆不凭空产鱼；三分和=1；FishFrac=0 时精确退化；
+    //         water-filling 结构不动（本组只补采集档潜在的分量分解）。
+
+    /// <summary>4 格直线 0-1-2-3；oceanTail=true 时格 3 为海洋 ⇒ 格 2 沿海。</summary>
+    private static GameGrid FishGrid(bool oceanTail)
+    {
+        var g = new GameGrid
+        {
+            N = 4,
+            GridN = 2,
+            RadiusKm = 6371f,
+            Seed = 7,
+            Verts = new[]
+            {
+                new Vector3(1, 0, 0), new Vector3(0, 1, 0),
+                new Vector3(0, 0, 1), new Vector3(-1, 0, 0),
+            },
+            Elev = new[] { 1f, 1f, 1f, oceanTail ? 0f : 1f },
+            Temp = Enumerable.Repeat(25f, 4).ToArray(),
+            Precip = Enumerable.Repeat(1500f, 4).ToArray(),
+            Biome = Enumerable.Repeat((byte)BiomeType.HotSteppe, 4).ToArray(),
+            SoilLevel = Enumerable.Repeat((byte)3, 4).ToArray(),
+            LakeLevel = new byte[4],
+        };
+        g.OverrideNeighbors(new[] { new[] { 1 }, new[] { 0, 2 }, new[] { 1, 3 }, new[] { 2 } });
+        return g;
+    }
+
+    /// <summary>在 FishGrid 上令格 2 独占领地，设开垦 cult，跑 HarvestModel，回收分量。</summary>
+    private static void RunFishHarvest(bool oceanTail, float cult,
+                                       out float fLast, out float fHunt, out float fFish)
+    {
+        var grid = FishGrid(oceanTail);
+        int n = grid.N;
+        var e = new Polity { Id = 0, Cell = 2, P = 1000 };
+        e.TechKeys.Add(TechTable.StoneCore);
+        var ctx = InitFullCtx(grid, 1);
+        ctx.Polities = new List<Polity> { e };
+        ctx.CellPolities = new Polity[n];
+        ctx.CellPolities[2] = e;
+        ctx.R = new float[n];
+        ctx.R[2] = 1e-5f; ctx.RMax = 1e-5f;
+        ctx.Cultivation = new float[n];
+        ctx.Cultivation[2] = cult;
+        ctx.TerritoryCells = new List<int>[1];
+        ctx.TerritoryDists = new List<byte>[1];
+        ctx.TerritoryCells[0] = new List<int> { 2 };
+        ctx.TerritoryDists[0] = new List<byte> { 0 };
+
+        new HarvestModel().Execute(ctx);
+
+        fLast = e.FLast; fHunt = e.FHuntLast; fFish = e.FFishLast;
+    }
+
+    /// <summary>FishFrac 语义：海岸⇒鱼、湖泊⇒鱼、两者皆无的内陆⇒0（不凭空产鱼）；
+    /// 多条件取 max（不叠加）；Riparian 为**预留**分支（当前 WorldGen 不生成 ⇒ 实参恒 false）。</summary>
+    [Test]
+    public void FishFrac_CoastLakeInland_Semantics()
+    {
+        var b = BiomeType.HotSteppe;
+        Assert.AreEqual(0f, CivSimContext.FishFrac(b, false, false, false), 1e-6f, "纯内陆无水 ⇒ 不产鱼");
+        Assert.AreEqual(CivSimContext.FishFracCoast, CivSimContext.FishFrac(b, true, false, false), 1e-6f, "海岸 ⇒ 鱼");
+        Assert.AreEqual(CivSimContext.FishFracLake, CivSimContext.FishFrac(b, false, false, true), 1e-6f, "湖泊 ⇒ 鱼");
+        Assert.AreEqual(Mathf.Max(CivSimContext.FishFracCoast, CivSimContext.FishFracLake),
+            CivSimContext.FishFrac(b, true, false, true), 1e-6f, "海岸+湖泊 ⇒ 取 max 不叠加");
+        // 预留分支可达（② Riparian 落地后由调用方传入 biome==Riparian 自动点亮，接口无需重构）
+        Assert.AreEqual(CivSimContext.FishFracRiparian,
+            CivSimContext.FishFrac(BiomeType.Riparian, false, true, false), 1e-6f, "预留 Riparian 分支可达");
+    }
+
+    /// <summary>三分不变量：猎物 + 浆果 + 水产 ≡ 1（全 biome × 水条件组合）；水产自浆果份划出。</summary>
+    [Test]
+    public void ForageShares_SumsToOne_AndCarvesFromBerry()
+    {
+        var biomes = new[]
+        {
+            BiomeType.HotSteppe, BiomeType.TropicalRainforest, BiomeType.Oceanic,
+            BiomeType.Tundra, BiomeType.HotDesert, BiomeType.Riparian,
+        };
+        foreach (var b in biomes)
+            foreach (bool coast in new[] { false, true })
+                foreach (bool lake in new[] { false, true })
+                {
+                    CivSimContext.ForageShares(b, coast, false, lake, out float prey, out float berry, out float fish);
+                    Assert.AreEqual(1f, prey + berry + fish, 1e-5f, $"{b} coast={coast} lake={lake} 三分和=1");
+                    Assert.AreEqual(CivSimContext.PreyFrac(b), prey, 1e-6f, "猎物份 = PreyFrac（既有口径不动）");
+                    Assert.GreaterOrEqual(berry, 0f, "浆果份非负");
+                    float expectFish = CivSimContext.FishFrac(b, coast, false, lake);
+                    Assert.AreEqual(expectFish, fish, 1e-6f, "水产份 = FishFrac");
+                    Assert.AreEqual(1f - prey - expectFish, berry, 1e-6f, "浆果 = 1 − 猎物 − 水产");
+                }
+    }
+
+    /// <summary>湖泊可达性：自身湖水或邻湖（湖岸人口也能捕鱼；与 WaterRich 邻湖语义一致）。</summary>
+    [Test]
+    public void LakeFishAccess_SelfAndNeighbor()
+    {
+        var g = FishGrid(oceanTail: false);
+        g.LakeLevel[1] = 1;
+        var ctx = InitFullCtx(g, 1);
+        Assert.IsTrue(ctx.LakeFishAccess(1), "湖水格可达");
+        Assert.IsTrue(ctx.LakeFishAccess(0), "邻湖格（湖岸）可达");
+        Assert.IsFalse(ctx.LakeFishAccess(3), "非湖且不邻湖 ⇒ 不可达");
+    }
+
+    /// <summary>端到端：沿海 ⇒ FFishLast>0；纯内陆 ⇒ FFishLast=0；
+    /// **退化解**：开垦=0 时水产只重划分总量 ⇒ 海岸与内陆 FLast 相等；
+    /// **新能力**：开垦=1 时水产免疫 ⇒ 海岸 FLast > 内陆（"沿海人口保有水产食物来源"）。</summary>
+    [Test]
+    public void Harvest_FishPotentially_CoastVsInland()
+    {
+        RunFishHarvest(oceanTail: false, cult: 0f, out float lastInland0, out _, out float fishInland);
+        RunFishHarvest(oceanTail: true, cult: 0f, out float lastCoast0, out _, out float fishCoast);
+
+        Assert.AreEqual(0f, fishInland, 1e-6f, "纯内陆无水 ⇒ 不产鱼");
+        Assert.Greater(fishCoast, 0f, "沿海 ⇒ 产鱼");
+        Assert.AreEqual(lastInland0, lastCoast0, 1e-3f, "开垦=0：水产只重划分不改总量（退化解原则）");
+
+        RunFishHarvest(oceanTail: true, cult: 1f, out float lastCoast1, out _, out _);
+        RunFishHarvest(oceanTail: false, cult: 1f, out float lastInland1, out _, out _);
+        Assert.Greater(lastCoast1, lastInland1, "开垦下水产免疫 ⇒ 海岸产出高于内陆");
+    }
+
     /// <summary>保证：ColdFloor 冷区下限——火解锁 0.05·area·3、皮毛再 ×3（技术解锁空间层的冰雪生态位）。</summary>
     [Test]
     public void ColdFloor_RaisesSurvivalFloor_ByFireAndClothing()

@@ -221,6 +221,12 @@ public partial class CivSimDiag : DiagSceneBase
         if (Want("T22")) T22_TerritoryEmergence(c);
         if (Want("T52")) T52_ChiefdomEmergence(c);   // 演化级：酋邦涌现统计（先观测后断言）
         if (Want("T18")) T18_Perf(seed, origins);   // 第三次演化（~11s），仅选中时跑
+        // T90 过采判据实测（2026-10-06，docs/审查报告-HumanSimulation-v0.1与CivSim重叠判定.md §3.2）：
+        //   自驱演化 + 采样期重算每格产出，纯只读（不动 CivSim）。**不进全量默认**，--only=T90 触发。
+        if (WantExplicit("T90")) T90_OverHarvest(seed, origins);
+        // T91 ① FishPotential 独立验收（2026-10-06，docs/审查报告-HumanSimulation-v0.1与CivSim重叠判定.md §七）：
+        //   海岸/湖泊水产>0、纯内陆=0、退化解、FLast=Σ分量 不变。纯只读。**不进全量默认**，--only=T91 触发。
+        if (WantExplicit("T91")) T91_FishPotential(seed, origins);
         // ⚠️ 2026-08-17 审查修复：T04 拆独立函数放末尾——它续跑 r1.Context 会污染 T09-T22 的共享态；
         //   且语义改为"读档续跑 vs 内存态续跑"（见 T04_Continuation 注释）
         if (Want("T04")) T04_Continuation(outPath, seed, origins);

@@ -308,7 +308,7 @@ public static class CivEngine
             if (e.Dead) continue;
             // ⚠️ 2026-08-18 T04 修复：先归零分量——AllocateAndProduce 在领地为空时提前 return 0
             //   （不走到分量赋值），若不归零则陈旧 FFarm/FHerd 残留（无领地却挂产出的活 bug）。
-            e.FFarmLast = 0f; e.FHerdLast = 0f; e.FBerryLast = 0f;
+            e.FFarmLast = 0f; e.FHerdLast = 0f; e.FBerryLast = 0f; e.FFishLast = 0f;
             e.FHuntLast = ctx.AllocateAndProduce(e);
             e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
         }
