@@ -190,6 +190,7 @@ public class ArchitectureContractTests
 		typeof(H3Hydrology), typeof(HydrologyRoutingSurface),
 		// ★⑯ WindField 平均风场（2026-10-07 批次 1/2 登记；漏登记 = 契约静默失效）
 		typeof(WindParameters), typeof(WindFieldModel), typeof(WindField),
+		typeof(WindTerrain),
 		// ── 基础设施（表现层入口类由专项契约单独扫，见下）──
 		typeof(SnowOverlay), typeof(SeedDerivation), typeof(H3TerrainSampler),
 	};

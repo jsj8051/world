@@ -50,6 +50,11 @@ public static class WindFieldModel
 		public float CalmSpeedMs = WindParameters.CalmSpeedMs;
 		public float MaxSpeedMs = WindParameters.MaxSpeedMs;
 		public float PrevailingMinVectorLength = WindParameters.PrevailingMinVectorLength;
+		public float TerrainBarrierHeightM = WindParameters.TerrainBarrierHeightM;   // 关断 = 1e9（D4）
+		public float TerrainRelativeRiseM = WindParameters.TerrainRelativeRiseM;
+		public int TerrainLookaheadHops = WindParameters.TerrainLookaheadHops;
+		public float TerrainDeflectionDeg = WindParameters.TerrainDeflectionDeg;
+		public float TerrainWedgeHalfDeg = WindParameters.TerrainWedgeHalfDeg;
 
 		/// <summary>生产默认（= `WindParameters` 冻结常量）。</summary>
 		public static Tuning Default { get; } = new();
@@ -209,6 +214,102 @@ public static class WindFieldModel
 		return (float)az;
 	}
 
+	// ── 地形阻挡/绕流（批次 3；设计 §4.4；★拍板①在基础风方向之后｜★拍板②只改方向不改速度）──
+
+	/// <summary>
+	/// **地形绕流决策核心**（纯函数，独立可测）：由三楔屏障极大值决定修正后去向方位角。
+	/// 输入 = 原去向方位角 + 三楔内**屏障格**（HeightM ≥ 门槛）的最大高度（无屏障 = 0）。
+	/// 决策：中心无屏障 ⇒ 原向｜两侧皆阻 ⇒ 原向（★拍板②：不减速、不第三向）｜
+	/// 平局（含双侧皆通）⇒ 逆时针｜否则取屏障较低侧。单步偏转 ±45°，**不级联复查**。
+	/// </summary>
+	public static double TerrainDeflectDeg(double azDeg, double centerMax, double cwMax, double ccwMax,
+		Tuning tuning = null)
+	{
+		var t = tuning ?? Tuning.Default;
+		if (centerMax <= 0) return azDeg;                       // 前向视域无屏障
+		if (cwMax > 0 && ccwMax > 0) return azDeg;              // 两侧皆阻 ⇒ 原向（拍板②）
+		if (cwMax == ccwMax) return azDeg - t.TerrainDeflectionDeg;   // 平局 ⇒ 逆时针
+		return cwMax < ccwMax
+			? azDeg + t.TerrainDeflectionDeg                    // 右（顺时针）侧更低
+			: azDeg - t.TerrainDeflectionDeg;                   // 左（逆时针）侧更低
+	}
+
+	/// <summary>
+	/// 格 i → 格 j 的罗盘方位角（度，0–360，**去向**语义；内部/测试用）。
+	/// 北切向 = normalize(N − (N·d)d)，N = (0,1,0)；东切向 = normalize(cross(d, 北切向))；
+	/// 用弦向量 v = d_j − d_i 近似切向位移（res4 单步 ≤135 km，弦切差可忽略；确定性一致）。
+	/// </summary>
+	internal static double BearingToDeg(int i, int j, WindTerrain ter)
+	{
+		double dx = ter.DirX[j] - ter.DirX[i];
+		double dy = ter.DirY[j] - ter.DirY[i];
+		double dz = ter.DirZ[j] - ter.DirZ[i];
+		double dix = ter.DirX[i], diy = ter.DirY[i], diz = ter.DirZ[i];
+		// 北切向（未归一化亦可：只比方向）N=(0,1,0)：N − (N·d)d = (−diy·di, 1−diy², −diy·di_z)
+		double nx = -diy * dix, ny = 1.0 - diy * diy, nz = -diy * diz;
+		// 东切向 = cross(d, 北切向)
+		// 东切向 = cross(d, 北切向)（λ 增 = +Z = 正东；叉积顺序镜像会让东西翻转——合成图测试照出）
+		double ex = diy * nz - diz * ny;
+		double ey = diz * nx - dix * nz;
+		double ez = dix * ny - diy * nx;
+		double e = dx * ex + dy * ey + dz * ez;
+		double n = dx * nx + dy * ny + dz * nz;
+		double az = Math.Atan2(e, n) * Rad2Deg;
+		return az < 0 ? az + 360.0 : az;
+	}
+
+	static double AngDiff(double a, double b)
+	{
+		double d = Math.Abs(a - b) % 360.0;
+		return d > 180.0 ? 360.0 - d : d;
+	}
+
+	/// <summary>
+	/// 三楔屏障极大值（内部热路径：调用方提供复用缓冲）。屏障 = HeightM ≥ max(BarrierHeightM, 自身高+RelativeRise)。
+	/// 楔形（设计 §4.4 + §十三钉）：中心 = az±WedgeHalf；右（顺时针）= az+45±WedgeHalf；左（逆时针）= az−45±WedgeHalf；
+	/// 边界归属优先级 中心 &gt; 右 &gt; 左。无屏障侧返回 0。
+	/// </summary>
+	internal static void WedgeBarrierMaxima(int i, double azDeg, WindTerrain ter,
+		int[] stamp, int stampGen, int[] frontier, int[] nextF, double[] bearBuf, float[] hBuf,
+		Tuning t, out double centerMax, out double cwMax, out double ccwMax)
+	{
+		var tt = t ?? Tuning.Default;
+		double threshold = Math.Max(tt.TerrainBarrierHeightM, (double)ter.HeightM[i] + tt.TerrainRelativeRiseM);
+		// BFS 深度 ≤ LookaheadHops，收集（bearing, height）
+		stamp[i] = stampGen;
+		frontier[0] = i;
+		int fCnt = 1, cnt = 0;
+		for (int hop = 0; hop < tt.TerrainLookaheadHops; hop++)
+		{
+			int nCnt = 0;
+			for (int k = 0; k < fCnt; k++)
+			{
+				foreach (var j in ter.Neighbors[frontier[k]])
+				{
+					if (stamp[j] == stampGen) continue;
+					stamp[j] = stampGen;
+					nextF[nCnt++] = j;
+					bearBuf[cnt] = BearingToDeg(i, j, ter);
+					hBuf[cnt] = ter.HeightM[j];
+					cnt++;
+				}
+			}
+			(frontier, nextF) = (nextF, frontier);
+			fCnt = nCnt;
+		}
+		double half = tt.TerrainWedgeHalfDeg;
+		double defl = tt.TerrainDeflectionDeg;
+		centerMax = 0; cwMax = 0; ccwMax = 0;
+		for (int k = 0; k < cnt; k++)
+		{
+			if (hBuf[k] < threshold) continue;                    // 屏障判定（海格 ≤0 永不触发）
+			double b = bearBuf[k];
+			if (AngDiff(b, azDeg) <= half) centerMax = Math.Max(centerMax, hBuf[k]);
+			else if (AngDiff(b, azDeg + defl) <= half) cwMax = Math.Max(cwMax, hBuf[k]);
+			else if (AngDiff(b, azDeg - defl) <= half) ccwMax = Math.Max(ccwMax, hBuf[k]);
+		}
+	}
+
 	// ── 输出量化（设计 §4.6）────────────────────────────────────────────────────
 
 	/// <summary>静风哨兵扇区值（Direction 专用哨兵；其余风场数组无 sentinel）。</summary>
@@ -279,32 +380,48 @@ public static class WindFieldModel
 		return (nh, sh);
 	}
 
-	// ── 全流水线（设计 §三 步骤 ①②③⑥；④地形/⑤季风属批次 3/4）─────────────────
+	// ── 全流水线（设计 §三 步骤 ①②③④⑥；⑤季风属批次 4）─────────────────────────
 
 	/// <summary>
 	/// **球面入口**（生产接线用）：纬度取 I1 权威口径 `H3.CellToLatLng`（弧度、带符号）。
+	/// `heightM` 非 null ⇒ 启用地形阻挡/绕流（批次 3）；null ⇒ 与批次 2 逐位等价。
 	/// </summary>
+	public static WindField Generate(Ball ball, float[] heightM, MonthlyTemperature temp = null, Tuning tuning = null)
+	{
+		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		return Generate(latRadOf(ball), temp, tuning,
+			heightM != null ? WindTerrain.FromBall(ball, heightM) : null);
+	}
+
+	/// <summary>无地形便捷重载（批次 2 兼容；等价 heightM = null）。</summary>
 	public static WindField Generate(Ball ball, MonthlyTemperature temp = null, Tuning tuning = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		return Generate(latRadOf(ball), temp, tuning, null);
+	}
+
+	static float[] latRadOf(Ball ball)
+	{
 		int n = ball.CellIds.Length;
 		var latRad = new float[n];
 		for (int i = 0; i < n; i++) latRad[i] = (float)H3.CellToLatLng(ball.CellIds[i]).Lat;
-		return Generate(latRad, temp, tuning);
+		return latRad;
 	}
 
 	/// <summary>
-	/// **纯函数入口**：给定逐格纬度（弧度）与可选的 P4-5b 月度温度事实，产出三统计量。
+	/// **纯函数入口**：给定逐格纬度（弧度）、可选的 P4-5b 月度温度事实与可选地形视图，产出三统计量。
 	///
 	/// 聚合口径（钉死）：
-	///  · **SpeedMs** = 12 个月带基速的算术平均（Doldrums 月按 Trade×0.4 计；月级无其它速度修正）；
-	///  · **DirectionTo** = 12 个月去向单位矢量的**圆均值**再扇区化——Doldrums 月**不参与**
-	///    （无基矢）；合成矢量均值长度 &lt; `PrevailingMinVectorLength`（两季对吹抵消）或
-	///    代表速度 &lt; `CalmSpeedMs` ⇒ 静风哨兵 0；全年全 Doldrums ⇒ 静风哨兵；
+	///  · **SpeedMs** = 12 个月带基速的算术平均（Doldrums 月按 Trade×0.4 计；★地形**不改速度**，拍板②）；
+	///  · **DirectionTo** = 12 个月去向单位矢量的**圆均值**再扇区化——Doldrums 月**不参与**（无基矢）；
+	///    地形修正发生在**每月基础风方向之后**（拍板①，单步 ±45° 不级联）；合成矢量均值长度 &lt;
+	///    `PrevailingMinVectorLength`（两季对吹抵消）或速度 &lt; `CalmSpeedMs` ⇒ 静风哨兵 0；
 	///  · **MonsoonIndex** ≡ 0（批次 2 = 季风关闭态；机制属批次 4）。
 	/// ★月度逐格明细**不落盘**（W-S1）；本函数输出即契约 W-O1~O3 三统计量。
+	/// ★地形关闭（terrain = null 或 `TerrainBarrierHeightM = 1e9`）⇒ 输出与批次 2 **逐位**相等（D4）。
 	/// </summary>
-	public static WindField Generate(float[] latRad, MonthlyTemperature temp = null, Tuning tuning = null)
+	public static WindField Generate(float[] latRad, MonthlyTemperature temp = null, Tuning tuning = null,
+		WindTerrain terrain = null)
 	{
 		ValidateInputs(temp, latRad);
 		var t = tuning ?? Tuning.Default;
@@ -320,12 +437,30 @@ public static class WindFieldModel
 		for (int m = 0; m < MonthlyTemperature.Months; m++)
 			bounds[m] = BoundariesFor(m, nh, sh, t);
 
+		// 地形扫描缓冲（一次分配，全程复用；stamp 代际法免清零）
+		int[] stamp = null, frontier = null, nextF = null;
+		double[] bearBuf = null;
+		float[] hBuf = null;
+		int stampGen = 0;
+		if (terrain != null)
+		{
+			if (terrain.HeightM.Length != n)
+				throw new ArgumentException($"terrain.HeightM 长度({terrain.HeightM.Length}) 与 latRad.Length({n}) 不一致", nameof(terrain));
+			stamp = new int[n];
+			frontier = new int[128];
+			nextF = new int[128];
+			bearBuf = new double[128];
+			hBuf = new float[128];
+		}
+
 		for (int i = 0; i < n; i++)
 		{
 			double latDeg = latRad[i] * Rad2Deg;
 			double delta = CoriolisDeflectionDeg(latRad[i], t);   // 只依赖纬度 ⇒ 逐格一次
 			double cosSum = 0, sinSum = 0, speedSum = 0;
 			int vecMonths = 0;
+			// 地形修正记忆化：一格的月度基方位只有 ≤2 种（基矢 0/180 + 固定 δ）⇒ 双槽缓存
+			double azKey1 = double.NaN, azOut1 = 0, azKey2 = double.NaN, azOut2 = 0;
 			for (int m = 0; m < MonthlyTemperature.Months; m++)
 			{
 				var b = bounds[m];
@@ -336,15 +471,32 @@ public static class WindFieldModel
 					continue;
 				}
 				double baseAz = MeridionalBaseBearingToDegCore(belt, latDeg, b.Itcz);
-				double az = (baseAz + (latRad[i] >= 0 ? delta : -delta)) * Pi / 180.0;
+				double azDeg = baseAz + (latRad[i] >= 0 ? delta : -delta);
+				if (terrain != null)
+				{
+					double azOut;
+					if (azDeg == azKey1) azOut = azOut1;
+					else if (azDeg == azKey2) azOut = azOut2;
+					else
+					{
+						stampGen++;
+						WedgeBarrierMaxima(i, azDeg, terrain, stamp, stampGen, frontier, nextF, bearBuf, hBuf, t,
+							out var cMax, out var cwMax, out var ccwMax);
+						azOut = TerrainDeflectDeg(azDeg, cMax, cwMax, ccwMax, t);
+						azKey2 = azKey1; azOut2 = azOut1;
+						azKey1 = azDeg; azOut1 = azOut;
+					}
+					azDeg = azOut;
+				}
+				double az = azDeg * Pi / 180.0;
 				cosSum += Math.Cos(az);
 				sinSum += Math.Sin(az);
 				vecMonths++;
 				speedSum += BeltBaseSpeedMs(belt, t);
 			}
 
-			float speed = (float)(speedSum / MonthlyTemperature.Months);
-			wind.SpeedMs[i] = Math.Clamp(speed, 0f, t.MaxSpeedMs);
+			float speed = Math.Clamp((float)(speedSum / MonthlyTemperature.Months), 0f, t.MaxSpeedMs);
+			wind.SpeedMs[i] = speed;                              // ★地形不改速度（拍板②）
 			wind.MonsoonIndex[i] = 0f;                            // 批次 4 接管
 
 			bool calm = speed < t.CalmSpeedMs;

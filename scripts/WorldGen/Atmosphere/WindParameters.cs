@@ -119,4 +119,29 @@ public static class WindParameters
 	/// 占位依据：0.05 = 明显单侧占优才给方向；季风对吹格（未来 MRI 高）本就该走 MRI 而非盛行向。
 	/// </summary>
 	public const float PrevailingMinVectorLength = 0.05f;
+
+	// ── 地形阻挡/绕流（批次 3；设计 §4.4；★拍板①在基础风方向之后｜★拍板②只改方向不改速度）──
+
+	/// <summary>
+	/// 大尺度山系屏障门槛（米；地球大型山系 ≥2 km）。
+	/// ★**关断值 = 1e9** ⇒ 无任何格可达 ⇒ 地形机制整体关闭，输出**逐位**等于无地形版（D4）。
+	/// </summary>
+	public const float TerrainBarrierHeightM = 2000f;
+
+	/// <summary>相对格点自身高程的显著抬升（米）：屏障还须 ≥ 本格高程 + 此值。</summary>
+	public const float TerrainRelativeRiseM = 800f;
+
+	/// <summary>前向视域 BFS 深度（hop，A 类；res4 ≈ 135 km——res4 表达上限，禁更深结构）。</summary>
+	public const int TerrainLookaheadHops = 3;
+
+	/// <summary>绕流单次偏转角（度；单步、不级联——偏转后不复查屏障）。</summary>
+	public const float TerrainDeflectionDeg = 45f;
+
+	/// <summary>
+	/// 楔形半宽（度）：中心楔 = az±22.5°，右楔 = (az+45)±22.5°，左楔 = (az−45)±22.5°
+	/// ——三楔 45° 宽、无缝不重叠（边界归属：中心 &gt; 右 &gt; 左）。
+	/// ★`TerrainBlockedSpeedFactor`（0.7 减速）已**否决**（2026-10-07 批次 3 拍板②）：
+	///   地形不创造风速模型；"阻挡减速"等真实消费者举证后单独提案。
+	/// </summary>
+	public const float TerrainWedgeHalfDeg = 22.5f;
 }

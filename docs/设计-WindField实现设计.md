@@ -97,7 +97,7 @@
 
 1. **前向视域**：沿 az_belt 方向、六邻接 BFS 深度 ≤ `TerrainLookaheadHops`(3) 的格集合（≈ 135 km；res4 表达上限，契约 §4 禁止更深结构）。
 2. **屏障判定**：视域内存在格 j 满足 `HeightM[j] ≥ TerrainBarrierHeightM`(2000 m) **且** `HeightM[j] ≥ HeightM[i] + TerrainRelativeRiseM`(800 m)。海格 HeightM ≤ 0 永不触发（无需海陆分支，同 `TemperatureModel` 惯例）。
-3. **绕行**：屏障成立 ⇒ 比较 az±`TerrainDeflectionDeg`(45°) 两侧视域内的最大屏障高度，**取较低一侧**旋转 45°（确定性平局：取逆时针侧）。两侧受阻 ⇒ 方向不变、速度 × `TerrainBlockedSpeedFactor`(0.7)。
+3. **绕行**（批次 3 实现钉）：屏障成立 ⇒ 比较 az±`TerrainDeflectionDeg`(45°) 两侧**楔形**（±`TerrainWedgeHalfDeg`=22.5°，三楔无缝不重叠、边界归属 中>右>左）内屏障格（≥门槛）的最大高度，**取较低一侧**旋转 45°（平局含双侧皆通 ⇒ 逆时针侧）。两侧受阻 ⇒ 方向不变（★批次 3 拍板②：**不减速**——`TerrainBlockedSpeedFactor` 已否决，地形永不创造风速模型）。单步偏转、不级联复查。
 4. **关断**：`TerrainBarrierHeightM = 1e9f` ⇒ 该步骤整体关闭，逐点等于关闭前结果减去本步效果（测试锚）。
 
 ★**雨影不在此实现**（契约 W-M4 禁止）：降水侧由 P4-5e 消费 `Direction` + 地形抬升自行修正；本步只给"绕开山"的宏观路径。
@@ -202,7 +202,8 @@ public sealed class WindField            // 与 ball.CellIds 逐位对齐；无 
 | `TerrainRelativeRiseM` | 800 | m（B） | 相对格点高程的显著抬升 | — |
 | `TerrainLookaheadHops` | 3 | hop（A） | ≈135 km @ res4；res4 表达上限 | — |
 | `TerrainDeflectionDeg` | 45 | °（B） | 绕流单次偏转角 | — |
-| `TerrainBlockedSpeedFactor` | 0.7 | — | 两侧皆阻的摩擦衰减 | — |
+| ~~`TerrainBlockedSpeedFactor`~~ | — | — | **已否决**（批次 3 拍板②：地形只改方向不改速度） | — |
+| `TerrainWedgeHalfDeg` | 22.5 | °（B） | 三楔半宽（= 扇区半宽；无缝不重叠） | — |
 | `BaseTradeSpeedMs` / `BaseWesterlySpeedMs` / `BasePolarSpeedMs` | 6 / 9 / 4 | m/s（C） | 地球地面风气候态：信风 5–8、西风 8–11、极风 3–5 | **全 0** ⇒ 静风球（极端退化） |
 | `LandFrictionFactor` | 0.7 | — | 陆面摩擦（地球陆地风速 ~海面 0.6–0.8） | **1.0** ⇒ 无摩擦差异 |
 | `MonsoonSeaBandDeg` | 10 | °（B） | 纬带海/陆异常均值带宽 | — |
@@ -316,3 +317,19 @@ public sealed class WindField            // 与 ball.CellIds 逐位对齐；无 
 - **测试**：批次 2 新增 7 条（D3 对照 / D1 / D5 / 半球异常聚合 / 端到端 ITCZ 通道 / Ball 接线 + I1 双口径对照 / res4 Explicit）⇒ **常规套件 602 PASS / 0 FAIL**。
 - **实测踩坑（钉进测试注释）**：① D3 独立实现的数值口径必须与生产逐位对齐（latDeg 用 double 乘、δ 取 float）——否则无风带边界 |φ−φ_ITCZ|=3° 上的格翻带成员，近对消格圆均值方向翻转 180°（扇区 5 vs 13）；② 端到端测试纬度选点避开边界刀口（13°N → 11°N，余量 ≥0.34°）。
 - `NewWorldLineTypes` 登记 `WindField`；`.cs.uid` 入库。commit：`feat(worldgen): add WindField v1 batch 2`。
+
+---
+
+## §十四 批次 3 落地记录（2026-10-07）
+
+**范围**（用户拍板：地形阻挡/绕流 + D4；不增加任何新物理）：
+
+- **新增 `WindTerrain.cs`**：既有事实的**只读引用视图**（W2 合规——HeightM 来自 `HeightComposer.HeightM`、邻接来自 `Ball.CellNeighbors`、方向向量来自 `Ball.CellDirs`），`FromBall` 装配 + 手工图测试双路径。方向向量口径钉死：`X=cosφcosλ, Y=sinφ, Z=cosφsinλ`（= `CoordUtil.LatLngToSphere` 归一化）。
+- **流水线接线（拍板①）**：地形发生在**每月基础风方向之后**（环流带→ITCZ→Coriolis→基础风向→地形），逐月修正 + 双槽记忆化（一格月度基方位 ≤2 种）；无风带月不参与（无方向）。三楔扫描：中心 az±22.5°｜右/左楔 (az±45)±22.5°；屏障 = `HeightM ≥ max(2000, 自身高+800)`（海格永不触发）。
+- **决策核心 `TerrainDeflectDeg`**（公开纯函数）：中心无屏障 ⇒ 原向｜两侧皆阻 ⇒ 原向｜平局（含双侧皆通）⇒ 逆时针｜否则取屏障较低侧。单步 ±45° 不级联。
+- **★拍板②落地**：`TerrainBlockedSpeedFactor`(0.7) **否决删除**——地形**只改方向，永不改速度**（SpeedMs 全场逐位不变由测试钉死）；"阻挡减速"等消费者举证后单独提案。
+- **★拍板③落地（D4）**：`TerrainBarrierHeightM = 1e9` ⇒ 输出与批次 2 **逐格逐位**相等（方向/速度/MRI 三数组 SequenceEqual 测试钉死）——地形回归可精确定位到屏障机制。
+- **测试**：`WindTerrainTests` 4 条（决策矩阵 / 合成图三楔归属+罗盘口径 / Ball 集成 + D4 逐位 / res4+地形 Explicit）⇒ 常规套件 **605 PASS / 0 FAIL**。
+- **实测踩坑（合成图测试照出真 bug）**：`BearingToDeg` 东切向叉积顺序写反（`cross(北,d)` 应为 `cross(d,北)`）⇒ 东西镜像——合成图测试以自建罗盘口径第一时间拦截；另一处为测试自身选点压边界（两侧皆阻≠取较低侧，冻结语义是原向）。
+- **res4 验收实测**：全流水线 + 地形 = **997 ms**（无地形 133 ms；合成山系每 97 格一座 3000 m，命中面充分）——记忆化有效，仍秒级诊断场。
+- `NewWorldLineTypes` 登记 `WindTerrain`；`.cs.uid` 入库。commit：`feat(worldgen): add WindField v1 batch 3`。
