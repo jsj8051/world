@@ -349,3 +349,17 @@ public sealed class WindField            // 与 ball.CellIds 逐位对齐；无 
 - **参数**：`MonsoonSeaBandDeg=10`｜`MonsoonContrastThreshC=0.5`（关断 ∞）｜`MonsoonDecayKm=1000`｜`MonsoonReachKm=2000`（关断 0）｜`MonsoonStrength=1`（关断 0 = D2 主关断）。无新类型 ⇒ `NewWorldLineTypes` 零改动。
 - **测试**：`WindMonsoonTests` 6 条（权重门控/衰减/三重关断矩阵｜MRI 扇区中心角语义｜合成星形海岸端到端：暖月占多 ⇒ 去向拉成偏南扇区 8 + MRI>0.9 + 速度逐位｜D2 双关断逐位回批次 3 + 机制非空转断言｜距离事实只读引用 + 无距离 ⇒ MRI 恒 0｜res4+季风 Explicit）。
 - 生产接线（`WorldGenPlanet` 消费 Wind）**仍不属本批**——Wind v1 与 ⑮ 洋流同款：诊断场先冻结，接线属 P4-5d 风应力 / P4-5e 水汽输送收敛点。
+
+---
+
+## §十六 终审冻结（2026-10-07 用户裁决 · 本节之后不再往 Wind v1 加机制）
+
+**⑯ WindField v1 正式冻结，收官点 = commit `9a22983`。** 冻结清单：W1–W5｜W-M1~M5｜W-O1~O3｜W-S1~S2｜D1–D5（含 D2/D4 SequenceEqual 逐位回退）｜Batch 1~4｜三生产统计量｜res4 分辨率｜16 扇区 BearingTo 语义｜calm 哨兵｜地形/季风只改方向｜不新增 Wind 专属距离场｜不进瞬时天气模拟。
+
+**终审判断（四条）**：① W1–W5 已从文档规则变为实际架构约束（无状态纯函数/只读事实/只改方向——每层都难被后续代码偷改）；② D1–D5 完成，每加一个机制都有确定关闭路径退回上一基线；③ 三统计量语义干净且互相独立（DirectionTo=稳定主导去向的有无｜SpeedMs=平均风速｜MonsoonIndex=季节反转强度；哨兵 0 ≠ MRI 0）；④ res4+季风 4425 ms 为人为最坏面（棋盘海岸），不构成冻结阻塞，后续关注**真实生产世界**耗时。
+
+**★冻结注记（P4-5e 水汽输送边界，架构性，不改 v1）**：Wind v1 永久事实只有年度统计后的 `DirectionTo/SpeedMs/MonsoonIndex`；水汽输送若需月度/季节风场，**禁止**回头把 `u[12][n]/v[12][n]` 塞回 `WindField` v1。干净路径 = P4-5e **按需调用无状态 `WindFieldModel` 计算**，取当月 ephemeral 风向/风速用于平流，**不作 Wind v1 永久事实存储**；除非未来证明多个消费者长期需要月度风场，再单独提出 **Wind v2 存储裁决**（登记为开放项 O-W7）。
+
+**开放项收口状态**：O-W1~W6 维持原登记（消费者出现后再议）；**O-W7 新登记**（月度风 ephemeral 消费边界 + Wind v2 存储裁决触发条件，见上）。
+
+**后续姿态**：Wind v1 = 已完成的上游事实/诊断服务，等待两个汇合点——P4-5d 风应力（Ocean Current）、P4-5e 水汽输送（Precipitation）；独立、可测试、可退化、可消费，不反向侵入气候主线。
