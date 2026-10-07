@@ -101,4 +101,22 @@ public static class WindParameters
 
 	/// <summary>赤道无风带速度衰减（相对信风基速；无风带量级 ~2–3 m/s）。</summary>
 	public const float DoldrumSpeedFactor = 0.4f;
+
+	// ── 输出量化护栏（设计 §4.6；批次 2）────────────────────────────────────────
+
+	/// <summary>
+	/// 静风速度门槛（m/s）：合成代表速度低于此值 ⇒ <c>DirectionTo = 0</c>（静风哨兵）。
+	/// 批次 2 中带基速 ≥ 2.4 ⇒ 仅作护栏；季风/地形批次引入衰减后才有实际触发面。
+	/// </summary>
+	public const float CalmSpeedMs = 1f;
+
+	/// <summary>合成平均风速上限（m/s；护栏钳位，防参数失误外溢到消费者）。</summary>
+	public const float MaxSpeedMs = 25f;
+
+	/// <summary>
+	/// **盛行方向判定的最小合成矢量长度**：12 个月的去向单位矢量合成的**均值长度**低于此值
+	/// ⇒ 该格全年**无盛行方向**（两季对吹抵消）⇒ 静风哨兵，而不是取一个无意义的平均角。
+	/// 占位依据：0.05 = 明显单侧占优才给方向；季风对吹格（未来 MRI 高）本就该走 MRI 而非盛行向。
+	/// </summary>
+	public const float PrevailingMinVectorLength = 0.05f;
 }

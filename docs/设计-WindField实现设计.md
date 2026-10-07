@@ -172,7 +172,7 @@ MRI = 0    若任一极端月为静风哨兵
 public sealed class WindField            // 与 ball.CellIds 逐位对齐；无 NaN / 无 null
 {
     public int CellCount;
-    public byte[]  Direction;            // n；0=静风哨兵，1..16=扇区
+    public byte[]  DirectionTo;          // n；0=静风哨兵，1..16=扇区（★去向扇区，BearingTo 语义）
     public float[] SpeedMs;              // n；m/s
     public float[] MonsoonIndex;         // n；[0,1]
 }
@@ -300,3 +300,19 @@ public sealed class WindField            // 与 ball.CellIds 逐位对齐；无 
 - `NewWorldLineTypes` 登记 `WindParameters` / `WindFieldModel`；`.cs.uid` 已入库。
 - 锚点数值修正（§4.3/§4.6/§八）：tanh 解析值 δ(20°)=44.6°、δ(45°)=66.6°、δ(70°)=71.6°；西风 45°N = 66.6° ⇒ **扇区 3**（原稿"扇区 4"为舍入示意，已更正）。
 - 待办批次：批次 2 = 事实容器 + 全流水线 + 退化矩阵 D1–D5（注入式关断在彼时引入）；批次 3 = 季风 + 地形；批次 4 = 判读读数。
+
+---
+
+## §十三 批次 2 落地记录（2026-10-07）
+
+**范围**（按用户批次重划：批次 2 = 容器 + 全流水线 + 退化矩阵；批次 3 = 地形；批次 4 = 季风 + 最终统计口径）：
+
+- **新增 `WindField.cs`**（事实容器）：`DirectionTo`（byte，0=静风哨兵 + 1..16 扇区；★字段名携带 BearingTo 语义，拍板 ②）/ `SpeedMs` / `MonsoonIndex`（批次 2 恒 0 = 季风关闭态；字段先行到位以钉死数据布局，W-S2）。
+- **新增 `WindTuning`**（`WindFieldModel.Tuning`）：注入式参数束，默认 = `WindParameters` 冻结常量；**只用于退化矩阵注入式关断与测试对照**，非运行时调参入口。D1（amp=0）/D5 等经此注入；D4（地形关断）随批次 3、D2（季风关断）随批次 4 各自落地。
+- **全流水线 `Generate`**：双入口——`Generate(float[] latRad, MonthlyTemperature, Tuning)`（纯函数核心）+ `Generate(Ball, ...)`（I1 权威纬度 `H3.CellToLatLng` 弧度）。月度边界逐月预计算一次（`MonthBoundaries`），逐格 O(12)。
+- **聚合口径钉死**：SpeedMs = 12 个月带基速算术平均（无风带月 ×0.4）；DirectionTo = 12 个月去向单位矢量圆均值扇区化，**无风带月不参与**；新增静风规则：合成矢量均值长度 < `PrevailingMinVectorLength`(0.05)（两季对吹抵消）或速度 < `CalmSpeedMs`(1.0) ⇒ 哨兵 0；全年全无风带 ⇒ 哨兵。
+- **退化矩阵**：D1 ✅（amp=0 ⇒ φ_ITCZ≡5°，全年无风带格 = 静风哨兵 + 2.4 m/s）；D3 ✅（独立实现逐点对照，73 纬度全剖面，方向扇区逐点相等 + 速度 ≤1e-3）；D5 ✅（两次全量生成逐位相等）。D4/D2 随批次 3/4。
+- **验收实测（res4 全世界，回答批次 2 的核心问题）**：`Ball(4)` 构造 1,065 ms｜**Generate 133 ms**（288,122 格 × 12 月）｜存储 **2.47 MB**（= 契约 W-S1 口径）｜静风格 10,217（无风带纬带，占比合理）⇒ **内存/遍历/数据布局/纯函数边界全部成立**。验收测试以 `[Explicit]` 入库（`Res4_FullWorld_Generate_Acceptance`），不进常规套件。
+- **测试**：批次 2 新增 7 条（D3 对照 / D1 / D5 / 半球异常聚合 / 端到端 ITCZ 通道 / Ball 接线 + I1 双口径对照 / res4 Explicit）⇒ **常规套件 602 PASS / 0 FAIL**。
+- **实测踩坑（钉进测试注释）**：① D3 独立实现的数值口径必须与生产逐位对齐（latDeg 用 double 乘、δ 取 float）——否则无风带边界 |φ−φ_ITCZ|=3° 上的格翻带成员，近对消格圆均值方向翻转 180°（扇区 5 vs 13）；② 端到端测试纬度选点避开边界刀口（13°N → 11°N，余量 ≥0.34°）。
+- `NewWorldLineTypes` 登记 `WindField`；`.cs.uid` 入库。commit：`feat(worldgen): add WindField v1 batch 2`。
