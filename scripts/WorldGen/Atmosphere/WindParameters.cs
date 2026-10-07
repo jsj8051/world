@@ -144,4 +144,35 @@ public static class WindParameters
 	///   地形不创造风速模型；"阻挡减速"等真实消费者举证后单独提案。
 	/// </summary>
 	public const float TerrainWedgeHalfDeg = 22.5f;
+
+	// ── 季风符号反转（批次 4；设计 §4.5；★拍板：只改方向不改速度｜MonsoonIndex 只表达反转强度）──
+
+	/// <summary>
+	/// 陆海对比信号的**纬带半宽**（度）：海/陆侧带 = 与本格纬差 ≤ 本值的所有对侧格 T′ 均值。
+	/// 用纬带均值而非"最近对侧格温度"：抗海岸噪声、与 W-M5 大尺度陆海热对比语义一致。
+	/// </summary>
+	public const float MonsoonSeaBandDeg = 10f;
+
+	/// <summary>
+	/// 季风门控阈值（°C）：`Cmax = max(C(m_warm), −C(m_cool))` 低于此值 ⇒ 无季风（滤弱对比区）。
+	/// 依据（地球）：τ陆=1/τ海=8 月的异常差在中纬大陆 ≥5 °C ⇒ 0.5 °C 只滤掉弱对比。
+	/// ★**关断值 = +∞** ⇒ 无任何格过门 ⇒ 季风整体关闭（D2 的门控半边）。
+	/// </summary>
+	public const float MonsoonContrastThreshC = 0.5f;
+
+	/// <summary>季风权重内陆衰减尺度（km）：`w = Strength·exp(−d_km/本值)`（d_km = 回溯跳数 × hop_km）。</summary>
+	public const float MonsoonDecayKm = 1000f;
+
+	/// <summary>
+	/// 季风域内陆深度上限（km；地球锚：南亚/西非季风深入内陆 ~1000–2000 km）。
+	/// ★**关断值 = 0** ⇒ 一切格 d_km &gt; 0 &gt; 本值 ⇒ 权重恒 0（D2 的距离半边）。
+	/// </summary>
+	public const float MonsoonReachKm = 2000f;
+
+	/// <summary>
+	/// 季风总开关（无量纲，权重乘子）。
+	/// ★**关断值 = 0** ⇒ 权重恒 0 ⇒ 输出**逐位**等于批次 3（D2 主关断；设计 §4.5）。
+	/// ★季风 v1 **只改方向不改速度**（方向-only；与地形拍板②同纪律）。
+	/// </summary>
+	public const float MonsoonStrength = 1f;
 }

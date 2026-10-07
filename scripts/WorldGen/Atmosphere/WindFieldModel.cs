@@ -14,9 +14,11 @@ namespace World.WorldGen;
 //   ★**赤道基矢（拍板 ①，永久）**：Trade 基矢 = **朝 φ_ITCZ 一侧**（解析侧向）——
 //     无零向量、无 normalize(0)、无赤道特殊分支（W5 逐点测试安全）。
 //   ★**速度解耦（拍板 ③，永久）**：基速只由带分类决定；季风（批次 4）/地形（批次 3）
-//     只改方向或乘衰减因子，**永不改写带基速**。
-//   ★批次边界：本类**不含**季风、地形与判读读数（批次 3/4；设计 §十一）。
-//     `Generate` 输出的 `MonsoonIndex` 恒 0（季风关闭 = D2 的天然实现态）。
+//     **只改方向，永不改写带基速**。
+//   ★批次 4 季风（设计 §4.5）：对**已完成地形修正的基础去向**做矢量混合
+//     `v = (1−w)·v_belt + w·v_monsoon`（方向-only）；MonsoonIndex 只表达**全年季节性风向
+//     翻转强度**（MRI），与静风哨兵（DirectionTo=0）语义独立、永不互替。
+//     D2：`MonsoonStrength=0`（或门控 ∞ / reach 0）⇒ 输出与批次 3 **逐位**相等。
 public static class WindFieldModel
 {
 	const double Pi = Math.PI;
@@ -55,6 +57,11 @@ public static class WindFieldModel
 		public int TerrainLookaheadHops = WindParameters.TerrainLookaheadHops;
 		public float TerrainDeflectionDeg = WindParameters.TerrainDeflectionDeg;
 		public float TerrainWedgeHalfDeg = WindParameters.TerrainWedgeHalfDeg;
+		public float MonsoonSeaBandDeg = WindParameters.MonsoonSeaBandDeg;
+		public float MonsoonContrastThreshC = WindParameters.MonsoonContrastThreshC; // 关断 = ∞（D2 门控半边）
+		public float MonsoonDecayKm = WindParameters.MonsoonDecayKm;
+		public float MonsoonReachKm = WindParameters.MonsoonReachKm;                 // 关断 = 0（D2 距离半边）
+		public float MonsoonStrength = WindParameters.MonsoonStrength;               // 关断 = 0（D2 总开关）
 
 		/// <summary>生产默认（= `WindParameters` 冻结常量）。</summary>
 		public static Tuning Default { get; } = new();
@@ -310,6 +317,136 @@ public static class WindFieldModel
 		}
 	}
 
+	// ── 季风符号反转（批次 4；设计 §4.5；★只改方向不改速度｜复用既有事实不造新距离场）──
+
+	/// <summary>
+	/// **季风权重**（纯函数，独立可测；设计 §4.5 门控 + 衰减）：
+	/// `Cmax &lt; 门控` ⇒ 0｜`d_km &gt; Reach` ⇒ 0｜否则 `Strength·exp(−d_km/DecayKm)`。
+	/// ★三重关断：`MonsoonStrength=0`（D2 主关断）/ `MonsoonContrastThreshC=∞` / `MonsoonReachKm=0`。
+	/// </summary>
+	public static float MonsoonWeight(float cMaxC, float distKm, Tuning tuning = null)
+	{
+		var t = tuning ?? Tuning.Default;
+		if (cMaxC < t.MonsoonContrastThreshC) return 0f;
+		if (t.MonsoonStrength <= 0 || distKm > t.MonsoonReachKm) return 0f;
+		double decay = t.MonsoonDecayKm > 0 ? t.MonsoonDecayKm : 1e-6f;
+		return (float)(t.MonsoonStrength * Math.Exp(-distKm / decay));
+	}
+
+	/// <summary>16 扇区中心角（度）：扇区 s 覆盖 [(s−1)·22.5°, s·22.5°) ⇒ 中心 (s−1)·22.5+11.25。</summary>
+	public static double SectorCenterDeg(int sector) => (sector - 1) * 22.5 + 11.25;
+
+	/// <summary>
+	/// **MonsoonReversalIndex**（设计 §4.6；∈ [0,1]，只表达**全年季节性风向翻转强度**）：
+	/// Δθ = 两极端月 az_final 按 16 扇区中心角的夹角 ∈ [0,180°]；MRI = (1−cos Δθ)/2。
+	/// ★与静风哨兵语义独立：哨兵由聚合层判定（本函数不读也不写 DirectionTo）。
+	/// </summary>
+	public static float MonsoonReversalIndexOf(float azWarmToDeg, float azCoolToDeg)
+	{
+		double sw = SectorCenterDeg(SectorFromBearingToDeg(azWarmToDeg));
+		double sc = SectorCenterDeg(SectorFromBearingToDeg(azCoolToDeg));
+		double dth = Math.Abs(sw - sc) % 360.0;
+		if (dth > 180.0) dth = 360.0 - dth;
+		return (float)((1.0 - Math.Cos(dth * Pi / 180.0)) / 2.0);
+	}
+
+	/// <summary>
+	/// 沿既有 BFS 距离场**严格递减回溯**到源（dist=0 的格；陆格→最近海格 / 海格→最近陆格）。
+	/// 平局取**格索引最小**邻居（设计 §4.5"天然确定"）。找不到递减邻居 ⇒ −1（调用方关该格季风）。
+	/// ★只消费既有距离事实——不为 Wind 生成任何新距离场（批次 4 硬线④）。
+	/// </summary>
+	internal static int BacktrackSource(int i, int[] distHops, WindTerrain ter)
+	{
+		int d = distHops[i];
+		while (d > 0)
+		{
+			int best = -1;
+			foreach (var j in ter.Neighbors[i])
+				if (distHops[j] == d - 1 && (best < 0 || j < best)) best = j;
+			if (best < 0) return -1;
+			i = best;
+			d--;
+		}
+		return i;
+	}
+
+	static int LowerBound(double[] a, double v)
+	{
+		int lo = 0, hi = a.Length;
+		while (lo < hi) { int mid = (lo + hi) >> 1; if (a[mid] < v) lo = mid + 1; else hi = mid; }
+		return lo;
+	}
+
+	static int UpperBound(double[] a, double v)
+	{
+		int lo = 0, hi = a.Length;
+		while (lo < hi) { int mid = (lo + hi) >> 1; if (a[mid] <= v) lo = mid + 1; else hi = mid; }
+		return lo;
+	}
+
+	/// <summary>
+	/// 逐月陆海对比信号 `C(i,m)`（设计 §4.5；月主序 `cAll[m·n+i]`）：
+	/// 陆格 = T′(i,m) − 海侧纬带均值｜海格 = 陆侧纬带均值 − T′(i,m)；纬差 ≤ `MonsoonSeaBandDeg`。
+	/// T′ 直接复用 `MonthlyTemperature`（不重算 Gain/τ，同 I5）；带均值按**纬度排序 + 前缀和**
+	/// 精确计算（O(12·n log n)，无近似分桶）。带内对侧为空 ⇒ C = 0（⇒ Cmax=0 ⇒ 门控自然关断）。
+	/// </summary>
+	internal static float[] MonsoonContrastSignals(MonthlyTemperature temp, float[] latRad,
+		WindTerrain terrain, Tuning t)
+	{
+		int n = latRad.Length;
+		var annual = new float[n];
+		for (int i = 0; i < n; i++) annual[i] = temp.AnnualMeanAt(i);
+
+		var order = new int[n];
+		var sortedLat = new double[n];
+		for (int i = 0; i < n; i++) { order[i] = i; sortedLat[i] = latRad[i]; }
+		Array.Sort(sortedLat, order);
+
+		var preLand = new double[n + 1];
+		var preSea = new double[n + 1];
+		var cntLand = new int[n + 1];
+		var cntSea = new int[n + 1];
+		var tPrim = new float[n];
+		var cAll = new float[MonthlyTemperature.Months * n];
+		double bandRad = (double)t.MonsoonSeaBandDeg * (Math.PI / 180.0);
+
+		for (int m = 0; m < MonthlyTemperature.Months; m++)
+		{
+			int off = m * n;
+			for (int i = 0; i < n; i++) tPrim[i] = temp.C[off + i] - annual[i];
+			preLand[0] = 0; preSea[0] = 0; cntLand[0] = 0; cntSea[0] = 0;
+			for (int k = 0; k < n; k++)
+			{
+				int c = order[k];
+				bool land = terrain.HeightM[c] > 0;
+				preLand[k + 1] = preLand[k] + (land ? tPrim[c] : 0);
+				preSea[k + 1] = preSea[k] + (land ? 0 : tPrim[c]);
+				cntLand[k + 1] = cntLand[k] + (land ? 1 : 0);
+				cntSea[k + 1] = cntSea[k] + (land ? 0 : 1);
+			}
+			for (int i = 0; i < n; i++)
+			{
+				int a = LowerBound(sortedLat, latRad[i] - bandRad);
+				int b = UpperBound(sortedLat, latRad[i] + bandRad);
+				if (terrain.HeightM[i] > 0)
+				{
+					int cnt = cntSea[b] - cntSea[a];
+					cAll[off + i] = cnt > 0
+						? (float)(tPrim[i] - (preSea[b] - preSea[a]) / cnt)
+						: 0f;
+				}
+				else
+				{
+					int cnt = cntLand[b] - cntLand[a];
+					cAll[off + i] = cnt > 0
+						? (float)((preLand[b] - preLand[a]) / cnt - tPrim[i])
+						: 0f;
+				}
+			}
+		}
+		return cAll;
+	}
+
 	// ── 输出量化（设计 §4.6）────────────────────────────────────────────────────
 
 	/// <summary>静风哨兵扇区值（Direction 专用哨兵；其余风场数组无 sentinel）。</summary>
@@ -385,12 +522,25 @@ public static class WindFieldModel
 	/// <summary>
 	/// **球面入口**（生产接线用）：纬度取 I1 权威口径 `H3.CellToLatLng`（弧度、带符号）。
 	/// `heightM` 非 null ⇒ 启用地形阻挡/绕流（批次 3）；null ⇒ 与批次 2 逐位等价。
+	/// `distToCoast/LandHops` 非 null ⇒ 启用季风（批次 4；KmPerHop 由 I6 口径自动换算）。
 	/// </summary>
 	public static WindField Generate(Ball ball, float[] heightM, MonthlyTemperature temp = null, Tuning tuning = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		return Generate(latRadOf(ball), temp, tuning,
 			heightM != null ? WindTerrain.FromBall(ball, heightM) : null);
+	}
+
+	/// <summary>
+	/// **球面入口 + 季风距离事实**（批次 4；dist* = `FinalGeography.FinalDistToCoast/Land` 原数组引用）。
+	/// ★传 null 距离 ⇒ 与上一重载逐位等价（季风关闭）。
+	/// </summary>
+	public static WindField Generate(Ball ball, float[] heightM, int[] distToCoastHops, int[] distToLandHops,
+		MonthlyTemperature temp = null, Tuning tuning = null)
+	{
+		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		return Generate(latRadOf(ball), temp, tuning,
+			WindTerrain.FromBall(ball, heightM, distToCoastHops, distToLandHops));
 	}
 
 	/// <summary>无地形便捷重载（批次 2 兼容；等价 heightM = null）。</summary>
@@ -409,16 +559,23 @@ public static class WindFieldModel
 	}
 
 	/// <summary>
-	/// **纯函数入口**：给定逐格纬度（弧度）、可选的 P4-5b 月度温度事实与可选地形视图，产出三统计量。
+	/// **纯函数入口**：给定逐格纬度（弧度）、可选的 P4-5b 月度温度事实与可选地形/海岸视图，产出三统计量。
 	///
 	/// 聚合口径（钉死）：
-	///  · **SpeedMs** = 12 个月带基速的算术平均（Doldrums 月按 Trade×0.4 计；★地形**不改速度**，拍板②）；
+	///  · **SpeedMs** = 12 个月带基速的算术平均（Doldrums 月按 Trade×0.4 计；
+	///    ★地形/季风**都不改速度**，批次 3 拍板②）；
 	///  · **DirectionTo** = 12 个月去向单位矢量的**圆均值**再扇区化——Doldrums 月**不参与**（无基矢）；
-	///    地形修正发生在**每月基础风方向之后**（拍板①，单步 ±45° 不级联）；合成矢量均值长度 &lt;
-	///    `PrevailingMinVectorLength`（两季对吹抵消）或速度 &lt; `CalmSpeedMs` ⇒ 静风哨兵 0；
-	///  · **MonsoonIndex** ≡ 0（批次 2 = 季风关闭态；机制属批次 4）。
+	///    地形修正发生在**每月基础风方向之后**（批次 3 拍板①，单步 ±45° 不级联）；
+	///    季风混合在**地形之后**（批次 4：`v = (1−w)·v_belt + w·v_monsoon`，方向-only）；
+	///    合成矢量均值长度 &lt; `PrevailingMinVectorLength`（两季对吹抵消）或速度 &lt; `CalmSpeedMs`
+	///    ⇒ 静风哨兵 0；
+	///  · **MonsoonIndex** = 两极端月（C 信号 argmax/argmin，平局取小索引）az_final 按 16 扇区
+	///    中心角的 `(1−cos Δθ)/2` ∈ [0,1]——只表达**全年季节性风向翻转强度**；
+	///    静风格 / w=0 / 极端月无方向 ⇒ 0（★与静风哨兵语义独立、永不互替）。
 	/// ★月度逐格明细**不落盘**（W-S1）；本函数输出即契约 W-O1~O3 三统计量。
-	/// ★地形关闭（terrain = null 或 `TerrainBarrierHeightM = 1e9`）⇒ 输出与批次 2 **逐位**相等（D4）。
+	/// ★D4：地形关断（terrain = null 或 `TerrainBarrierHeightM = 1e9`）⇒ 逐位回批次 2。
+	/// ★D2：季风关断（`MonsoonStrength=0` / 门控 ∞ / reach=0 / 不传距离事实）
+	///   ⇒ 输出与批次 3 **逐位**相等（`monoReady` 短路 + else 分支表达式与批次 3 逐字一致）。
 	/// </summary>
 	public static WindField Generate(float[] latRad, MonthlyTemperature temp = null, Tuning tuning = null,
 		WindTerrain terrain = null)
@@ -436,6 +593,14 @@ public static class WindFieldModel
 		float doldrumSpeed = BeltBaseSpeedMs(WindBelt.Doldrums, t);
 		for (int m = 0; m < MonthlyTemperature.Months; m++)
 			bounds[m] = BoundariesFor(m, nh, sh, t);
+
+		// 季风就绪判定（批次 4）：温度事实 + 海岸距离事实 + hop→km 口径 + 未总关断。
+		// ★只消费既有事实（FinalDistToCoast/Land 引用 + MonthlyTemperature），不生成新距离场（硬线④）。
+		bool monoReady = temp != null && terrain != null
+			&& terrain.DistToCoastHops != null && terrain.DistToLandHops != null
+			&& terrain.KmPerHop > 0
+			&& t.MonsoonStrength > 0 && t.MonsoonReachKm > 0;
+		float[] cAll = monoReady ? MonsoonContrastSignals(temp, latRad, terrain, t) : null;
 
 		// 地形扫描缓冲（一次分配，全程复用；stamp 代际法免清零）
 		int[] stamp = null, frontier = null, nextF = null;
@@ -457,8 +622,40 @@ public static class WindFieldModel
 		{
 			double latDeg = latRad[i] * Rad2Deg;
 			double delta = CoriolisDeflectionDeg(latRad[i], t);   // 只依赖纬度 ⇒ 逐格一次
+
+			// 季风逐格前置（设计 §4.5）：回溯源 → 目标方位 → 极端月 → 权重
+			float wMono = 0f;
+			double azMono = 0;
+			int mWarm = -1, mCool = -1;
+			if (monoReady)
+			{
+				bool land = terrain.HeightM[i] > 0;
+				int[] dist = land ? terrain.DistToCoastHops : terrain.DistToLandHops;
+				int d = dist[i];
+				if (d > 0)
+				{
+					int src = BacktrackSource(i, dist, terrain);
+					if (src >= 0)
+					{
+						// 陆格：海→陆（源→本格）；海格：指向陆（本格→源）——两岸自动衔接同一条气流线
+						azMono = land ? BearingToDeg(src, i, terrain) : BearingToDeg(i, src, terrain);
+						float cW = float.NegativeInfinity, cC = float.PositiveInfinity;
+						for (int m = 0; m < MonthlyTemperature.Months; m++)
+						{
+							float cm = cAll[m * n + i];
+							if (cm > cW) { cW = cm; mWarm = m; }
+							if (cm < cC) { cC = cm; mCool = m; }
+						}
+						float cmax = Math.Max(cW, -cC);
+						wMono = MonsoonWeight(cmax, (float)(d * terrain.KmPerHop), t);
+					}
+				}
+			}
+
 			double cosSum = 0, sinSum = 0, speedSum = 0;
 			int vecMonths = 0;
+			double azWarm = 0, azCool = 0;
+			bool hasWarm = false, hasCool = false;
 			// 地形修正记忆化：一格的月度基方位只有 ≤2 种（基矢 0/180 + 固定 δ）⇒ 双槽缓存
 			double azKey1 = double.NaN, azOut1 = 0, azKey2 = double.NaN, azOut2 = 0;
 			for (int m = 0; m < MonthlyTemperature.Months; m++)
@@ -468,6 +665,13 @@ public static class WindFieldModel
 				if (belt == WindBelt.Doldrums)
 				{
 					speedSum += doldrumSpeed;                     // 无风带月：有速度无方向
+					// Doldrums 月不参与圆均值；w>0 时极端月可由纯季风方向供 MRI（无基矢 ⇒ v = w·v_monsoon）
+					if (wMono > 0)
+					{
+						float cm0 = cAll[m * n + i];
+						if (cm0 > 0 && m == mWarm) { azWarm = azMono; hasWarm = true; }
+						else if (cm0 < 0 && m == mCool) { azCool = azMono + 180.0; hasCool = true; }
+					}
 					continue;
 				}
 				double baseAz = MeridionalBaseBearingToDegCore(belt, latDeg, b.Itcz);
@@ -488,16 +692,36 @@ public static class WindFieldModel
 					}
 					azDeg = azOut;
 				}
-				double az = azDeg * Pi / 180.0;
-				cosSum += Math.Cos(az);
-				sinSum += Math.Sin(az);
+				// 季风混合（批次 4；在地形之后）：C 符号定向（C>0 吹向陆侧 / C<0 反向），方向-only
+				float cm = wMono > 0 ? cAll[m * n + i] : 0f;
+				int sgn = cm > 0 ? 1 : cm < 0 ? -1 : 0;
+				if (sgn != 0)
+				{
+					double azM = sgn > 0 ? azMono : azMono + 180.0;
+					double r1 = azDeg * Pi / 180.0, r2 = azM * Pi / 180.0;
+					double vx = (1.0 - wMono) * Math.Cos(r1) + wMono * Math.Cos(r2);
+					double vy = (1.0 - wMono) * Math.Sin(r1) + wMono * Math.Sin(r2);
+					cosSum += vx;
+					sinSum += vy;
+					double azFinal = Math.Atan2(vy, vx) * Rad2Deg;
+					if (m == mWarm) { azWarm = azFinal; hasWarm = true; }
+					if (m == mCool) { azCool = azFinal; hasCool = true; }
+				}
+				else
+				{
+					double az = azDeg * Pi / 180.0;
+					cosSum += Math.Cos(az);
+					sinSum += Math.Sin(az);
+					if (m == mWarm) { azWarm = azDeg; hasWarm = true; }
+					if (m == mCool) { azCool = azDeg; hasCool = true; }
+				}
 				vecMonths++;
 				speedSum += BeltBaseSpeedMs(belt, t);
 			}
 
 			float speed = Math.Clamp((float)(speedSum / MonthlyTemperature.Months), 0f, t.MaxSpeedMs);
-			wind.SpeedMs[i] = speed;                              // ★地形不改速度（拍板②）
-			wind.MonsoonIndex[i] = 0f;                            // 批次 4 接管
+			wind.SpeedMs[i] = speed;                              // ★地形/季风都不改速度（批次 3 拍板②）
+			wind.MonsoonIndex[i] = 0f;                            // ↓ 批次 4 在 calm 判定后接管
 
 			bool calm = speed < t.CalmSpeedMs;
 			if (!calm && vecMonths > 0)
@@ -508,6 +732,12 @@ public static class WindFieldModel
 			wind.DirectionTo[i] = calm || vecMonths == 0
 				? (byte)CalmSector
 				: (byte)SectorFromBearingToDeg((float)(Math.Atan2(sinSum, cosSum) * Rad2Deg));
+
+			// MonsoonIndex：只表达全年季节性风向翻转强度；静风哨兵 ⇒ 0（语义独立、永不互替）
+			float monoIdx = wMono > 0 && hasWarm && hasCool && !calm
+				? MonsoonReversalIndexOf((float)azWarm, (float)azCool)
+				: 0f;
+			wind.MonsoonIndex[i] = Math.Clamp(monoIdx, 0f, 1f);
 		}
 		return wind;
 	}

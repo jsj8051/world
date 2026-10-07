@@ -333,3 +333,19 @@ public sealed class WindField            // 与 ball.CellIds 逐位对齐；无 
 - **实测踩坑（合成图测试照出真 bug）**：`BearingToDeg` 东切向叉积顺序写反（`cross(北,d)` 应为 `cross(d,北)`）⇒ 东西镜像——合成图测试以自建罗盘口径第一时间拦截；另一处为测试自身选点压边界（两侧皆阻≠取较低侧，冻结语义是原向）。
 - **res4 验收实测**：全流水线 + 地形 = **997 ms**（无地形 133 ms；合成山系每 97 格一座 3000 m，命中面充分）——记忆化有效，仍秒级诊断场。
 - `NewWorldLineTypes` 登记 `WindTerrain`；`.cs.uid` 入库。commit：`feat(worldgen): add WindField v1 batch 3`。
+
+---
+
+## §十五 批次 4 落地记录（2026-10-07 · Wind v1 最后一批核心机制）
+
+**范围**（用户拍板四条硬线）：W-M5 季风反转 + 最终统计语义收口 + D2。流水线顺序冻结：基础环流→ITCZ→Coriolis→地形阻挡→**季风反转**→12 月方向统计→三统计量。
+
+- **★硬线①（只改方向）**：季风混合 = 对已完成地形修正的基础去向做矢量混合 `v = (1−w)·v_belt + w·v_monsoon`（方向-only）；`SpeedMs` 全场逐位不变由测试钉死（延续批次 3 拍板②纪律）。
+- **★硬线②（MRI 语义独立）**：`MonsoonIndex` = 两极端月（C 信号 argmax/argmin，平局取小索引）az_final 按 16 扇区中心角的 `(1−cosΔθ)/2` ∈ [0,1]——只表达**全年季节性风向翻转强度**；静风格 / w=0 / 极端月无方向 ⇒ 0；与静风哨兵（DirectionTo=0）永不互替。
+- **★硬线③（D2 逐位）**：`MonsoonStrength=0`（总开关）/ `MonsoonContrastThreshC=∞`（门控）/ `MonsoonReachKm=0`（距离）/ 零陆海对比（Cmax=0 < 0.5 自然门控）⇒ 输出与批次 3 **逐数组逐位**相等。实现双保险：`Strength=0`/`reach=0` 时 `monoReady` 直接短路（不建 C 信号场）；门控/距离路径的 else 分支表达式与批次 3 逐字一致。
+- **★硬线④（不造新距离场）**：`WindTerrain` 扩展 `DistToCoastHops`/`DistToLandHops`/`KmPerHop`——**只读引用** `FinalGeography.FinalDistToCoast/Land` 原数组实例（`Is.SameAs` 测试钉死），`KmPerHop = √3 × SpatialScale.Of(ball).CellEdgeKm`（I6 权威口径，自动换算；0 = 未知 ⇒ 禁季风）。回溯 `BacktrackSource` 沿既有 BFS 距离严格递减、平局取最小格索引；陆格 az = 源→本格（海→陆）、海格 az = 本格→源——两岸自动衔接同一条气流线。
+- **对比信号 `MonsoonContrastSignals`**（设计 §4.5 逐条落地）：陆格 C = T′ − 海侧纬带均值｜海格 C = 陆侧纬带均值 − T′；T′ 直接取 `MonthlyTemperature.C − AnnualMeanAt`（I5，不重算 Gain/τ）；纬带均值 = 纬度排序 + 前缀和**精确**计算（O(12·n log n)，无近似分桶）；带内对侧为空 ⇒ C=0 ⇒ 门控自然关断。
+- **实现钉（本批补充，未改 §4.5 公式）**：① Doldrums 月仍不参与圆均值（无基矢）；w>0 时若极端月恰为 Doldrums 月，MRI 用纯季风方向（v = w·v_monsoon）供角；② 季风无速度语义 ⇒ `CalmSpeedMs`/`PrevailingMinVectorLength` 静风判定不变，静风格 MRI=0；③ 扇区量化下 MRI 最小非零值 = (1−cos22.5°)/2 ≈ 0.038（相邻扇区），测试以 0.05 上界钉死。
+- **参数**：`MonsoonSeaBandDeg=10`｜`MonsoonContrastThreshC=0.5`（关断 ∞）｜`MonsoonDecayKm=1000`｜`MonsoonReachKm=2000`（关断 0）｜`MonsoonStrength=1`（关断 0 = D2 主关断）。无新类型 ⇒ `NewWorldLineTypes` 零改动。
+- **测试**：`WindMonsoonTests` 6 条（权重门控/衰减/三重关断矩阵｜MRI 扇区中心角语义｜合成星形海岸端到端：暖月占多 ⇒ 去向拉成偏南扇区 8 + MRI>0.9 + 速度逐位｜D2 双关断逐位回批次 3 + 机制非空转断言｜距离事实只读引用 + 无距离 ⇒ MRI 恒 0｜res4+季风 Explicit）。
+- 生产接线（`WorldGenPlanet` 消费 Wind）**仍不属本批**——Wind v1 与 ⑮ 洋流同款：诊断场先冻结，接线属 P4-5d 风应力 / P4-5e 水汽输送收敛点。
