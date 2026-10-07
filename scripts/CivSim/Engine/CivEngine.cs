@@ -88,7 +88,7 @@ public static class CivEngine
         swRun.Stop();
 
         ctx.Polities.RemoveAll(e => e.Dead);
-        // ⚠️ 2026-08-18 阶段3 方案 D：边界态统一重建（唯一入口，与读档/Continue 同式）——
+        // 边界态统一重建（唯一入口，与读档/Continue 同式）——
         //   FLast/CellF/领地/酋邦/领袖标记全部从末态持久字段重算，Run 返回态自洽 → 读档续跑无分叉。
         SettleDerived(ctx);
         // ⚠️ 2026-08-17 监督机制：CivSim 逐模型耗时入历史（对比/告警；--arch 全量测试时也自动记录）
@@ -107,11 +107,9 @@ public static class CivEngine
     }
 
     /// <summary>
-    /// 演化进度（0..1，单调无跳变，结束 tick = 100%）。
-    /// 旧口径用 600（500 兜底 + 100 收尾）做分母，但正常世界首转农后 100 ticks 即终止
-    /// （约 tick 300~400 结束），进度停在 ~50-65% 就"完成"了（用户反馈"53% 就加载完成"）。
-    /// 新口径：转农前按无农兜底 500 tick 走 0→0.8；转农后实际终止边界已知（F+100），
-    /// 剩余 100 ticks 平滑走 当前值→1.0——完成瞬间正好 100%。
+    /// 演化进度（0..1，单调无跳变，完成瞬间正好 100%）：转农前按无农兜底 500 tick 走 0→0.8；
+    /// 转农后实际终止边界已知（F+100），剩余 100 ticks 平滑走 当前值→1.0。
+    /// （旧口径用 600 做分母，正常世界 tick 300~400 结束 → 进度停在 ~50-65% 就"完成"。）
     /// </summary>
     private static float ProgressOf(CivSimContext ctx)
     {
@@ -171,8 +169,7 @@ public static class CivEngine
 
     /// <summary>每 tick 开头的派生刷新（现状语义，保持不动）：CellPolities/CellPop/CellFarmPop/CarryMult/CapMask
     /// + 商品存储年步进（副作用）+ CellF 聚合（FLast 为上 tick 值——Harvest 在本 tick 才更新）。
-    /// ⚠️ 2026-08-18 阶段3 拆分：内部 = RefreshCellStateCore(纯) + AccumulateStorage(副作用) + RefreshCellStateF(纯)。
-    /// 副作用（商品存储消耗/衰变）只在演化每 tick 调用，绝不在 SettleDerived 边界重算里调（防双倍累积）。</summary>
+    /// ⚠️ 副作用（商品存储消耗/衰变）只在演化每 tick 调用，绝不在 SettleDerived 边界重算里调（防双倍累积）。</summary>
     public static void RefreshCellState(CivSimContext ctx)
     {
         RefreshCellStateCore(ctx);
@@ -185,8 +182,7 @@ public static class CivEngine
     public static void RefreshCellStateCore(CivSimContext ctx)
     {
         int n = ctx.Grid.N;
-        // ⚠️ 2026-08-17 审查修复 + 2026-08 阶段2 一格一实体：每 tick 按实体列表顺序重建 CellPolities（单引用）。
-        //   一格一实体：每格至多一个部落；重建=清空为 null 再按实体列表顺序写入（确定性，防读档续跑分叉）。
+        // 一格一实体：每 tick 清空重建 CellPolities（单引用，按实体列表顺序写入——确定性，防读档续跑分叉）。
         for (int i = 0; i < n; i++) ctx.CellPolities[i] = null;
         for (int i = 0; i < ctx.Polities.Count; i++)
         {
@@ -207,16 +203,13 @@ public static class CivEngine
         }
     }
 
-    /// <summary>副作用累积：商品存储 tick 步进（2026-08-18 阶段3 存储/衰变机制；2026-08-19 聚落双池改造）。
+    /// <summary>副作用累积：商品存储 tick 步进。
     /// **每 tick 仅一次**（演化循环内），绝不在 SettleDerived 边界重算调用（否则双倍消耗 → 分叉）。
-    /// 双池（用户拍板"存粮迁移到聚落"）：
-    ///   · **随身池**（Polity.Stocks，v12 字段语义改）：衰变用**基础年率**（携带即自然损耗——存储科技不保护
-    ///     随身物）；Material 流入的**溢余**；容量 CarryFoodCap/CarryMatCap×P（游群即随身）。
-    ///   · **粮仓**（Habitation.Stocks，v13）：衰变用 techMult（storage/pottery/settle/grinding 分层保藏——
-    ///     谷物耐储核心）；Material 流入**优先入仓**；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×TownTier)（2026-08-23 功能定性：城镇级系数）。
-    ///   Food 流入/消耗由 GrowthModel 管（缺口吃随身→粮仓，耐储者留底）；本方法只做衰变+流入+容量。
-    /// 单位 Stocks = 人当量（与 FLast/P 同量纲）。衰变按年率折算 tick：
-    ///   decayTick = 1 − (1 − BaseDecay×techMult)^TickYears（年衰变史实锚点 → 100 年聚合）。</summary>
+    /// 双池语义：**随身池**（Polity.Stocks，衰变用基础年率——存储科技不保护随身物；Material 溢余；
+    /// 容量 CarryFoodCap/CarryMatCap×P）；**粮仓**（Habitation.Stocks，衰变用 techMult 分层保藏；
+    /// Material 流入优先入仓；容量 SettleFoodCap/SettleMatCap×P×(1+0.5×TownTier)）。
+    /// Food 流入/消耗由 GrowthModel 管；本方法只做衰变+流入+容量。
+    /// 单位 Stocks = 人当量；衰变按年率折算 tick：decayTick = 1 − (1 − BaseDecay×techMult)^TickYears。</summary>
     public static void AccumulateStorage(CivSimContext ctx)
     {
         for (int i = 0; i < ctx.Polities.Count; i++)
@@ -297,7 +290,7 @@ public static class CivEngine
         return a;
     }
 
-    /// <summary>末态派生产出重算（2026-08-18 T04 修复）。FLast/FHunt/FHerd/FFarm 派生不入档——
+    /// <summary>末态派生产出重算。FLast/FHunt/FHerd/FFarm 派生不入档——
     /// Run 结尾（及读档补偿）用末态持久字段重算，保证派生态自洽：读档续跑无分叉。
     /// 与 HarvestModel 同式：AllocateAndProduce(e)→FHunt，FLast=Σ分量。</summary>
     public static void RecomputeProduction(CivSimContext ctx)
@@ -306,8 +299,8 @@ public static class CivEngine
         {
             var e = ctx.Polities[i];
             if (e.Dead) continue;
-            // ⚠️ 2026-08-18 T04 修复：先归零分量——AllocateAndProduce 在领地为空时提前 return 0
-            //   （不走到分量赋值），若不归零则陈旧 FFarm/FHerd 残留（无领地却挂产出的活 bug）。
+            // ⚠️ 先归零分量：AllocateAndProduce 领地为空时提前 return 0（不走到分量赋值），
+            //   不归零则陈旧 FFarm/FHerd 残留（无领地却挂产出的活 bug）。
             e.FFarmLast = 0f; e.FHerdLast = 0f; e.FBerryLast = 0f; e.FFishLast = 0f;
             e.FHuntLast = ctx.AllocateAndProduce(e);
             e.FLast = e.FHuntLast + e.FFarmLast + e.FHerdLast;
@@ -324,9 +317,9 @@ public static class CivEngine
         e.IsChief = e.IsBigMan && ShareField.RelFrac(e.ReligionShare, ReligionStage.Ancestor) > 0;
     }
 
-    /// <summary>边界态派生统一重建（2026-08-18 阶段3 方案 D：唯一重算入口）。
-    /// 调用点：读档后（CivMapArchive.Read）、Run 结尾（演化终止）、Continue 开头——
-    /// 三条路径同一函数 → 消除"重算路径各写一套"缺陷（T04 类分叉根治）。
+    /// <summary>边界态派生统一重建（唯一重算入口）。
+    /// 调用点：读档后（CivMapArchive.Read）、Run 结尾、Continue 开头——三条路径同一函数
+    /// → 消除"重算路径各写一套"缺陷（读档续跑分叉根治）。
     /// 纯派生（幂等，不含 Goods 副作用累积——AccumulateGoods 只在演化每 tick 循环调）。
     /// 依赖序（勿乱改，逐行注释依赖）：
     ///   ① Core：CellPolities/CellPop/CellFarmPop/CarryMult/CapMask（供②影响力和④领地并查集）

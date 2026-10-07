@@ -7,68 +7,40 @@ namespace World.WorldGen;
 
 // 表现层 · 河流表面叠加（**River v2.0**：Presentation Spline + River Surface Shader）
 //
-// ★职责三分（v2 的核心）：
-//   H3 河网      → 决定"河流在哪里"（RiverNetwork / RiverGraph / RiverGeometry，**一律不动**）
-//   Spline       → 决定"河流看起来怎么连续"（RiverPresentationSpline，**穿过**每个 H3 锚点）
-//   Shader       → 决定"河流在屏幕上怎么表现"（shaders/river_surface.gdshader，恒 px + 边缘柔化）
-//
-// ★★不再"把六边形折线伪装成 spline"：v1.x 的 join/bevel/corner smoothing 做得再好，
-//   中心线仍只有 6 个方向。v2 改为**另外生成连续样条**，H3 只当控制数据。
-//
-// ★★冻结定义不变（v1/v1.1 继承）：生产档河流 = **res 无关的连续中心线** + **res 绑定的 H3 覆盖索引**
-//   + **屏幕空间符号宽度**；**当前不表达物理河宽**（真实河宽在 res4 是亚格量）。
-//   ⇒ 不建：WidthM / DepthM / BankGeometry / Floodplain / Wetland / RiverPolygon / FlowAnimation / LOD2-3。
-//
-// ★两条渲染路径（前者是 v2 正式路径，后者是兜底）：
-//   ① ScreenSpace（默认）：样条几何 + river_surface.gdshader ⇒ **恒 px** 宽度（不再需要 v1.2 的 zoom 补偿）
-//   ② WorldSpace（兜底）：v1.2 的 camera-aware 世界宽度 ribbon + StandardMaterial3D
-//      —— 仅当 shader 加载失败，或 `UseScreenSpace = false` 时启用。
-//
-// ★粗细**属于河段（segment）**：由河段上游格的径流累积量经 `RiverSymbolWidth` 分档得到；
-//   `NodeKind` **只决定颜色**（干流/支流）与河口打点，**不参与粗细**——否则单调性不成立。
-// ★`RiverSoftEdge`：**不是** RiverBank。它是笔画两侧外扩的纯视觉过渡带，
-//   真实地理河岸在 res4 下 ≈0.00x px，不存在。
-//   ★v1.1：软边与河水**共用同一条 ribbon 拓扑**（只换半径与颜色）⇒ 拐角处不再出现白块/缺口。
-//
-// ── ★为什么必须"chain 化 + 边去重"，而不是直接沿用 LineCells ──────────────
-//   `RiverGeometry.LineCells` 是"**每个河源一条 source→outlet 完整路径**" ⇒ 干流段被 N 条线共有。
-//   v1（LINES 图元）下重复绘制看不出问题；v1.1（三角带 ribbon）下会变成**完全共面的重叠三角形**
-//   ⇒ z-fighting 闪烁。故 `BuildChains` 先把所有边灌进 `nextOf` 字典（每格下游唯一 ⇒ 天然去重），
-//   再从头节点（source / confluence）走出来 ⇒ **每条河流边恰好属于一条 chain**，几何零重复。
-//
-// 地表网格是单半径球（Render.BallView 全部顶点 = 方向 × R），故按"档位"分层抬升：
-//   软边(支流) 1.0030 < 软边(干流) 1.0038 < 河水(支流) 1.0040 < 河水(干流) 1.0048 < 河口点 1.0065
-// （干流抬得更高 ⇒ 汇流处由干流覆盖支流末端，不需要额外的 junction mesh。）
+// ★职责三分：H3 河网决定"河流在哪里"（RiverNetwork/Graph/Geometry，**一律不动**）；
+//   Spline 决定"看起来怎么连续"（穿过每个 H3 锚点）；Shader 决定"屏幕上怎么表现"（恒 px + 边缘柔化）。
+// ★冻结定义：生产档河流 = **res 无关的连续中心线** + res 绑定的 H3 覆盖索引 + **屏幕空间符号宽度**；
+//   **当前不表达物理河宽**（res4 下真实河宽是亚格量）⇒ 不建 WidthM/DepthM/BankGeometry/Floodplain/LOD2-3。
+// ★两条渲染路径：① ScreenSpace（默认）＝样条几何 + river_surface.gdshader，恒 px 宽度；
+//   ② WorldSpace（兜底）＝ camera-aware 世界宽度 ribbon，仅 shader 加载失败或 `UseScreenSpace=false` 时启用。
+// ★粗细**属于河段**（上游格径流累积 → `RiverSymbolWidth` 分档）；`NodeKind` 只决定颜色与河口打点，
+//   **不参与粗细**——否则单调性不成立。`RiverSoftEdge` **不是** RiverBank，是纯视觉过渡带（真实河岸 res4 下 ≈0 px）。
+// ★chain 化 + 边去重的必要性：`LineCells` 是"每河源一条完整路径"，干流段被 N 条线共有；
+//   ribbon（三角带）下重复边 = 完全共面的重叠三角形 ⇒ z-fighting。`BuildChains` 经 `nextOf` 去重
+//   ⇒ 每条河流边恰好属于一条 chain，几何零重复。
+// 抬升分层：软边(支流) < 软边(干流) < 河水(支流) < 河水(干流) < 河口点——干流覆盖支流末端，
+//   不需要 junction mesh。⚠️ 渲染不得用 world-space radial lift 排序图层（见 SS 路径的 NDC 深度偏移）。
 public sealed partial class RiverLineOverlay : MeshInstance3D
 {
 	// ── 抬升（单半径球：地表 = 方向 × R）──────────────────────────────────
-	// ⚠️⚠️ 2026-10-04 重标定（用户："河流贴的近一点，现在看是浮在表面上"）：
-	//   旧值 1.0030/1.0040/1.0065 在 R=2（≈6371 km）下 = 离地 **19 / 25 / 41 km**。
-	//   危害不只是"变粗"——**掠射角下抬升量会换算成很大的横向位移**（全球视图边缘的河线
-	//   明显偏离真实河道），这才是"浮起来"的观感来源。
-	//   新值 = 离地 1.6 / 2.5 / 3.8 km（全球视图下 ≈0.14 px，肉眼不可见但仍高于地形）。
-	//   下限约束（实测口径，R=2、Near=0.02R、Far=10R、24-bit 深度）：
-	//     深度精度：1.7R→2.9e-6、3R→2.4e-5、5R→9.5e-5（世界单位）
-	//     地形多边形凹陷：res4→4.2e-6、res3→2.9e-5
-	//   ⇒ 取 5e-4 起（最坏 5R 仍有 ~5× 余量，res3 凹陷 17× 余量）。
+	// ⚠️⚠️ 物理抬升在**掠射角下会换算成很大的横向位移**（河线偏离真实河道 = "浮起来"的观感来源）。
+	//   现值 = 离地 1.6 / 2.5 / 3.8 km（全球视图 ≈0.14 px，肉眼不可见但仍高于地形）。
+	//   下限依据（实测口径 R=2、Near=0.02R、Far=10R、24-bit 深度）：深度精度 5R 处 9.5e-5、
+	//   地形多边形凹陷 res3→2.9e-5 ⇒ 取 5e-4 起（最坏 ~5× / 17× 余量）。勿再调大。
 	const float SoftLift = 1.00020f;      // 软边（支流档）
 	const float WaterLift = 1.00030f;     // 河水（支流档）
 	const float MainLiftStep = 0.00010f;  // 干流档再抬一层 ⇒ 汇流处干流覆盖支流
 	const float MouthLift = 1.00060f;     // 河口点（v1.x 兜底路径用）
 
 	// ── v2 屏幕空间路径：几何**完全贴地**（lift = 1.0）────────────────────
-	// ★深度层次不再靠物理抬升，改由 shader 的 **NDC 深度偏移**提供（`UV2.y`，只改 z 不改 x/y）。
-	//   理由：物理抬升在掠射角下会换算成很大的横向屏幕位移（旧 lift=1.0040 实测近景中位 55px）
-	//   ⇒ 河流"浮在表面上"并偏离河道。NDC 偏移 ⇒ 屏幕位置零视差（实测位移 55px → 0）。
-	//   余量口径（R=2、Near=0.02R、Far=10R、24-bit 深度）：Δz_world / 深度精度 = 1.68e7 × bias，
-	//   且**与视距无关**（恒定 NDC 偏移对应的世界距离 ∝ z²，正好匹配深度精度的 1/z² 分布）。
+	// ★深度层次不靠物理抬升，靠 shader 的 **NDC 深度偏移**（`UV2.y`，只改 z 不改 x/y）：
+	//   物理抬升在掠射角下换算成大横向位移（旧 lift=1.0040 实测近景中位 55px ⇒ 河线偏离河道）；
+	//   NDC 偏移 ⇒ 屏幕位置零视差，且恒定偏移对应的世界距离 ∝ z² 正好匹配深度精度的 1/z² 分布。
 	const float SsLiftBranch = 1.0f;   // 支流：贴地
 	const float SsLiftMain = 1.0f;     // 干流：贴地（靠 bias 更大 ⇒ 覆盖支流末端）
 	const float SsLiftMouth = 1.0f;    // 河口点：贴地
-	//   bias 量级**由实测扫参确定**（墨水判据，res4，目标宽 3.08px）：
-	//     1e-6 → 2.26px（被地形吃掉 ~28%）｜ 1e-5 → 3.20px（近景仍差 12%）
-	//     1e-4 → 3.25px（**饱和**：与 1e-3 完全一致 ⇒ 再大无收益，也不会让背面河线穿透）
-	//   ⇒ 取 1e-4 起。⚠️ 解析式估算（1e-6）严重偏小，别再按理论调这个数。
+	//   bias 量级**由实测扫参确定**（墨水判据，res4，目标宽 3.08px）：1e-4 起饱和
+	//   （与 1e-3 完全一致 ⇒ 再大无收益也不会让背面河线穿透）。⚠️ 解析式估算严重偏小，别再按理论调。
 	const float DepthBiasBranch = 1.0e-4f;   // 支流
 	const float DepthBiasMain = 2.0e-4f;     // 干流（更大 ⇒ 覆盖支流末端）
 	const float DepthBiasMouth = 3.0e-4f;    // 河口点

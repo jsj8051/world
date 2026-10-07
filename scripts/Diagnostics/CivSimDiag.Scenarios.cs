@@ -91,8 +91,7 @@ public partial class CivSimDiag
         ctx.TerritoryDists[1].Add(1);
 
         // 手动跑能量/模式循环（不含发明/增长——人口由场景固定 P=3y0 保证选择分离点；
-        // ⚠️ 2026-08-23 移除 GrowthModel：旧实现靠 FLast=0 冻结（continue）保 P，新饿死语义
-        //   （F=0 → P×0.7 减员）会让 P 跌落 → eF=yF/P 双曲线翻转 → φ=0.3 也转农，污染选择动力学）
+        // ⚠️ 勿加 GrowthModel：饿死语义会让 P 跌落 → eF=yF/P 双曲线翻转 → φ=0.3 也转农，污染选择动力学）
         var mode = new ModeModel();
         var energy = new EnergyModel();
         for (int tick = 0; tick < 200; tick++)
