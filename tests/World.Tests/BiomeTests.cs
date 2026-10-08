@@ -14,14 +14,11 @@ namespace World.Tests;
 /// 聚焦四类增量：
 ///   1. BiomeClassifier 阈值的【恰好等于边界】——按源码 &lt;/&gt;= 严格语义断言（哪些值落在哪边是契约）；
 ///   2. BiomeType 枚举穷举（byte 基类型 / 0-31 / 无重复）与 BiomeColors 边界连续性；
-///   3. WindField 的经纬对称不变量（南北半球镜像、环流带→经向分量符号）与
-///      OceanCurrent 在真实细分网格（icosahedron n=2 + 陆地边界条件）上的非平凡环流；
-///   4. MonsoonSystem：Compute 依赖 ClimateGenerator（构造即建 FastNoiseLite = 引擎类，
+///   3. MonsoonSystem：Compute 依赖 ClimateGenerator（构造即建 FastNoiseLite = 引擎类，
 ///      测试进程必崩 0xC0000005）→ 不测；其内部唯一纯静态辅助 TraceUpstream（private）
 ///      用反射驱动（只做 Vector3 点积/比较，纯托管）。
 ///
-/// 纪律：只用 [Test]/[TestCase(字面量)]；不写文件；不触碰 GD.*/LogService/FastNoiseLite；
-/// 涉及 WindField 静态状态（Prograde/RotationSpeed）的用例先设定、用后还原。
+/// 纪律：只用 [Test]/[TestCase(字面量)]；不写文件；不触碰 GD.*/LogService/FastNoiseLite。
 /// </summary>
 public class BiomeTests
 {
@@ -128,9 +125,6 @@ public class BiomeTests
     }
 
     // ═══════════════════════════════════════════════════════════════
-    // WindField —— 经纬对称不变量与环流带结构（静态状态用后还原）
-    // ═══════════════════════════════════════════════════════════════
-
 
     private static void AssertColor(Color c, float r, float g, float b, float tol = 5e-3f)
     {

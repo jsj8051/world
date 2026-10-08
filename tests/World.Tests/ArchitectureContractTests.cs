@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.IO;
 using NUnit.Framework;
 using Godot;
@@ -19,6 +20,8 @@ namespace World.Tests;
 ///      新 Feature 零合成器改动的保证）；
 ///   ④ FinalGeography 不依赖具体 Feature 类（新 Feature 不需要改 FinalGeography）；
 ///   ⑤ 空特征列表 = 纯基线（没有特征就没有影响——"影响只能来自注册的特征"）。
+///   ⑥ **`World.CivSim` ⟂ `World.WorldGen`**（2026-10-06 ADR-0005 · C-4 §6.2 G1）：
+///      人类演化层是**领域消费者**，不得接上新世界生成线（全程序集 + 成员 + IL 扫描）。
 /// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*/LogService。
 /// </summary>
 public class ArchitectureContractTests
@@ -137,6 +140,112 @@ public class ArchitectureContractTests
 			"C/D（World.Domain）、B（World.Archive）与几何/工具基础设施，不得重新接上旧世界生成链（§07 §10.5）");
 	}
 
+	/// <summary>
+	/// **命名空间级隔离契约：`World.CivSim` ⟂ `World.WorldGen`**（2026-10-06 · ADR-0005 · C-4 §6.2 G1）。
+	///
+	/// 判定问题："人类演化层（领域消费者）会不会偷偷接上新世界生成线？" ⇒ **不许**。
+	/// 依据（C-4 接线审查）：CivSim 的自然输入全部来自遗留 `.mpa`（`World.LogicGrid.GameGrid`），
+	/// 与 `FinalGeography` / `FinalSpatialIndex` 的接触量为 **0**。今天"CivSim 不依赖 WorldGen"
+	/// 是**巧合成立**，不是**契约成立**——本条把它升级为编译期守卫：
+	/// 把"现在恰好没有依赖"变成"以后即使有人故意/无意加依赖，也立即失败"。
+	///
+	/// ★与既有 `RetainedDomainConsumers_OnlyDependOnAllowedNamespaces` 的区别（后者保留不动）：
+	///   ① **扫描面 = 全程序集**：命中 `World.CivSim` 及其**全部子命名空间**里的**每一个类型**
+	///      （含 `GrowthModel` 这类内部实现类），不再是三个入口类型
+	///      （`CivSimContext` / `GameGrid` / `WildCropsSystem`）；
+	///   ② **扫描深度 = 类型 + 成员 + 方法体**：除"字段/属性/方法签名/基类/接口/泛型/特性"外，
+	///      还解 **IL**（局部变量、静态字段/方法调用、`newobj` / `castclass` / `isinst` / `ldtoken`），
+	///      因此"在 `GrowthModel.cs` 里 `using World.WorldGen;` 后再用一下"也会立刻变红。
+	///
+	/// ★为什么必须"全程序集 + 到 IL 深度"：旧的 `ReferencedTypes` **非传递**且只扫直接成员，
+	///   "入口类型 → 内部模型 → WorldGen"这种两级引用完全隐形。扫描面覆盖**所有** CivSim 类型后，
+	///   传递链上的每一环都是被扫对象 ⇒ 等价于对 CivSim 子图的传递闭包。
+	///
+	/// 若本测试变红：不要删它，回到 ADR-0005 —— 自然输入应经 **`World → Human Input Bridge`**
+	/// 的逐层迁移（四阶段）接入，而不是让 CivSim 直接 `using World.WorldGen`。
+	/// </summary>
+	[Test]
+	public void CivSim_DoesNotReferenceWorldGen()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+
+		// `Engine/` `Tables/` `Support/` `Archive/` 下是 `World.CivSim`；
+		// `Entities/` `Events/` `Concepts/` `Policies/` `Observation/` `Mechanics.<域>/` 下是 `World.CivSim.<子>`。
+		static bool IsCivSim(Type t) => t.Namespace is string ns
+			&& (ns == "World.CivSim" || ns.StartsWith("World.CivSim."));
+		static bool IsWorldGen(Type t) => t.Namespace is string ns
+			&& (ns == "World.WorldGen" || ns.StartsWith("World.WorldGen."));
+
+		var civTypes = asm.GetTypes().Where(IsCivSim).ToList();
+		Assert.That(civTypes, Is.Not.Empty,
+			"未扫到任何 World.CivSim 类型——命名空间约定可能变了（目录名与 namespace 应逐字一致）");
+
+		var offending = new List<string>();
+		foreach (var t in civTypes)
+			foreach (var r in ReferencedTypesDeep(t))
+				if (IsWorldGen(r))
+					offending.Add($"{t.Name}→{r.Namespace}.{r.Name}");
+
+		Assert.That(offending.Distinct().ToList(), Is.Empty,
+			$"World.CivSim 引用了 World.WorldGen：{string.Join(",", offending.Distinct())}——" +
+			"人类演化层是**领域消费者**，其自然输入当前只来自遗留 `.mpa`；" +
+			"新世界线的接入必须经 `World → Human Input Bridge`（ADR-0005），" +
+			"不得让 CivSim 直接依赖 WorldGen（C-4 §6.2 G1）");
+	}
+
+	/// <summary>
+	/// **桥面消费者白名单钉（R3）**：`FinalGeography` / `FinalSpatialIndex` 的仓内消费者
+	/// **只能是新世界线内部**（`World.WorldGen*`）（2026-10-06 · ADR-0005 §边界条款 B2 · C-4 §6.2 G2）。
+	///
+	/// 判定问题："谁在消费 Final 世界事实？" ⇒ 目前**只有 WorldGen 自己**。
+	/// 实测（C-4 §2.3）：`scripts/WorldGen/Final/` 之外的仓内消费者 = **0**；
+	/// "World → Human Input Bridge" 当前**尚不存在，连桩都没有**。
+	///
+	/// ★目的**不是**永久禁止所有桥，而是：**在桥正式设计（Phase 1–4 逐层迁移）之前，
+	///   不允许出现"私接消费者"**。任何把 Final 事实接进 `World.CivSim` / `World.Domain` /
+	///   `Render` / `UI` / 其他外部层的改动，都必须**显式改这张白名单**并留下决策记录——
+	///   而不是"悄悄接一根线"。本契约就是那张必须被显式修改的表。
+	///
+	/// ★扫描面：**整个游戏程序集**（`typeof(FinalGeography).Assembly`）。
+	///   `World.Tests` 是**独立程序集** ⇒ 架构/相关单测天然不在扫描面内（故无需为它们开白名单）。
+	///
+	/// ★与 `NewWorldLine_DoesNotDependOnLegacyWorldLine`（新线⟂旧线）互补：
+	///   那条管"新线别退化回旧世界线"，本条管"新线的事实别被外部私有接走"。
+	/// </summary>
+	[Test]
+	public void FinalWorldFacts_OnlyConsumedByWorldGen()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+
+		// Final 世界事实（世界生成的"成品"）。新增事实类型时应一并登记——
+		// 否则新事实会被本条静默放过（漏扫 = 契约失效）。
+		var facts = new HashSet<Type> { typeof(FinalGeography), typeof(FinalSpatialIndex) };
+
+		// 唯一允许的生产消费者 = 新世界线内部（生成线各子层）。
+		static bool IsWorldGen(string ns) => ns != null
+			&& (ns == "World.WorldGen" || ns.StartsWith("World.WorldGen."));
+
+		var offending = new List<string>();
+		foreach (var t in asm.GetTypes())
+		{
+			if (IsWorldGen(t.Namespace)) continue;   // WorldGen 内部 = 合法生产消费者
+			foreach (var r in ReferencedTypesDeep(t))
+				if (facts.Contains(r))
+					offending.Add($"{t.Namespace}.{t.Name}");
+		}
+
+		Assert.That(offending.Distinct().ToList(), Is.Empty,
+			$"Final 世界事实被 WorldGen 之外的类型消费：{string.Join(",", offending.Distinct())}——" +
+			"桥未正式设计前不得私接消费者（ADR-0005 §B2）；" +
+			"若确为正式接线，请显式扩展本测试的白名单并留下决策记录（C-4 §6.2 G2）");
+
+		// 非空转自检：WorldGen 内部确实有消费者（否则说明扫描器失效或事实类型被改名）。
+		var internalConsumers = asm.GetTypes()
+			.Count(t => IsWorldGen(t.Namespace) && ReferencedTypesDeep(t).Any(facts.Contains));
+		Assert.That(internalConsumers, Is.GreaterThan(0),
+			"未发现任何 WorldGen 内部消费者——扫描器可能失效，或 Final 事实类型已改名（本契约的扫描面需要同步更新）");
+	}
+
 	[Test]
 	public void FinalGeography_DoesNotReferencePlacementProjector()
 	{
@@ -185,12 +294,12 @@ public class ArchitectureContractTests
 		typeof(MountainSkeleton), typeof(RegionalLandforms), typeof(VolcanoField),
 		typeof(HeightComposer),
 		// ── World Simulation（消费 Final，不生成）──
-		typeof(PrecipitationModel), typeof(RiverNetwork), typeof(RiverGraph),
+		//   ★温度链/季节/洋流/风场已删除（2026-10-07 用户拍板全部删除重做）——
+		//   重做后的新事实类型须重新在此登记（漏登记 = 契约静默失效）。
+		typeof(PrecipitationModel),
+		typeof(RiverNetwork), typeof(RiverGraph),
 		typeof(RiverGeometry), typeof(BasinGraph), typeof(LakeState), typeof(WaterTopology),
 		typeof(H3Hydrology), typeof(HydrologyRoutingSurface),
-		// ★⑯ WindField 平均风场（2026-10-07 批次 1/2 登记；漏登记 = 契约静默失效）
-		typeof(WindParameters), typeof(WindFieldModel), typeof(WindField),
-		typeof(WindTerrain),
 		// ── 基础设施（表现层入口类由专项契约单独扫，见下）──
 		typeof(SnowOverlay), typeof(SeedDerivation), typeof(H3TerrainSampler),
 	};
@@ -247,7 +356,6 @@ public class ArchitectureContractTests
 		{
 			"BallView",      // LOD / 剔除 / 拾取 / 高亮（Render）
 			"MapMode",       // 地图模式策略抽象（Render）
-			"ElevationBandMode", // 海拔分档（Render；色带单一事实源）
 			"CellQuery",     // 拾取 / 高亮环带几何 / 格心方向（Render，纯函数）
 			"MapDock",       // 模式坞（Render.UI，信号出口）
 			"CellInfoCard",  // 格信息卡（Render.UI，哑组件）
@@ -506,6 +614,165 @@ public class ArchitectureContractTests
 			}
 			foreach (var f in cur.GetFields(flags)) yield return f.FieldType;
 			foreach (var pr in cur.GetProperties(flags)) yield return pr.PropertyType;
+		}
+	}
+
+	/// <summary>
+	/// **深度引用面**——比 <see cref="ReferencedTypes"/> 多覆盖两层：
+	///   ① 声明面补全：基类、接口、泛型参数、特性、事件、构造函数参数；
+	///   ② **方法体 IL**：局部变量、异常捕获类型，以及 IL 里"元数据 token"操作数
+	///      （`ldfld`/`stfld`/`call`/`callvirt`/`newobj`/`castclass`/`isinst`/`ldtoken`… ⇒ 静态成员与类型字面量）。
+	/// 最后把每个类型**展开到元素类型**（数组 ⇒ 元素、泛型 ⇒ 实参），便于按命名空间判定。
+	/// ★只给 <see cref="CivSim_DoesNotReferenceWorldGen"/> 用；刻意不改既有的 <see cref="ReferencedTypes"/>，
+	///   以免波及其它既有契约（本轮边界：只封 CivSim ⟂ WorldGen 一个口）。
+	/// </summary>
+	static IEnumerable<Type> ReferencedTypesDeep(Type t)
+	{
+		const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic
+			| BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+		foreach (var x in DeclaredRefs(t, flags)) foreach (var e in Expand(x)) yield return e;
+		foreach (var x in IlRefs(t, flags)) foreach (var e in Expand(x)) yield return e;
+	}
+
+	/// <summary>声明面引用：基类/接口/泛型参数/特性 + 字段/属性/事件/构造参数/方法参数与返回。</summary>
+	static IEnumerable<Type> DeclaredRefs(Type t, BindingFlags flags)
+	{
+		for (var cur = t; cur != null && cur != typeof(object); cur = cur.BaseType)
+		{
+			yield return cur;
+			foreach (var i in cur.GetInterfaces()) yield return i;
+			foreach (var g in cur.GetGenericArguments()) yield return g;
+			foreach (var a in cur.GetCustomAttributesData()) yield return a.AttributeType;
+			foreach (var f in cur.GetFields(flags)) yield return f.FieldType;
+			foreach (var p in cur.GetProperties(flags)) yield return p.PropertyType;
+			foreach (var ev in cur.GetEvents(flags)) yield return ev.EventHandlerType;
+			foreach (var c in cur.GetConstructors(flags))
+				foreach (var p in c.GetParameters()) yield return p.ParameterType;
+			foreach (var m in cur.GetMethods(flags))
+			{
+				foreach (var p in m.GetParameters()) yield return p.ParameterType;
+				yield return m.ReturnType;
+			}
+		}
+	}
+
+	/// <summary>方法体引用：局部变量 + catch 类型 + IL token 解析出的类型/成员的声明类型。</summary>
+	static IEnumerable<Type> IlRefs(Type t, BindingFlags flags)
+	{
+		var module = t.Module;
+		var methods = t.GetMethods(flags).Cast<MethodBase>().Concat(t.GetConstructors(flags));
+		foreach (var mb in methods)
+		{
+			MethodBody body;
+			try { body = mb.GetMethodBody(); } catch { continue; }   // 抽象/接口/外部方法无 body
+			if (body == null) continue;
+
+			foreach (var lv in body.LocalVariables) if (lv.LocalType != null) yield return lv.LocalType;
+			// ★只有 `Clause`（catch）才有 CatchType；`Finally`/`Filter` 访问会抛 InvalidOperationException。
+			foreach (var eh in body.ExceptionHandlingClauses)
+				if (eh.Flags == ExceptionHandlingClauseOptions.Clause && eh.CatchType != null) yield return eh.CatchType;
+
+			var il = body.GetILAsByteArray();
+			if (il == null) continue;
+			foreach (var token in OperandTokens(il))
+			{
+				MemberInfo mi = null;
+				try { mi = module.ResolveMember(token, t.GetGenericArguments(), mb.GetGenericArguments()); }
+				catch { }
+				if (mi != null)
+				{
+					if (mi.DeclaringType != null) yield return mi.DeclaringType;
+					if (mi is FieldInfo fi) yield return fi.FieldType;
+					if (mi is MethodBase mbm)
+					{
+						if (mi is MethodInfo mm) yield return mm.ReturnType;   // 构造器无返回类型
+						foreach (var p in mbm.GetParameters()) yield return p.ParameterType;
+					}
+					continue;
+				}
+				Type ty = null;
+				try { ty = module.ResolveType(token, t.GetGenericArguments(), mb.GetGenericArguments()); }
+				catch { }
+				if (ty != null) yield return ty;
+			}
+		}
+	}
+
+	/// <summary>展开到元素类型：数组/指针/ByRef ⇒ 元素；泛型 ⇒ 实参（递归）。</summary>
+	static IEnumerable<Type> Expand(Type t)
+	{
+		if (t == null) yield break;
+		if (t.HasElementType) foreach (var e in Expand(t.GetElementType())) yield return e;
+		if (t.IsGenericType) foreach (var a in t.GetGenericArguments()) foreach (var e in Expand(a)) yield return e;
+		yield return t;
+	}
+
+	/// <summary>OpCode 表：用 BCL 的 <see cref="OpCodes"/> 反射构建，避免手抄两百余条指令。</summary>
+	static readonly Dictionary<short, OpCode> OpCodeMap = BuildOpCodeMap();
+
+	static Dictionary<short, OpCode> BuildOpCodeMap()
+	{
+		var map = new Dictionary<short, OpCode>();
+		foreach (var f in typeof(OpCodes).GetFields(BindingFlags.Public | BindingFlags.Static))
+			if (f.FieldType == typeof(OpCode))
+			{
+				var oc = (OpCode)f.GetValue(null);
+				map[(short)oc.Value] = oc;
+			}
+		return map;
+	}
+
+	/// <summary>按 ECMA-335 正确跳过每个操作数，只产出**元数据 token** 操作数（类型/成员）。</summary>
+	static IEnumerable<int> OperandTokens(byte[] il)
+	{
+		int i = 0;
+		while (i < il.Length)
+		{
+			short code;
+			if (il[i] == 0xFE)
+			{
+				if (i + 1 >= il.Length) yield break;
+				code = (short)(0xFE00 | il[i + 1]);
+				i += 2;
+			}
+			else { code = il[i]; i += 1; }
+
+			if (!OpCodeMap.TryGetValue(code, out var op)) yield break;   // 未知 ⇒ 安全停止，绝不误报
+
+			switch (op.OperandType)
+			{
+				case OperandType.InlineNone:
+					break;
+				case OperandType.ShortInlineBrTarget:
+				case OperandType.ShortInlineI:
+				case OperandType.ShortInlineVar:
+					i += 1; break;
+				case OperandType.InlineVar:
+					i += 2; break;
+				case OperandType.InlineField:
+				case OperandType.InlineMethod:
+				case OperandType.InlineTok:
+				case OperandType.InlineType:
+					if (i + 4 > il.Length) yield break;
+					yield return BitConverter.ToInt32(il, i);
+					i += 4; break;
+				case OperandType.InlineSig:
+				case OperandType.InlineString:
+				case OperandType.InlineBrTarget:
+				case OperandType.InlineI:
+				case OperandType.ShortInlineR:
+					i += 4; break;
+				case OperandType.InlineI8:
+				case OperandType.InlineR:
+					i += 8; break;
+				case OperandType.InlineSwitch:
+					if (i + 4 > il.Length) yield break;
+					i += 4 + 4 * BitConverter.ToInt32(il, i);
+					break;
+				default:
+					yield break;
+			}
 		}
 	}
 
