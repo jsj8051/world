@@ -123,9 +123,8 @@ public static class CellQuery
 		float t = -b - MathF.Sqrt(disc);          // 最近交点（正面）
 		if (t < 0f) return null;                  // 球在相机背后
 		Vector3 dir = (o + d * t) / ball.Radius;  // 单位球方向
-		double lat = Math.Asin(Mathf.Clamp(dir.Y, -1f, 1f));
-		double lng = Math.Atan2(dir.Z, dir.X);
-		return H3.LatLngToCell(new LatLng(lat, lng), ball.Res);
+		// 公式收口在 BallGeoIndex.CellAt（原先与此处各一份相同实现）
+		return ball.CellIds[BallGeoIndex.CellAt(ball, dir)];
 	}
 
 	/// <summary>格中心单位方向（剔除判据、高亮定位共用；绕开格表——基格必不在本档格表内）。</summary>

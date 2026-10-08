@@ -34,6 +34,7 @@ namespace World.Spatial
 		public Vector3[] CellDirs => _cellDirs;
 		public int[][] CellNeighbors => _cellNeighbors;
 		public Vector3[][] CellNeighborDirs => _cellNeighborDirs;
+		public BallGeoIndex Geo { get; }   // 逐格经纬度索引（CellDirs 的纯函数缓存，同生共死）
 		public int Res { get; }   // 分辨率档（拾取 LatLngToCell / 重染用，构造即定）
 		public float Radius { get; }   // 球半径（格心/顶点坐标同尺度；边界链浮起等派生几何用）
 
@@ -50,6 +51,7 @@ namespace World.Spatial
 			BuildCellIdToIndex();
 			BuildNeighbors();      // 依赖格 id → 下标字典，必须排在最后
 			BuildNeighborDirs();   // 依赖格心/方向/邻接表
+			Geo = new BallGeoIndex(this);   // 依赖 CellDirs，排在它之后
 		}
 
 		// 全球取格：122 个基底格各自的子孙拼接（总数 = GetNumCells，H3ApiTests 已断言）。

@@ -1,8 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
-using World.Spatial;    // Ball（H3 球壳数据层）
-using World.Utils.H3;
+using World.Spatial;    // Ball（H3 球壳数据层）+ BallGeoIndex（dir→cell 收口）
 
 namespace World.WorldGen;
 
@@ -116,14 +115,9 @@ public sealed class FinalSpatialIndex
 		return (best, bestD);
 	}
 
-	/// <summary>方向 → 本索引格表下标（dir → H3 格 → 全局下标；任意点查询的格粒度换算）。</summary>
-	private int CellAt(Vector3 dir)
-	{
-		double lat = Math.Asin(Math.Clamp(dir.Y, -1f, 1f));
-		double lng = Math.Atan2(dir.Z, dir.X);
-		ulong cell = H3.LatLngToCell(new LatLng(lat, lng), _ball.Res);
-		return _ball.CellIndexOf(cell);
-	}
+	/// <summary>方向 → 本索引格表下标（dir → H3 格 → 全局下标；任意点查询的格粒度换算）。
+	/// ★公式收口在 `BallGeoIndex.CellAt`（原先此处与 `CellQuery.PickCell` 各一份相同实现）。</summary>
+	private int CellAt(Vector3 dir) => BallGeoIndex.CellAt(_ball, dir);
 
 	/// <summary>多源 BFS 距离场：源格带 label，等权边扩散——每格首次到达即最近源
 	/// （label/dist 双场；BFS 队列序固定 ⇒ 确定性）。</summary>
