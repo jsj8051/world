@@ -517,7 +517,9 @@ internal static class Program
 		// 修复后应看到：coastFactor 在陆格上**有分布**，且临海 > 内陆。
 		var cf = new List<float>();
 		for (int i = 0; i < n; i++)
-			if (final.FinalLand[i]) cf.Add(PrecipitationModel.CoastFactor(final.FinalDistToCoast[i], neighbourKm));
+			if (final.FinalLand[i])
+				cf.Add(PrecipitationModel.CoastFactor(final.FinalDistToCoast[i], neighbourKm,
+					MathF.Abs(MathF.Asin(Math.Clamp(ball.CellDirs[i].Y, -1f, 1f)) * 180f / MathF.PI)));
 		cf.Sort();
 		double MedF(List<float> s) => s.Count > 0 ? s[s.Count / 2] : 0;
 		float cfMin = cf.Count > 0 ? cf[0] : 0, cfMax = cf.Count > 0 ? cf[^1] : 0;
@@ -784,7 +786,7 @@ internal static class Program
 				for (int i = 0; i < n; i++)
 				{
 					float latDeg = MathF.Abs(MathF.Asin(Math.Clamp(ball.CellDirs[i].Y, -1f, 1f)) * 180f / MathF.PI);
-					flat[i] = PrecipitationModel.MaxMm * PrecipitationModel.LatFactor(latDeg);
+					flat[i] = PrecipitationModel.ZonalMm(latDeg);
 				}
 				var riversFlat = new RiverNetwork();
 				riversFlat.Generate(ball, final, composer, annualPrecipMm: flat,
