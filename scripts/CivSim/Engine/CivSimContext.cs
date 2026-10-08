@@ -17,7 +17,7 @@ namespace World.CivSim;
 public sealed class CivSimContext
 {
     public GameGrid Grid;
-    public Polity[] CellPolities;   // 每格唯一驻留部落（一格一实体；null=空格；阶段2 由 List<Polity>[] 简化而来）
+    public Polity[] CellPolities;   // 每格唯一驻留部落（一格一实体；null=空格）
     public List<Polity> Polities;       // 全部存活实体
     public int Tick;
     public int Seed;
@@ -125,15 +125,14 @@ public sealed class CivSimContext
     public const float W = 0.2f;                      // 耕作劳动成本差（Sahlins；稳态论证 0.8 > 0.77）
     public const float HRel = 0.3f;                   // 狩猎耗竭项 h = 0.3·Y_猎（随产量缩放）
     public const float Hysteresis = 0.02f;            // 滞回带（必须 < 农业稳态差 0.03，否则锁死切换）
-    public const float SplitPop = 25f;               // 分裂阈值（2026-08 史实标定：band 25-50 人[考古群规模]→长到史实下限才分裂殖民；原 12 偏早致部落过小）
+    public const float SplitPop = 25f;               // 分裂阈值（band 25-50 人考古群量级 → 长到下限才分裂殖民）
     public const int MaxPolitiesPerCell = 8;            // 格内实体上限（遗留：一格一实体后恒 1，保留兼容诊断显示）
     public const float SplitShare = 0.45f;            // 分裂新实体带走比例
-    public const float FissionTensionStart = SplitPop;   // 规模张力起算点（跟随 SplitPop——band 量级，2026-08-17 土地挂钩；原硬编码 12 与 SplitPop 断链）
+    public const float FissionTensionStart = SplitPop;   // 规模张力起算点（跟随 SplitPop——band 量级，不得与 SplitPop 断链）
     public const float FissionTensionSpan = 8f;    // 张力封顶跨度（12+8=20 → 张力 1.0）
-    public const int ColonizeRadius = 6;             // 殖民/迁移搜索最大跳数（阶段2 扩大：原 3 跳致部落扩张停滞，改 6 跳 BFS）
-    public const float ColonizeFertilityBias = 0.3f; // 殖民落点肥度偏好（2026-08-19 扩散修正：score=cost×(1+bias×R/RMax)——
-                                                     //   距离主导、肥度微偏好（×1.3 封顶）；旧 R×cost 只挑最肥格 → 富饶区独占、贫瘠空置；
-                                                     //   1.0→0.3 校准：bias=1 时富饶近邻 2.0 仍碾压贫瘠近邻 1.05——溢出太慢（n128 实测仅 +3% 覆盖））
+    public const int ColonizeRadius = 6;             // 殖民/迁移搜索最大跳数（3 跳致部落扩张停滞，须 ≥6 跳 BFS）
+    public const float ColonizeFertilityBias = 0.3f; // 殖民落点肥度偏好：距离主导、肥度微偏好（×1.3 封顶）；
+                                                     //   旧 R×cost 公式只挑最肥格 → 富饶区独占、贫瘠空置，勿回退
     public const int TerritoryRebuildEvery = 10;     // 凝聚重算间隔 tick（Union-Find，~35 万边/次）
     public const float TerritorySpreadMult = 1.5f;   // 同领地传播乘数（领地整合加成）
     public const float CrossBorderSpreadMult = 0.5f; // 跨领地边界传播乘数（软冲突）
@@ -141,13 +140,11 @@ public sealed class CivSimContext
     public const float SettleGrowthMult = 1.5f;      // 定居生育跃迁：人口增长 r ×1.5（史实：定居密度 10-50× 游群；★ 标定）
 
     // ── 酋邦层（2026-08-17：Sahlins 1963 声望 / Earle 1997 贡赋 / Kirch 1984 联盟锚定）──
-    public const float PrestigeGainRate = 0.02f;       // **绝对盈余**（人当量）→ 声望/tick——宴席是绝对食物量
-                                                       //   （能喂多少人，Sahlins）——★ 标定：分裂后盈余窗口
-                                                       //   （P=6/F=14 → 盈余 8 人 × 0.02 = 0.16/tick，
-                                                       //   增长闭合前 ~10-25 tick → 1.6-4.0 声望 → BigMan）
+    public const float PrestigeGainRate = 0.02f;       // **绝对盈余**（人当量）→ 声望/tick——宴席是绝对食物量（Sahlins）；
+                                                       //   ★ 标定：分裂后盈余窗口 ~10-25 tick → 1.6-4.0 声望 → BigMan
     public const float PrestigeDecay = 0.001f;         // 无盈余衰减/tick（声望可逆——Big Man 个人化，Sahlins）
     public const float BigManPrestigeThreshold = 1.0f; // 声望阈值 → BigMan
-    public const int ChiefdomEvalEvery = TerritoryRebuildEvery;   // 凝聚评估频率（跟随领地重建同频；原硬编码 10 与 TerritoryRebuildEvery 断链）
+    public const int ChiefdomEvalEvery = TerritoryRebuildEvery;   // 凝聚评估频率（跟随领地重建同频，不得硬编码断链）
     public const int ChiefdomMinPolities = 2;            // 酋邦最小部落数（<2 → 解散）
     public const float TributeRate = 0.1f;             // 盈余贡赋率（实物税——夏威夷 ahupua'a 土地分区，Earle）
     public const float TributeRelief = 0.5f;           // 灾年开仓缓冲（互惠：贡献过才受赈，Halstead-O'Shea）
@@ -169,9 +166,8 @@ public sealed class CivSimContext
     // 都城条件（2026-08-23 功能定性：不再用聚落 Level——都城 = 治理中心（IsCity））；
     // ⚠️ 2026-08-24 用户拍板：国家 = 三条件（都城 + 贡赋 + 存续）——次级中心不再是硬条件（首都即可承担行政网络）
     public const float StateTributePerCap = 0.01f;     // 贡赋盈余线：贡赋池 ≥ 酋邦总人口×此值（剩余集中，Childe）
-                                                       //   ★ 校准（0.1→0.01，2026-08-16 探针）：Contributed 是互惠记录且被
-                                                       //   精英供养持续消耗（酋长 P×0.1/tick）——n128 实测最大邦池/人口 ≈ 0.014~0.03，
-                                                       //   0.1 线下全图 0 国家；0.01 线匹配"少数国家涌现"（史实：早期国家稀少）
+                                                       //   ★ 0.1 线下全图 0 国家（Contributed 被精英供养持续消耗）；
+                                                       //   0.01 匹配"少数国家涌现"（史实：早期国家稀少）
     public const int StateDwellTicks = 20;             // 都城实体存续时长（制度化需要时间；对应城市阈值 Dwell 20 tick 量级；★ 待校准）
 
     // ── 国家档案机制参数（2026-08-25 通用国家机制——EU4 式制度层：国库/稳定度/合法性/君主更替）──
@@ -386,12 +382,9 @@ public sealed class CivSimContext
 
     // ── 产量与能量（§4.2-4.4 定稿公式；两层模型 2026-08-17）──
 
-    /// <summary>实体狩猎产出 = 土地份额 × 劳动力（2026-08-09 用户拍板：采集也是"劳动力维持的获取方式"，与农业同构）。
-    /// 土地份额 A_i = 格面积 ÷ 格内活部落数（部落拥有的土地，均分——人多地少，格总承载 = R×面积×m 与部落数无关，
-    ///   修复此前每部落各拿整格产出 → 8 部落同格 8 倍人口超载）；
-    /// 潜在产出 Y_pot = R × A_i × 工具乘数链 m（猎物再生率恒定近似，种群动态二期）；
-    /// 实际产出 = Y_pot × min(1, P_i / P_劳动)，P_劳动 = LaborFrac × Y_pot（劳动力爬坡，同农业 Boserup——
-    ///   新分裂的小部落劳动不足产出受限，需长大）。
+    /// <summary>实体狩猎产出 = 土地份额 × 劳动力爬坡（采集与农业同构，Boserup）。
+    /// 土地份额 A_i = 格面积 ÷ 格内活部落数（格总承载与部落数无关——防同格多部落各拿整格产出超载）；
+    /// 实际产出 = Y_pot × min(1, P_i / P_劳动)，P_劳动 = LaborFrac × Y_pot。
     /// CarryMult 走实体缓存（RefreshCellState 每 tick 算；测试构造未算时 fallback 实时）。</summary>
     public float FHunt(Polity e)
     {
@@ -403,8 +396,8 @@ public sealed class CivSimContext
         return yPot * Mathf.Min(1f, e.P / Mathf.Max(1f, plabor));
     }
 
-    /// <summary>农业潜在产出（单格，驻扎点；生产方式选择用——防小部落开垦不足永不转农死锁）。
-    /// ⚠️ 2026-08-17 决策领地化：ModeModel 已改用 FFarmPotentialTerritory（领地版），本方法保留供测试/单格语义。</summary>
+    /// <summary>农业潜在产出（单格，驻扎点）。⚠️ ModeModel 实际用 FFarmPotentialTerritory（领地版），
+    /// 本方法保留供测试/单格语义——勿在转农判据中改回单格口径。</summary>
     public float FFarmPotential(Polity e)
     {
         float rAgri = R[e.Cell] * IrrigFactor(e.Cell) * AlluvFactor(Grid.SoilLevel[e.Cell]);
@@ -421,9 +414,8 @@ public sealed class CivSimContext
         return best;
     }
 
-    /// <summary>领地采集潜在（2026-08-17 决策领地化：ModeModel 转农判据与产出层同口径——
-    /// band 决定"种不种"看整个领地，不是驻扎点单格。不含开垦（决策时田还没开垦，
-    /// 比较"原始土地条件"值不值得种；猎物+浆果占比合计 1）。</summary>
+    /// <summary>领地采集潜在（band 决定"种不种"看整个领地，不是驻扎点单格。
+    /// 不含开垦——决策时比较"原始土地条件"；猎物+浆果占比合计 1）。</summary>
     public float FHuntTerritory(Polity e)
     {
         var terr = TerritoryOf(e);
@@ -439,7 +431,7 @@ public sealed class CivSimContext
         return sum;
     }
 
-    /// <summary>领地农业潜在（2026-08-17 决策领地化，劳动因子=1——防小部落开垦不足死锁；
+    /// <summary>领地农业潜在（劳动因子=1——防小部落开垦不足死锁；
     /// Σ 领地格 max种子(AgriBase×φ)×R×A×Irrig×Alluv×w，不含开垦）。</summary>
     public float FFarmPotentialTerritory(Polity e)
     {
@@ -464,8 +456,7 @@ public sealed class CivSimContext
         return sum;
     }
 
-    /// <summary>领地牧场潜在（2026-08-17 畜牧落地：草原格 WildLivestock 位 + livestock 能力 →
-    /// 牧场潜在 = R×A×HerdMult×w（HerdMult=2：草原牧畜单位土地产出 2×采集）。
+    /// <summary>领地牧场潜在：R×A×HerdMult×w（草原格 WildLivestock 位 + livestock 能力）。
     /// 决策用——草原畜牧抬高狩猎收益 → 抑制转农（史实：草原游牧不种地）。</summary>
     public float FHerdTerritory(Polity e)
     {
@@ -484,8 +475,8 @@ public sealed class CivSimContext
         return sum;
     }
 
-    /// <summary>农业实际产出（含劳动因子 Boserup 集约化：P_农_格/P_劳动 爬坡，顶到单产上限；
-    /// ×开垦率 Cultivation——2026-08-17 土地挂钩：田是逐步开垦的，0 开垦 0 农业产出，转农当 tick 靠领地采集兜底）。</summary>
+    /// <summary>农业实际产出（含劳动因子爬坡，顶到单产上限；×开垦率 Cultivation——
+    /// 田是逐步开垦的，0 开垦 0 农业产出，转农当 tick 靠领地采集兜底）。</summary>
     public float FFarmActual(Polity e)
     {
         float potential = FFarmPotential(e);
@@ -521,12 +512,10 @@ public sealed class CivSimContext
     /// <summary>格内独驻部落数（一格一实体恒 1：格产出归唯一驻留部落独占，无均分）。</summary>
     private int NPolities(int cell) => 1;
 
-    /// <summary>生产方式并行产出（2026-08-09 用户拍板：混合经济 + 收益权重土地分配，Vic3/EU5 PM 参考）：
-    /// 部落方式集 M = {hunt} ∪ {herd if livestock能力+生态位} ∪ {farm if IsFarming}；
-    /// 权重 w_k = 方式潜在全地产出（R_k×A×m_k）；土地份额 s_k = w_k/Σw；
-    /// 实际 F_k = w_k×s_k×min(1, P/(LaborFrac×w_k×s_k))（份额劳动爬坡）；
-    /// 总产出 = ΣF_k。单方式时退化为原公式（纯猎含劳动 ✓ 兼容）。
-    /// 分量缓存 FHuntLast/FHerdLast/FFarmLast（货物分解用）。</summary>
+    /// <summary>生产方式并行产出（混合经济 + 收益权重土地分配）：
+    /// 方式集 M = {hunt} ∪ {herd if livestock} ∪ {farm if IsFarming}；
+    /// 土地份额 s_k = 潜在产出占比；F_k = w_k×s_k×min(1, P/(LaborFrac×w_k×s_k))；总产出 = ΣF_k。
+    /// 单方式时退化为原公式（纯猎含劳动 ✓ 兼容）；分量缓存 FHuntLast/FHerdLast/FFarmLast（货物分解用）。</summary>
     public float FOf(Polity e)
     {
         float m = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
@@ -591,9 +580,8 @@ public sealed class CivSimContext
         return s;
     }
 
-    /// <summary>运行时不变量校验（2026-08-19 防隐晦 bug：把"读档分叉才发现"提前到"运行即报"）。
-    /// 数组长度一致性、值域、归属索引、一格一实体、确定性纪律；返回错误列表（空 = 通过）。
-    /// 供诊断/测试路径调用（O(n)，非演化热路径）。</summary>
+    /// <summary>运行时不变量校验：数组长度一致性、值域、归属索引、一格一实体、确定性纪律；
+    /// 返回错误列表（空 = 通过）。供诊断/测试路径调用（O(n)，非演化热路径）。</summary>
     public List<string> ValidateInvariants()
     {
         var errs = new List<string>();
@@ -628,35 +616,23 @@ public sealed class CivSimContext
     //   领地 = 归属格集合；F = Σ 领地格 min(需求份额, Cap×w)；存量耗竭→饿→迁移。
     // ══════════════════════════════════════════════════════════════════
 
-    /// <summary>紧支撑平滑核：w(d) = (1−d/R)^1.5（d=格步数，d≥R 严格 0；2026-08-17 陡化修正）。
-    /// ⚠️ 2026-08-17 陡化：d=0 权重 1（家）、d=1 半衰 0.54、d=2 保留 0.19——驻扎格覆盖需邻 P×M ≥ 2.1×自己
-    ///   （含粘性）——家门口稳定（foraging site catchment，Binford）；d≥R 严格 0（紧支撑不变）。
-    /// ⚠️ 2026-08-19 曾扩展远格弱权重（d=3-5）→ 领地产出去中心化 → 采集经济增强、农业门槛被压
-    ///   （n128 实测 farm 412→74 崩溃）——回退（领地大小保持 3 跳；扩散靠殖民机制，不靠领地核）。</summary>
-    // ⚠️ 2026-08-23 根因修复（3→6 步核对齐）：旧 LUT = (1−d/3)^1.5 三项 {1, 0.544, 0.192, 0}——紧支撑
-    //   半径 3 步，但 InfluenceRadius=6（2026-08 史实标定"3步仅24格不足→扩到6步~110格"）——BFS 扫到 6 步
-    //   权重却 3 步归零 → 有效领地上限 19 格 ≈ 9.5 人当量（r128 5km²/格）→ 部落规模锁死 ~10 人，
-    //   永远达不到 SplitPop=25（需 50 格）→ 分裂/盈余/国家全断。6 步核 (1−d/6)^1.5 与半径一致。
+    /// <summary>紧支撑平滑核：w(d) = (1−d/R)^1.5（d=格步数，d≥R 严格 0）。
+    /// ★ 与 InfluenceRadius=6 必须一致（LUT 半径 < BFS 半径 → 部落规模锁死、分裂/国家全断）。
+    /// ★ 勿扩展远格弱权重：领地产出去中心化 → 采集经济增强、农业门槛被压（farm 崩溃，已回退过一次）。</summary>
     private static readonly float[] InfluenceWeightLUT = { 1f, 0.761f, 0.544f, 0.354f, 0.192f, 0.068f, 0f };
     public static float InfluenceWeight(float d)
     {
-        // ⚠️ 2026-08-17 修正：衰减陡化（用户质疑：弱 band 驻扎格不该被轻易覆盖——家门口应优势明显）。
-        //   旧版 (1−d²/r²)² 在 d=1 仍 0.79（邻居仅需大 1.27 倍就覆盖——粘性 1.15 后 1.46 倍）。
-        //   改 (1−d/r)^1.5：d=0 权重 1（家）、d=1 半衰 0.54、d=2 保留 0.19——驻扎格覆盖需
-        //   邻 P×M ≥ 2.1×自己（含粘性）——家门口稳定（foraging site catchment 衰减，Binford）；
-        //   d=2 不过度削弱（远格仍贡献——世界密度不塌）。d≥R 严格 0（紧支撑不变）。
+        // 衰减陡化 (1−d/r)^1.5：家门口优势明显（驻扎格覆盖需邻 P×M ≥ 2.1×自己，含粘性）；
+        // 旧版 (1−d²/r²)² 在 d=1 仍 0.79，弱 band 驻扎格被轻易覆盖——勿回退。
         int di = (int)d;
         return di >= 0 && di < InfluenceWeightLUT.Length ? InfluenceWeightLUT[di] : 0f;
     }
 
-    /// <summary>领地**产出**距离权重（2026-08-18 用户拍板方案 B：环形面积加权）。
-    /// ⚠️ 与 ownership 用的 InfluenceWeight（距离衰减）**分离**——根因：旧产出层复用
-    /// 归属用的紧支撑核 (1−d/3)^1.5，d≥3 归零，导致"领地大但远格产能=0"→ 大领地喂不饱
-    /// band → P=5 死锁（split 永不触发）。史实修正：中央营地可食用环面随距离增大
-    /// （hex ring d=6d 格，∝(2d+1)），远缘贡献总产出大头；仅以微旅行折减 (1−d/Rmax) 收边。
-    /// wProd(d)=(2d+1)·(1−d/Rmax)，Rmax=5（~史实 5km 利用半径边缘）→ 权重 1,2.4,3,2.8,1.8,0。
-    /// ⚠️ 2026-08-19 曾扩到 Rmax=6 → 产出去中心化 → 农业门槛被压（farm 崩溃）——回退。
-    /// 只用于 采集/畜牧/农田 的领地潜在与实际产出；归属/影响力场仍用 InfluenceWeight（保家门口稳定）。</summary>
+    /// <summary>领地**产出**距离权重 wProd(d)=(2d+1)·(1−d/Rmax)（环形面积加权 + 微旅行折减）。
+    /// ★ 与 ownership 用的 InfluenceWeight（距离衰减）**分离，不得复用**：旧产出层复用紧支撑核
+    /// 导致"领地大但远格产能=0"→ 大领地喂不饱 band → 分裂永不触发。
+    /// ★ Rmax 勿扩到 6：产出去中心化 → 农业门槛被压（farm 崩溃，已回退过一次）。
+    /// 只用于 采集/畜牧/农田 的领地潜在与实际产出；归属/影响力场仍用 InfluenceWeight。</summary>
     private static readonly float[] ProductionWeightLUT = { 1f, 2.4f, 3f, 2.8f, 1.8f, 0f };   // (2d+1)(1−d/5)
     public static float ProductionWeight(float d)
     {
@@ -727,9 +703,8 @@ public sealed class CivSimContext
         Array.Fill(CellBestOwner, -1);
         Array.Clear(CellBestInf, 0, n);
         Array.Clear(CellOwnerInf, 0, n);
-        // ⚠️ 2026-08-17 修复：活实体 Id 集（死残留清理的正确映射——旧版 Polities[CellOwner[c]]
-        //   用 Id 当索引——读档后 Id 有空洞（Polities 只含存活）→ 错位访问 → 死 band 的影响力
-        //   残留 → 幽灵势力色块（用户怀疑成立：band 消失但影响力没清）
+        // 活实体 Id 集清理：读档后 Id 有空洞（Polities 只含存活），不得用 Id 当列表索引
+        // ——错位访问 → 死 band 的影响力残留 → 幽灵势力色块
         _liveIdSet ??= new HashSet<int>();
         _liveIdSet.Clear();
         for (int i = 0; i < Polities.Count; i++)
@@ -739,10 +714,8 @@ public sealed class CivSimContext
             var e = Polities[i];
             if (e.Dead) continue;
             float M = e.CarryMult > 0f ? e.CarryMult : TechTable.HuntingCarry(e.TechKeys);
-            // ⚠️ 2026-08-23 赢家通吃根因修复：强度 = P^InfluenceExponent×M（√P 边际递减）。
-            //   旧线性 P×M：大实体垄断全部归属格（n64 实测 58 号酋邦 50 部落吃 175/200 格），
-            //   小实体领地 0 格 → F=0 →（旧 GrowthModel 冻结）僵尸化。规模报酬递减后：
-            //   小实体靠家门口 w(0)=1 + 粘性 1.15 保住立锥之地，2 跳外强邻衰减至 0.192 也抢不走。
+            // 强度 = P^InfluenceExponent×M（√P 边际递减）：线性 P×M + 紧支撑核 = 赢家通吃
+            // → 小实体领地 0 格僵尸化；递减后小实体靠 w(0)=1 + 粘性保住立锥之地
             float strength = Mathf.Pow(Mathf.Max(1f, e.P), CivSimContext.InfluenceExponent) * M;
             if (strength <= 0f) continue;
             BfsRadius(e.Cell, InfluenceRadius, (c, d) =>
@@ -756,8 +729,7 @@ public sealed class CivSimContext
         }
         for (int c = 0; c < n; c++)
         {
-            // ⚠️ 2026-08-17：死残留清理前置（含锁定格——锁定格不重算，但归属已死仍要清——
-            //   幽灵势力 = 归属不存在的 band）
+            // 死残留清理前置（含锁定格——锁定格不重算，但归属已死仍要清——幽灵势力 = 归属不存在的 band）
             if (CellOwner[c] >= 0 && !_liveIdSet.Contains(CellOwner[c]))
             {
                 CellOwner[c] = -1;
@@ -777,8 +749,8 @@ public sealed class CivSimContext
         RebuildTerritory();
     }
 
-    /// <summary>领地格数组安全访问（Id 索引——按 MaxId 动态扩容；2026-08-17 索引体系修复：
-    /// 读档/分裂后实体 Id 递增有空洞——固定 4096 容量在 Id 超限时越界，统一走安全访问）。</summary>
+    /// <summary>领地格数组安全访问（Id 索引——按 MaxId 动态扩容）。
+    /// ★ 统一用 e.Id 索引：读档后 Id 不连续（列表只含存活实体），按列表索引会错位。</summary>
     public List<int> TerritoryOf(Polity e)
     {
         if (TerritoryCells == null) EnsureTerritory();
@@ -842,10 +814,7 @@ public sealed class CivSimContext
         }
     }
 
-    /// <summary>领地索引重建：每 band 的领地格 = 归属格 ∩ 其影响圈（BFS 半径 R 内）。距离入 TerritoryDists。
-    /// ⚠️ 2026-08-17 修：索引统一用 **e.Id**（分配器/开垦/采集全按 Id 取）——旧版按列表索引填，
-    ///   演化中 Id==索引（连续分配无 Remove）正确，但读档后列表只含存活实体、Id 不连续 → 错位
-    ///   （T04 读档续跑分叉的可能帮凶之一）。</summary>
+    /// <summary>领地索引重建：每 band 的领地格 = 归属格 ∩ 其影响圈（BFS 半径 R 内）。距离入 TerritoryDists。</summary>
     public void RebuildTerritory()
     {
         EnsureTerritory();
@@ -891,22 +860,11 @@ public sealed class CivSimContext
         TerritoryDists = td;
     }
 
-    /// <summary>领地建筑分配产出（2026-08-17 用户拍板：凹化 + 等边际；2026-08-17 畜牧接入）。
-    /// 建筑产出 F_i(n) = P_i·n/(D_i+n)，D_i = LF_类型·P_i——需求与潜在成正比但类型参数不同：
-    /// 采集/牧场 LF=0.1（粗放，Sahlins ~15-20h/周）+ 农田 LF=0.2（劳动密集 ~40h+/周）。
-    /// 牧场 = 草原格（WildLivestock 位）的"高潜在采集"（HerdMult=2）——同 LF 档内按潜在比例
-    /// 自动多投（草原牧畜比采集划算 → 工人自然流向，无需 IsHerding 状态）。
-    /// 等边际闭式解（LF 两档分段 water-filling，O(k) 无排序、无迭代）：
-    ///   段 A（仅采集档激活，μ∈(5,10]）：√μ = √0.1·ΣPc / (N + 0.1·ΣPc)
-    ///   段 B（采集+农田激活，μ≤5）：  √μ = (√0.1·ΣPc + √0.2·ΣPf) / (N + 0.1·ΣPc + 0.2·ΣPf)
-    /// 每格 n_i = √LF·P_i/√μ − LF·P_i（max(0,·) 截断——未激活建筑 0 工人）；
-    /// FBerryLast 按浆果占比拆分（仅采集部分）；FFishLast 按水产占比拆分（2026-10-06 ① FishPotential，
-    ///   对开垦免疫）；FHerdLast 独立缓存（羊毛副产）。
+    /// <summary>领地建筑分配产出（凹化 + 等边际；等边际闭式解 = LF 两档分段 water-filling，O(k) 无排序无迭代）。
+    /// 采集/牧场 LF=0.1（粗放），农田 LF=0.2（劳动密集）；每格 n_i = √LF·P_i/√μ − LF·P_i（max(0,·) 截断）。
+    /// 采集档三分占比（猎物/浆果/水产，和=1）：水产自浆果份划出且对开垦免疫；牧场潜在 ×(1−开垦)（草场被农田直接替代）。
     /// 每 tick 派生重算、不入档、无 Rng——读档续跑无分叉。
-    /// 采集潜在 = R·A·w·[(1−0.5·开垦)·猎物占比 + (1−开垦)·浆果占比 + 1·水产占比]（三分和=1，水产不随开垦衰减）；
-    /// 牧场潜在 = R·A·HerdMult·w·(1−开垦)（草原位——草场被农田直接替代，与浆果同敏感度；
-    ///   2026-08-17 用户拍板：畜牧也是占用土地的建筑，无"游牧与田不冲突"豁免）；
-    /// 农田潜在 = max种子(AgriBase·φ)·R·A·Irrig·Alluv·开垦·w。</summary>
+    /// FBerryLast/FFishLast 按占比拆分（仅采集部分）；FHerdLast 独立缓存（羊毛副产）。</summary>
     public float AllocateAndProduce(Polity e)
     {
         var terr = TerritoryOf(e);
@@ -981,7 +939,7 @@ public sealed class CivSimContext
             if (canHerd && wild[c] != 0)
             {
                 float ph = R[c] * HerdMult * A * w * (1f - cult);   // 草场被农田直接替代
-                if (ph > 0f)   // ⚠️ 2026-08-17：开垦 1 的格 ph=0 → 0×0/0 = NaN 污染 FLast（T03 分叉根因）
+                if (ph > 0f)   // ⚠️ 开垦 1 的格 ph=0 → 0×0/0 = NaN 污染 FLast（勿删守卫）
                 {
                     float n = Mathf.Max(0f, Mathf.Sqrt(LaborFrac) * ph / sqrtMu - LaborFrac * ph);
                     fHerd += ph * n / (LaborFrac * ph + n);
@@ -1002,7 +960,7 @@ public sealed class CivSimContext
                     if (best > 0f)
                     {
                         float pf = best * rAgri * A * cult * w;
-                        // ⚠️ 2026-08-17：w=0 边界格（影响圈边缘 d=R）→ pf=0 → 0×0/0 = NaN 污染 FLast（T03 分叉根因；采集 pc>0、牧场 ph>0 已有检查，农田漏了）
+                        // ⚠️ w=0 边界格 → pf=0 → 0×0/0 = NaN 污染 FLast（勿删守卫；采集/牧场已有检查，农田勿漏）
                         if (pf > 0f)
                         {
                             float n = Mathf.Max(0f, Mathf.Sqrt(LaborFracFarm) * pf / sqrtMu - LaborFracFarm * pf);
@@ -1016,8 +974,7 @@ public sealed class CivSimContext
         e.FFishLast = sumPc > 0f ? fHunt * (sumFish / sumPc) : 0f;     // 水产实际（2026-10-06 ① FishPotential）
         e.FHerdLast = fHerd;
         e.FFarmLast = fFarm;
-        return fHunt;   // ⚠️ 2026-08-17 修双计：返回**采集分量**（fHerd/fFarm 已入实体缓存；
-                        //   旧版返回总产出 → HarvestModel 的 FLast = FHuntLast+FFarmLast+FHerdLast 双计农业/畜牧）
+        return fHunt;   // ⚠️ 返回**采集分量**（fHerd/fFarm 已入实体缓存；返回总产出会双计农业/畜牧）
     }
 
     /// <summary>BFS 半径 maxDepth（格步数），确定性：格遍历顺序 = 邻接表顺序。visit(cell, depth)。</summary>
