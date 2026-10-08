@@ -89,6 +89,31 @@ public class H3TerrainSamplerTests
 	}
 
 	[Test]
+	public void CornerCache_MatchesIndependentNoCacheImplementation()
+	{
+		// ★独立实现逐点对照（永久原则 5）：角点缓存（按全局唯一顶点记忆化）必须是**纯记忆化**——
+		//   对照实现 = 无缓存、每角点现场直采后加权，两版累加顺序相同 ⇒ 必须逐位同。
+		//   任何"缓存改变了数值"（如把权重误入缓存、复用脏值）都会在此变红。
+		const float centerW = 0.5f;
+		var field = MakeField(42);
+		var sampler = new H3TerrainSampler(Ball) { CenterWeight = centerW };
+		var cached = sampler.SampleField(field, H3TerrainSampler.Mode.CenterAndCorners);
+		var dirs = Ball.CellDirs;
+		Assert.That(cached.Length, Is.EqualTo(dirs.Length));
+		for (int i = 0; i < cached.Length; i++)
+		{
+			ulong[] vids = H3.CellToVertexes(Ball.CellIds[i]);
+			int cornerCount = Math.Min(vids.Length, 6);
+			float cornerW = (1f - centerW) / cornerCount;
+			float sum = field.Sample(dirs[i]) * centerW;
+			for (int k = 0; k < cornerCount; k++)
+				sum += field.Sample(Ball.VertexPositions[Ball.VertexIndexOf(vids[k])].Normalized()) * cornerW;
+			Assert.That(cached[i], Is.EqualTo(sum),
+				$"格 {i}：角点缓存版必须与无缓存直采逐位同（纯记忆化契约）");
+		}
+	}
+
+	[Test]
 	public void FieldIndependentOfBall_SameCellSameValue()
 	{
 		// 解耦红线：场是无状态空间函数——采样值只由方向决定，与 Ball 构造（半径/实例）无关。

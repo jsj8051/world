@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.Spatial;    // Ball（H3 球壳数据层）
 using World.Utils.H3;
@@ -35,29 +36,33 @@ public sealed class H3TerrainSampler
 		int n = dirs.Length;
 		var elev = new float[n];
 
+		// ★并行纪律（2026-10-07 启动优化②）：场求值 = 纯函数（SphericalFbmNoise 零可变状态），
+		//   逐格/逐顶点只写**自己的下标** ⇒ Parallel.For 结果与线程调度无关（逐位确定性保持）。
 		if (mode == Mode.CenterOnly || CenterWeight >= 1f)
 		{
-			for (int i = 0; i < n; i++) elev[i] = field.Sample(dirs[i]);
+			Parallel.For(0, n, i => elev[i] = field.Sample(dirs[i]));
 			return elev;
 		}
 
-		var cornerDirs = new Vector3[6];
-		for (int i = 0; i < n; i++)
+		// ★角点采样缓存（2026-10-07 启动优化①，用户拍板方案①）：每个顶点被 3 个格共享，
+		//   按 Ball 全局唯一顶点表缓存角点采样值 ⇒ 场求值次数从 ~7n 降到 ~3n
+		//   （格心 n + 唯一角点 ~2n）。**纯记忆化**：同一顶点同一输入方向 ⇒ 逐位同结果；
+		//   累加顺序不变（心 → 角点 vids 序），权重仍在使用点现场乘（五边形格 cornerW 不同）。
+		//   两阶段并行：先并行采全部唯一顶点（每顶点恰好一次，无竞态），再并行逐格累加。
+		var cornerVal = new float[_ball.VertexIds.Length];
+		var vertexPositions = _ball.VertexPositions;
+		Parallel.For(0, cornerVal.Length, v =>
+			cornerVal[v] = field.Sample(vertexPositions[v].Normalized()));
+		Parallel.For(0, n, i =>
 		{
-			Vector3 center = dirs[i];
-			ulong cellId = _ball.CellIds[i];
-			ulong[] vids = H3.CellToVertexes(cellId);      // 集合序（不保证环序；采样无序要求）
-			int cornerCount = Math.Min(vids.Length, 6);    // 五边形格 5 角点 ⇒ 剩余权重按实际角数均分
+			ulong[] vids = H3.CellToVertexes(_ball.CellIds[i]);   // 集合序（不保证环序；采样无序要求）
+			int cornerCount = Math.Min(vids.Length, 6);           // 五边形格 5 角点 ⇒ 权重按实际角数均分
 			float cornerW = (1f - CenterWeight) / cornerCount;
+			float sum = field.Sample(dirs[i]) * CenterWeight;
 			for (int k = 0; k < cornerCount; k++)
-			{
-				int vi = _ball.VertexIndexOf(vids[k]);
-				cornerDirs[k] = _ball.VertexPositions[vi].Normalized();
-			}
-			float sum = field.Sample(center) * CenterWeight;
-			for (int k = 0; k < cornerCount; k++) sum += field.Sample(cornerDirs[k]) * cornerW;
+				sum += cornerVal[_ball.VertexIndexOf(vids[k])] * cornerW;
 			elev[i] = sum;
-		}
+		});
 		return elev;
 	}
 }

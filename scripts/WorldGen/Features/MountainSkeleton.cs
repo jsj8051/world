@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.Spatial;    // Ball（H3 球壳数据层）
 using World.Utils;
@@ -181,10 +182,12 @@ public sealed class MountainSkeleton : ITerrainField
 
 		// ── 目标场 = InfluenceAt 的 H3 采样（**无陆格门控**：构造骨架跨海连续，
 		//    海洋中以海深衰减表达——浅海海底脊/岛链、深海消失）──
+		//    ★逐格并行（2026-10-07 启动优化②）：InfluenceAt 只读脊线表（已冻结）+ 纯噪声 +
+		//    resolver 纯函数，逐格只写自己的两个下标 ⇒ 确定性保持。
 		MountainInfluence = new float[n];
 		MountainTargetM = new float[n];
-		for (int i = 0; i < n; i++)
-			(MountainInfluence[i], MountainTargetM[i]) = InfluenceAt(dirs[i]);
+		Parallel.For(0, n, i =>
+			(MountainInfluence[i], MountainTargetM[i]) = InfluenceAt(dirs[i]));
 	}
 
 	/// <summary>连续查询（ITerrainField）：（影响度, 目标绝对高度）。影响度 = 各脊包络的

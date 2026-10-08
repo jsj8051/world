@@ -331,6 +331,14 @@ public sealed class GeologicalRegions
 			: (fallbackRegion >= 0 ? Regions[fallbackRegion].BaseElevationM : 0f);
 	}
 
+	/// <summary>预构建基座帽表（2026-10-07 并行化配套）：`BaseElevationAt` 的懒初始化在
+	///   HeightComposer 的逐格并行循环里是 check-then-write 竞态——并行消费方必须在循环前
+	///   显式调用本方法；懒检查保留（串行调用方无感）。</summary>
+	public void EnsureBaseCaps()
+	{
+		if (_baseCaps == null) BuildBaseCaps();
+	}
+
 	/// <summary>连续查询：区域号（区域种子上 argmin(扭曲角距/weight)，全局口径——
 	/// 离散归属按陆块分组，连续口径在跨陆块边界处与离散版有格级差异，视觉无差）。</summary>
 	public int RegionIndexAt(Vector3 dir)

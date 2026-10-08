@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.Spatial;    // Ball（H3 球壳数据层）
 using World.Utils;
@@ -115,8 +116,11 @@ public sealed class HeightComposer
 		//    单点口径在海岸与掩码不一致会造成陆格海值/海格陆值，决策 07 步骤③的教训）。
 		//    SampleSurface 保留连续口径供表现层（--cont 逐像素）——两口径的差异仅限
 		//    掩码边缘格，且各自内部自洽。
+		//    ★逐格并行（2026-10-07 启动优化②）：每格只读共享只读态（区域表/特征场/纯噪声）、
+		//    只写 h[i] ⇒ 结果与线程调度无关（逐位确定性保持）。基座帽表先预构建（防懒加载竞态）。
+		regions.EnsureBaseCaps();
 		var h = new float[n];
-		for (int i = 0; i < n; i++)
+		Parallel.For(0, n, i =>
 		{
 			if (regions.RegionOfCell[i] >= 0)
 				h[i] = SampleSurface(dirs[i], regions, surface, features);
@@ -124,15 +128,16 @@ public sealed class HeightComposer
 			{
 				h[i] = SampleSeaBranch(dirs[i], features);
 			}
-		}
+		});
 
 		// ── ② 1 pass 图上平滑（离散化后处理/抗混叠；仅放置期陆格互为邻居——海陆边界不模糊）──
+		//    ★同样逐格并行：只读 h[]，只写 smoothed[i]。
 		var neighbors = ball.CellNeighbors;
 		var smoothed = new float[n];
 		Array.Copy(h, smoothed, n);
-		for (int i = 0; i < n; i++)
+		Parallel.For(0, n, i =>
 		{
-			if (regions.RegionOfCell[i] < 0) continue;
+			if (regions.RegionOfCell[i] < 0) return;
 			float sum = 0f; int cnt = 0;
 			foreach (int j in neighbors[i])
 			{
@@ -141,7 +146,7 @@ public sealed class HeightComposer
 			}
 			if (cnt > 0) smoothed[i] = SmoothSelf * h[i] + (1f - SmoothSelf) * (sum / cnt);
 			if (smoothed[i] < MinLandElevationM) smoothed[i] = MinLandElevationM;
-		}
+		});
 
 		HeightM = smoothed;
 	}
