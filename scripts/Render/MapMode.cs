@@ -12,7 +12,7 @@ namespace World.Render;
 // 取色纪律沿旧 new_HexWorld MapMode：取色方式统一由 `World.Utils.ColorRamp` 提供
 //   （`RampSample` 线性 / `RampSampleSmooth` 三次平滑 / `RampLegendColors` 图例），复用不复制。
 // ★色带归属（2026-10-08 收口）：**本抽象基类只装契约，不装色板**。各色带内聚其消费方文件
-//   （`WorldGenMapModes` 的 Precip/Temperature/Diverging、`Domain.BiomeColors.TempStops`）；
+//   （`WorldGen` 各地图模式类的 Precip/Temperature/Diverging/海拔分档表、`Domain.BiomeColors.TempStops`）；
 //   模式在 `CellColorAt` 里自行决定用哪条色带，并直接调 `ColorRamp` 取色。
 //模式类**只读**，不写任何状态；`BeginBake` 是唯一的重烘钩子（自适应域模式在此刷新 min-max）。
 //
@@ -28,11 +28,16 @@ namespace World.Render;
 //
 // ★注：曾与本类同文件的 `ElevationBandMode`（抽象基类的参照实现）已于 2026-10-08 **撤销**——
 //   其 `MapMode` 面（Id/Name/CellColorAt）无人使用（全仓无实例化），只把两张表并入
-//   `WorldGenMapModes.ElevationColor` / `ElevationBandName`。
+//   `ElevationMode.ElevationColor` / `ElevationBandName`（2026-10-08 随后者拆分为独立文件）。
 public abstract class MapMode
 {
-	public abstract int Id { get; }            // 模式号（坞按钮下标 = 注册序）
-	public abstract string Name { get; }       // 按钮文案单一事实源
+	// ★无 `Id` 成员（2026-10-09 删除）：模式身份 = `WorldGenMapModes.CreateAll` 返回列表的
+	//   **下标**（注册序 = 坞按钮序）。原 `abstract int Id` 要求每个模式手写 `Id => N`，
+	//   却恒等于自身在注册表中的下标 ⇒ 纯冗余——删掉 id=2 的模式就要改所有 id>2 的类。
+	//   唯一消费者是一句诊断打印（已改印下标）；`MapDockController._currentMode` 本就存下标。
+	//   ⚠️ 若将来需要**跨会话稳定的模式引用**（存档/分享链接/数字定位），引入稳定 key
+	//      （`Name` 或 enum）——**不要**退回"手工数字"。
+	public abstract string Name { get; }       // 按钮文案 / 诊断按名定位（单一事实源）
 	public abstract Color CellColorAt(int i);  // sRGB 意图色（视图烘纹理时统一转 linear）
 
 	/// <summary>参数化模式的选项表（null = 无参数行）。例：温度 = [年均, 1月…12月]；

@@ -128,6 +128,8 @@ B线最核心的设计决策（`NoiseTerrain.cs:8-13`，"是什么就是什么"�
 **⑨ `NoiseMapMode` 抽象（`NoiseMapModes.cs:13-56`）**
 `Id`/`Name`/`CellColorAt`/`BeginBake` 四成员极小口；`CreateAll` 注册序 = 坞按钮序 = Id，数量不符当场抛。**新线 `WorldGenMapModes` 直接继承了它。**
 
+★**现状（2026-10-09）**：新线已**删除 `Id`** —— 模式身份 = `WorldGenMapModes.CreateAll` 返回列表的**下标**，各模式类不再手写 `Id => N`（唯一消费者是一句诊断打印，已改印下标；诊断 `--mode=` 本就按 `Name` 定位）。存活成员 = `Name`/`CellColorAt`/`BeginBake` + 参数三件套（`ParameterOptions`/`ParameterIndex`/`SetParameter`）+ `ScaleCaption`。
+
 **⑩ `NoiseBallView` 的两个构造函数（`:45, 49`）**
 一个吃 `NoiseTerrain`（旧线），一个吃 `float[] elevationM`（新线）。这个双构造函数是两条线之间**唯一的桥**，也是现在还活着的依赖点。
 

@@ -237,7 +237,7 @@ public static class Program
 
     // ── 批量判读图（--maps=N [--res=4] [--out=dir] [--w=1024] [--start=1] [--parallel=4]）──
     // 逻辑层全链（锚点→海陆场→投影→区域→骨架→地貌→合成）逐种子生成，等距圆柱投影出 PNG；
-    // 色带 = WorldGenMapModes.ElevationColor（与场景海拔模式同一单一事实源）。
+    // 色带 = ElevationMode.ElevationColor（与场景海拔模式同一单一事实源）。
     // Ball 同 res 只读共享（构建一次，100 张复用）；种子间完全独立可并行（各任务私有逻辑层）。
     static int RunMapBatch(string[] args)
     {
@@ -329,7 +329,7 @@ public static class Program
                     {
                         int i = cellOfPixel[p];
                         // 渐变雪线（决策 04v2 §二）：分档色取雪线以下的山地档，向雪白按 alpha 过渡
-                        var c = World.WorldGen.WorldGenMapModes.ElevationColor(Math.Min(h[i], 2790f));
+                        var c = World.WorldGen.ElevationMode.ElevationColor(Math.Min(h[i], 2790f));
                         float snowA = snow.Alpha(h[i], ball.CellDirs[i]);
                         c = new Godot.Color(
                             c.R + (0.97f - c.R) * snowA, c.G + (0.97f - c.G) * snowA, c.B + (1f - c.B) * snowA);
@@ -421,7 +421,7 @@ public static class Program
                 sum += h[j]; cnt++;
             }
             float shade = Math.Clamp(1f + (h[i] - sum / cnt) / 1200f, 0.78f, 1.18f);
-            var c = World.WorldGen.WorldGenMapModes.ElevationColor(h[i]);
+            var c = World.WorldGen.ElevationMode.ElevationColor(h[i]);
             cellRgb[i * 3] = (byte)Math.Clamp(c.R * 255f * shade, 0f, 255f);
             cellRgb[i * 3 + 1] = (byte)Math.Clamp(c.G * 255f * shade, 0f, 255f);
             cellRgb[i * 3 + 2] = (byte)Math.Clamp(c.B * 255f * shade, 0f, 255f);
@@ -575,7 +575,7 @@ public static class Program
                     (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Cos((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)),
                     (float)Math.Sin((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0),
                     (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Sin((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)));
-                var c = World.WorldGen.WorldGenMapModes.ElevationColor(Math.Min(heights[p], 2790f));
+                var c = World.WorldGen.ElevationMode.ElevationColor(Math.Min(heights[p], 2790f));
                 int ci = ball.CellIndexOf(World.Utils.H3.H3.LatLngToCell(new World.Utils.H3.LatLng(
                     (90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0,
                     (-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0), res));

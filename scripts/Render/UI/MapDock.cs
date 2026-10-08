@@ -26,7 +26,7 @@ namespace World.Render.UI
 		// 参数选择信号（上行：参数化模式的参数按钮 → 控制器调 mode.SetParameter + 重烘）。
 		[Signal] public delegate void ParameterSelectedEventHandler(int paramIndex);
 
-		Button[] _modeButtons;      // 模式按钮（%ModeRow 预置；下标 = 模式 id，0 起）
+		Button[] _modeButtons;      // 模式按钮（%ModeRow 预置；下标 = 注册序 = 模式身份，0 起）
 		int _currentMode;           // 当前模式镜像（SetMode 下行同步）
 
 		// ── 参数行 + 图例行（代码构建；随模式切换由 SetParameterOptions/SetLegend 下行）──
@@ -182,7 +182,7 @@ namespace World.Render.UI
 			if (_modeButtons == null) throw new InvalidOperationException("坞按钮未收集（_Ready 未跑）");
 			if (modeNames.Count != _modeButtons.Length)
 				throw new InvalidOperationException(
-					$"坞按钮数 {_modeButtons.Length} 与模式数 {modeNames.Count} 不同步：场景 ModeRow 与 MapMode 注册表须一一对应（按钮顺序 = 注册序 = 模式 Id）");
+					$"坞按钮数 {_modeButtons.Length} 与模式数 {modeNames.Count} 不同步：场景 ModeRow 与 MapMode 注册表须一一对应（按钮顺序 = 注册序 = 模式身份·下标）");
 			for (int i = 0; i < _modeButtons.Length; i++)
 				_modeButtons[i].Text = modeNames[i];
 		}

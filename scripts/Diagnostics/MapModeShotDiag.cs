@@ -65,7 +65,7 @@ public partial class MapModeShotDiag : Node
 		}
 		planet.View.SetMode(mode);
 		planet.View.RefreshColors();
-		GD.Print($"[MAPSHOT] 模式={mode.Name}（Id={mode.Id}） 图例={mode.ScaleCaption}");
+		GD.Print($"[MAPSHOT] 模式={mode.Name}（#{modes.IndexOf(mode)}） 图例={mode.ScaleCaption}");
 
 		// 清图：藏 GUI（坞/信息卡），只留球面
 		if (_world.GetNodeOrNull("PanelLayer") is CanvasLayer ui) ui.Visible = false;

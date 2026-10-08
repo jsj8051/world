@@ -1,16 +1,15 @@
 using Godot;
 using System;
-using System.Collections.Generic;
 using World.Camera;             // OrbitalCamera
-using World.Render;             // BallView / MapMode（决策 08 §4.4 表现层保留资产）
-using World.Render.UI;          // MapDock / CellInfoCard
+using World.Render.UI;          // MapDock / MapDockController / CellInfoCard
 using World.Utils.H3;           // H3（格 id → 经纬）
 
 namespace World.WorldGen;
 
 // 世界生成空间 · 主场景运行期接线（WorldGenWorld.tscn = WorldGenPlanet + OrbitalCamera +
 // PanelLayer/CellInfoCard + PanelLayer/MapDock，编辑器拼装）：
-// ① 相机设为当前；② 地图坞接模式表（模式持 planet 现取数据，点按钮 → 视图重烘颜色纹理）；
+// ① 相机设为当前；② 建模式表并交给 `MapDockController`（坞驱动本体已独立成类——本层只保留
+//    "认识世界生成"的那一步 `WorldGenMapModes.CreateAll`，坞的状态机不在这里）；
 // ③ 每帧 LOD/剔除刷新；④ 左键点选 → 高亮 + 信息卡（海陆/大陆/区域类型/距离/海拔）。
 // ⚠️ 星球 Radius 导出与相机 _planetRadius 场景覆写须同值（取景/裁剪 ∝ R）。
 public partial class WorldGenManager : Node3D
@@ -18,8 +17,7 @@ public partial class WorldGenManager : Node3D
 	WorldGenPlanet _planet;
 	Camera3D _camera;
 	CellInfoCard _cellPanel;
-	MapDock _dock;
-	List<MapMode> _modes;
+	MapDockController _dockController;   // 地图坞驱动器（持有 = 明确信号订阅者生命周期）
 	int _pickDiag;   // 点选打印限次
 
 	// 点选判定：按下记位，抬起时位移 < 6px 才算点选（拖转球是 OrbitalCamera 的手势，不抢）
@@ -33,32 +31,12 @@ public partial class WorldGenManager : Node3D
 		_camera.MakeCurrent();
 		_cellPanel = GetNode<CellInfoCard>("PanelLayer/CellInfoCard");
 
-		// 地图坞：模式表 = WorldGenMapModes.CreateAll（模式持 planet 现取数据 ⇒ Regenerate 换实例安全）
-		_modes = WorldGenMapModes.CreateAll(_planet);
-		_dock = GetNode<MapDock>("PanelLayer/MapDock");
-		var names = new string[_modes.Count];
-		for (int i = 0; i < names.Length; i++) names[i] = _modes[i].Name;
-		_dock.BindModes(names);
-		_dock.ModeSelected += id =>
-		{
-			_currentMode = id;
-			var mode = _modes[id];
-			_planet.View.SetMode(mode);   // 换取色函数重烘颜色纹理（几何/UV 不动）
-			_dock.SetMode(id);            // 按钮高亮同步
-			// 地图坞契约（2026-10-07）：参数行/图例由模式类下行（哑组件不认识生成类型）
-			_dock.SetParameterOptions(mode.ParameterOptions, mode.ParameterIndex);
-			_dock.SetLegend(mode.ScaleCaption);
-		};
-		_dock.ParameterSelected += idx =>
-		{
-			var mode = _modes[_currentMode];
-			mode.SetParameter(idx);              // 参数只改"取哪个值"，不碰生产公式
-			_planet.View.RefreshColors();        // 固定物理域 ⇒ 无需 BeginBake 重算，直接重烘
-			_dock.SetLegend(mode.ScaleCaption);
-		};
+		// 地图坞：模式表由装配层建（只有这里认识"世界生成"这个动作），驱动归 MapDockController
+		// （只认 MapMode 抽象，不认识 WorldGen——ADR-0005 依赖方向）。模式持 planet 现取数据
+		// ⇒ Regenerate 换数组实例安全；构建即建立初始一致状态（坞高亮 = 视图取色 = 参数行 = 图例）。
+		var dock = GetNode<MapDock>("PanelLayer/MapDock");
+		_dockController = new MapDockController(dock, _planet.View, WorldGenMapModes.CreateAll(_planet));
 	}
-
-	int _currentMode;   // 当前模式 id 镜像（坞下行同步；参数信号回查用）
 
 	public override void _Process(double delta) => _planet.UpdateVisibility(_camera);
 
@@ -98,9 +76,9 @@ public partial class WorldGenManager : Node3D
 		float latDeg = (float)(ll.Lat * 180 / Math.PI);
 		float lngDeg = (float)(ll.Lng * 180 / Math.PI);
 		float elevM = _planet.DisplayElevation[i];
-		// 档位名由宿主取（单一事实源 = WorldGenMapModes.ElevationBandName，与其色表同阈值）——
+		// 档位名由宿主取（单一事实源 = ElevationMode.ElevationBandName，与其色表同阈值）——
 		// 信息卡不依赖海拔语义（纯哑组件）。
-		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, elevM, WorldGenMapModes.ElevationBandName(elevM));
+		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, elevM, ElevationMode.ElevationBandName(elevM));
 
 		if (_pickDiag++ >= 20) return;   // 控制台判读限次（信息卡常驻）
 		// 收口（§07 D-1）：判读口与地图模式同读 Final 口径（同一行里其它字段本来就都是 Final）
