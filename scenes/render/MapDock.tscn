@@ -103,7 +103,7 @@ size_flags_horizontal = 4
 theme_override_constants/separation = 4
 
 [node name="ModeElevation" type="Button" parent="DockBox/ModeRow"]
-custom_minimum_size = Vector2(150, 34)
+custom_minimum_size = Vector2(84, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
@@ -116,22 +116,8 @@ toggle_mode = true
 button_group = SubResource("bg_modes")
 text = "海拔"
 
-[node name="ModeLandSea" type="Button" parent="DockBox/ModeRow"]
-custom_minimum_size = Vector2(150, 34)
-layout_mode = 2
-theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
-theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
-theme_override_font_sizes/font_size = 15
-theme_override_styles/normal = SubResource("sb_btn")
-theme_override_styles/pressed = SubResource("sb_btn_pressed")
-theme_override_styles/hover = SubResource("sb_btn_hover")
-theme_override_styles/focus = SubResource("sb_btn")
-toggle_mode = true
-button_group = SubResource("bg_modes")
-text = "海陆场"
-
 [node name="ModeRegion" type="Button" parent="DockBox/ModeRow"]
-custom_minimum_size = Vector2(150, 34)
+custom_minimum_size = Vector2(84, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
@@ -145,7 +131,7 @@ button_group = SubResource("bg_modes")
 text = "地质区域"
 
 [node name="ModeCoastDist" type="Button" parent="DockBox/ModeRow"]
-custom_minimum_size = Vector2(150, 34)
+custom_minimum_size = Vector2(84, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
 theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
@@ -157,3 +143,45 @@ theme_override_styles/focus = SubResource("sb_btn")
 toggle_mode = true
 button_group = SubResource("bg_modes")
 text = "离岸距离"
+
+[node name="ModePrecipitation" type="Button" parent="DockBox/ModeRow"]
+custom_minimum_size = Vector2(84, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_btn")
+theme_override_styles/pressed = SubResource("sb_btn_pressed")
+theme_override_styles/hover = SubResource("sb_btn_hover")
+theme_override_styles/focus = SubResource("sb_btn")
+toggle_mode = true
+button_group = SubResource("bg_modes")
+text = "降水"
+
+[node name="ModeTemperature" type="Button" parent="DockBox/ModeRow"]
+custom_minimum_size = Vector2(84, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_btn")
+theme_override_styles/pressed = SubResource("sb_btn_pressed")
+theme_override_styles/hover = SubResource("sb_btn_hover")
+theme_override_styles/focus = SubResource("sb_btn")
+toggle_mode = true
+button_group = SubResource("bg_modes")
+text = "温度"
+
+[node name="ModeLandSea" type="Button" parent="DockBox/ModeRow"]
+custom_minimum_size = Vector2(84, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_btn")
+theme_override_styles/pressed = SubResource("sb_btn_pressed")
+theme_override_styles/hover = SubResource("sb_btn_hover")
+theme_override_styles/focus = SubResource("sb_btn")
+toggle_mode = true
+button_group = SubResource("bg_modes")
+text = "海陆场"

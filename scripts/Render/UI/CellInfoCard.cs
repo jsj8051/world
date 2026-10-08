@@ -1,6 +1,5 @@
 using Godot;
 using System;
-using World.Render;                // BallView（档位名单一事实源）
 
 namespace World.Render.UI;
 
@@ -35,15 +34,15 @@ public partial class CellInfoCard : PanelContainer
 		Visible = false;
 	}
 
-	/// <summary>显示一个格子的信息。</summary>
-	public void ShowCell(ulong id, float latDeg, float lngDeg, float elevM)
+	/// <summary>显示一个格子的信息。档位名（如"平原"）由**宿主喂入**——本卡不依赖任何色带/取色类型。</summary>
+	public void ShowCell(ulong id, float latDeg, float lngDeg, float elevM, string bandName)
 	{
 		string lat = $"{MathF.Abs(latDeg):F1}°{(latDeg >= 0f ? "N" : "S")}";
 		string lng = $"{MathF.Abs(lngDeg):F1}°{(lngDeg >= 0f ? "E" : "W")}";
 		string elev = $"{(elevM >= 0f ? "+" : "")}{elevM:F0} m";
 		_body.Text = $"格 id   {id:X}\n" +
 					 $"经纬    {lat}, {lng}\n" +
-					 $"海拔    {elev}（{BallView.BandName(elevM)}）\n" +
+					 $"海拔    {elev}（{bandName}）\n" +
 					 $"海陆    {(elevM >= 0f ? "陆地" : "海洋")}";
 		Visible = true;
 	}

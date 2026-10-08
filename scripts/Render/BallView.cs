@@ -23,12 +23,13 @@ namespace World.Render;
 //   （顶点色 COLOR 通道、TEXUV 塞米级大数、片元现算 band() 三条路在 D3D12/Forward+ 下实测不可用。）
 //
 // 分层：本类只显示 + 剔除/LOD；**拾取 / 高亮 / 海拔查询在 <see cref="CellQuery"/>**（纯函数，可独立测）；
-//   格表来自 Ball；海拔来自外部逐格数组。
+//   格表来自 Ball；海拔来自外部逐格数组；**取色策略（地图模式）由外部注入**（构造传入 + `SetMode`），
+//   本类不内置任何具体模式——默认显示什么是策略决策，归装配层（见构造器注释）。
 public sealed partial class BallView : Node3D   // partial = Godot 源生成器要求（GD0001）
 {
 	readonly Ball _ball;
 	float[] _elevation;      // 逐格海拔（米）——引用须稳定（重烘读同一份；换实例走 SetElevationSource）
-	MapMode _mode;            // 当前地图模式（取色函数；null = 未设 → 首烘回落海拔分档）
+	MapMode _mode;            // 当前地图模式（取色函数）——构造注入初始值，之后由 SetMode 切换；恒非 null
 
 	float _lodNearRatio;        // 旋钮①：近距 = 球半径 × 此值
 	float _backfaceCullRatio;   // 旋钮②（保留接口；现版可见角限 = 90° + 块角半径 + 0.6rad）
@@ -49,11 +50,15 @@ public sealed partial class BallView : Node3D   // partial = Godot 源生成器�
 	float _maxChunkAngular = 0.42f;   // res0 块角半径上限（rad；五边形块略大）
 	float _cameraFovMargin = 0.6f;    // 透视外扩余量（rad）：相机在 1.7R 处 FOV 75° 能看到半球外 ~35° 的侧面
 
-	/// <summary>海拔源直供构造：任何逐格海拔数组（世界生成空间线等）。</summary>
-	public BallView(Ball ball, float[] elevationM, float lodNearRatio, float backfaceCullRatio)
+	/// <summary>海拔源直供构造：任何逐格海拔数组（世界生成空间线等）+ **初始地图模式**（取色策略）。
+	/// ★初始模式由**装配层注入**（世界生成侧传坞首项 = `WorldGenMapModes` 注册序[0]）——本类
+	///   **不内置默认模式**：把"默认显示什么"焊进通用渲染件，既绑定了具体模式类（曾使本类被迫
+	///   依赖 `ElevationBandMode`），又让坞高亮与实际画面可能不一致。</summary>
+	public BallView(Ball ball, float[] elevationM, MapMode initialMode, float lodNearRatio, float backfaceCullRatio)
 	{
 		_ball = ball;
 		_elevation = elevationM ?? throw new ArgumentNullException(nameof(elevationM));
+		_mode = initialMode ?? throw new ArgumentNullException(nameof(initialMode));
 		_lodNearRatio = lodNearRatio;
 		_backfaceCullRatio = backfaceCullRatio;
 	}
@@ -169,7 +174,6 @@ public sealed partial class BallView : Node3D   // partial = Godot 源生成器�
 
 	void RebuildElevTex()
 	{
-		_mode ??= new ElevationBandMode(_elevation);   // 默认模式 = 海拔分档（首烘/未显式设置时）
 		_mode.BeginBake();                           // 自适应域模式在此刷新 min-max
 		int n = _ball.CellIds.Length;
 		_texW = (int)Math.Ceiling(Math.Sqrt(n));
@@ -290,9 +294,6 @@ public sealed partial class BallView : Node3D   // partial = Godot 源生成器�
 			idx.Add(corner[(k + 1) % m]);
 		}
 	}
-
-	/// <summary>海拔 → 档位名（委托 <see cref="ElevationBandMode.BandName"/>，画面与信息卡同一口径）。</summary>
-	public static string BandName(float m) => ElevationBandMode.BandName(m);
 
 	// ── 工具 ──
 

@@ -41,10 +41,24 @@ public partial class WorldGenManager : Node3D
 		_dock.BindModes(names);
 		_dock.ModeSelected += id =>
 		{
-			_planet.View.SetMode(_modes[id]);   // 换取色函数重烘颜色纹理（几何/UV 不动）
-			_dock.SetMode(id);                  // 按钮高亮同步
+			_currentMode = id;
+			var mode = _modes[id];
+			_planet.View.SetMode(mode);   // 换取色函数重烘颜色纹理（几何/UV 不动）
+			_dock.SetMode(id);            // 按钮高亮同步
+			// 地图坞契约（2026-10-07）：参数行/图例由模式类下行（哑组件不认识生成类型）
+			_dock.SetParameterOptions(mode.ParameterOptions, mode.ParameterIndex);
+			_dock.SetLegend(mode.ScaleCaption);
+		};
+		_dock.ParameterSelected += idx =>
+		{
+			var mode = _modes[_currentMode];
+			mode.SetParameter(idx);              // 参数只改"取哪个值"，不碰生产公式
+			_planet.View.RefreshColors();        // 固定物理域 ⇒ 无需 BeginBake 重算，直接重烘
+			_dock.SetLegend(mode.ScaleCaption);
 		};
 	}
+
+	int _currentMode;   // 当前模式 id 镜像（坞下行同步；参数信号回查用）
 
 	public override void _Process(double delta) => _planet.UpdateVisibility(_camera);
 
@@ -83,7 +97,10 @@ public partial class WorldGenManager : Node3D
 		var ll = H3.CellToLatLng(cell.Value);
 		float latDeg = (float)(ll.Lat * 180 / Math.PI);
 		float lngDeg = (float)(ll.Lng * 180 / Math.PI);
-		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, _planet.DisplayElevation[i]);
+		float elevM = _planet.DisplayElevation[i];
+		// 档位名由宿主取（单一事实源 = WorldGenMapModes.ElevationBandName，与其色表同阈值）——
+		// 信息卡不依赖海拔语义（纯哑组件）。
+		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, elevM, WorldGenMapModes.ElevationBandName(elevM));
 
 		if (_pickDiag++ >= 20) return;   // 控制台判读限次（信息卡常驻）
 		// 收口（§07 D-1）：判读口与地图模式同读 Final 口径（同一行里其它字段本来就都是 Final）
