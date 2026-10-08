@@ -215,7 +215,7 @@ public class RiverNetworkTests
 		Assert.That(subtropicN, Is.GreaterThan(0));
 		Assert.That(equatorSum / equatorN, Is.GreaterThan(subtropicSum / subtropicN),
 			"赤道带均雨须高于副热带干燥带（ITCZ 语义）");
-		Assert.That(precip.AnnualMm, Has.All.InRange(0f, PrecipitationModel.MaxMm + 1f));
+		Assert.That(precip.AnnualMm, Has.All.InRange(0f, PrecipitationModel.ZonalMm(0f) + 1f));
 	}
 
 	[Test]
