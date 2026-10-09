@@ -16,7 +16,7 @@
 |---|---|---|
 | `BiomeType` | **迁移 + 裁剪** | → `scripts/Logic/Constant/BiomeType.cs`，`namespace World.Constants`；词表裁到 2,3,14…29 |
 | `BiomeColors` | **删除** | 色带职责归**地图模式**（`ElevationMode` / `TemperatureMode` / `PrecipitationMode` 各自持有）；本类运行期**零生产消费者**，只剩测试在借它测 `ColorRamp` |
-| `Calendar` | **删除** | `MonthsPerYear = 12` 的唯一消费者是诊断 `Test/Diagnostics/FieldCompare.cs`（就地内联） |
+| `Calendar` | **删除** | `MonthsPerYear = 12` 的唯一消费者是诊断 `Test/Diagnostics/FieldCompare.cs`（就地内联；★该文件当晚亦随 `World.Services` 连带删除——见 `裁决-Services删除.md`） |
 | `PowerPalette` | **删除** | 唯一消费者 = 测试 `ServicesTests`；势力图层的真实调用方 `CivEngine` 已随 CivSim 移出 ⇒ 待**重新实现** |
 
 ⇒ 命名空间 `World.Domain` **整体消失**；目录 `scripts/Logic/Domain/` 删除。
@@ -75,7 +75,7 @@
 | `scripts/Test/World.Tests/BiomeTests.cs` | **重写**为 `World.Constants.BiomeType` 词表钉。★原文件所有方法**漏了 `[Test]`**（NUnit 从不执行 ⇒ 长期"绿"是假象）——本次补回 |
 | `scripts/Test/World.Tests/ColorRampTests.cs` | 改用**夹具色带**测 `RampSample`（原借 `BiomeColors.TempStops`） |
 | `scripts/Test/World.Tests/WorldGenMapModeTests.cs` | 撤除 `BiomeColors.TemperatureToColor` 域端 clamp 钉（被测对象已删） |
-| `scripts/Test/Diagnostics/FieldCompare.cs` | 就地内联 `MonthsPerYear = 12` |
+| `scripts/Test/Diagnostics/FieldCompare.cs` | 就地内联 `MonthsPerYear = 12`（★2026-10-09 晚：该文件其后随 `World.Services` 连带删除，**内联成果一并作废**——见 `裁决-Services删除.md`） |
 | `scripts/Test/World.Tests/ArchitectureContractTests.cs` | 新增**结果钉** `DomainNamespace_IsDissolved`；同步 `World.Domain` 相关注释 |
 | 注释同步 | `Logic/Utils/Color/ColorRamp.cs`、`Scene/Render/MapMode.cs`、`Scene/Render/Modes/Mapmode/TemperatureMode.cs`、`Scene/Render/Constants/MapSeaColor.cs` |
 

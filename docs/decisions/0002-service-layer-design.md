@@ -1,8 +1,13 @@
 # ADR-0002：服务层设计（EventBus / LogService / ArchiveService）
 
 日期：2026-08-19
-状态：已采纳（实施中）
-关联：docs/architecture.md §2 L2 层；ADR-0001
+状态：**已作废（2026-10-09）** —— 服务层三件（`EventBus` / `ArchiveService` / `LogService`）在编载体已全部不存在
+关联：docs/architecture.md §2 L2 层；ADR-0001；**作废依据** `docs/裁决-Services删除.md`
+
+> ★**2026-10-09 作废**：本 ADR 的三个产物中，`EventBus` 与 `ArchiveService` 早已随旧 UI / 旧存档
+> 清退消失；`LogService` 与 `UserPaths` 最后作为**零生产消费者**的残骸存在，经用户拍板「整个
+> Services/（含连带）」删除 ⇒ `World.Services` 命名空间整体消失。
+> **本文件仅作历史记录**（决策当时的动机与否决项仍有参考价值），**不得作为现行依据**。
 
 ## 背景
 

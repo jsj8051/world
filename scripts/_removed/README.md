@@ -26,6 +26,9 @@
 `Logic/LogicGrid/GameGrid.cs`、`Logic/Domain/WildCropsSystem.cs`、`Logic/Archive/{MapData,FieldCodec}.cs`、
 `Logic/Diagnostics/PerfLog.cs`、`Logic/HexPlanet/`。
 
+> ★2026-10-09 更新：上面这 5 项**其后已全部删除**（Legacy 载体簇 `4a7cbc2` + 孤儿 `a6fb682` +
+> `Icosahedron` `a8495f9`）——"留在原位"只是**移出当时的**状态记录，不是现行事实。
+
 **连带改动**（详见 `docs/裁决-CivSim移出.md`）：
 - `world.csproj` 加两条 `scripts/_removed/**` 排除；
 - `Test/World.Tests/ArchitectureContractTests.cs`：`World.CivSim` / `World.Gameplay` 从白名单与
@@ -52,6 +55,11 @@ git mv scripts/_removed/scenes/diag/CivSimDiag.tscn scenes/diag/
 #   （9 个单测 .cs + .uid 同理）
 
 # 3) 删掉 world.csproj 里 `scripts/_removed/**` 的两行排除
+
+# 3.5) ★2026-10-09 新增依赖：`scripts/Logic/Services/` 必须**一并恢复**
+#      （CivSimDiag.cs 用 LogService；Logic/CivSim/Tables/TechTable.cs 用 LogService）
+#      —— 从 `git show 20e9d96^:scripts/Logic/Services/...` 取回，见 docs/裁决-Services删除.md §五。
+#      `Test/Diagnostics/DiagSceneBase.cs` **未删**，无需恢复；`scenes/diag/CivSimDiag.tscn` 按上表移回即可。
 
 # 4) 恢复 ArchitectureContractTests.cs：白名单行 `"World.CivSim"` / `"World.Gameplay"`、
 #    消费者 `typeof(World.CivSim.CivSimContext)`，并把 CivSimAndGameplay_AreMovedOut

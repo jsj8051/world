@@ -102,7 +102,7 @@
 | [搬迁矩阵-WorldGen六子层.md](搬迁矩阵-WorldGen六子层.md) | 历史：WorldGen 六子层搬迁矩阵（搬迁已完成） |
 | [迁移评估报告-noise_world-to-worldgen.md](迁移评估报告-noise_world-to-worldgen.md) | 历史：noise_world → worldgen 迁移评估 |
 | [迁移评估报告-strategy-to-world.md](迁移评估报告-strategy-to-world.md) | 历史：strategy → world 迁移评估 |
-| [ADR-0001](decisions/0001-test-and-split-decisions.md) · [ADR-0002](decisions/0002-service-layer-design.md) · [ADR-0003](decisions/0003-diag-scene-base.md) · [ADR-0004](decisions/0004-log-service-migration.md) | 历史 ADR：测试基建与拆分 / 服务层（EventBus·LogService·ArchiveService）/ 诊断场景基类 DiagSceneBase / 日志全量收编 LogService |
+| [ADR-0001](decisions/0001-test-and-split-decisions.md) · [ADR-0002](decisions/0002-service-layer-design.md)（**已作废**） · [ADR-0003](decisions/0003-diag-scene-base.md)（仍有效） · [ADR-0004](decisions/0004-log-service-migration.md)（**已作废**） | 历史 ADR：测试基建与拆分 / 服务层（EventBus·LogService·ArchiveService）/ 诊断场景基类 DiagSceneBase / 日志全量收编 LogService。★2026-10-09 `World.Services` 整删 ⇒ **0002 / 0004 作废**（`EventBus`/`ArchiveService` 早随旧 UI 清退，`LogService` 零生产消费者）；ADR-0003 仍有效（`DiagSceneBase` 保留）。见 `裁决-Services删除.md` |
 
 > 已删除（2026-08-23，被完全取代）：`文明演化v1.md`、`阶段2设计-一格一实体重构.md`、`阶段3设计-派生状态架构化.md`。
 
@@ -111,7 +111,7 @@
 - 主场景：`res://scenes/core/NoiseWorld.tscn`（project.godot main_scene；noise_world 纯噪声世界）
 - 生成器：`res://scenes/core/MapGen.tscn`（headless：`--headless --quit-after 400`）
 - 查看器：`res://scenes/core/MapViewer.tscn`（键盘切图层）
-- 诊断场景：`res://scenes/diag/`（23 个，全部 headless 可跑）
+- 诊断场景：`res://scenes/diag/`（★2026-10-09 大扫除后仅剩 **1 个**：`H3SmokeDiag.tscn`，headless 可跑——见 `裁决-Services删除.md`）
 - 单元测试：`dotnet test tests/World.Tests/World.Tests.csproj`（new_HexWorld/老树全量）
 
 > 注：`docs/` 含 `.gdignore`（Godot 不导入本目录）；截图只作记录，非游戏资源。

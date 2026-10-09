@@ -3,13 +3,15 @@
 NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**单元测试**（单类纯函数/机制契约）与
 **模块测试**（跨类不变量：确定性、守恒、往返、结构性质）。
 
-> 当前规模（2026-10-09 实测，`dotnet test`）：**279 用例全部通过**。
+> 当前规模（2026-10-09 实测，`dotnet test`）：**280 用例全部通过**。
+> （★本次 `280 = 279 + 1`：新增 `ArchitectureContractTests.ServicesNamespace_IsGone`。）
 
 ## 测试范围（重要）
 
-- ✅ 只测 **L0 纯模型/纯函数**：不触碰 Godot 原生调用（`GD.*`、`LogService`、`FileAccess`、
+- ✅ 只测 **L0 纯模型/纯函数**：不触碰 Godot 原生调用（`GD.Print` 等 `GD.*`、`FileAccess`、
   `DirAccess`、`FastNoiseLite`、`StringName/Variant`、节点类等），因此可直接 `dotnet test` 运行，
-  无需 Godot 引擎。
+  无需 Godot 引擎。（★2026-10-09：原举例里的 `LogService` 已随 `World.Services` 整删——见
+  `docs/裁决-Services删除.md`）
 - ⚠️ **探针实测（2026-08）**：Godot 数学类型（`Vector3`/`Color`/`Mathf`/`Basis`/`Quaternion`/
   `Transform3D` 等）为纯托管实现，无引擎安全可用；而**任何引擎原生调用在测试进程 = 进程级崩溃
   0xC0000005（不可捕获，杀死整个测试运行）**——测试路径必须绝对避免，包括被测试方法内部间接调用
@@ -44,6 +46,11 @@ NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**
 >   ⚠️ 该修复改变板块模拟结果（消减开始回收老洋壳）——**建议重跑 `scripts/verify.sh` headless 回归**复核。
 
 ## 覆盖图景（scripts/Test/World.Tests/）
+
+> ⚠️ 下表**含已失效行**：CivSim 系（`CivSimModelTests` / `CivSimMechanicTests` / `CivSimMechanics2Tests` /
+> `CivSimWarTests` / `GridFeatureVerifyTests` 的 CivSim 部分）已随 CivSim **移出**到 `scripts/_removed/`
+> （2026-10-09 `a186181`）；`TectonicsTests` / `TectonicsScenariosTests` / `ClimateSimTests` 等属
+> Tectonics/Biome 旧线，亦已清退。本表待一次专门盘点重写（原则 11：不在零散删除任务里顺带重写）。
 
 | 文件 | 覆盖 |
 |---|---|

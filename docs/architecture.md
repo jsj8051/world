@@ -66,7 +66,8 @@ Placement（生成依据）→ Final（世界事实）→ SpatialIndex（查询�
 3. **允许 Godot 数学类型**（`Vector3` 等值类型），纯 C# 更佳——可测试性是硬指标。
 4. **单类单文件**；拆大类用 `partial` 分片，新文件放**同目录**、命名 `原类名.职责.cs`。
 5. 一切随机性走 `DeterministicRandom`；**禁止裸 `System.Random` 与时间种子**。
-6. **日志统一走 `LogService`**；后台线程禁止调用（调试残留见 ADR-0004）。
+6. **无统一日志出口**（★2026-10-09：`LogService` 已整删，ADR-0002 / ADR-0004 一并作废）——
+   L0 纯模型不打日志；诊断 / 表现层按需直调 `GD.Print`；**后台线程禁止**调用引擎输出。
 7. **单一事实源**：任何"面积 / 距离 / 海陆比例 / 颜色表"只允许有一处权威定义，
    不建平行真相源（`SpatialScale` 是唯一面积 / 距离口径；`SurfaceResolver` 是唯一海陆口径）。
 
@@ -269,10 +270,10 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 
 - **提交门槛**：`.githooks/pre-commit`（build + 单元测试；
   安装 `git config core.hooksPath .githooks`）。
-- **测试**：`tests/World.Tests`（NUnit，**417 条 `[Test]`**）+
-  本地执行器 `tests/World.Tests.Local` + 性能台 `tests/PerfBench`。
+- **测试**：`scripts/Test/World.Tests`（NUnit；2026-10-09 实测 `dotnet test` **280 用例全绿**）+
+  本地执行器 `scripts/Test/World.Tests.Local` + 性能台 `scripts/Test/PerfBench`。
   - 纪律：**只用 `[Test]`**（不写 `[TestCase]` 参数化）；**不写文件**；
-    **不触碰 `GD.*` / `LogService`**。
+    **不触碰 `GD.*` 等引擎原生调用**（在测试进程 = 进程级崩溃，不可捕获）。
   - 注意：`[Test]` 特性数 ≠ 用例数（参数化会展开）。
 - **底层类固定门槛**：`SpatialScale` 等底层类新增成员须配"与独立实现逐点对照"测试。
 - **规范**：`.editorconfig` + `dotnet format`（CI 强制校验）。
@@ -284,11 +285,12 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 
   - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
     `World.Render(.UI/.Controllers/.Constants)` / `World.WorldGen` / `World.Constants` /
-    `World.HexPlanet` / `World.Spatial` / `World.Utils(.H3)` / `World.Services` /
-    `World.Camera` / `World.Diagnostics`。
+    `World.Spatial` / `World.Utils(.H3)` / `World.Camera` / `World.Diagnostics`。
     （★2026-10-09：`World.Domain` / `World.Archive` / `World.LogicGrid` / `World.CivSim.*` /
-      `World.Gameplay` 已分别解散 / 删除 / 移出；`World.Constants` 成为常量族新家——
-      见 `docs/裁决-Domain解散与BiomeType归Constant.md`）
+      `World.Gameplay` / `World.HexPlanet` / **`World.Services`** 已分别解散 / 删除 / 移出；
+      `World.Constants` 成为常量族新家，`World.Diagnostics` 仅剩 `DiagSceneBase` + `H3SmokeDiag`——
+      见 `docs/裁决-Domain解散与BiomeType归Constant.md`、`docs/裁决-Legacy载体簇删除.md`、
+      `docs/裁决-Services删除.md`）
     （2026-10-06：D 步清退 `World.PlanetLOD` / `World.Surface`；
       E 步 `World.NewHexWorld` → `World.Spatial`）
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
