@@ -25,7 +25,10 @@ namespace World.Tests;
 ///      `scripts/_removed/` 并由 `world.csproj` 排除编译。本条从原"CivSim ⟂ WorldGen
 ///      **方向守卫**"改写为"CivSim 已不在程序集内"的**结果 + 位置钉**
 ///      （方向守卫随被测类型一起移出，失去意义）。
-/// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*/LogService。
+///   ⑦ **`World.Services` 已整体删除**（2026-10-09 用户拍板"整个 Services/（含连带）"）：
+///      `LogService` / `UserPaths` + 其编译面连带（`FieldCompare` ×1、截图诊断 ×3 + 场景）
+///      全部删除 ⇒ 见下方 `ServicesNamespace_IsGone`。
+/// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*（引擎原生调用在测试进程 = 进程级崩溃）。
 /// </summary>
 public class ArchitectureContractTests
 {
@@ -150,7 +153,7 @@ public class ArchitectureContractTests
 		var wildCrops = asm.GetTypes().Where(t => t.Name == "WildCropsSystem")
 			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
 		Assert.That(wildCrops, Is.Empty,
-			$"WildCropsSystem 应已随簇删除（World.Domain 本身保留）：{string.Join(",", wildCrops)}");
+			$"WildCropsSystem 应已随簇删除（World.Domain 其后亦解散）：{string.Join(",", wildCrops)}");
 
 		// ③ 源目录位置钉
 		Assert.That(FindRepoDir("scripts", "Logic", "LogicGrid"), Is.Null,
@@ -234,6 +237,78 @@ public class ArchitectureContractTests
 			"Icosahedron 应已删除（用户拍板；CivSim 已移出且旧网格已退役）");
 		Assert.That(FindRepoDir("scripts", "Logic", "HexPlanet"), Is.Null,
 			"scripts/Logic/HexPlanet 应已删除（Icosahedron 是其最后一件）");
+	}
+
+	/// <summary>
+	/// **`World.Services` 删除钉（结果 + 位置）**（2026-10-09 用户拍板：先「删掉吧」，
+	/// 再经确认范围 = **「整个 Services/（含连带）」**）。
+	///
+	/// 删除范围 = `scripts/Logic/Services/`（`LogService` / `UserPaths`）
+	///   + 其**编译面连带**（实测消费者图，全部落在诊断目录）：
+	///   · `Test/Diagnostics/FieldCompare.cs` —— 唯一依赖 = `LogService.LogErr`；**本身零调用者**
+	///     （`FieldCompare.` 在 `scripts/` 全仓 0 命中 ⇒ 独立于本次删除也已是死码）；
+	///   · `Test/Diagnostics/RiverShotDiag.cs` + `scenes/diag/RiverShotDiag.tscn`（`UserPaths.Resolve` ×3）；
+	///   · `Test/Diagnostics/MapModeShotDiag.cs` + `scenes/diag/MapModeShotDiag.tscn`（`UserPaths.Resolve` ×1）；
+	///   · `Test/Diagnostics/CellHighlightDiag.cs` + `scenes/diag/CellHighlightDiag.tscn`
+	///     （★实测：**仅一条死 `using World.Services;`**，无真实依赖；随本簇一并删除）。
+	///
+	/// ★删除理由（实测，非估计）：
+	///   · `LogService` = `GD.Print` 的 **16 行薄包装**，**零生产消费者**——唯一调用点就是同样零调用者的
+	///     `FieldCompare`；`WorldGen`（世界生成主链）与 `Render`（地图模式）对它**零引用**；
+	///   · `UserPaths.MigrateLegacyData()` 的**零调用者**（原调用点 `MainMenu._Ready` 已随旧 UI 清退而消失）
+	///     ——这正是"存档三层都不通"的另一面；
+	///   · 其余成员只服务**窗口模式截图诊断**（`--headless` 的 dummy 渲染服务器取不到帧 ⇒ 必须人工判读）。
+	///
+	/// ★保留（**不属**本簇连带，故意留下）：
+	///   · `Test/Diagnostics/DiagSceneBase.cs` —— 三个子类删净后**零在编消费者**，但它是
+	///     `_removed/Test/Diagnostics/CivSimDiag.cs` 的基类，且仍是未来诊断场景的统一基类（ADR-0003）；
+	///   · `Test/Diagnostics/H3SmokeDiag.cs` + `scenes/diag/H3SmokeDiag.tscn` —— 不依赖 Services，
+	///     且是 **`h3.dll` 部署问题的唯一暴露面**（`verify.sh` 仍跑它）。
+	///
+	/// ⚠️ 已记录的代价：删掉两个截图诊断 ⇒ 项目**失去 PNG 截图 / 像素级视觉诊断能力**；
+	///   源码级回归由既有单测承担（`CellHighlightRingTests` / `RiverSymbolWidthTests` /
+	///   `RiverRibbonGeometryTests` / `RiverPresentationSplineTests` 等均**未动**）。
+	///   `_removed/` 内 CivSim 的回归路径现在**还需额外恢复 `Services/`**
+	///   （`CivSimDiag.cs` 用 `LogService` + `DiagSceneBase`；`Logic/CivSim/Tables/TechTable.cs` 用 `LogService`）。
+	///
+	/// 决策与文档连带见 `docs/裁决-Services删除.md`。
+	/// </summary>
+	[Test]
+	public void ServicesNamespace_IsGone()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+
+		// ① 命名空间须整体消失
+		var survivors = asm.GetTypes()
+			.Where(t => t.Namespace == "World.Services"
+				|| (t.Namespace != null && t.Namespace.StartsWith("World.Services.")))
+			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+		Assert.That(survivors, Is.Empty,
+			$"World.Services 类型仍在程序集内：{string.Join(",", survivors)}——" +
+			"2026-10-09 该服务层已整体删除（LogService 零生产消费者；UserPaths 只服务已删的截图诊断）");
+
+		// ② 三个被删类型名不得复活
+		foreach (var dead in new[] { "LogService", "UserPaths", "FieldCompare" })
+		{
+			var found = asm.GetTypes().Where(t => t.Name == dead)
+				.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+			Assert.That(found, Is.Empty,
+				$"{dead} 应已随 Services 簇删除：{string.Join(",", found)}");
+		}
+
+		// ③ 源目录位置钉
+		Assert.That(FindRepoDir("scripts", "Logic", "Services"), Is.Null,
+			"scripts/Logic/Services 应已删除（World.Services 已整体删除）");
+
+		// ④ 诊断场景残留钉——★三个截图诊断的 `.tscn` 必须与脚本同批删除，
+		//    否则留下悬空场景 ⇒ headless 报 `Cannot load C# script`（编译与单测**照样全绿**，只能实机发现）。
+		var diagDir = FindRepoDir("scenes", "diag");
+		Assert.That(diagDir, Is.Not.Null, "未找到 scenes/diag/ —— 目录路径可能已变，本契约需同步");
+		foreach (var gone in new[] { "RiverShotDiag", "MapModeShotDiag", "CellHighlightDiag" })
+			Assert.That(File.Exists(Path.Combine(diagDir, gone + ".tscn")), Is.False,
+				$"scenes/diag/{gone}.tscn 应已随其脚本删除——悬空场景 = headless「Cannot load C# script」");
+		Assert.That(File.Exists(Path.Combine(diagDir, "H3SmokeDiag.tscn")), Is.True,
+			"scenes/diag/H3SmokeDiag.tscn 应保留（不依赖 Services，verify.sh 仍跑它）");
 	}
 
 	/// <summary>
