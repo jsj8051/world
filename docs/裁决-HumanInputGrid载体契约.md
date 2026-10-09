@@ -246,7 +246,7 @@ CivSim 侧的那一道（"基础粒度必须 = `ProductionRes`"）**随 `HumanIn
 | `CellAreaKm2 = 4πR²/N` / 点积 `DistKm` | **废** ⇒ `SpatialScale`（等积 + haversine） |
 | `SphereGrid.cs` | **删**（H3 无对应物；唯一消费者 `ArchiveDiag:117` 改用 `Ball`） |
 | `10n²+2` 结构校验（`GameMapArchive:159`） | **废** ⇒ `H3.GetNumCells(res)` |
-| `Icosahedron.cs` | **保留**：`Subdivide` 仍是 9 个 CivSim 测试的 42 顶点夹具 |
+| `Icosahedron.cs` | ★2026-10-09 **已删**（用户拍板）：原拟保留因其 `Subdivide` 是 CivSim 测试的 42 顶点夹具，但 CivSim 已整体移出、旧 icosahedron 网格退役 ⇒ 删除；回归时夹具改走 H3 / `HumanInputGrid`——见 `docs/裁决-Legacy载体簇删除.md` §八 |
 
 ### 对开放子项的影响
 

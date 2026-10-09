@@ -134,7 +134,28 @@ git checkout <删除前的commit>^ -- scripts/Logic/LogicGrid/GameGrid.cs
 | `Logic/HexPlanet/SphereGrid.cs` | 已删的诊断场景 |
 
 ⇒ `scripts/Logic/Diagnostics/` 目录随之消失；`Logic/Constant/Planet/` 保留 `Thermal.cs`；
-`Logic/HexPlanet/` 保留 `Icosahedron.cs`（`HexPlanetTests` 在用）。
+`Logic/HexPlanet/` 保留 `Icosahedron.cs`（`HexPlanetTests` 在用）——★**该文件已于同日更晚删除**，见 §八。
 
 ★连带解决了**待办③**：`PlanetConstants.EarthRadiusKm` 与 `SphericalFbmNoise.EarthRadiusKm` 的重复
 ⇒ 重复源已移除，常量现只存于 `SphericalFbmNoise`。
+
+---
+
+## §八 后续（同日更晚）：`Icosahedron` 删除 ⇒ `World.HexPlanet` 命名空间消失
+
+§七 曾记「`Logic/HexPlanet/` 保留 `Icosahedron.cs`」。用户随后确认**删除**。
+
+**实测（删除前）**：编译面消费者**只剩它自己的测试** `Test/World.Tests/HexPlanetTests.cs`（7 个用例，全测 `Icosahedron`）；
+**无生产消费者、无 `.tscn` 引用、无契约白名单依赖**（`SphereGrid` / `GoldbergBuilder` / `SubdividedMesh` / `HexTile` 已先删）。
+
+**唯一顾虑（文档记载的保留理由）**：`scripts/_removed/Test/World.Tests/` 里 **5 个 CivSim 测试文件**用它做 42 顶点夹具
+（`Icosahedron.Subdivide(2, 6371f)`，共 9 处）。CivSim 是「移出待回归」⇒ 删后回归时那些测试须换夹具；
+但**它们本就要随 Bridge / `HumanInputGrid` 改写**（夹具是 icosahedron 网格，新世界是 H3）⇒ 该顾虑自然消解。
+
+**删除范围**：`Logic/HexPlanet/Icosahedron.cs`（+ `.uid`）、`Test/World.Tests/HexPlanetTests.cs`（+ `.uid`）。
+⇒ 目录 `scripts/Logic/HexPlanet/` 消失，命名空间 **`World.HexPlanet` 彻底消失** —— **旧 icosahedron 网格世界的最后残迹**。
+⇒ `scripts/Logic/` 现只余：`Constant` / `Services` / `Spatial` / `Utils` / `WorldGen`。
+
+**连带**：契约新增**结果钉** `HexPlanetNamespace_IsGone`；`Test/World.Tests/README.md` / `docs/索引.md` /
+`docs/裁决-HumanInputGrid载体契约.md` / `docs/设计-NaturalInputBridge实现设计.md` 中「保留 `Icosahedron`」的表述改为「已删」。
+（`docs/功能清单与结构重规划.md` / `docs/搬迁矩阵-WorldGen六子层.md` 等历史清单仍提及，按纪律不改。）
