@@ -19,7 +19,7 @@ jobs:
         run: dotnet build world.csproj --configuration Debug
 
       - name: Unit tests (NUnit)
-        run: dotnet test tests/World.Tests/World.Tests.csproj --configuration Debug --no-build
+        run: dotnet test scripts/Test/World.Tests/World.Tests.csproj --configuration Debug --no-build
 
       - name: Format check
         run: dotnet format world.csproj --verify-no-changes --no-restore

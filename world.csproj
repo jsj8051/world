@@ -4,9 +4,15 @@
     <RootNamespace>world</RootNamespace>
   </PropertyGroup>
   <ItemGroup>
-    <!-- 测试项目独立编译，不进入游戏程序集 -->
-    <Compile Remove="tests/**/*.cs" />
-    <None Remove="tests/**" />
+    <!-- 测试项目独立编译，不进入游戏程序集（2026-10-09 迁至 scripts/Test/）。
+         注意：只排除三个纯托管测试项目；scripts/Test/Diagnostics/ 例外——
+         诊断场景由 Godot 运行时加载，必须留在游戏程序集内。 -->
+    <Compile Remove="scripts/Test/World.Tests/**/*.cs" />
+    <Compile Remove="scripts/Test/World.Tests.Local/**/*.cs" />
+    <Compile Remove="scripts/Test/PerfBench/**/*.cs" />
+    <None Remove="scripts/Test/World.Tests/**" />
+    <None Remove="scripts/Test/World.Tests.Local/**" />
+    <None Remove="scripts/Test/PerfBench/**" />
   </ItemGroup>
   <ItemGroup>
     <!-- 单测直测 internal 纯函数/测试钩子（2026-08-24 文明记录：TechTable.LoadForTest 等） -->

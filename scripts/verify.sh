@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
 # ═══════════════════════════════════════════════════════════════════
-# 一键回归脚本（2026-08-19，参数大扫除系列基建）
+# 一键回归脚本（2026-08-19 参数大扫除系列基建；2026-10-09 存档清退后重标定）
 # 用法：bash scripts/verify.sh [--fast]
-#   --fast   只跑 n16 快测试（TectonicsTest + LogicGridDiag），跳过 CivSimDiag 全量
+#   --fast   只跑「构建 + 单测 + 主世界」，跳过诊断场景组
 #
 # 设计动机（历史 bug 教训）：
 #   · 增量 build 可能静默失败（改 C# 后必须 Rebuild + 对比 DLL 时间戳）
 #   · 每次改动都要 headless 验证，手动敲命令易漏
-#   · 本脚本 = Rebuild → 时间戳断言 → 4 组 headless 回归 → 汇总退出码
+#   · 本脚本 = Rebuild → 时间戳断言 → 单测 → headless 回归 → 汇总退出码
+#
+# ★2026-10-09 存档清退重标定：原 4 组 headless 里
+#     · TectonicsTest / MonsoonDiag —— 场景类**不存在**（早已删除）
+#     · LogicGridDiag / CivSimDiag(T 全套) —— 依赖已删的 `.mpa` 读档
+#   三条均已移除（存档编解码作为 Legacy 资产删除、待新线 WorldGen 重做）。
+#   现只保留**现存且无存档依赖**的场景：主世界 + CivSimDiag（构造场景）+ H3 冒烟。
 #
 # 前置：Godot mono 控制台 exe 路径（可用 GODOT_EXE 环境变量覆盖）
 # ═══════════════════════════════════════════════════════════════════
@@ -16,11 +22,12 @@ cd "$(dirname "$0")/.." || exit 1
 
 GODOT="${GODOT_EXE:-/d/Godot_v4.7.1-stable_mono_win64/Godot_v4.7.1-stable_mono_win64_console.exe}"
 DLL=".godot/mono/temp/bin/Debug/world.dll"
+TESTPROJ="scripts/Test/World.Tests/World.Tests.csproj"
 FAST="${1:-}"
 
 [ -x "$GODOT" ] || { echo "❌ Godot 不可执行: $GODOT（用 GODOT_EXE 环境变量指定）"; exit 2; }
 
-echo "═══ [1/6] dotnet build -t:Rebuild ═══"
+echo "═══ [1/3] dotnet build -t:Rebuild ═══"
 TS_BEFORE=$(stat -c '%Y' "$DLL" 2>/dev/null || echo 0)
 if ! dotnet build -t:Rebuild 2>&1 | tail -8 | grep -q "已成功生成\|Build succeeded\|0 个错误"; then
     echo "❌ 构建失败"; exit 1
@@ -29,41 +36,55 @@ TS_AFTER=$(stat -c '%Y' "$DLL" 2>/dev/null || echo 0)
 [ "$TS_AFTER" -gt "$TS_BEFORE" ] || { echo "❌ DLL 时间戳未更新（构建静默失败？）"; exit 1; }
 echo "✓ DLL 已更新（$(stat -c '%y' "$DLL")）"
 
+echo ""
+echo "═══ [2/3] dotnet test ═══"
+TEST_OUT=$(dotnet test "$TESTPROJ" --no-build 2>&1)
+if echo "$TEST_OUT" | grep -q "已通过!\|Passed!"; then
+    echo "$TEST_OUT" | grep -E "已通过!|Passed!" | tail -1
+else
+    echo "❌ 单元测试失败"
+    echo "$TEST_OUT" | grep -E "失败|Failed" | tail -8
+    exit 1
+fi
+
 FAIL=0
-run_test() {
-    local name="$1" scene="$2" args="$3" timeout_s="$4"
+run_scene() {
+    local name="$1" scene="$2" args="$3" timeout_s="$4" quit="${5:-}"
     echo ""
     echo "═══ [run] $name ═══"
-    local out
-    out=$(timeout "$timeout_s" "$GODOT" --headless --path . "res://scenes/diag/$scene.tscn" $args 2>&1)
-    local rc=$?
+    local out rc qargs=""
+    # quit 非空 → 追加 --quit-after（用于不会自退的常驻场景，如主世界）
+    [ -n "$quit" ] && qargs="--quit-after $quit"
+    out=$(timeout "$timeout_s" "$GODOT" --headless $qargs --path . "$scene" $args 2>&1)
+    rc=$?
     if [ $rc -ne 0 ]; then
         echo "❌ $name：退出码 $rc（timeout=$timeout_s）"
         echo "$out" | tail -15
         FAIL=1
-    elif echo "$out" | grep -qE "PASS.*FAIL|FAIL "; then
-        # CivSimDiag 的 PASS/FAIL 行（T 全套）；其他场景 PASS 即过
-        local bad
-        bad=$(echo "$out" | grep -cE "^  FAIL|FAIL T[0-9]")
-        echo "$out" | grep -E "PASS|FAIL" | tail -6
-        if [ "${bad:-0}" -gt 0 ]; then echo "❌ $name：$bad 项 FAIL"; FAIL=1; else echo "✓ $name 通过"; fi
+        return
+    fi
+    local bad
+    bad=$(echo "$out" | grep -cE "Cannot load|SCRIPT ERROR|Invalid script|^  FAIL|FAIL T[0-9]")
+    if [ "$bad" -gt 0 ]; then
+        echo "❌ $name：$bad 项错误/FAIL"
+        echo "$out" | grep -E "Cannot load|SCRIPT ERROR|Invalid script|FAIL" | tail -8
+        FAIL=1
     else
-        local sig
-        sig=$(echo "$out" | grep -E "PASS|校验|通过|成功|Quit" | tail -4)
-        echo "${sig:-（无断言输出，看上面完整日志）}"
-        echo "✓ $name 退出码 0"
+        echo "$out" | grep -E "PASS|WORLDGEN-TIMING|通过|Quit" | tail -4
+        echo "✓ $name 通过"
     fi
 }
 
-run_test "TectonicsTest(n16)"  TectonicsTest  "-- --n=16 --plates=6" 180
-run_test "LogicGridDiag(n64 往返)" LogicGridDiag "-- --arch=user://maps/regress_v9_n64.mpa" 180
+echo ""
+echo "═══ [3/3] headless 回归 ═══"
+run_scene "主世界 WorldGenWorld"   "res://scenes/core/WorldGenWorld.tscn" "" 300 600
+
 if [ "$FAST" != "--fast" ]; then
-    # ⚠️ MonsoonDiag 必须带 --out 到临时档——默认覆盖源档会污染基准（2026-08-19 verify.sh 缺陷修复）
-    run_test "MonsoonDiag(n64)"   MonsoonDiag   "-- --arch=user://maps/regress_v9_n64.mpa --out=user://maps/tmp_verify_monsoon.mpa" 240
-    run_test "CivSimDiag(T 全套)"  CivSimDiag    "" 600
+    run_scene "CivSimDiag(构造场景)" "res://scenes/diag/CivSimDiag.tscn"  "" 300
+    run_scene "H3SmokeDiag"          "res://scenes/diag/H3SmokeDiag.tscn" "" 180
 else
     echo ""
-    echo "（--fast：跳过 MonsoonDiag/CivSimDiag）"
+    echo "（--fast：跳过诊断场景组）"
 fi
 
 echo ""
