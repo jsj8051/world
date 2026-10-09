@@ -3,7 +3,7 @@
 NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**单元测试**（单类纯函数/机制契约）与
 **模块测试**（跨类不变量：确定性、守恒、往返、结构性质）。
 
-> 当前规模（2026-10-09 实测，`dotnet test`）：**305 用例全部通过**。
+> 当前规模（2026-10-09 实测，`dotnet test`）：**279 用例全部通过**。
 
 ## 测试范围（重要）
 
@@ -51,7 +51,7 @@ NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**
 | `CivSimModelTests.cs` | CivSimContext 静态纯函数：Miami NPP、冲积因子、收益判据、影响力/产出权重查表、猎物比例、冷区 |
 | `CivSimMechanicTests.cs` | 注册表/商品目录/能力表；Growth/Origin/SplitMigrate/Settlement/Energy/Cultivate/Trade/War 单模型隔离；Territory/Chiefdom/State 纯派生重建；模块确定性（等价 tick 循环两次逐项对比 + 多 seed 分叉） |
 | `BiomeTests.cs` | ★2026-10-09 **已重写**：只钉 `World.Constants.BiomeType` 词表（byte / **仅柯本 18 值** / 无重复）。原 Biome 模块测试的被测类型（BiomeClassifier / BiomeColors / MonsoonSystem）已全部不存在，且原方法**漏 `[Test]` 从未运行**——见 `docs/裁决-Domain解散与BiomeType归Constant.md` |
-| `HexPlanetTests.cs` | Icosahedron 顶点公式/反推/大 n long 安全/Subdivide 计数球面唯一性（纯几何函数，无日志直调）；SubdividedMesh 去重/三角邻居；GoldbergBuilder 五边形/六边形经典计数（12/12+30/…）、邻居对称、手工 icosahedron 全五边形 |
+| ~~`HexPlanetTests.cs`~~ | ★2026-10-09 **已删**（`Icosahedron` 与其 7 个用例一并删除 ⇒ `World.HexPlanet` 命名空间消失）——见 `docs/裁决-Legacy载体簇删除.md` §八 |
 | ~~`MapGenTests.cs`~~ | ★2026-10-09 **已删**（属 Legacy 载体簇：FieldCodec / WildCropsSystem）——见 `docs/裁决-Legacy载体簇删除.md` |
 | ~~`LogicGridTests.cs`~~ | ★2026-10-09 **已删**（属 Legacy 载体簇：GameGrid / MapData）——同上 |
 | ~~`ServicesTests.cs`~~ | ★2026-10-09 **已删**（唯一内容 = `PowerPalette` 测试；`PowerPalette` 已随 `World.Domain` 解散删除）——见 `docs/裁决-Domain解散与BiomeType归Constant.md` |

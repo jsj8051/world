@@ -82,6 +82,9 @@ public class ArchitectureContractTests
 ///   清退 A（自己生成世界）：World.Biome / World.MapGen / World.MapView / World.Tectonics
 ///   清退 E（旧表现与旧应用流程）：旧 UI 目录与场景、ArchiveService / SaveArchive / EventBus
 ///   保留 C+D（领域词汇与领域模拟）+ HexPlanet（球面网格几何基础设施）
+///   ★2026-10-09（同日更晚）：C+D 与 HexPlanet **均已消亡**——见下方三个结果钉
+///     （`LegacyCarrierCluster_IsDeleted` / `DomainNamespace_IsDissolved` / `HexPlanetNamespace_IsGone`）；
+///     本行"保留"表述现为**历史记录**。
 ///   ★2026-10-09：CivSim 已移出程序集；Legacy 载体簇（LogicGrid / Archive / WildCropsSystem）
 ///     已按用户拍板**整体删除**（之后重新实现）——见下方 `LegacyCarrierCluster_IsDeleted`。
 ///   ★2026-10-09（同日稍晚）：`World.Domain` 这个"领域词汇保留区"**亦已解散**——
@@ -201,6 +204,36 @@ public class ArchitectureContractTests
 			"scripts/Logic/Domain 应已删除（World.Domain 已解散）");
 		Assert.That(FindRepoDir("scripts", "Logic", "Constant"), Is.Not.Null,
 			"scripts/Logic/Constant 应存在（BiomeType 的新家）");
+	}
+
+	/// <summary>
+	/// **`World.HexPlanet` 消失钉（结果）**（2026-10-09 用户确认删除 `Icosahedron`）。
+	///
+	/// `Icosahedron` 是旧 icosahedron 网格世界的**最后残迹**（`SphereGrid` / `GoldbergBuilder` /
+	/// `SubdividedMesh` / `HexTile` 已先删）。删除前实测：编译面消费者**只剩它自己的测试**
+	/// `HexPlanetTests`（7 个用例）；**无生产消费者、无 `.tscn` 引用、无契约白名单依赖**。
+	///
+	/// ⚠️ 唯一顾虑 = `scripts/_removed/` 里 5 个 CivSim 测试文件用它做 42 顶点夹具（9 处）——
+	///   但那些测试本就须随 Bridge / `HumanInputGrid` 改写（夹具是 icosahedron 网格，新世界是 H3）。
+	///
+	/// 决策见 `docs/裁决-Legacy载体簇删除.md` §八。
+	/// </summary>
+	[Test]
+	public void HexPlanetNamespace_IsGone()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+
+		var survivors = asm.GetTypes()
+			.Where(t => t.Namespace == "World.HexPlanet" || (t.Namespace != null && t.Namespace.StartsWith("World.HexPlanet.")))
+			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+		Assert.That(survivors, Is.Empty,
+			$"World.HexPlanet 类型仍在程序集内：{string.Join(",", survivors)}——" +
+			"2026-10-09 该命名空间已随 Icosahedron 删除而消失（旧 icosahedron 网格世界已退役）");
+
+		Assert.That(asm.GetTypes().Where(t => t.Name == "Icosahedron").Select(t => t.Name).ToList(), Is.Empty,
+			"Icosahedron 应已删除（用户拍板；CivSim 已移出且旧网格已退役）");
+		Assert.That(FindRepoDir("scripts", "Logic", "HexPlanet"), Is.Null,
+			"scripts/Logic/HexPlanet 应已删除（Icosahedron 是其最后一件）");
 	}
 
 	/// <summary>
