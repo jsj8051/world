@@ -6,11 +6,15 @@ using World.Utils.H3;
 using Godot;
 
 // H3 球面网格数据层（纯数据可单测）：res 网格静态拓扑与几何，一次构建永久只读。
-// 内容层（noise_world 噪声世界等）持只读引用：场数组按下标与 CellIds 对齐。
+// 消费方（世界生成 / 表现层）持只读引用：场数组按下标与 CellIds 对齐。
 //
-// ★2026-10-06 E 步：目录 new_HexWorld/Ball → Spatial/Ball，命名空间
-//   World.NewHexWorld → World.Spatial（目录与命名空间恢复一致）。
-namespace World.Spatial
+// ★命名沿革：
+//   2026-10-06 E 步：`new_HexWorld/Ball` → `Spatial/Ball`，ns `World.NewHexWorld` → `World.Spatial`；
+//   2026-10-09：`Spatial/Ball` → `H3Grid/`，ns `World.Spatial` → **`World.H3Grid`**。
+//     改名理由：`World.Spatial` 与另两个同族名易混——`SpatialScale`（尺度口径，`World.WorldGen`）、
+//     `FinalSpatialIndex`（空间查询索引，`World.WorldGen`）；而本命名空间的真实身份是
+//     **H3 球面网格本体**（`Ball` 也不是"球"）。新名与 `Utils/H3`（`World.Utils.H3`）呼应。
+namespace World.H3Grid
 {
 	public class Ball
 	{

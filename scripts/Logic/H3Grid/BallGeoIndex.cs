@@ -2,13 +2,14 @@ using System;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.Utils.H3;        // H3.CellToLatLng / H3.LatLngToCell
 
-namespace World.Spatial;
+namespace World.H3Grid;
 
 // H3 球面网格数据层 · 逐格经纬度只读索引。
 // ★不是新事实源：唯一数据源仍是 `Ball.CellDirs`，本类只缓存其纯函数值
 //   （lat = asin(dir.Y)、lng = atan2(dir.Z, dir.X)），故不会与 Ball 失同步。
 // 收口：① 逐格经纬度数组（原先多处各自内联 asin/atan2）；
 //       ② `CellAt`（原先 FinalSpatialIndex 与 CellQuery 各一份相同实现）。
+// ★2026-10-09 与 `Ball` 同批：ns `World.Spatial` → `World.H3Grid`，目录 → `scripts/Logic/H3Grid/`。
 /// <summary>
 /// 逐格经纬度只读索引（`Ball.CellDirs` 的纯函数缓存；与 <c>ball.CellIds</c> 逐位对齐）。
 /// </summary>

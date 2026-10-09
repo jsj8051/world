@@ -1,7 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
-using World.Spatial;        // Ball（球壳数据层）
+using World.H3Grid;        // Ball（球壳数据层）
 using World.Utils;              // CoordUtil
 using World.Utils.H3;
 

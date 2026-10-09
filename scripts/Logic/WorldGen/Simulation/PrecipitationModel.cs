@@ -1,6 +1,6 @@
 using System;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
-using World.Spatial;    // Ball（H3 球壳数据层）
+using World.H3Grid;    // Ball（H3 球壳数据层）
 
 namespace World.WorldGen;
 

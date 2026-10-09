@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 using NUnit.Framework;
-using World.Spatial;
+using World.H3Grid;
 using World.WorldGen;
 using World.Utils.H3;
 

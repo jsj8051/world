@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using World.Spatial;
+using World.H3Grid;
 using World.WorldGen;
 
 namespace World.Tests;

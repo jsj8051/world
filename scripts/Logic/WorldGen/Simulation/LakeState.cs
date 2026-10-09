@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using World.Spatial;    // Ball（H3 球壳数据层）
+using World.H3Grid;    // Ball（H3 球壳数据层）
 
 namespace World.WorldGen;
 

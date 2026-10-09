@@ -6,7 +6,7 @@ using System.Reflection.Emit;
 using System.IO;
 using NUnit.Framework;
 using Godot;
-using World.Spatial;
+using World.H3Grid;
 using World.WorldGen;
 
 namespace World.Tests;
@@ -28,6 +28,9 @@ namespace World.Tests;
 ///   ⑦ **`World.Services` 已整体删除**（2026-10-09 用户拍板"整个 Services/（含连带）"）：
 ///      `LogService` / `UserPaths` + 其编译面连带（`FieldCompare` ×1、截图诊断 ×3 + 场景）
 ///      全部删除 ⇒ 见下方 `ServicesNamespace_IsGone`。
+///   ⑧ **`World.Spatial` 已改名 `World.H3Grid`**（2026-10-09 用户拍板"改名搬迁"）：
+///      目录 `Logic/Spatial/Ball/` → `Logic/H3Grid/`，56 处在编引用同步 ⇒ 见下方
+///      `H3Grid_NamespaceMatchesDirectory`（**首条通用的「目录 ↔ 命名空间」钉**）。
 /// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*（引擎原生调用在测试进程 = 进程级崩溃）。
 /// </summary>
 public class ArchitectureContractTests
@@ -309,6 +312,55 @@ public class ArchitectureContractTests
 				$"scenes/diag/{gone}.tscn 应已随其脚本删除——悬空场景 = headless「Cannot load C# script」");
 		Assert.That(File.Exists(Path.Combine(diagDir, "H3SmokeDiag.tscn")), Is.True,
 			"scenes/diag/H3SmokeDiag.tscn 应保留（不依赖 Services，verify.sh 仍跑它）");
+	}
+
+	/// <summary>
+	/// **`World.H3Grid` 命名空间钉（目录 ↔ 命名空间）**（2026-10-09 用户拍板改名）。
+	///
+	/// 命名沿革：`new_HexWorld/Ball` → `Spatial/Ball`（2026-10-06 E 步，ns `World.NewHexWorld`
+	///   → `World.Spatial`）→ **`H3Grid/`（本步，ns `World.Spatial` → `World.H3Grid`）**。
+	/// 改名理由：`World.Spatial` 与另两个同族名易混——`SpatialScale`（尺度口径）与
+	///   `FinalSpatialIndex`（空间查询索引）**均属 `World.WorldGen`**；而本命名空间的真实身份是
+	///   **H3 球面网格本体**（`Ball` 亦非"球"）。新名与 `Utils/H3`（`World.Utils.H3`）呼应。
+	///
+	/// ★本契约同时是**第一条通用的「目录 ↔ 命名空间」钉**（此前只有 `NewWorldLine_NamespaceIsWorldGen`
+	///   一条，且只钉 WorldGen）。规则：`scripts/{Scene,Logic}/<领域>/` 的**首层**必须逐字对应
+	///   `World.<领域>`；再往下的子目录是**自由分组**，可不进命名空间（同构先例：`Constant/Planet/`
+	///   ↔ `World.Constants`、`WorldGen/{6 子层}/` ↔ `World.WorldGen`）。
+	///   它防的是"搬了目录忘改 namespace"或"改了 namespace 忘搬目录"——
+	///   这类脱节**编译器和单测都测不出来**（两边都自洽），只有靠钉。
+	///
+	/// ⚠️ 实测（搬迁前）：`World.Spatial` 在编引用 **56 处 / 53 文件**，全部是 `using`
+	///   （+3 处全限定 `World.Spatial.Ball`）；**0 个 `.tscn` 指向这两个文件**（非 Node 脚本）、
+	///   `_removed/` 零引用 ⇒ 纯机械替换，无"悬空场景"风险。
+	/// </summary>
+	[Test]
+	public void H3Grid_NamespaceMatchesDirectory()
+	{
+		// ① 正向：两个类型都在新家
+		Assert.That(typeof(Ball).Namespace, Is.EqualTo("World.H3Grid"),
+			"Ball 应落在 World.H3Grid");
+		Assert.That(typeof(BallGeoIndex).Namespace, Is.EqualTo("World.H3Grid"),
+			"BallGeoIndex 应落在 World.H3Grid");
+
+		// ② 旧名不得复活
+		var survivors = typeof(FinalGeography).Assembly.GetTypes()
+			.Where(t => t.Namespace == "World.Spatial"
+				|| (t.Namespace != null && t.Namespace.StartsWith("World.Spatial.")))
+			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+		Assert.That(survivors, Is.Empty,
+			$"World.Spatial 类型仍在程序集内：{string.Join(",", survivors)}——" +
+			"2026-10-09 已改名 World.H3Grid（旧名与 SpatialScale / FinalSpatialIndex 易混）");
+
+		// ③ 目录位置钉（大小写逐字：Windows 文件系统大小写不敏感 ⇒ 另比真实目录名）
+		var dir = FindRepoDir("scripts", "Logic", "H3Grid");
+		Assert.That(dir, Is.Not.Null,
+			"未找到 scripts/Logic/H3Grid/ —— namespace World.H3Grid 与目录路径必须一致");
+		if (dir != null)
+			Assert.That(new DirectoryInfo(dir).Name, Is.EqualTo("H3Grid"),
+				"目录名应逐字为 'H3Grid'（大小写严格，否则目录与 namespace 脱节）");
+		Assert.That(FindRepoDir("scripts", "Logic", "Spatial"), Is.Null,
+			"scripts/Logic/Spatial 应已删除（目录与 namespace 一并改名）");
 	}
 
 	/// <summary>

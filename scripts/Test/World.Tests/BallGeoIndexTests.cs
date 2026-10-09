@@ -1,7 +1,7 @@
 using System;
 using NUnit.Framework;
 using Godot;
-using World.Spatial;
+using World.H3Grid;
 using World.Utils.H3;    // H3.CellToLatLng / H3.LatLngToCell（独立口径）
 
 namespace World.Tests;

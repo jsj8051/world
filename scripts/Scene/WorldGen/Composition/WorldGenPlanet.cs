@@ -1,7 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 using System.Diagnostics;
-using World.Spatial;              // Ball（H3 球壳数据层）
+using World.H3Grid;              // Ball（H3 球壳数据层）
 using World.Render;               // BallView（决策 08 §4.4 表现层保留资产）
 
 namespace World.WorldGen;
