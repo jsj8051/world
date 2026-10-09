@@ -115,3 +115,22 @@ git checkout <删除前的commit>^ -- scripts/Logic/LogicGrid/GameGrid.cs
 ```
 
 > 注意：取回后**契约 `LegacyCarrierCluster_IsDeleted` 会立刻变红**——这是有意设计（删除是显式决策，回归也须显式）。
+
+---
+
+## §七 后续（同日）：连带孤儿清理
+
+本簇删除后暴露出 **3 个零消费者孤儿**（它们的消费者分别是被删的本簇成员 / 已移出的 CivSim / 已删的诊断场景）。
+用户当日指示「删」，已**另行删除**（独立 commit `a6fb682`，按永久原则 13 分开提交）：
+
+| 文件 | 原消费者 |
+|---|---|
+| `Logic/Constant/Planet/PlanetConstants.cs` | `MapData`（本簇，已删） |
+| `Logic/Diagnostics/PerfLog.cs` | `CivEngine`（随 CivSim 移出） |
+| `Logic/HexPlanet/SphereGrid.cs` | 已删的诊断场景 |
+
+⇒ `scripts/Logic/Diagnostics/` 目录随之消失；`Logic/Constant/Planet/` 保留 `Thermal.cs`；
+`Logic/HexPlanet/` 保留 `Icosahedron.cs`（`HexPlanetTests` 在用）。
+
+★连带解决了**待办③**：`PlanetConstants.EarthRadiusKm` 与 `SphericalFbmNoise.EarthRadiusKm` 的重复
+⇒ 重复源已移除，常量现只存于 `SphericalFbmNoise`。
