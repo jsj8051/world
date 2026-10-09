@@ -14,7 +14,7 @@ public sealed class CoastDistanceMode : MapMode
 	public override string ScaleCaption => "距海渐变 · 12 跳满域（res4 ≈ 312 km）";
 	public override Color CellColorAt(int i)
 	{
-		var f = _p.Final;
+		var f = _p.Facts.Final;
 		int d = f.FinalLand[i] ? f.FinalDistToCoast[i] : f.FinalDistToLand[i];
 		float t = System.Math.Clamp(d / 12f, 0f, 1f);   // 12 跳满域（res4 实测量级）
 		return f.FinalLand[i]

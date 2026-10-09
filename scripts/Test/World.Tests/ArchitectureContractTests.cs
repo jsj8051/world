@@ -8,6 +8,7 @@ using NUnit.Framework;
 using Godot;
 using World.H3Grid;
 using World.WorldGen;
+using World.Data;
 
 namespace World.Tests;
 
@@ -53,19 +54,9 @@ public class ArchitectureContractTests
 	[Test]
 	public void NewWorldLine_DoesNotDependOnLegacyWorldLine()
 	{
-		var newLine = new[]
-		{
-			// Final / 尺度
-			typeof(FinalGeography), typeof(SpatialScale), typeof(FinalSpatialIndex),
-			// Placement
-			typeof(ContinentLayout), typeof(LandSeaField), typeof(H3LandSeaProjector),
-			typeof(SurfaceResolver), typeof(GeologicalRegions), typeof(TectonicField),
-			typeof(MountainSkeleton), typeof(RegionalLandforms), typeof(VolcanoField),
-			typeof(HeightComposer), typeof(SnowOverlay),
-			// World Simulation
-			typeof(PrecipitationModel), typeof(RiverNetwork), typeof(RiverGraph),
-			typeof(RiverGeometry), typeof(BasinGraph), typeof(LakeState), typeof(WaterTopology),
-		};
+		// ★2026-10-09：清单收口——此处原有一份**手抄的 NewWorldLineTypes 子集**（同一事实写两遍，
+		//   与已删的 `MapMode.Id` 同类冗余：加一个类型要记得改两处，漏一处就是静默的覆盖缺口）。
+		//   现直接复用 `NewWorldLineTypes`（其为本清单的超集，且被下方旧线类型守卫共用）。
 		// 旧世界线的四个命名空间（世界生物群系 / 旧地图生成 / 旧地图渲染 / 旧构造模拟）。
 		// ★2026-10-04 D-3 切分清退已完成：这四个命名空间在程序集里**已不存在**，
 		//   因此本断言现在是"恒绿但不可省"的方向守卫——若将来有人重新引入旧生成链
@@ -74,7 +65,7 @@ public class ArchitectureContractTests
 		var legacyNamespaces = new[] { "World.Biome", "World.MapGen", "World.MapView", "World.Tectonics" };
 
 		var offending = new List<string>();
-		foreach (var t in newLine)
+		foreach (var t in NewWorldLineTypes)
 			foreach (var r in ReferencedTypes(t))
 				if (r.Namespace != null && legacyNamespaces.Contains(r.Namespace))
 					offending.Add($"{t.Name}→{r.Namespace}.{r.Name}");
@@ -504,6 +495,17 @@ public class ArchitectureContractTests
 	{
 		// ── Final / 尺度 / 空间索引 ──
 		typeof(FinalGeography), typeof(SpatialScale), typeof(FinalSpatialIndex),
+		// ── 阶段管线（2026-10-09：六阶段各成一类；只聚合引用，不复制数组）──
+		typeof(LandSeaPipeline), typeof(TerrainPipeline), typeof(FactsPipeline),
+		typeof(ClimatePipeline), typeof(HydrologyPipeline), typeof(IndexPipeline),
+		// ── 世界定义的默认档（2026-10-10）──
+		//   ★它是"地球档"预设（**内容**）：`static class` + 静态属性 = **计算属性**
+		//     ⇒ 按数据层判据（顶层 + 零方法 + 零计算属性 + 不引用生成域类型）进不了 `World.Data`，故留 WorldGen。
+		//   ⚠️ 2026-10-10 迁移后它**已不引用任何生成域类型**（区域粒度改读 `World.Constants.Geology`）——
+		//      但它仍是"内容提供者"而非"数据形状"，归属不变（判据的第一条就不满足）。
+		//   ⚠️ 新类型若落在 `World.WorldGen` 而不登记于此，下方两条扫描型契约（旧线命名空间 /
+		//      B 线生成类型回流）**会静默漏扫它**——漏扫比契约本身不写更危险。
+		typeof(WorldSpecDefaults),
 		// ── Placement（生成依据）──
 		typeof(ContinentLayout), typeof(LandSeaField), typeof(H3LandSeaProjector),
 		typeof(SurfaceResolver), typeof(GeologicalRegions), typeof(TectonicField),
@@ -518,6 +520,16 @@ public class ArchitectureContractTests
 		typeof(H3Hydrology), typeof(HydrologyRoutingSurface),
 		// ── 基础设施（表现层入口类由专项契约单独扫，见下）──
 		typeof(SnowOverlay), typeof(SeedDerivation), typeof(H3TerrainSampler),
+		// ── 数据层 World.Data（2026-10-09 建层：纯数据载体 = 顶层 + 零方法 + 零计算属性
+		//     + 无嵌套 + 不引用生成域类型；判据与依赖方向见 scripts/Logic/Data/Carrier/ContinentAnchor.cs 头部）──
+		typeof(ContinentAnchor), typeof(MountainRidge), typeof(Scale3),
+		//   ★世界定义（2026-10-10：4 个位置参数收成 WorldSpec；两级 = 全局 Seed + 阶段 spec）——
+		//     它们是**纯数据形状**（判据同上一行：顶层 + 零方法 + 零计算属性 + 不引用生成域类型），
+		//     与 `ContinentAnchor` 同类；依赖方向 WorldGen → Data 已既定。
+		//     退化档/预设（内容）**不在本层**，另立 `WorldSpecDefaults` 留 `World.WorldGen`。
+		//   ⚠️ 2026-10-10 第二批：原数据载体 `LandSeaParams` 的 10 个世界参数已并入 `LandSeaSpec`
+		//      （它自带字段初值 = 内容装在形状里）⇒ 该类型**已删除**，不再是扫描面成员。
+		typeof(WorldSpec), typeof(LandSeaSpec), typeof(TerrainSpec),
 	};
 
 	/// <summary>
@@ -807,7 +819,7 @@ public class ArchitectureContractTests
 	{
 		const float target = 0.29f;
 		var layout = new ContinentLayout(42, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = 42 });
+		var field = new LandSeaField(layout, 42, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, target);
 
@@ -1103,7 +1115,7 @@ public class ArchitectureContractTests
 		var forbidden = new[]
 		{
 			typeof(FeatureField), typeof(ITerrainField), typeof(TerrainFeature), typeof(Scale3),
-			typeof(TerrainDomain), typeof(LandSeaField), typeof(LandSeaParams),
+			typeof(TerrainDomain), typeof(LandSeaField), typeof(LandSeaSpec),
 			typeof(ContinentLayout), typeof(SurfaceResolver),
 		};
 		var offending = new List<string>();
@@ -1183,7 +1195,7 @@ public class ArchitectureContractTests
 		//（Base + 三档 variation + MinLand 钳制）。手工构造基线并与空列表合成逐格对照。
 		int seed = 42;
 		var layout = new ContinentLayout(seed, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = seed });
+		var field = new LandSeaField(layout, seed, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

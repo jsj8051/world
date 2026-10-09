@@ -287,7 +287,7 @@ public static class Program
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     var layout = new World.WorldGen.ContinentLayout(seed, 7);
                     var field = new World.WorldGen.LandSeaField(layout,
-                        new World.WorldGen.LandSeaParams { Seed = seed });
+                        seed, World.WorldGen.WorldSpecDefaults.Earth.LandSea);
                     var proj = new World.WorldGen.H3LandSeaProjector();
                     proj.Generate(ball, field, 0.29f);
                     var regions = new World.WorldGen.GeologicalRegions(seed);
@@ -386,7 +386,7 @@ public static class Program
         var ball = new World.H3Grid.Ball(res, 1f);
         var layout = new World.WorldGen.ContinentLayout(seed, 7);
         var field = new World.WorldGen.LandSeaField(layout,
-            new World.WorldGen.LandSeaParams { Seed = seed });
+            seed, World.WorldGen.WorldSpecDefaults.Earth.LandSea);
         var proj = new World.WorldGen.H3LandSeaProjector();
         proj.Generate(ball, field, 0.29f);
         var regions = new World.WorldGen.GeologicalRegions(seed);
@@ -523,7 +523,7 @@ public static class Program
         var ball = new World.H3Grid.Ball(res, 1f);
         var layout = new World.WorldGen.ContinentLayout(seed, 7);
         var field = new World.WorldGen.LandSeaField(layout,
-            new World.WorldGen.LandSeaParams { Seed = seed });
+            seed, World.WorldGen.WorldSpecDefaults.Earth.LandSea);
         var proj = new World.WorldGen.H3LandSeaProjector();
         proj.Generate(ball, field, 0.29f);
         var regions = new World.WorldGen.GeologicalRegions(seed);

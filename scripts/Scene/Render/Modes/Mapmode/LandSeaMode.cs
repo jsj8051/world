@@ -14,7 +14,7 @@ public sealed class LandSeaMode : MapMode
 	public LandSeaMode(WorldGenSimulation p) => _p = p;
 	public override string Name => "海陆场";
 	public override string ScaleCaption => "生成诊断 · Projector.Raw（非世界事实）";
-	public override Color CellColorAt(int i) => RampSampleSmooth(DivergingStops, _p.Projector.Raw[i] / 0.8f);
+	public override Color CellColorAt(int i) => RampSampleSmooth(DivergingStops, _p.LandSea.Projector.Raw[i] / 0.8f);
 
 	// ── 发散色带（原始连续场共用 · 海陆场诊断模式用）──
 	// ★沿革：原挂在抽象基类 `MapMode` 上（B 线 `NoiseMapMode` "基类 + 两色带常量"直接搬入的

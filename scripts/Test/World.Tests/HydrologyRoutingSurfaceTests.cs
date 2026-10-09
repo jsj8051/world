@@ -21,7 +21,7 @@ public class HydrologyRoutingSurfaceTests
 	{
 		var ball = new Ball(res, 1f);
 		var layout = new ContinentLayout(Seed, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = Seed });
+		var field = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

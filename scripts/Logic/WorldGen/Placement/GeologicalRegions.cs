@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.H3Grid;    // Ball（H3 球壳数据层）
 using World.Utils;
+using World.Constants; // Geology（区域粒度默认值——2026-10-10 从本类迁出，归常量族）
 
 namespace World.WorldGen;
 
@@ -58,7 +59,9 @@ public sealed class GeologicalRegions
 	public float[] BaseElevationField { get; private set; } = Array.Empty<float>();
 
 	// ── 分区旋钮 ──
-	public const float TargetRegionAreaKm2 = 4_000_000f;   // 目标区域面积（地球：~400 万 km²/区域）
+	// ★`TargetRegionAreaKm2` 已于 2026-10-10 迁出本类 ⇒ `World.Constants.Geology`（常量族）：
+	//   它的身份是"世界定义 ② 阶段的默认值"（退化档 `WorldSpecDefaults.Earth` 也读它），
+	//   挂在生成器上会藏起"默认世界由谁定义"。本类只保留**本类自己的**调参旋钮。
 	public const int MaxRegionsPerContinent = 14;
 	public const int LloydIterations = 2;                  // 决策 §七：1~3 次，多了过度规则
 	public const int PoissonMinGapKm = 900;                // 种子最小角距（km；Poisson disk 半径口径）
@@ -110,7 +113,7 @@ public sealed class GeologicalRegions
 	}
 
 	/// <summary>全量生成。proj 须已 Generate；field 仅取扭曲系一致性（同参种子亦可独立）。</summary>
-	public void Generate(Ball ball, H3LandSeaProjector proj, float targetRegionAreaKm2 = TargetRegionAreaKm2)
+	public void Generate(Ball ball, H3LandSeaProjector proj, float targetRegionAreaKm2 = Geology.TargetRegionAreaKm2)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (proj == null) throw new ArgumentNullException(nameof(proj));

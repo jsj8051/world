@@ -4,6 +4,8 @@ using NUnit.Framework;
 using World.WorldGen;
 using World.Utils;
 
+using World.Data;
+
 namespace World.Tests;
 
 /// <summary>

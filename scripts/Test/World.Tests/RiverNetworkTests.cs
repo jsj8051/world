@@ -23,7 +23,7 @@ public class RiverNetworkTests
 	static (RiverNetwork r, FinalGeography f, HeightComposer c) Make(int seed = 42, bool? useDepressionFill = null)
 	{
 		var layout = new ContinentLayout(seed, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = seed });
+		var field = new LandSeaField(layout, seed, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
@@ -137,7 +137,7 @@ public class RiverNetworkTests
 		// 2A 回归锚：均匀降水 = 每格等权 ⇒ RunoffAccum = precip × FlowAccum，
 		// 径流阈值（均雨×格数）与格数判据逐格等价（W1 行为不漂移）
 		var layout = new ContinentLayout(42, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = 42 });
+		var field = new LandSeaField(layout, 42, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
@@ -180,7 +180,7 @@ public class RiverNetworkTests
 		// 2A 主语义：纬度带降水（赤道多/副热带少）塑造径流分布——
 		// 低纬（<10°）格的平均径流 > 副热带（20-35°）格
 		var layout = new ContinentLayout(42, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = 42 });
+		var field = new LandSeaField(layout, 42, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

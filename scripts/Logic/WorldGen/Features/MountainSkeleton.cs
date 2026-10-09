@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.H3Grid;    // Ball（H3 球壳数据层）
 using World.Utils;
+using World.Data;           // MountainRidge / Scale3
 
 namespace World.WorldGen;
 
@@ -20,17 +21,8 @@ namespace World.WorldGen;
 //      System 间近平行排斥（间距 < 1400 km 且角差 < 25° → 重掷）。
 // 采样语义不变：HeightAddAt(dir) 连续口；逐格数组 = 其 H3 采样。
 // 雪线不在本层——渲染器按 SnowOverlay 渐变叠加（雪线属表现层，且必须在最终高度之后）。
-/// <summary>一条山脊：曲线行走点列（~20 km 步长）+ **逐点高度**（轴向 profile 的离散载体）。</summary>
-public sealed class MountainRidge
-{
-	public Vector3[] Points = Array.Empty<Vector3>();
-	public float[] PointHeightM = Array.Empty<float>();   // 沿轴高度（含宏观 profile 与支脉衰减）
-	public bool IsBranch;
-	public float SigmaKm;
-	public Vector3 Center = Vector3.Zero;
-	public float CapRadiusRad;
-}
-
+//  ★2026-10-09：数据形状 `MountainRidge` 已移入数据层（`scripts/Logic/Data/Carrier/MountainRidge.cs`，
+//    ns `World.Data`）——本文件只留"山脊怎么长出来"。
 /// <summary>
 /// 山脉骨架 v3：方向场主 Range（轴向高度曲线）+ 曲线生长支脉树 → 逐格高斯包络加成。
 /// </summary>
@@ -52,7 +44,6 @@ public sealed class MountainSkeleton : ITerrainField
 	// ── 骨架性格旋钮（地球量级；测试球可经构造覆写）──
 	public const float BaseHeightM = 4200f;        // 主 Range **目标绝对高度**基准（决策 07 步骤⑤：lerp 语义——峰高单一来源；高度多样性/小陆块缩放在其上乘）
 	public const float BaseSigmaKm = 160f;         // 主 Range 高斯宽度（v3.1：250→160，山带变薄）
-	public const float MeanderAmpKm = 260f;        // （保留常量兼容；v3 蜿蜒由行走转角承担）
 	public const int PointStepKm = 20;             // 行走步长
 	public const float MinRangeSpacingKm = 1400f;  // System 间最小间距（近平行排斥）
 	public const float ParallelAngleDeg = 25f;     // 排斥的角差阈值

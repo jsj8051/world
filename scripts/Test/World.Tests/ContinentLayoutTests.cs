@@ -3,6 +3,7 @@ using Godot;
 using NUnit.Framework;
 using World.WorldGen;
 
+
 namespace World.Tests;
 
 /// <summary>
@@ -115,27 +116,49 @@ public class ContinentLayoutTests
 	public void LandSea_SameSeed_BitwiseIdentical_AndWarpChangesValue()
 	{
 		var layout = new ContinentLayout(Seed, Count);
-		var a = new LandSeaField(layout, new LandSeaParams { Seed = Seed });
-		var b = new LandSeaField(layout, new LandSeaParams { Seed = Seed });
+		var a = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
+		var b = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
 		var dirs = SampleDirs(256);
 		CollectionAssert.AreEqual(a.SampleAll(dirs), b.SampleAll(dirs), "同种子海陆场须逐位同");
 
 		// 域扭曲关闭（幅度 0）须改变场（扭曲是形状的一部分）
-		var noWarp = new LandSeaField(layout, new LandSeaParams { Seed = Seed, WarpAmplitudeKm = 0f });
+		var noWarp = new LandSeaField(layout, Seed,
+			WorldSpecDefaults.Earth.LandSea with { WarpAmplitudeKm = 0f });
 		CollectionAssert.AreNotEqual(a.SampleAll(dirs), noWarp.SampleAll(dirs), "扭曲幅度 0 ≠ 默认（扭曲须实际生效）");
 	}
 
 	[Test]
 	public void LandSea_BoundedByInfluencePlusNoiseAmplitudes()
 	{
-		var field = new LandSeaField(new ContinentLayout(Seed, Count), new LandSeaParams { Seed = Seed });
-		var p = field.Params;
+		var field = new LandSeaField(new ContinentLayout(Seed, Count), Seed, WorldSpecDefaults.Earth.LandSea);
+		var p = field.Spec;
 		float maxWeight = 0f;
 		foreach (var a in field.Influence.Layout.Anchors) maxWeight = MathF.Max(maxWeight, a.Weight);
 		float bound = maxWeight + p.LowAmplitude + p.MediumAmplitude * ContinentLayout.MaxCoastCx
 			+ p.SmallAmplitude * ContinentLayout.MaxCoastCx + 1e-3f;
 		foreach (float v in field.SampleAll(SampleDirs(256)))
 			Assert.That(v, Is.InRange(-bound, bound), "海陆场必须被影响上界 + 噪声幅度包络");
+	}
+
+	[Test]
+	public void LandSea_AllNoiseAmplitudesZero_EqualsPureInfluence()
+	{
+		// ★关断值（永久原则 4）＋ "spec 字段确实到达采样口"（第二批收编 10 参数后新增的护栏）：
+		//   扭曲与三尺度幅度**全置 0** ⇒ 场必须逐点退化为纯影响场。
+		//   4 个幅度字段里任何一个在 `LandSeaField` 里接错/接漏，这里立刻红——
+		//   而既有的包络断言与"扭曲开关"断言照不出"中/小尺度幅度没接上"这类错。
+		var layout = new ContinentLayout(Seed, Count);
+		var spec = WorldSpecDefaults.Earth.LandSea with
+		{
+			WarpAmplitudeKm = 0f,
+			LowAmplitude = 0f,
+			MediumAmplitude = 0f,
+			SmallAmplitude = 0f,
+		};
+		var field = new LandSeaField(layout, Seed, spec);
+		foreach (var d in SampleDirs(256))
+			Assert.That(field.Sample(d), Is.EqualTo(field.Influence.Sample(d)).Within(1e-6f),
+				"扭曲 + 三尺度幅度全 0 时必须逐点等于纯影响场（关断值）");
 	}
 
 	static Vector3[] SampleDirs(int n)

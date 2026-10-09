@@ -15,9 +15,9 @@ public sealed class RegionTypeMode : MapMode
 	public override Color CellColorAt(int i)
 	{
 		// 收口（§07 D-1）：地图语义一律读 **Final 口径**（最终区域归属；Placement 版仅供生成内部）
-		int r = _p.Final.FinalRegionOfCell[i];
+		int r = _p.Facts.Final.FinalRegionOfCell[i];
 		if (r < 0) return MapSeaColor.Deep;   // 海格统一深蓝底（共享底色，画面连续）
-		return _p.Regions.Regions[r].Type switch
+		return _p.Terrain.Regions.Regions[r].Type switch
 		{
 			RegionType.Plain => new Color(0.45f, 0.68f, 0.32f),   // 绿（平原）
 			RegionType.Highland => new Color(0.78f, 0.66f, 0.36f),   // 黄褐（高地）

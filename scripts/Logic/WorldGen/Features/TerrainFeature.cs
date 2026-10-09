@@ -1,5 +1,6 @@
 using System;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
+using World.Data;           // Scale3（特征尺度三元组）
 
 namespace World.WorldGen;
 
@@ -7,24 +8,10 @@ namespace World.WorldGen;
 //   **Field 回答"哪里容易发生什么"（构造/环境背景），Feature 回答"具体长成什么样"
 //   （离散地质对象，自带尺度与形态），Morphology 是该对象的生长规则**——
 //   三者彻底分离后，加盆地/火山/峡谷/断层不再动世界生成总架构（决策 06 §十五）。
-// 本文件只放三种东西共用的最小抽象：尺度三元组、特征基类、高度贡献口。
+// 本文件只放两种东西共用的最小抽象：特征基类、高度贡献口。
+//   （尺度三元组 `Scale3` 已于 2026-10-09 移入数据层 `World.Data`。）
 // 各形态生成器（山脉中心线+剖面+支脉树 / 盆地帽 / 火山锥…）分属自己的实现文件——
 //   **不存在万能地形区域公式**，不同特征用不同参数化（决策 06 §十一）。
-/// <summary>特征尺度三元组：纵（沿走向）/ 横（垂直走向）/ 垂（高度幅）——每种特征自己填。</summary>
-public readonly struct Scale3
-{
-	public readonly float LongitudinalKm;   // 山脉 1000-3000 / 山间盆地 50-300 / 火山 5-30（决策 06 §二表）
-	public readonly float TransversalKm;    // 山脉 100-400 / 盆地 20-100 / 峡谷 1-20
-	public readonly float VerticalM;        // +2500（山）/ −800（盆地）/ −500（峡谷）…
-
-	public Scale3(float longitudinalKm, float transversalKm, float verticalM)
-	{
-		LongitudinalKm = longitudinalKm;
-		TransversalKm = transversalKm;
-		VerticalM = verticalM;
-	}
-}
-
 /// <summary>
 /// 地形特征基类：离散地质对象的公共身份（锚点/走向/强度/尺度 + 采样预筛帽）。
 /// 形态数据（中心线/剖面/支脉树/锥体…）由各 Morphology 实现自有。

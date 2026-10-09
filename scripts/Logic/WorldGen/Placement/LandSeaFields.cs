@@ -1,6 +1,7 @@
 using System;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.Utils;
+using World.Data;           // LandSeaSpec（① 阶段配置）
 
 namespace World.WorldGen;
 
@@ -68,35 +69,39 @@ public sealed class ContinentInfluenceField
 public sealed class LandSeaField : SphericalField
 {
 	public ContinentInfluenceField Influence { get; }
-	public LandSeaParams Params { get; }
 
+	/// <summary>本阶段的配置快照（装配层构造后不再变；测试据此核对包络）。</summary>
+	public LandSeaSpec Spec => _spec;
+
+	readonly LandSeaSpec _spec;                 // 直读字段（readonly struct 字段访问零拷贝）
 	readonly SphericalFbmNoise _w1, _w2, _w3;   // 域扭曲三路
 	readonly SphericalFbmNoise _low, _med, _small;
 
-	public LandSeaField(ContinentLayout layout, LandSeaParams p)
+	/// <param name="seed">世界种子（**全局层**按值展开的 `int`；本类只负责喂噪声，不持有身份）。</param>
+	/// <param name="spec">① 阶段配置（唯一真相源 = `WorldSpecDefaults.Earth.LandSea` 或装配层切片）。</param>
+	public LandSeaField(ContinentLayout layout, int seed, LandSeaSpec spec)
 	{
 		Influence = new ContinentInfluenceField(layout);
-		Params = p;
-		var rnd = new DeterministicRandom(p.Seed);
-		_w1 = new SphericalFbmNoise(rnd.Next(), p.WarpWavelengthKm, p.WarpOctaves);
-		_w2 = new SphericalFbmNoise(rnd.Next(), p.WarpWavelengthKm, p.WarpOctaves);
-		_w3 = new SphericalFbmNoise(rnd.Next(), p.WarpWavelengthKm, p.WarpOctaves);
-		_low = new SphericalFbmNoise(rnd.Next(), p.LowWavelengthKm, p.LowOctaves);
-		_med = new SphericalFbmNoise(rnd.Next(), p.MediumWavelengthKm, 3);
-		_small = new SphericalFbmNoise(rnd.Next(), p.SmallWavelengthKm, 2);
+		_spec = spec;
+		var rnd = new DeterministicRandom(seed);
+		_w1 = new SphericalFbmNoise(rnd.Next(), spec.WarpWavelengthKm, spec.WarpOctaves);
+		_w2 = new SphericalFbmNoise(rnd.Next(), spec.WarpWavelengthKm, spec.WarpOctaves);
+		_w3 = new SphericalFbmNoise(rnd.Next(), spec.WarpWavelengthKm, spec.WarpOctaves);
+		_low = new SphericalFbmNoise(rnd.Next(), spec.LowWavelengthKm, spec.LowOctaves);
+		_med = new SphericalFbmNoise(rnd.Next(), spec.MediumWavelengthKm, 3);   // 3 / 2 = 模型内部常数（非世界参数）
+		_small = new SphericalFbmNoise(rnd.Next(), spec.SmallWavelengthKm, 2);
 	}
 
 	/// <summary>海陆标量场（无纲量）：> 0 = 陆，幅值 = 距海岸的"深度"（离散层映射可见海拔用）。</summary>
 	public override float Sample(Vector3 dir)
 	{
-		var p = Params;
 		Vector3 d = SampleWarpDir(dir);
 
 		float v = Influence.SampleWithAnchor(d, out int a);
 		var anchor = Influence.Layout.Anchors[a];
-		v += p.LowAmplitude * _low.Sample(d);                                 // Large：大陆整体形状
-		v += p.MediumAmplitude * anchor.CoastComplexity * _med.Sample(d);     // Medium：半岛 / 海湾
-		v += p.SmallAmplitude * anchor.CoastComplexity * _small.Sample(d);    // Small：海岸线细节
+		v += _spec.LowAmplitude * _low.Sample(d);                                 // Large：大陆整体形状
+		v += _spec.MediumAmplitude * anchor.CoastComplexity * _med.Sample(d);     // Medium：半岛 / 海湾
+		v += _spec.SmallAmplitude * anchor.CoastComplexity * _small.Sample(d);    // Small：海岸线细节
 		return v;
 	}
 
@@ -104,31 +109,8 @@ public sealed class LandSeaField : SphericalField
 	/// 分界弯曲与海岸线同源，不再出现未扭曲 Voronoi 的数学圆弧（决策 03 v2 §九：先连续场再采样）。</summary>
 	public Vector3 SampleWarpDir(Vector3 dir)
 	{
-		var p = Params;
-		if (p.WarpAmplitudeKm <= 0f) return dir;
+		if (_spec.WarpAmplitudeKm <= 0f) return dir;
 		var w = new Vector3(_w1.Sample(dir), _w2.Sample(dir), _w3.Sample(dir));
-		return (dir + w * (p.WarpAmplitudeKm / SphericalFbmNoise.EarthRadiusKm)).Normalized();
+		return (dir + w * (_spec.WarpAmplitudeKm / SphericalFbmNoise.EarthRadiusKm)).Normalized();
 	}
-}
-
-/// <summary>海陆结构场参数（框架期独立小表；接线面板/JSON 走后续批次）。</summary>
-public sealed class LandSeaParams
-{
-	public int Seed = 42;
-
-	// ── 域扭曲（阶段 2 海岸弯曲）──
-	public float WarpWavelengthKm = 3000f;
-	public int WarpOctaves = 3;
-	public float WarpAmplitudeKm = 600f;
-
-	// ── 三尺度轮廓调制（阶段 2：Large=大陆整体形状 / Medium=半岛海湾 / Small=海岸细节）──
-	public float LowWavelengthKm = 5000f;
-	public int LowOctaves = 2;
-	public float LowAmplitude = 0.35f;
-
-	public float MediumWavelengthKm = 1200f;
-	public float MediumAmplitude = 0.25f;
-
-	public float SmallWavelengthKm = 300f;
-	public float SmallAmplitude = 0.12f;
 }

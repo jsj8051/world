@@ -74,12 +74,12 @@ public partial class WorldGenManager : Node3D
 		int i = _planet.View.PickCellIndex(cell.Value);
 		if (i < 0) { _cellPanel.Clear(); return; }
 		var sim = _planet.Sim;   // 世界事实全部经纯逻辑入口取（节点上不再镜像一份）
-		var f = sim.Final;
-		var g = sim.Regions;
+		var f = sim.Facts.Final;
+		var g = sim.Terrain.Regions;
 		var ll = H3.CellToLatLng(cell.Value);
 		float latDeg = (float)(ll.Lat * 180 / Math.PI);
 		float lngDeg = (float)(ll.Lng * 180 / Math.PI);
-		float elevM = sim.DisplayElevation[i];
+		float elevM = sim.Terrain.DisplayElevation[i];
 		// 档位名由宿主取（单一事实源 = ElevationMode.ElevationBandName，与其色表同阈值）——
 		// 信息卡不依赖海拔语义（纯哑组件）。
 		_cellPanel.ShowCell(cell.Value, latDeg, lngDeg, elevM, ElevationMode.ElevationBandName(elevM));
@@ -92,6 +92,6 @@ public partial class WorldGenManager : Node3D
 			: "区域−";
 		GD.Print($"[WORLDGEN-PICK] 格 {i} lat={latDeg:F1} lng={lngDeg:F1} " +
 				 $"land={f.FinalLand[i]}({f.FinalLandFraction[i]:P0}) 陆块={f.FinalLandmassId[i]} {region} " +
-				 $"离海={f.FinalDistToCoast[i]} 离岸={f.FinalDistToLand[i]} elev={sim.DisplayElevation[i]:F0}m");
+				 $"离海={f.FinalDistToCoast[i]} 离岸={f.FinalDistToLand[i]} elev={sim.Terrain.DisplayElevation[i]:F0}m");
 	}
 }

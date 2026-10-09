@@ -14,7 +14,7 @@ public sealed class PrecipitationMode : MapMode
 	public override string Name => "降水";
 	public override string ScaleCaption => "固定物理域 0–3000 mm/年（对数显示）";
 	public override Color CellColorAt(int i) =>
-		RampSampleSmooth(PrecipStops, PrecipNorm(_p.Precipitation.AnnualMm[i]));
+		RampSampleSmooth(PrecipStops, PrecipNorm(_p.Climate.Precipitation.AnnualMm[i]));
 
 	// ── 降水色带（Sequential · 固定物理域 0–3000 mm/年 · 对数式显示变换）──
 	// 长尾分布：线性域会让湿润区挤在色带一端；对数变换只作用于**显示采样**（mm → [0,1]），

@@ -2,32 +2,18 @@ using System;
 using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.Utils;
+using World.Data;           // ContinentAnchor（锚点数据形状）
 
 namespace World.WorldGen;
 
 // 世界生成空间 · 大陆锚点层（阶段 1，决策 docs/newdecision/设计-世界生成空间-02-海陆结构.md）：
+//  ★2026-10-09：数据形状 `ContinentAnchor` 已移入数据层（`scripts/Logic/Data/Carrier/ContinentAnchor.cs`，
+//    ns `World.Data`）——本文件只留"怎么撒点/怎么派生属性"。
 //   「大陆锚点 + 加权 Voronoi + 多尺度 Noise」——先撒大陆中心（**蓝噪声**：Mitchell best-candidate，
 //   中心不挤在一起），每锚点带 size / shape / rotation / coastComplexity 属性，形成大陆影响场
 //   continentInfluence(dir)；归属仅用于连续场内部塑形（锚点性格参数），地图量 = 陆块连通分量。
 // 确定性红线：撒点与属性全部经 DeterministicRandom **固定次序**派生；best-candidate 的候选数固定。
 // 尺度口径：地球半径 6371 km；大陆影响半径 1800–4200 km（地球大陆量级：非洲 ~3600、澳洲 ~2000）。
-/// <summary>大陆锚点：中心方向 + 椭圆影响参数（shape = 轴比，rotation = 切平面内轴朝向）+ 海岸性格。</summary>
-public sealed class ContinentAnchor
-{
-	/// <summary>中心单位方向。</summary>
-	public Vector3 Dir;
-	/// <summary>影响半径（km，球面弧长口径）——"size"。</summary>
-	public float RadiusKm;
-	/// <summary>shape 各向异性轴（切平面内正交单位向量；即 "rotation" 的载体）。</summary>
-	public Vector3 AxisU, AxisV;
-	/// <summary>沿 U/V 轴的拉伸比（≥1；1 = 圆形大陆，2 = 明显长条）。</summary>
-	public float StretchU, StretchV;
-	/// <summary>海岸复杂度乘子（≈[0.5,1.6]）：调制该大陆的半岛/海湾/细节幅度——"coastComplexity"。</summary>
-	public float CoastComplexity;
-	/// <summary>影响权重（≈[0.8,1.25]）：进影响场 ⇒ 归属 = 加权 Voronoi。</summary>
-	public float Weight;
-}
-
 /// <summary>
 /// 大陆布局：蓝噪声撒 N 个锚点 + 逐锚点属性（一次构建只读）。
 /// </summary>
@@ -37,9 +23,12 @@ public sealed class ContinentLayout
 	public int SeedUsed { get; }
 
 	// ── 属性值域（地球量级；后续接参数表）──
+	//   ★四组值域一律成对命名（Min/Max）——此前 `weight` 是唯一写成 `0.8f + 0.45f * rnd` 的裸魔数，
+	//     量纲要读者自己算（0.45 是"跨度"不是"上界"），与另三组的写法不一致；2026-10-10 补齐。
 	public const float MinRadiusKm = 1800f, MaxRadiusKm = 4200f;
 	public const float MaxStretch = 2.2f;
 	public const float MinCoastCx = 0.5f, MaxCoastCx = 1.6f;
+	public const float MinWeight = 0.8f, MaxWeight = 1.25f;   // 影响权重（进影响场 ⇒ 加权 Voronoi）
 
 	public ContinentLayout(int seed, int continentCount)
 	{
@@ -77,12 +66,17 @@ public sealed class ContinentLayout
 			var axisU = (u * MathF.Cos(rot) + v * MathF.Sin(rot)).Normalized();
 			var axisV = center.Cross(axisU);                                   // 切平面内与 U 正交（右手系）
 			float coastCx = MinCoastCx + (MaxCoastCx - MinCoastCx) * (float)rnd.NextDouble();
-			float weight = 0.8f + 0.45f * (float)rnd.NextDouble();
+			float weight = MinWeight + (MaxWeight - MinWeight) * (float)rnd.NextDouble();
 			Anchors[c] = new ContinentAnchor
 			{
-				Dir = center, RadiusKm = radiusKm,
-				AxisU = axisU, AxisV = axisV, StretchU = stretchU, StretchV = stretchV,
-				CoastComplexity = coastCx, Weight = weight,
+				Dir = center,
+				RadiusKm = radiusKm,
+				AxisU = axisU,
+				AxisV = axisV,
+				StretchU = stretchU,
+				StretchV = stretchV,
+				CoastComplexity = coastCx,
+				Weight = weight,
 			};
 		}
 	}

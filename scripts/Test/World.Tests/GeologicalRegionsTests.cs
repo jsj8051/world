@@ -23,7 +23,7 @@ public class GeologicalRegionsTests
 	static (GeologicalRegions g, H3LandSeaProjector p) Make(int seed = 42, float targetAreaKm2 = 8_000_000f)
 	{
 		var layout = new ContinentLayout(seed, 7);
-		var field = new LandSeaField(layout, new LandSeaParams { Seed = seed });
+		var field = new LandSeaField(layout, seed, WorldSpecDefaults.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var g = new GeologicalRegions(seed);

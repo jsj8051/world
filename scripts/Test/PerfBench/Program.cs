@@ -71,7 +71,7 @@ internal static class Program
 			var ball = new Ball(res, 1f);
 			var sc = SpatialScale.Of(ball);
 			var layout = new ContinentLayout(Seed, ContinentCount);
-			var field = new LandSeaField(layout, new LandSeaParams { Seed = Seed });
+			var field = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
 			var proj = new H3LandSeaProjector();
 			proj.Generate(ball, field, LandFraction);
 			var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
@@ -228,7 +228,7 @@ internal static class Program
 		Console.Error.WriteLine($"[bench] res={res} cells={ball.CellIds.Length}");
 
 		var layout = Stage(rows, res, "ContinentLayout", () => new ContinentLayout(Seed, ContinentCount));
-		var field = Stage(rows, res, "LandSeaField", () => new LandSeaField(layout, new LandSeaParams { Seed = Seed }));
+		var field = Stage(rows, res, "LandSeaField", () => new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea));
 
 		var proj = new H3LandSeaProjector();
 		Stage(rows, res, "H3LandSeaProjector", () => proj.Generate(ball, field, LandFraction));
@@ -421,7 +421,7 @@ internal static class Program
 			int n = ball.CellDirs.Length;
 
 			var layout = new ContinentLayout(Seed, ContinentCount);
-			var field = new LandSeaField(layout, new LandSeaParams { Seed = Seed });
+			var field = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
 			var proj = new H3LandSeaProjector();
 			proj.Generate(ball, field, LandFraction);
 			var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

@@ -15,7 +15,7 @@ public sealed class TemperatureMode : MapMode
 	public override string Name => "温度";
 	public override string ScaleCaption => $"固定物理域 {TempDomainMinC:F0}…+{TempDomainMaxC:F0} °C（年均 · 不随世界拉伸）";
 	public override Color CellColorAt(int i) =>
-		RampSampleSmooth(TemperatureStops, _p.Temperature.CellTemperatureC[i]);
+		RampSampleSmooth(TemperatureStops, _p.Climate.Temperature.CellTemperatureC[i]);
 
 	// ── 温度色带（Sequential · 固定物理域 −40…+90 °C · 线性，无显示变换）──
 	// ★为什么本模式**当初**不直接复用 Domain.BiomeColors.TempStops：那张色带的域是 −85…+45 °C

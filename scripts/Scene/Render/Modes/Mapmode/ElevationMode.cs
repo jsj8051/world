@@ -23,8 +23,8 @@ public sealed class ElevationMode : MapMode
 	public ElevationMode(WorldGenSimulation p) => _p = p;
 	public override string Name => "海拔";
 	public override Color CellColorAt(int i) =>
-		_p.Final.FinalLand[i]
-			? ElevationColor(_p.DisplayElevation[i])   // 陆 = 合成海拔分档（HeightComposer 唯一出处）
+		_p.Facts.Final.FinalLand[i]
+			? ElevationColor(_p.Terrain.DisplayElevation[i])   // 陆 = 合成海拔分档（HeightComposer 唯一出处）
 			: MapSeaColor.Deep;                        // 海 = 统一深蓝底
 
 	// ── 海拔分档色/名（9 档硬色阶 · 档界即等高线）──
