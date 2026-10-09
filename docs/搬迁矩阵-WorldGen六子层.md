@@ -2,6 +2,11 @@
 
 > ✅ **状态：已执行完毕（2026-10-06）**。下表为执行前的规划原文，保留作为决策依据。
 > 实际执行结果与规划的三处偏差见文末「执行结果对账」。
+>
+> ⚠️ **后续（2026-10-09）**：这六子层**已重排为八子层**——`Simulation/` 拆为 `Climate/` + `Hydrology/`，
+> 新增 `Foundation/`，`SurfaceResolver` → `Placement/`，`HeightComposer` → `Composition/`。
+> **本文保留 2026-10-06 原貌**（历史记录，不回改）；现状见 `docs/裁决-WorldGen子层重排.md`
+> 与 `docs/architecture.md` §目录治理。
 
 - 日期：2026-10-06
 - 性质：搬迁规划 + 执行结果对账

@@ -362,6 +362,20 @@ namespace 一律保持 `World.WorldGen` / `World.Utils` 不变。
 验收：build 0 警告 0 错误 · 511 测试全绿 · Godot headless 加载零 ERROR，
 `[WORLDGEN-TIMING]` 数值与迁移前逐字一致。
 
+**WorldGen 子层重排（✅ 2026-10-09 已完成，代码/文档两次独立提交）**：
+原六子层（`Placement`/`Features`/`Discretization`/`Final`/`Simulation`/`Composition`）
+是按 2026-10-06 的依赖 DAG 切的；此后水文/气候/服务三块膨胀，`Simulation/` 变成**杂物抽屉**
+（15 文件占全树一半，混装气候、水文、尺度/场基建、Placement 解算器）。
+按"目录内容与名字自洽"重排为**八子层**：
+`Simulation/` 拆为 `Climate/`(2) + `Hydrology/`(10)，`SpatialScale` + `SphericalField` 归新建
+`Foundation/`(2)，`SurfaceResolver` 归 `Placement/`(6)，`HeightComposer` 归 `Composition/`(2)，
+`Features/` 纯化为 4。位移 16 个 `.cs`（+ `.uid`），`Simulation/` 名称整体消失。
+**namespace 一律保持 `World.WorldGen` 不变**（子目录是自由分组，不参与 namespace）⇒
+**零 `using` 改动、零 `.tscn` 改动**（`Logic/WorldGen/**` 无非 Node 脚本指向）、
+**零测试路径断言**（子目录名不被任何契约引用）⇒ 纯 `git mv`。
+验收：三个构建项目均 0/0 · 281 测试全绿 · headless 读数逐字段同基线（零漂移）零 ERROR。
+决策见 `docs/裁决-WorldGen子层重排.md`。
+
 ---
 
 > 红线：每次提交可编译可运行；重构期间不加新功能；一次只拆一个文件。
