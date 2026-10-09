@@ -34,8 +34,12 @@
 
 **`.cs` 与 `.cs.uid` 成对删除**（12 个文件）。目录 `scripts/Logic/LogicGrid/` 与 `scripts/Logic/Archive/` 随之消失（此前各只含上述文件）。
 
-**命名空间后果**：`World.LogicGrid` / `World.Archive` 整体消失；`World.Domain` **保留**
+**命名空间后果**：`World.LogicGrid` / `World.Archive` 整体消失；`World.Domain` 当时**保留**
 （`BiomeColors` / `BiomeType` / `Calendar` / `PowerPalette`），仅 `WildCropsSystem` 离开。
+
+> ★**2026-10-09 同日稍晚进展**：`World.Domain` 随后也**整体解散**——`BiomeType` 迁 `World.Constants`
+> （并裁剪为仅柯本 18 值），`BiomeColors` / `Calendar` / `PowerPalette` 删除。
+> 见 `docs/裁决-Domain解散与BiomeType归Constant.md`。
 
 ---
 

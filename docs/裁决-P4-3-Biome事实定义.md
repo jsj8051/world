@@ -10,6 +10,16 @@
 
 ---
 
+> ## ★2026-10-09 修订（后续裁决覆盖本条的部分内容）
+> 用户拍板**解散 `World.Domain`**，并把 `BiomeType` 迁到 `World.Constants` 且**裁剪为仅柯本气候型**
+> （保留 `2,3,14…29` 共 **18 值**；**删除**水面 `0/1/30/31` 与地形 `12/13`）。
+> ⇒ 本文档 §一 的「Köppen 气候型 **+ 水面/地形附加类**」与 §5.1 的 **24 类逐一登记表**
+>   **已不再代表当前词表**（那 6 个非柯本类已不存在）。
+> 修订依据与现状见 `docs/裁决-Domain解散与BiomeType归Constant.md`。
+> ⚠️ 若 P4-3b 未来确需海格/地形附加类，**另立事实**，不要回填 `BiomeType`。
+
+---
+
 ## §〇 结论（一句话）
 
 **① 分类语义 = 气候型（Köppen–Geiger），沿用 `BiomeType` 词汇；② 输入 = T + P + 海陆/海拔/离岸 + 河湖，Soil 不依赖、月度 `MonthTemp/MonthPrecip` 是 P4-5 前置缺口；③ Legacy 判定 = `SEMANTICALLY_DIFFERENT` → `ADAPTER_REQUIRED`（不预设，生产后复核）；④ P4-3 可恢复 `WildLivestock`，`WildCrops` 卡在 P4-5。**
@@ -62,6 +72,9 @@ WorldGen ├─ Temperature ├─ Precipitation └─ Seasonal Climate
 
 > **`BiomeFact` = 柯本气候型（Köppen–Geiger climate classification）+ 水面 / 地形附加类。
 > 它是「气候型」，不是植被型、不是生态系统型、更不是游戏用途分类。沿用 `World.Domain.BiomeType`（byte，24 值），不新建分类体系。**
+>
+> ★**2026-10-09 修订**：`World.Domain.BiomeType` 已迁至 **`World.Constants.BiomeType`** 并
+> **裁剪为 18 值（仅柯本气候型）**——"水面 / 地形附加类"（`0/1/12/13/30/31`）**已删除**。见顶部修订横幅。
 
 ### 为什么是"气候型"（证据）
 
@@ -186,7 +199,7 @@ ColdSteppe BSk : 同上，年均 <18°C
 
 ⇒ **Legacy 实际用的是 `k = 10`：desert `P < 10·(T+14)`，steppe `10(T+14) ≤ P < 20(T+14)`。**
 ⇒ ⚠️ **若按枚举注释实现，`BSh`/`BSk` 会产出 0 格 ⇒ `WildCropsSystem.ComputeLivestock` 全空、`EnvMatches("grass")` 恒 false。**
-⇒ **实现必须按 `k = 10`；同时把 `BiomeType.cs` 的注释改对**（记为一条文档债，单开 chore，不混进 P4-3 生产 commit）。
+⇒ **实现必须按 `k = 10`；同时把 `BiomeType.cs` 的注释改对**（记为一条文档债，单开 chore，不混进 P4-3 生产 commit）。★**2026-10-09 已修**——随 `BiomeType` 迁 `World.Constants` 时一并把注释改为 k = 10。
 
 ### 3.4 ★ 原则 14 在本轮的适用
 
@@ -226,6 +239,10 @@ Legacy 单世界（`seed42`）里 `Aw(16)` = **1 格**、`Csa(24)` = **6 格**�
 ---
 
 ## §五 ★ P4-3a 交付：**24 类逐一登记**（判据 → 需要的气候事实）
+
+> ★**2026-10-09 修订**：下表按**当时的 24 值词表**登记。现词表已裁剪为 **18 值**
+> （`0/1/12/13/30/31` 六个非柯本类已删除）⇒ 下表**只有 `2,3,14–29` 行仍对应实际枚举值**；
+> `0/1/12/13/30/31` 六行仅作历史登记保留。
 
 > 你点名要的表：把 24 个 `BiomeType` **逐一登记**「年均 T/P 是否足够」还是「需要 Seasonal 的哪一部分」。
 > 这张表同时是 **P4-5 最小充分事实集反推的输入**（见 §六）。

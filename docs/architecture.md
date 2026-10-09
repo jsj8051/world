@@ -283,10 +283,12 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 ## 9. 命名与目录约定
 
   - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
-    `World.Render(.UI)` / `World.WorldGen` / `World.Domain` / `World.Archive` /
-    `World.CivSim.*` / `World.LogicGrid` / `World.HexPlanet` / `World.Spatial` /
-    `World.Utils(.H3)` / `World.Services` / `World.Camera` / `World.Diagnostics` /
-    `World.Gameplay`。
+    `World.Render(.UI/.Controllers/.Constants)` / `World.WorldGen` / `World.Constants` /
+    `World.HexPlanet` / `World.Spatial` / `World.Utils(.H3)` / `World.Services` /
+    `World.Camera` / `World.Diagnostics`。
+    （★2026-10-09：`World.Domain` / `World.Archive` / `World.LogicGrid` / `World.CivSim.*` /
+      `World.Gameplay` 已分别解散 / 删除 / 移出；`World.Constants` 成为常量族新家——
+      见 `docs/裁决-Domain解散与BiomeType归Constant.md`）
     （2026-10-06：D 步清退 `World.PlanetLOD` / `World.Surface`；
       E 步 `World.NewHexWorld` → `World.Spatial`）
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
@@ -320,6 +322,10 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 `MapArchive` / `FieldCodec` → `World.Archive`；
 `BiomeType` / `BiomeColors` / `PowerPalette` / `WildCropsSystem` → `World.Domain`；
 `SphereGrid` → `World.HexPlanet`。
+
+> ★**2026-10-09 后续**：上述 A 线保留项**绝大部分已消亡**——`World.Archive` 与 `World.Domain`
+> 删除 / 解散、`SphereGrid` 删除、`FieldCodec` / `WildCropsSystem` 随载体簇删除；仅 `BiomeType` 存续，
+> 已迁 `World.Constants` 并裁剪为**仅柯本气候型**。见 `docs/裁决-Domain解散与BiomeType归Constant.md`。
 
 **B 线保留项**（4 类纯表现资产迁入 Render 层）：
 `NoiseBallView` → `Render.BallView`（+ `CellQuery` 拆出高亮 / 拾取纯函数）、
