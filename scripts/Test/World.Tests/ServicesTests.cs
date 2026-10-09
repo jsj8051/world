@@ -3,10 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using NUnit.Framework;
-using World.HexPlanet;
-using World.LogicGrid;
 using World.Domain;
-using World.Archive;
 using World.Services;
 
 namespace World.Tests;
@@ -19,6 +16,10 @@ namespace World.Tests;
 ///   其"海拔归一化值 → 颜色"能力已由 `World.Utils.ColorRamp`（通用色带算法）
 ///   + 各处业务色带定义取代。
 /// ⚠️ 保留的 `PowerPalette` 测试属 `World.Domain`（保留区），**不随本次清退**。
+///
+/// ★2026-10-09：随 Legacy 载体簇删除（`GameGrid` / `WildCropsSystem` / `MapData` / `FieldCodec`），
+///   本文件移除了两个**从未被调用**的私有助手 `BuildMapData` / `Has`（`MapData` 已不存在）。
+///   文件现只剩 `PowerPalette` 测试。
 /// </summary>
 public class EventBusTests
 {
@@ -85,21 +86,6 @@ public class EventBusTests
         Assert.That(c.G, Is.InRange(0f, 1f));
         Assert.That(c.B, Is.InRange(0f, 1f));
         Assert.AreEqual(1f, c.A, 1e-6f);
-    }
-
-    private static MapData BuildMapData(int n)
-    {
-        Icosahedron.Subdivide(n, GameGrid.DefaultRadiusKm, out var verts, out _);
-        // ⚠️ MapData 假定单位球顶点（BucketOf 用 asin(Y) 算纬度；生产存档 verts 即单位方向）
-        var m = new MapData { Verts = verts.ConvertAll(v => v.Normalized()).ToArray() };
-        m.EnsureBuckets();
-        return m;
-    }
-
-    private static bool Has(List<int> list, int v)
-    {
-        foreach (int x in list) if (x == v) return true;
-        return false;
     }
 
 }

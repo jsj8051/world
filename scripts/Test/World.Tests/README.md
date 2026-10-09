@@ -52,8 +52,8 @@ NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**
 | `CivSimMechanicTests.cs` | 注册表/商品目录/能力表；Growth/Origin/SplitMigrate/Settlement/Energy/Cultivate/Trade/War 单模型隔离；Territory/Chiefdom/State 纯派生重建；模块确定性（等价 tick 循环两次逐项对比 + 多 seed 分叉） |
 | `BiomeTests.cs` / `BiomeClimateTests.cs` | BiomeClassifier 柯本分类全带表（含南北半球干季/阈值边界）；BiomeType 序列化值；BiomeColors 色板全覆盖/插值；WindField 环流带/切平面/自转翻转/海陆分；OceanCurrent 小网格不变量 |
 | `HexPlanetTests.cs` | Icosahedron 顶点公式/反推/大 n long 安全/Subdivide 计数球面唯一性（纯几何函数，无日志直调）；SubdividedMesh 去重/三角邻居；GoldbergBuilder 五边形/六边形经典计数（12/12+30/…）、邻居对称、手工 icosahedron 全五边形 |
-| `MapGenTests.cs` | FieldCodec 往返/钳位；WildCrops 确定性/斑块/畜牧；Soil 查表；Mineral 编解码（含 &0x03 掩码）/海洋 0；River 流向单调/链式流域成河/确定性/RebuildPaths；ClimateModel 注册表结构与 Verify |
-| `LogicGridTests.cs` | ArchiveLayout 布局字节数（v1/v2、大 n long 安全、字段表反射对照）；GameGrid 邻接/海陆/距离/面积/OverrideNeighbors 钩子/野生资源/ToMapData 往返 + 邻接重建一致（模块测试） |
+| ~~`MapGenTests.cs`~~ | ★2026-10-09 **已删**（属 Legacy 载体簇：FieldCodec / WildCropsSystem）——见 `docs/裁决-Legacy载体簇删除.md` |
+| ~~`LogicGridTests.cs`~~ | ★2026-10-09 **已删**（属 Legacy 载体簇：GameGrid / MapData）——同上 |
 | `ServicesTests.cs` | EventBus 发布订阅/消费语义；PlanetColors 端点/边界；PowerPalette 最远点采样色距/顺序无关；TileIndex 面↔顶点不变量/缓存 |
 | `TectonicsTests.cs` | FieldOps 场运算/形态学/插值/梯度/扩散；MatrixOps 正交/逆/旋转向量；Crust 池访问/质量/厚度/密度/浮力/均衡位移/AddDelta/ModelErosion 等守恒；Plate 映射/重采样/Move；SphereGrid 邻接/最近邻；Tectonophysics 纯函数；TectonicsSimulation ctor/MergePlatesToMaster 守恒/ApplySurfaceProcesses/SyncWorldToPlates 模块测试 |
 | `GridFeatureVerifyTests.cs` | 演示验证：构造 n=2 演示网格（42 胞：北半球陆地/南半球海洋）→ **逐个功能单独验证**（邻接/海陆/距离面积/层1生产力/野生作物/畜牧/土壤/矿藏/河流/洋流/风场/存档布局/往返），每个功能一个独立 `[Test]` |

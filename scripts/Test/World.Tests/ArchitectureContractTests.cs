@@ -81,8 +81,9 @@ public class ArchitectureContractTests
 	/// 清退边界不是"目录"而是"类型语义 + 依赖方向"：
 	///   清退 A（自己生成世界）：World.Biome / World.MapGen / World.MapView / World.Tectonics
 	///   清退 E（旧表现与旧应用流程）：旧 UI 目录与场景、ArchiveService / SaveArchive / EventBus
-	///   保留 B（存档格式 → World.Archive）、C+D（领域词汇与领域模拟 → World.Domain）、
-	///          LogicGrid / HexPlanet / WildCropsSystem（★CivSim 已于 2026-10-09 移出程序集）
+	///   保留 C+D（领域词汇与领域模拟 → World.Domain）、HexPlanet（球面网格几何基础设施）
+	///   ★2026-10-09：CivSim 已移出程序集；Legacy 载体簇（LogicGrid / Archive / WildCropsSystem）
+	///     已按用户拍板**整体删除**（之后重新实现）——见下方 `LegacyCarrierCluster_IsDeleted`。
 	/// 本测试钉住"**旧世界生成链在程序集里已不存在**"这个**结果**，
 	/// 而不是"新线不引用它"这个方向——二者都要有：
 	/// 只有方向没有结果 ⇒ 旧链复活也测不出来；只有结果没有方向 ⇒ 无法防止重新耦合。
@@ -101,48 +102,54 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
-	/// **保留区的依赖白名单钉**（D-3 切分清退后的边界守卫，§07 §10.5.4）。
-	/// LogicGrid / WildCropsSystem 是**领域消费者**（消费世界，不生成世界），被明确保留。
-	/// 它们允许依赖：World.Domain（C 领域词汇 + D 领域模拟）、World.Archive（B 存档格式）、
-	/// World.HexPlanet（球面网格几何基础设施）、World.Utils / World.Services（通用工具）、
-	/// 以及彼此与自身。
-	/// **不允许**再出现任何旧世界生成命名空间——否则说明有人把生成能力又塞回了消费者里。
-	/// ★2026-10-09 CivSim 移出：`World.CivSim` / `World.Gameplay` 已随 CivSim 迁至
-	///   `scripts/_removed/`，故从「允许清单」与「被扫消费者」两处一并移除——
-	///   回归 CivSim 时**必须同步恢复**这两处（见 `docs/裁决-CivSim移出.md`）。
+	/// **Legacy 载体簇删除钉（结果）**（2026-10-09 用户拍板：「直接删除簇，目前不需要了，之后再重新实现」）。
+	///
+	/// 删除范围 = CivSim 自然输入链的 Legacy 载体簇：
+	///   `World.LogicGrid.GameGrid` · `World.Domain.WildCropsSystem` ·
+	///   `World.Archive.MapData` · `World.Archive.FieldCodec`
+	///   （+ 其单测 `LogicGridTests` / `MapGenTests`）。
+	///
+	/// ★删除理由（实测）：CivSim 移出程序集后（同日 `a186181`），
+	///   `GameGrid.EnsureWildCrops/EnsureWildLivestock` 的**唯一生产调用者** `CivEngine`
+	///   已不在程序集内 ⇒ 整簇退化为**纯测试孤岛**，生产侧零消费者。
+	///   用户决定**删除**（不保留副本），待自然输入桥（ADR-0005 · ⑬ `HumanInputGrid`）落地时**重新实现**。
+	///
+	/// ★本条前身 = `RetainedDomainConsumers_OnlyDependOnAllowedNamespaces`（依赖白名单守卫）——
+	///   其被扫消费者只有 `GameGrid` / `WildCropsSystem` 两个类型，随簇删除后守卫无从扫描，
+	///   故改写为**结果钉**，钉住"这簇确实已不在程序集里"，防止"删了又被悄悄接回"。
+	///   （先例：`CivSimAndGameplay_AreMovedOut`。）
+	///
+	/// ★注：`World.LogicGrid` / `World.Archive` 两个命名空间此前**只含**这簇类型 ⇒ 删除后整体消失；
+	///   `World.Domain` 仍保留（`BiomeColors` / `BiomeType` / `Calendar` / `PowerPalette`），
+	///   仅 `WildCropsSystem` 离开。
 	/// </summary>
 	[Test]
-	public void RetainedDomainConsumers_OnlyDependOnAllowedNamespaces()
+	public void LegacyCarrierCluster_IsDeleted()
 	{
-		var allowed = new[]
-		{
-			"World.LogicGrid", "World.Domain", "World.Archive",
-			"World.HexPlanet", "World.Utils", "World.Services",
-		};
-		var forbidden = new[] { "World.Biome", "World.MapGen", "World.MapView", "World.Tectonics" };
+		var asm = typeof(FinalGeography).Assembly;
 
-		// ★按类型语义定位，不按目录名定位（命名空间 = 语义；`scripts/{Scene,Logic}/` 分区不吃 namespace）。
-		// ★2026-10-09：`World.CivSim.CivSimContext` 已随 CivSim 移出，从被扫面移除。
-		var consumers = new[]
+		// ① 两个整命名空间须消失（此前只含这簇类型）
+		foreach (var ns in new[] { "World.LogicGrid", "World.Archive" })
 		{
-			typeof(World.LogicGrid.GameGrid),
-			typeof(World.Domain.WildCropsSystem),
-		};
+			var survivors = asm.GetTypes()
+				.Where(t => t.Namespace == ns || (t.Namespace != null && t.Namespace.StartsWith(ns + ".")))
+				.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+			Assert.That(survivors, Is.Empty,
+				$"{ns} 类型仍在程序集内：{string.Join(",", survivors)}——" +
+				"2026-10-09 该 Legacy 载体簇已整体删除（用户拍板：之后重新实现）");
+		}
 
-		var offending = new List<string>();
-		foreach (var t in consumers)
-			foreach (var r in ReferencedTypes(t))
-			{
-				var ns = r.Namespace;
-				if (ns == null) continue;
-				if (forbidden.Contains(ns)) { offending.Add($"{t.Name}→{ns}.{r.Name}"); continue; }
-				if (!ns.StartsWith("World.")) continue;              // 系统/Godot 类型不管
-				if (allowed.Any(a => ns == a || ns.StartsWith(a + "."))) continue;
-				offending.Add($"{t.Name}→{ns}.{r.Name}（不在白名单）");
-			}
-		Assert.That(offending, Is.Empty,
-			$"保留的领域消费者依赖了越界命名空间：{string.Join(",", offending)}——CivSim/LogicGrid 只准依赖 " +
-			"C/D（World.Domain）、B（World.Archive）与几何/工具基础设施，不得重新接上旧世界生成链（§07 §10.5）");
+		// ② World.Domain 保留，但其中的 WildCropsSystem 须已离开
+		var wildCrops = asm.GetTypes().Where(t => t.Name == "WildCropsSystem")
+			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+		Assert.That(wildCrops, Is.Empty,
+			$"WildCropsSystem 应已随簇删除（World.Domain 本身保留）：{string.Join(",", wildCrops)}");
+
+		// ③ 源目录位置钉
+		Assert.That(FindRepoDir("scripts", "Logic", "LogicGrid"), Is.Null,
+			"scripts/Logic/LogicGrid 应已删除（GameGrid 属已删的 Legacy 载体簇）");
+		Assert.That(FindRepoDir("scripts", "Logic", "Archive"), Is.Null,
+			"scripts/Logic/Archive 应已删除（MapData / FieldCodec 属已删的 Legacy 载体簇）");
 	}
 
 	/// <summary>
@@ -199,7 +206,7 @@ public class ArchitectureContractTests
 	/// "World → Human Input Bridge" 当前**尚不存在，连桩都没有**。
 	///
 	/// ★目的**不是**永久禁止所有桥，而是：**在桥正式设计（Phase 1–4 逐层迁移）之前，
-	///   不允许出现"私接消费者"**。任何把 Final 事实接进 `World.Domain` / `World.LogicGrid` /
+	///   不允许出现"私接消费者"**。任何把 Final 事实接进 `World.Domain` /
 	///   `Render` / `UI` / 其他外部层的改动，都必须**显式改这张白名单**并留下决策记录——
 	///   而不是"悄悄接一根线"。本契约就是那张必须被显式修改的表。
 	///   （★2026-10-09：`World.CivSim` 已移出程序集，不再是潜在私接方之一。）
