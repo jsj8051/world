@@ -201,7 +201,7 @@ CivSim 侧的那一道（"基础粒度必须 = `ProductionRes`"）**随 `HumanIn
 |---|---|---|
 | **O1** | 存档 cell 引用存 **CellId（64-bit）** 还是 **dense index + 冻结构建序**？ | 属**存档格式**决定（触 `.cmp`/`.mpa` 布局与 `Peek` 硬编码）⇒ 独立变更 |
 | **O2** | hop→km 的**具体数值**：保留 Legacy 物理含义（§三建议表）还是在新世界上重标定？ | 属**标定**，须实测（且 `R[]` 重标定已在 ADR §3 前置四问里） |
-| **O3** | `HumanInputGrid` 的**归属命名空间**与**契约钉子** | 它须依赖 `World.Spatial`（`Ball`）+ WorldGen 事实；若 `World.CivSim` 直接引 `World.Spatial`，**须显式改 §执行契约白名单**（ADR §B2 纪律）⇒ 独立决策 |
+| **O3** | `HumanInputGrid` 的**归属命名空间**与**契约钉子** | 它须依赖 `World.H3Grid`（`Ball`）+ WorldGen 事实；若 `World.CivSim` 直接引 `World.H3Grid`，**须显式改 §执行契约白名单**（ADR §B2 纪律）⇒ 独立决策 |
 | **O4** | 是否**复用**生产 `Ball(res4)` 实例（而非新建第二套） | 属实现选择；原则是"不新建第二套 identity/topology 来源" |
 
 ---
@@ -267,7 +267,7 @@ CivSim 侧的那一道（"基础粒度必须 = `ProductionRes`"）**随 `HumanIn
 
 ## 附 · 关键文件与依据
 
-- `scripts/Spatial/Ball/Ball.cs`（H3 identity + dense↔id 映射 + 六邻接）
+- `scripts/Logic/H3Grid/Ball.cs`（H3 identity + dense↔id 映射 + 六邻接）
 - `scripts/WorldGen/Composition/WorldGenPlanet.cs`（`ProductionRes = 4`；`Ball(res4)` 生产实例）
 - `scripts/WorldGen/Simulation/SpatialScale.cs`（`CellAreaKm2` / `DistanceKm`；hop→km 纪律）
 - `tests/World.Tests/SpatialScaleTests.cs` → `ProductionRes_IsRes4_Frozen()`（**已有可执行钉子**）

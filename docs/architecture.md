@@ -285,7 +285,7 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 
   - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
     `World.Render(.UI/.Controllers/.Constants)` / `World.WorldGen` / `World.Constants` /
-    `World.Spatial` / `World.Utils(.H3)` / `World.Camera` / `World.Diagnostics`。
+    `World.H3Grid` / `World.Utils(.H3)` / `World.Camera` / `World.Diagnostics`。
     （★2026-10-09：`World.Domain` / `World.Archive` / `World.LogicGrid` / `World.CivSim.*` /
       `World.Gameplay` / `World.HexPlanet` / **`World.Services`** 已分别解散 / 删除 / 移出；
       `World.Constants` 成为常量族新家，`World.Diagnostics` 仅剩 `DiagSceneBase` + `H3SmokeDiag`——
@@ -293,6 +293,10 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
       `docs/裁决-Services删除.md`）
     （2026-10-06：D 步清退 `World.PlanetLOD` / `World.Surface`；
       E 步 `World.NewHexWorld` → `World.Spatial`）
+    （★2026-10-09 更晚：**`World.Spatial` → `World.H3Grid`**，目录 `Logic/Spatial/Ball/` →
+      `Logic/H3Grid/`。理由：`World.Spatial` 与另两个同族名易混——`SpatialScale`（尺度口径）与
+      `FinalSpatialIndex`（查询索引）**均属 `World.WorldGen`**；本命名空间的真实身份是
+      **H3 球面网格本体**。见 `docs/裁决-Spatial改名H3Grid.md`）
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
   已实证：`scripts/CivSim/Engine/CivSimContext.cs` 的命名空间是 `World.CivSim`（子目录不进命名空间）。
 - 文件名 = 类名；`partial` 分片用 `原类名.职责.cs` 后缀放同目录。

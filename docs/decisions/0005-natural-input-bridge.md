@@ -244,7 +244,7 @@ C-4 实测发现 5 项"重复计算"，其中 **D1–D4 四项是"两条世界�
 |---|---|---|---|---|
 | **D1** | 海陆谓词 | `GameGrid.IsLandCell` = `Elev > 0` | `FinalGeography.FinalLand` = `HeightM > 0` | 同义、**不同实现、不同世界线**——口径必须分开记（混用即"换世界"） |
 | **D2** | 陆地连通分量 | `OriginModel.ComputeContinents`（BFS flood fill） | `FinalGeography.FinalLandmassId` / `H3LandSeaProjector.LandmassId` | 同算法共 **3 份实现** |
-| **D3** | 邻接表 | `GameGrid.BuildNeighbors`（`World.LogicGrid`） | `Ball.BuildNeighbors`（`World.Spatial`） | 两套 H3 邻接（`GameMapArchive` 明确"邻接不存档"） |
+| **D3** | 邻接表 | `GameGrid.BuildNeighbors`（`World.LogicGrid`） | `Ball.BuildNeighbors`（`World.H3Grid`） | 两套 H3 邻接（`GameMapArchive` 明确"邻接不存档"） |
 | **D4** | 距离场 / 邻域查询 | `CivSimContext.BfsRadius`（O(n)/调用） | `FinalSpatialIndex`（预计算）+ `HydrologyRoutingSurface` | 新线已把距离场做成基础设施，CivSim 仍自驱 BFS |
 
 **裁定**：
@@ -327,7 +327,7 @@ H3 res4 CellId（世界身份） → dense runtime index（仅运行时） → C
 
 **开放子项（未拍板，不擅自定）**：O1 存档 cell 引用存 CellId 还是 dense index（存档格式）；
 O2 hop→km 的**具体数值**（保留 Legacy 物理含义 vs 新世界重标定）；O3 `HumanInputGrid` 的归属命名空间与契约钉子
-（若 `World.CivSim` 直引 `World.Spatial` ⇒ 须显式改 §执行契约白名单）；O4 是否复用生产 `Ball(res4)` 实例。
+（若 `World.CivSim` 直引 `World.H3Grid` ⇒ 须显式改 §执行契约白名单）；O4 是否复用生产 `Ball(res4)` 实例。
 
 ---
 
@@ -706,7 +706,7 @@ WorldGen 事实层（World.WorldGen.*） → Bridge 投影层（World.Bridge）
 `ArchitectureContractTests.cs:185` 用 `ReferencedTypesDeep`（传递闭包），
 `IsWorldGen` = `ns == "World.WorldGen" || ns.StartsWith("World.WorldGen.")`
 ⇒ **`HumanInputGrid` 绝不能放 `World.WorldGen` 或 `World.WorldGen.*`**（连 `World.WorldGen.Bridge` 都会命中）。
-推荐 `World.Bridge.HumanInputGrid`（备选 `World.Spatial`，须显式改白名单）。
+推荐 `World.Bridge.HumanInputGrid`（备选 `World.H3Grid`，须显式改白名单）。
 
 ### ★ 本轮两条用户拍板
 
@@ -960,7 +960,7 @@ Bridge 的剩余阻断项 = **Phase 4 其余事实生产**（`Biome` / `Soil` / 
 2. ~~**载体契约裁决（⑥）**~~ ✅ 已定（2026-10-06）：**H3 res4 冻结**（§不变量 I1–I5）；剩余**开放子项**：
    **O1** 存档 cell 引用存 `CellId` 还是 `dense index`（存档格式，独立变更）；
    **O2** hop→km 的**具体数值**（保留 Legacy 物理含义 ≈670/1,339 km vs 新世界重标定）；
-   **O3** `HumanInputGrid` 归属命名空间与契约钉子（若 `World.CivSim` 直引 `World.Spatial` ⇒ 须显式改白名单）；
+   **O3** `HumanInputGrid` 归属命名空间与契约钉子（若 `World.CivSim` 直引 `World.H3Grid` ⇒ 须显式改白名单）；
    **O4** 是否复用生产 `Ball(res4)` 实例。
 3. **③ 是否现在做**：`SubsistenceReadout` 的落点（观测层 `CivSnapshot` / 独立纯函数 / 诊断 T92）——不依赖 Bridge，可先行。
 4. ~~**Phase 4 起步顺序**~~ ✅ 已定（2026-10-06，用户拍板）：**先 P4-1 Temperature，P4-1 先于 P4-2**

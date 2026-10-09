@@ -123,7 +123,7 @@ InfluenceRadius = 6      ChiefReach = 12      ColonizeRadius = 6      OriginDist
 | **度量** | `CellAreaKm2 = 4πR²/N`（均匀近似）；`DistKm` 大圆（`Verts` 点积 × `RadiusKm`） |
 | **持久化** | **cell index 入档**：`LAND` = `Cultivation[n]` + `CellOwner[n]` + `LockedUntil[n]`；`TRIB` 每实体含 `Cell` / `OriginCell`（`CivArchiveSchema`）；`STTL` 每聚落含 `Cell`（`CivMapArchive`） |
 
-### 3.3 新线载体契约（`Ball` / H3 · `World.Spatial`）
+### 3.3 新线载体契约（`Ball` / H3 · `World.H3Grid`）
 
 | 契约 | 实测 |
 |---|---|
@@ -239,12 +239,12 @@ grep -rn "\"Cell\"\|CellOwner\|Cultivation\[" --include="*.cs" scripts/CivSim sc
 # 3) hop 常量（拓扑量被当物理半径）
 grep -rn "InfluenceRadius\|ChiefReach\|ColonizeRadius\|OriginDistMin" --include="*.cs" scripts/CivSim
 # 4) 新线载体
-#    scripts/Spatial/Ball/Ball.cs（CellIds/CellNeighbors/CellIndexOf）
+#    scripts/Logic/H3Grid/Ball.cs（CellIds/CellNeighbors/CellIndexOf）
 #    scripts/WorldGen/Simulation/SpatialScale.cs（CellAreaKm2/DistanceKm）
 ```
 
 **关键文件**：
-- `scripts/Spatial/Ball/Ball.cs`（新线载体：H3 id + dense 下标 + 邻接）
+- `scripts/Logic/H3Grid/Ball.cs`（新线载体：H3 id + dense 下标 + 邻接）
 - `scripts/LogicGrid/GameGrid.cs`（Legacy 载体：dense 下标 + 距离阈值邻接 + 度量）
 - `scripts/LogicGrid/GameMapArchive.cs`（Legacy 载体持久化契约）
 - `scripts/CivSim/Archive/CivMapArchive.cs` + `CivArchiveSchema.cs`（**cell index 入档**的直接证据）

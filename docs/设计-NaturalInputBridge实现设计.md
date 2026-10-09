@@ -81,19 +81,25 @@ foreach (var t in civTypes)
 |---|---|---|---|
 | WorldGen 事实层 | `World.WorldGen.*` | — | （本体） |
 | **Bridge 投影层** | **`World.Bridge`** | ✅ **可以**（它不是 `World.CivSim`） | 否 |
-| **`HumanInputGrid`** | **`World.Bridge`** 或 `World.Spatial` | ⚠️ 见下 | 否 |
+| **`HumanInputGrid`** | **`World.Bridge`** 或 `World.H3Grid` | ⚠️ 见下 | 否 |
 | CivSim | `World.CivSim.*` | ❌ **禁止**（R2） | 是 |
 
 **★ 关键推论**：`HumanInputGrid` **绝不能**放 `World.WorldGen` 或 `World.WorldGen.*`——
 `StartsWith` 会连 `World.WorldGen.Bridge` 一起命中 ⇒ CivSim 一引用就 FAIL。
 
 **推荐**：`World.Bridge.HumanInputGrid`。
-（备选 `World.Spatial.HumanInputGrid`：`World.Spatial` 不在 R2 黑名单，且 `Ball` / `SpatialScale` 已在此；
+（备选 `World.H3Grid.HumanInputGrid`：`World.H3Grid` 不在 R2 黑名单，且 `Ball` 已在此；
 但会让"投影层"与"载体"分居两个命名空间，语义上不如同置于 `World.Bridge` 清晰。）
+
+> ★2026-10-09 勘误 + 改名：该备选命名空间**原名 `World.Spatial`**，当日已改名为 **`World.H3Grid`**
+> （理由 = 避与 `SpatialScale` / `FinalSpatialIndex` 混淆——**这两者其实都在 `World.WorldGen`，
+> 并不在本命名空间**；此处"`SpatialScale` 已在此"是原文笔误，一并更正）。
+> O3 的实质（`World.Bridge` vs 该 H3 网格命名空间）不变，只是名字换了。
+> 见 `docs/裁决-Spatial改名H3Grid.md`。
 
 ### 2.3 待办（实现 B1 时）
 
-- 若最终选 `World.Spatial`，须按 ADR §B2 纪律**显式改执行契约白名单**（⑥ 开放项 O3）。
+- 若最终选 `World.H3Grid`，须按 ADR §B2 纪律**显式改执行契约白名单**（⑥ 开放项 O3）。
 - `NewWorldLineTypes` 是各契约的公共扫描面 —— **`HumanInputGrid` 落地后必须登记**，否则契约静默失效（永久纪律）。
 
 ---
@@ -237,7 +243,7 @@ A 成立不代表 B 自动成立——若未来 Köppen 分类依赖更细的月
 | 风险 | 对冲（**现在就写进文档，等 B1 落地时兑现**） |
 |---|---|
 | R2 / 命名空间冲突发现太晚 | §二 已把判定规则与推荐命名空间钉死；B1 开工第一步即跑 `ArchitectureContractTests` |
-| O3（命名空间）未决阻塞 B1 | O3 只影响"选 `World.Bridge` 还是 `World.Spatial`"；两者都已论证合法 ⇒ 不阻塞 |
+| O3（命名空间）未决阻塞 B1 | O3 只影响"选 `World.Bridge` 还是 `World.H3Grid`"；两者都已论证合法 ⇒ 不阻塞 |
 | 载体三件套与 `Ball` 不一致 | B1 验收直接对照 `Ball` / `SpatialScale`，不另立标准 |
 | **dense ↔ CellId 错位**（B3/B4 涉及存档 / CivSim state / 地图引用时的**隐蔽**错位源，比"邻居数不对"更难发现） | **N12**（§12）：全量可逆 + 唯一 + 构建序稳定，**B1 即立** |
 
@@ -475,7 +481,7 @@ P4-5 现有字段（`SeasonalClimateModel`）：`ColdestMonthMeanC` / `HottestMo
 |---|---|---|
 | **O1** | 存档 cell 引用存 **CellId（64-bit）** 还是 **dense index + 冻结构建序**？ | ⑥ §八-O1 保留；**因"不保留旧档"而简化**——只需定新格式，不必兼顾兼容 |
 | **O2** | hop→km 的**具体数值**：保留 Legacy 物理含义还是在新世界重标定？ | 属**标定**，须实测（B3 同批处理） |
-| **O3** | `HumanInputGrid` 归属 `World.Bridge` 还是 `World.Spatial`？ | 两者均已论证合法；若选 `World.Spatial` 须显式改 ADR §B2 白名单 |
+| **O3** | `HumanInputGrid` 归属 `World.Bridge` 还是 `World.H3Grid`？ | 两者均已论证合法；若选 `World.H3Grid` 须显式改 ADR §B2 白名单 |
 | **O4** | 是否复用生产 `Ball(res4)` 实例（而非新建第二套） | 实现选择；原则是"不新建第二套 identity/topology 来源" |
 | **O5**（新增） | Biome / Soil 的**类别形状 Jaccard 验收阈值**？ | **按消费者敏感度分别实测，不设单一全局阈值**（2026-10-07 修正）。水文 Jaccard 76.5% 只作**经验参考量级**，不作隐含标准——理由：河网是**线性结构**、ColdZone 是**面积集合**、Desert 是**纬向带状**、TerrainCost 是**离散分档**、Soil 4/5 是**局部热点**，对局部偏移的敏感度完全不同（沙漠带整体偏 2°，肉眼仍"正确"但 Jaccard 大降；热点随机散一点，Jaccard 好看但功能已坏）。⇒ `ColdZone` / `TerrainCost` / `PreyFrac` / `Soil4/5` **各自一条阈值**，B2 时分别实测定 |
 
@@ -541,7 +547,7 @@ FinalWorldFacts_OnlyConsumedByWorldGen      →    FinalWorldFacts_Consumers_Are
 - `docs/裁决-P4-5-季节气候最小充分事实集.md`（9 标量的充分性证明）
 - `docs/裁决-P4-3-Biome事实定义.md`（Biome 语义 = Köppen 气候型）
 - `tests/World.Tests/ArchitectureContractTests.cs`（R2 / R3 / `NewWorldLineTypes`）
-- `scripts/Spatial/Ball/Ball.cs`（H3 identity + dense↔id + 六邻接）
+- `scripts/Logic/H3Grid/Ball.cs`（H3 identity + dense↔id + 六邻接）
 - `scripts/WorldGen/Simulation/SpatialScale.cs`（等积面积 + haversine）
 - `scripts/Domain/BiomeType.cs`（24 类定义）
 - `scripts/CivSim/Engine/CivSimContext.cs`（Biome/Soil 消费语义实测点：`:328` `:341` `:344` `:352` `:669`）
