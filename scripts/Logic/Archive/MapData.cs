@@ -10,8 +10,10 @@ namespace World.Archive;
 /// <summary>加载后的地图数据。v3 = 球面顶点场；v1/v2 = 等距柱状平面场。
 /// ★2026-10-09 存档清退：本类原与 `MapArchive`（.mpa 编解码）同处 `Archive/MapArchive.cs`；
 ///   存档编解码已作为 Legacy 资产删除（待新线 WorldGen 重做），本数据容器因被
-///   `GameGrid` / `WildCropsSystem` 等生产逻辑继续使用，故独立成文件保留；
+///   `GameGrid` 的 `FromMapData` / `ToMapData` 一对往返方法继续引用，故独立成文件保留；
 ///   默认半径顺带收口至 `PlanetConstants.EarthRadiusKm`（消除第 3 份 6371 重复）。
+/// ★2026-10-09 CivSim 移出：`Civilization` 字段（`World.CivSim.CivSimResult`）已删除——
+///   CivSim 整体移出（`scripts/_removed/`），且该字段本就零读零写（全仓 grep 无命中）。
 /// ⚠️ 2026-08-02：必须是 class（非 struct）——球面桶索引 _buckets 是惰性构建的
 ///   可变缓存，struct 值传递会让每次采样都重建桶（65 万格 × 4 次采样 × 512 桶
 ///   = 6.6 亿次 List.Add → 进入游戏/切图层极慢）。</summary>
@@ -55,8 +57,10 @@ public class MapData
     public float MinPrecip;
     public float MaxPrecip;
 
-    // v8 单存档化：文明演化结果（无 CIVI 段 = 纯自然地图 = null）
-    public World.CivSim.CivSimResult Civilization;
+    // ★2026-10-09 已删除 `Civilization` 字段（v8 单存档化的文明演化结果，类型 `World.CivSim.CivSimResult`）：
+    //   ① 它全仓零读零写（grep `.Civilization` 无命中）；② CivSim 已整体移出程序集
+    //   （`scripts/_removed/`，用户拍板"等待正确时机回归"）。
+    //   回归 CivSim 时若仍需"存档携带文明结果"，须连同 CIVI 段编解码一并恢复。
 
     public bool IsSpherical => Version >= 3;
 

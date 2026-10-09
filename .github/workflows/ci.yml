@@ -3,7 +3,7 @@ name: CI
 on:
   push:
   pull_request:
-  workflow_dispatch:   # 手动触发（T40 性能基线等昂贵作业）
+  workflow_dispatch:   # 手动触发（headless 全量回归等昂贵作业）
 
 jobs:
   build-test-format:
@@ -24,7 +24,7 @@ jobs:
       - name: Format check
         run: dotnet format world.csproj --verify-no-changes --no-restore
 
-  # 说明：headless 回归（构造全流程/存档往返/全量 CivSim）由 scripts/verify.sh 承担，
+  # 说明：headless 回归（构造全流程）由 scripts/verify.sh 承担，
   # 需要 Godot mono 控制台可执行文件，本地跑（GODOT_EXE 环境变量指定）；CI 暂不下载引擎。
   # 若以后需要 CI 冒烟，在此加一步下载官方 Godot mono 二进制并跑 verify.sh。
   # ── headless 回归作业模板（2026-08-19，ADR-0001）──
@@ -43,33 +43,19 @@ jobs:
   #         env:
   #           GODOT_EXE: ${{ secrets.GODOT_EXE_PATH }}
   #         run: bash scripts/verify.sh --fast
-  #   说明：verify.sh 全量（含 CivSimDiag T 全套 ~10min）用 workflow_dispatch 手动触发，
-  #   不入 push 默认路径（时长成本）；GODOT_EXE_PATH 为自托管机上的 Godot mono 控制台路径。
+  #   说明：verify.sh 全量用 workflow_dispatch 手动触发，不入 push 默认路径（时长成本）；
+  #   GODOT_EXE_PATH 为自托管机上的 Godot mono 控制台路径。
 
-  # ── T40 性能基线作业（2026-08-19，手动触发；自托管 Windows runner）──
-  # 用途：算法改动的性能劣化报警器（MapGen 板块/管线/存档三段，超基线 ×1.5 即 FAIL）。
-  # 基线：user://perf_baseline.json 按 runner 机器持久（换 runner = 首次运行重新种基线，
-  #   种基线那次只记录不判定）；历史趋势：user://perf_history.json（滚动 200 条，T41 可读）。
-  # 注意：共享 runner 机器抖动可达 2-3×，若误报频繁可把 T40 阈值调到 ×2.5 或只跑自托管。
-  # 用法：Actions 页 → Run workflow（workflow_dispatch）→ 选 perf-baseline。
-  perf-baseline:
-    runs-on: [self-hosted, windows]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.0.x'
-      - name: Build
-        run: dotnet build world.csproj --configuration Debug
-      - name: T40 performance baseline (vs user://perf_baseline.json)
-        shell: bash
-        env:
-          GODOT_EXE: ${{ secrets.GODOT_EXE_PATH }}
-        run: |
-          OUT=$("$GODOT_EXE" --headless --path . "res://scenes/diag/CivSimDiag.tscn" -- --only=T40 2>&1)
-          echo "$OUT" | grep -E "T40|PASS|FAIL" | tail -6
-          if echo "$OUT" | grep -q "FAIL T40"; then
-            echo "::error::T40 性能劣化（超基线 ×1.5）——检查近期算法改动"
-            exit 1
-          fi
-          echo "✓ T40 通过（首次运行 = 已记录新基线）"
+  # ── T40 性能基线作业（2026-08-19）——★2026-10-09 停用 ──
+  # 原载体 = "res://scenes/diag/CivSimDiag.tscn -- --only=T40"（三次采样对比 user://perf_baseline.json，
+  # 超基线 ×1.5 即 FAIL；用途：算法改动的性能劣化报警器）。
+  # ★CivSim 已整体移出程序集（scripts/_removed/，用户拍板"等待正确时机回归"），
+  #   宿主场景 CivSimDiag.tscn 随之移出 ⇒ 本作业已无载体，故停用。
+  # 纯托管的性能基线工具仍在：scripts/Test/PerfBench（不在 world.sln，手工跑）。
+  # 若需恢复 CI 性能报警，改为以 PerfBench 为载体重建本作业。
+  # 原始定义（git 历史保留，见 commit 0a1408e 之前）：
+  #   perf-baseline:
+  #     runs-on: [self-hosted, windows]
+  #     steps: (checkout → setup-dotnet 8.0.x → dotnet build world.csproj
+  #             → "$GODOT_EXE" --headless --path . res://scenes/diag/CivSimDiag.tscn -- --only=T40
+  #             → grep "FAIL T40" 即 ::error)

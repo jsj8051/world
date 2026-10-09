@@ -20,8 +20,11 @@ namespace World.Tests;
 ///      新 Feature 零合成器改动的保证）；
 ///   ④ FinalGeography 不依赖具体 Feature 类（新 Feature 不需要改 FinalGeography）；
 ///   ⑤ 空特征列表 = 纯基线（没有特征就没有影响——"影响只能来自注册的特征"）。
-///   ⑥ **`World.CivSim` ⟂ `World.WorldGen`**（2026-10-06 ADR-0005 · C-4 §6.2 G1）：
-///      人类演化层是**领域消费者**，不得接上新世界生成线（全程序集 + 成员 + IL 扫描）。
+///   ⑥ **`World.CivSim` 已移出程序集**（2026-10-09 用户拍板"移出去，等待正确时机回归"）：
+///      人类演化层连同其直接依赖（`World.Gameplay` / `CivSimDiag` / CivSim 单测）已迁至
+///      `scripts/_removed/` 并由 `world.csproj` 排除编译。本条从原"CivSim ⟂ WorldGen
+///      **方向守卫**"改写为"CivSim 已不在程序集内"的**结果 + 位置钉**
+///      （方向守卫随被测类型一起移出，失去意义）。
 /// 纪律（同 NoiseTerrainTests）：只用 [Test]；不写文件；不触碰 GD.*/LogService。
 /// </summary>
 public class ArchitectureContractTests
@@ -38,7 +41,8 @@ public class ArchitectureContractTests
 	/// 本契约钉住第一步"**新线不得依赖旧线**"——防止两套世界事实重新耦合。
 	/// ⚠️ 它保护的是**依赖方向**，不是"旧线必须立刻删除"：
 	///    删除时机取决于旧线当前是否还有真实消费者（旧线仍有 4 个独立场景：
-	///    MapGenMenu / MapViewer / PlanetCore / CivSimDiag，但均不在主入口）。
+	///    MapGenMenu / MapViewer / PlanetCore / CivSimDiag，但均不在主入口；
+	///    ★2026-10-09：CivSimDiag 也已随 CivSim 移出到 `scripts/_removed/`，此句仅作历史记录）。
 	/// </summary>
 	[Test]
 	public void NewWorldLine_DoesNotDependOnLegacyWorldLine()
@@ -78,7 +82,7 @@ public class ArchitectureContractTests
 	///   清退 A（自己生成世界）：World.Biome / World.MapGen / World.MapView / World.Tectonics
 	///   清退 E（旧表现与旧应用流程）：旧 UI 目录与场景、ArchiveService / SaveArchive / EventBus
 	///   保留 B（存档格式 → World.Archive）、C+D（领域词汇与领域模拟 → World.Domain）、
-	///          CivSim / LogicGrid / HexPlanet / WildCropsSystem
+	///          LogicGrid / HexPlanet / WildCropsSystem（★CivSim 已于 2026-10-09 移出程序集）
 	/// 本测试钉住"**旧世界生成链在程序集里已不存在**"这个**结果**，
 	/// 而不是"新线不引用它"这个方向——二者都要有：
 	/// 只有方向没有结果 ⇒ 旧链复活也测不出来；只有结果没有方向 ⇒ 无法防止重新耦合。
@@ -98,28 +102,29 @@ public class ArchitectureContractTests
 
 	/// <summary>
 	/// **保留区的依赖白名单钉**（D-3 切分清退后的边界守卫，§07 §10.5.4）。
-	/// CivSim 与 LogicGrid 是**领域消费者**（消费世界，不生成世界），被明确保留。
+	/// LogicGrid / WildCropsSystem 是**领域消费者**（消费世界，不生成世界），被明确保留。
 	/// 它们允许依赖：World.Domain（C 领域词汇 + D 领域模拟）、World.Archive（B 存档格式）、
 	/// World.HexPlanet（球面网格几何基础设施）、World.Utils / World.Services（通用工具）、
 	/// 以及彼此与自身。
 	/// **不允许**再出现任何旧世界生成命名空间——否则说明有人把生成能力又塞回了消费者里。
+	/// ★2026-10-09 CivSim 移出：`World.CivSim` / `World.Gameplay` 已随 CivSim 迁至
+	///   `scripts/_removed/`，故从「允许清单」与「被扫消费者」两处一并移除——
+	///   回归 CivSim 时**必须同步恢复**这两处（见 `docs/裁决-CivSim移出.md`）。
 	/// </summary>
 	[Test]
 	public void RetainedDomainConsumers_OnlyDependOnAllowedNamespaces()
 	{
 		var allowed = new[]
 		{
-			"World.CivSim", "World.LogicGrid", "World.Domain", "World.Archive",
-			"World.HexPlanet", "World.Utils", "World.Services", "World.Gameplay",
+			"World.LogicGrid", "World.Domain", "World.Archive",
+			"World.HexPlanet", "World.Utils", "World.Services",
 		};
 		var forbidden = new[] { "World.Biome", "World.MapGen", "World.MapView", "World.Tectonics" };
 
-		// ★注意：`CivSimContext` 的物理目录是 `scripts/CivSim/Engine/`，但命名空间是
-		//   `World.CivSim`（子目录不进命名空间）——与本次 D-3 的切分原则一致：
-		//   **按类型语义定位，不按目录名定位**。
+		// ★按类型语义定位，不按目录名定位（命名空间 = 语义；`scripts/{Scene,Logic}/` 分区不吃 namespace）。
+		// ★2026-10-09：`World.CivSim.CivSimContext` 已随 CivSim 移出，从被扫面移除。
 		var consumers = new[]
 		{
-			typeof(World.CivSim.CivSimContext),
 			typeof(World.LogicGrid.GameGrid),
 			typeof(World.Domain.WildCropsSystem),
 		};
@@ -141,56 +146,48 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
-	/// **命名空间级隔离契约：`World.CivSim` ⟂ `World.WorldGen`**（2026-10-06 · ADR-0005 · C-4 §6.2 G1）。
+	/// **`World.CivSim` 移出钉（结果 + 位置）**（2026-10-09 用户拍板："将 civsim 移出去，
+	/// 等待正确时机回归，现在不需要"）。
 	///
-	/// 判定问题："人类演化层（领域消费者）会不会偷偷接上新世界生成线？" ⇒ **不许**。
-	/// 依据（C-4 接线审查）：CivSim 的自然输入全部来自遗留 `.mpa`（`World.LogicGrid.GameGrid`），
-	/// 与 `FinalGeography` / `FinalSpatialIndex` 的接触量为 **0**。今天"CivSim 不依赖 WorldGen"
-	/// 是**巧合成立**，不是**契约成立**——本条把它升级为编译期守卫：
-	/// 把"现在恰好没有依赖"变成"以后即使有人故意/无意加依赖，也立即失败"。
+	/// ★本条的前身是 `CivSim_DoesNotReferenceWorldGen`（2026-10-06 ADR-0005 · C-4 §6.2 G1）——
+	///   一条"`World.CivSim` ⟂ `World.WorldGen`"的**方向守卫**（扫全程序集 + 解 IL 深度）。
+	///   被测类型整体移出程序集后，方向守卫已无从扫描（扫不到类型），故改写为**结果钉**：
+	///   钉住"CivSim 确实不在游戏程序集里"，防止"移出后又被悄悄接回"。
 	///
-	/// ★与既有 `RetainedDomainConsumers_OnlyDependOnAllowedNamespaces` 的区别（后者保留不动）：
-	///   ① **扫描面 = 全程序集**：命中 `World.CivSim` 及其**全部子命名空间**里的**每一个类型**
-	///      （含 `GrowthModel` 这类内部实现类），不再是三个入口类型
-	///      （`CivSimContext` / `GameGrid` / `WildCropsSystem`）；
-	///   ② **扫描深度 = 类型 + 成员 + 方法体**：除"字段/属性/方法签名/基类/接口/泛型/特性"外，
-	///      还解 **IL**（局部变量、静态字段/方法调用、`newobj` / `castclass` / `isinst` / `ldtoken`），
-	///      因此"在 `GrowthModel.cs` 里 `using World.WorldGen;` 后再用一下"也会立刻变红。
+	/// 移出方式（用户拍板）：文件**移入工程内** `scripts/_removed/`，由 `world.csproj` 排除编译
+	///   ——**不是删除**。回归时把目录移回原位并删掉 csproj 的排除行即可
+	///   （清单见 `scripts/_removed/README.md`，决策见 `docs/裁决-CivSim移出.md`）。
 	///
-	/// ★为什么必须"全程序集 + 到 IL 深度"：旧的 `ReferencedTypes` **非传递**且只扫直接成员，
-	///   "入口类型 → 内部模型 → WorldGen"这种两级引用完全隐形。扫描面覆盖**所有** CivSim 类型后，
-	///   传递链上的每一环都是被扫对象 ⇒ 等价于对 CivSim 子图的传递闭包。
-	///
-	/// 若本测试变红：不要删它，回到 ADR-0005 —— 自然输入应经 **`World → Human Input Bridge`**
-	/// 的逐层迁移（四阶段）接入，而不是让 CivSim 直接 `using World.WorldGen`。
+	/// ★恢复指引（回归时的正确做法）：
+	///   ① `git mv scripts/_removed/Logic/CivSim scripts/Logic/CivSim`（`Gameplay` 同理）；
+	///   ② 恢复 `RetainedDomainConsumers_OnlyDependOnAllowedNamespaces` 的
+	///      `"World.CivSim"` / `"World.Gameplay"` 白名单行与 `typeof(World.CivSim.CivSimContext)`；
+	///   ③ 场景/诊断/单测按 `scripts/_removed/README.md` 清单移回；
+	///   ④ 若届时新世界线已通过自然输入桥（ADR-0005）正式接入，把方向守卫一并恢复。
 	/// </summary>
 	[Test]
-	public void CivSim_DoesNotReferenceWorldGen()
+	public void CivSimAndGameplay_AreMovedOut()
 	{
 		var asm = typeof(FinalGeography).Assembly;
 
-		// `Engine/` `Tables/` `Support/` `Archive/` 下是 `World.CivSim`；
-		// `Entities/` `Events/` `Concepts/` `Policies/` `Observation/` `Mechanics.<域>/` 下是 `World.CivSim.<子>`。
-		static bool IsCivSim(Type t) => t.Namespace is string ns
-			&& (ns == "World.CivSim" || ns.StartsWith("World.CivSim."));
-		static bool IsWorldGen(Type t) => t.Namespace is string ns
-			&& (ns == "World.WorldGen" || ns.StartsWith("World.WorldGen."));
+		static bool IsCivSimOrGameplay(Type t) => t.Namespace is string ns
+			&& (ns == "World.CivSim" || ns.StartsWith("World.CivSim.")
+				|| ns == "World.Gameplay" || ns.StartsWith("World.Gameplay."));
 
-		var civTypes = asm.GetTypes().Where(IsCivSim).ToList();
-		Assert.That(civTypes, Is.Not.Empty,
-			"未扫到任何 World.CivSim 类型——命名空间约定可能变了（目录名与 namespace 应逐字一致）");
+		var survivors = asm.GetTypes().Where(IsCivSimOrGameplay)
+			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+		Assert.That(survivors, Is.Empty,
+			$"World.CivSim / World.Gameplay 类型仍在程序集内：{string.Join(",", survivors)}——" +
+			"2026-10-09 已整体移出至 scripts/_removed/（用户拍板：等待正确时机回归）。" +
+			"若确要提前接回，请连同本契约与 world.csproj 的排除行一起显式修改，并留下决策记录");
 
-		var offending = new List<string>();
-		foreach (var t in civTypes)
-			foreach (var r in ReferencedTypesDeep(t))
-				if (IsWorldGen(r))
-					offending.Add($"{t.Name}→{r.Namespace}.{r.Name}");
-
-		Assert.That(offending.Distinct().ToList(), Is.Empty,
-			$"World.CivSim 引用了 World.WorldGen：{string.Join(",", offending.Distinct())}——" +
-			"人类演化层是**领域消费者**，其自然输入当前只来自遗留 `.mpa`；" +
-			"新世界线的接入必须经 `World → Human Input Bridge`（ADR-0005），" +
-			"不得让 CivSim 直接依赖 WorldGen（C-4 §6.2 G1）");
+		// 位置钉：原目录须已不存在，_removed 内须存在（"移出"而非"删掉"）。
+		Assert.That(FindRepoDir("scripts", "Logic", "CivSim"), Is.Null,
+			"scripts/Logic/CivSim 应已移出（现应在 scripts/_removed/Logic/CivSim）");
+		Assert.That(FindRepoDir("scripts", "Logic", "Gameplay"), Is.Null,
+			"scripts/Logic/Gameplay 应已移出（现应在 scripts/_removed/Logic/Gameplay）");
+		Assert.That(FindRepoDir("scripts", "_removed", "Logic", "CivSim"), Is.Not.Null,
+			"scripts/_removed/Logic/CivSim 应存在——CivSim 是「移出」不是「删除」（回归时移回原位即可）");
 	}
 
 	/// <summary>
@@ -198,13 +195,14 @@ public class ArchitectureContractTests
 	/// **只能是新世界线内部**（`World.WorldGen*`）（2026-10-06 · ADR-0005 §边界条款 B2 · C-4 §6.2 G2）。
 	///
 	/// 判定问题："谁在消费 Final 世界事实？" ⇒ 目前**只有 WorldGen 自己**。
-	/// 实测（C-4 §2.3）：`scripts/WorldGen/Final/` 之外的仓内消费者 = **0**；
+	/// 实测（C-4 §2.3）：`scripts/Logic/WorldGen/Final/` 之外的仓内消费者 = **0**；
 	/// "World → Human Input Bridge" 当前**尚不存在，连桩都没有**。
 	///
 	/// ★目的**不是**永久禁止所有桥，而是：**在桥正式设计（Phase 1–4 逐层迁移）之前，
-	///   不允许出现"私接消费者"**。任何把 Final 事实接进 `World.CivSim` / `World.Domain` /
+	///   不允许出现"私接消费者"**。任何把 Final 事实接进 `World.Domain` / `World.LogicGrid` /
 	///   `Render` / `UI` / 其他外部层的改动，都必须**显式改这张白名单**并留下决策记录——
 	///   而不是"悄悄接一根线"。本契约就是那张必须被显式修改的表。
+	///   （★2026-10-09：`World.CivSim` 已移出程序集，不再是潜在私接方之一。）
 	///
 	/// ★扫描面：**整个游戏程序集**（`typeof(FinalGeography).Assembly`）。
 	///   `World.Tests` 是**独立程序集** ⇒ 架构/相关单测天然不在扫描面内（故无需为它们开白名单）。
@@ -646,8 +644,11 @@ public class ArchitectureContractTests
 	///   ② **方法体 IL**：局部变量、异常捕获类型，以及 IL 里"元数据 token"操作数
 	///      （`ldfld`/`stfld`/`call`/`callvirt`/`newobj`/`castclass`/`isinst`/`ldtoken`… ⇒ 静态成员与类型字面量）。
 	/// 最后把每个类型**展开到元素类型**（数组 ⇒ 元素、泛型 ⇒ 实参），便于按命名空间判定。
-	/// ★只给 <see cref="CivSim_DoesNotReferenceWorldGen"/> 用；刻意不改既有的 <see cref="ReferencedTypes"/>，
-	///   以免波及其它既有契约（本轮边界：只封 CivSim ⟂ WorldGen 一个口）。
+	/// ★当前**无契约在使用它**：唯一消费者 `CivSim_DoesNotReferenceWorldGen` 已随 CivSim 移出而改写
+	///   （2026-10-09，见 `CivSimAndGameplay_AreMovedOut`）。**有意保留**——下一个跨层契约
+	///   （如待办里的「Logic ⟂ Scene」）可直接复用这套 IL 深度扫描，不必重写；
+	///   若长期无人用，可连同 `IlRefs` / `Expand` / `OperandTokens` / `OpCodeMap` 一起清退。
+	///   刻意不改既有的 <see cref="ReferencedTypes"/>，以免波及其它既有契约。
 	/// </summary>
 	static IEnumerable<Type> ReferencedTypesDeep(Type t)
 	{

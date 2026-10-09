@@ -7,7 +7,6 @@ using World.HexPlanet;
 using World.LogicGrid;
 using World.Archive;
 
-using World.CivSim.Entities;
 namespace World.Tests;
 
 /// <summary>

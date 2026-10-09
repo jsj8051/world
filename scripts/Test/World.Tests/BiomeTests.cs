@@ -6,7 +6,6 @@ using NUnit.Framework;
 using World.Domain;
 using World.HexPlanet;
 
-using World.CivSim.Entities;
 namespace World.Tests;
 
 /// <summary>

@@ -13,6 +13,12 @@
     <None Remove="scripts/Test/World.Tests/**" />
     <None Remove="scripts/Test/World.Tests.Local/**" />
     <None Remove="scripts/Test/PerfBench/**" />
+    <!-- ★2026-10-09 CivSim 移出（用户拍板"等待正确时机回归"）：整棵闭包移入 scripts/_removed/
+         （CivSim 本体 + Gameplay + CivSimDiag + CivSim 单测 + 其场景），在此整体排除编译。
+         **是"移出"不是"删除"** —— 回归时把目录移回原位并删掉下面两行即可。
+         详见 scripts/_removed/README.md 与 docs/裁决-CivSim移出.md。 -->
+    <Compile Remove="scripts/_removed/**/*.cs" />
+    <None Remove="scripts/_removed/**" />
   </ItemGroup>
   <ItemGroup>
     <!-- 单测直测 internal 纯函数/测试钩子（2026-08-24 文明记录：TechTable.LoadForTest 等） -->
