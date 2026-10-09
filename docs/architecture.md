@@ -284,8 +284,24 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 ## 9. 命名与目录约定
 
   - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
-    `World.Render(.UI/.Controllers/.Constants)` / `World.WorldGen` / `World.Constants` /
+    `World.Render(.UI/.Controllers/.Constants)` / `World.WorldGen` / **`World.Data`** / `World.Constants` /
     `World.H3Grid` / `World.Utils(.H3)` / `World.Camera` / `World.Diagnostics`。
+    （★2026-10-09：**新建 `World.Data` = 数据层**，目录 `scripts/Logic/Data/`——只收"纯数据载体"，
+      判据（机器可验）：**顶层类型 + 零方法 + 零计算属性 + 无嵌套 + 不引用生成域类型**；
+      依赖**单向** `World.WorldGen → World.Data`（载体不得引用 `World.WorldGen` 的类型，否则成环）；
+      未纳入的边界件与理由见 `docs/裁决-数据层World.Data.md`。
+      ★**2026-10-10 分两段**（子目录 = **自由分组**、不进命名空间；**段判据 = "谁构造它"**）：
+        · `Data/Spec/`    = **世界定义**——装配层构造、按段切片喂给各阶段；
+                            **零默认值**（默认值唯一真相源 = `World.WorldGen.WorldSpecDefaults.Earth`，
+                            形状里写初值会形成第二个源，改一处漏一处 ⇒ 默认值悄悄分叉）：
+                            `WorldSpec` / `LandSeaSpec` / `TerrainSpec`
+        · `Data/Carrier/` = **生成链内部流通的数据形状**——生成器写、下游读，不由人直接调：
+                            `ContinentAnchor` / `MountainRidge` / `Scale3`
+        ⚠️ 两段不是"spec vs 非 spec"而是"**外部旋钮 vs 内部形状**"：一个类型同时具备两边特征
+           （如已删的 `LandSeaParams`：装配层构造 = spec 侧，却持有运行时字段 + 自带初值 = 载体侧）
+           ⇒ 它**没被规范化**，正解是按段拆开，而不是硬塞进某一段。
+        六个类型均已登记 `ArchitectureContractTests.NewWorldLineTypes`。
+        见 `docs/裁决-海陆参数收编LandSeaSpec.md`）
     （★2026-10-09：`World.Domain` / `World.Archive` / `World.LogicGrid` / `World.CivSim.*` /
       `World.Gameplay` / `World.HexPlanet` / **`World.Services`** 已分别解散 / 删除 / 移出；
       `World.Constants` 成为常量族新家，`World.Diagnostics` 仅剩 `DiagSceneBase` + `H3SmokeDiag`——
@@ -300,6 +316,15 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
   已实证：`scripts/CivSim/Engine/CivSimContext.cs` 的命名空间是 `World.CivSim`（子目录不进命名空间）。
 - 文件名 = 类名；`partial` 分片用 `原类名.职责.cs` 后缀放同目录。
+  （★2026-10-09：数据层搬迁顺手收口 4 处 `文件名 ≠ 类名`——`ContinentAnchor` / `LandSeaParams` /
+    `MountainRidge` / `Scale3` 此前寄生在 `ContinentLayout.cs` / `LandSeaFields.cs` /
+    `MountainSkeleton.cs` / `TerrainFeature.cs` 内，现已各自成文件。
+    ★其中 `LandSeaParams` 已于 **2026-10-10 并入 `LandSeaSpec` 并删除**（它自带字段初值 = 内容装在形状里），
+      故本条现有的数据层四类型实为 `ContinentAnchor` / `MountainRidge` / `Scale3` + 三个 spec。）
+    ⚠️ **同类债仍在**（一个 `.cs` 装多个顶层类型，文件名只对得上其一）：
+    `SphericalField.cs`(6) / `RegionalLandforms.cs`(3) / `LandSeaFields.cs`(2) / `MountainSkeleton.cs`(2) /
+    `GeologicalRegions.cs`(2) / `VolcanoField.cs`(2) / `HeightComposer.cs`(2) / `ColorRamp.cs`(2) /
+    `H3.cs`(2) / `H3Native.cs`(2)——收口属独立批次，勿与生成语义改动混做。）
 - ⚠️ **架构依赖图 = `.cs` 引用边 + `.tscn` 场景挂载边 + 其他资产引用边**。
   Godot 的**场景挂载本身就是运行时依赖**，只扫 `.cs` 会漏（决策 08 §4.3 实测：
   首版报告因此漏掉主入口挂的 `NoiseCellPanel` / `NoiseDock`）。
