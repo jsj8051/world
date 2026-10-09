@@ -1,6 +1,5 @@
 using Godot;
 using System;
-using World.Domain;
 using World.Services;
 
 namespace World.Diagnostics;
@@ -12,9 +11,15 @@ namespace World.Diagnostics;
 ///   · 存档往返校验 NaN 假 FAIL——diff 函数必须把 NaN 视为相等（NaN 位级无损往返，
 ///     Math.Abs(NaN−NaN)=NaN 让 maxDiff&lt;1e-3 恒 false）。全部 MaxDiff* 已内置此语义。
 ///   · 各 diag 各写一套 diff 曾出现参数交叉比较（假 FAIL）；此处统一，勿在 diag 里再造轮子。
+///
+/// ★2026-10-09：`World.Domain.Calendar` 已随 `World.Domain` 解散而删除 ⇒ 一年月数就地内联为
+///   本类私有常量（原 `Calendar.MonthsPerYear` 迁出的唯一用途就是下面的 `Bytes2DDiff`）。
 /// </summary>
 public static class FieldCompare
 {
+    /// <summary>一年月数 = 12（原 `World.Domain.Calendar.MonthsPerYear`；月字段第二维长度）。</summary>
+    const int MonthsPerYear = 12;
+
     /// <summary>标量相等（1e-6 容差）。</summary>
     public static bool Eq(string name, float a, float b)
     {
@@ -86,7 +91,7 @@ public static class FieldCompare
     public static int Bytes2DDiff(string name, byte[][] a, byte[][] b, out int diff)
     {
         diff = 0;
-        for (int m = 0; m < Calendar.MonthsPerYear; m++)
+        for (int m = 0; m < MonthsPerYear; m++)
             for (int i = 0; i < a[m].Length; i++)
                 if (a[m][i] != b[m][i]) diff++;
         return diff;

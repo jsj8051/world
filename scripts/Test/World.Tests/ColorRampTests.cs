@@ -1,6 +1,5 @@
 using NUnit.Framework;
 using Godot;
-using World.Domain;
 using World.Utils;
 
 namespace World.Tests;
@@ -8,22 +7,36 @@ namespace World.Tests;
 /// <summary>连续色带统一工具测试（2026-08-31 重构；海拔色带 ISO 9241-307 改版 + 海洋冷色分带）：
 /// 温度/降水色带走线性 RampSample（与旧内嵌逻辑逐点等价）；海拔色带走三次平滑
 /// RampSampleSmooth（Catmull-Rom：停点位置恒等停点色、段间切线连续、同位置台阶硬切）。
-/// 色带归属：ElevationLayer.ElevationStops / BiomeColors.TempStops / PrecipitationLayer.PrecipStops。</summary>
+/// 色带归属（2026-10-09 校正）：海拔 `ElevationMode` / 温度 `TemperatureMode` / 降水 `PrecipitationMode`
+/// ——**色带归消费它的地图模式**；本类用**测试自有夹具色带**测算法本身
+///（旧 `Domain.BiomeColors.TempStops` 已随 `World.Domain` 解散删除）。</summary>
 public class ColorRampTests
 {
+    /// <summary>测试自有示例色带（原 `Domain.BiomeColors.TempStops`；域 −85…+45 °C）。
+    /// 本类测的是 `ColorRamp.RampSample` **算法** ⇒ 夹具色带即可，不依赖任何生产色带。</summary>
+    static readonly ColorRamp.ColorStop[] TempStops =
+    {
+        new(-85f, new Color(0.08f, 0.12f, 0.45f)),
+        new(-30f, new Color(0.10f, 0.28f, 0.62f)),
+        new(0f,   new Color(0.22f, 0.52f, 0.72f)),
+        new(15f,  new Color(0.38f, 0.72f, 0.42f)),
+        new(30f,  new Color(0.92f, 0.78f, 0.28f)),
+        new(45f,  new Color(0.88f, 0.30f, 0.15f)),
+    };
+
     // ── RampSample（线性）基础行为 ────────────────────────────────────
 
     [Test]
     public void RampSample_ClampsBelowFirstStop_ToFirstColor()
     {
-        var c = ColorRamp.RampSample(BiomeColors.TempStops, -200f);
+        var c = ColorRamp.RampSample(TempStops, -200f);
         Assert.IsTrue(c.IsEqualApprox(new Color(0.08f, 0.12f, 0.45f)));
     }
 
     [Test]
     public void RampSample_ClampsAboveLastStop_ToLastColor()
     {
-        var c = ColorRamp.RampSample(BiomeColors.TempStops, 100f);
+        var c = ColorRamp.RampSample(TempStops, 100f);
         Assert.IsTrue(c.IsEqualApprox(new Color(0.88f, 0.30f, 0.15f)));
     }
 
@@ -31,7 +44,7 @@ public class ColorRampTests
     public void RampSample_InterpolatesMidSegment()
     {
         // -85→-30 段中点 = 两端 Lerp 0.5
-        var c = ColorRamp.RampSample(BiomeColors.TempStops, -57.5f);
+        var c = ColorRamp.RampSample(TempStops, -57.5f);
         var expect = new Color(0.08f, 0.12f, 0.45f).Lerp(new Color(0.10f, 0.28f, 0.62f), 0.5f);
         Assert.IsTrue(c.IsEqualApprox(expect));
     }
@@ -40,7 +53,7 @@ public class ColorRampTests
     public void RampSample_SegmentBoundary_BelongsToRightSide()
     {
         // t=-30 恰为段边界 → -30 停点色（与旧二分双闭区间结果一致）
-        var c = ColorRamp.RampSample(BiomeColors.TempStops, -30f);
+        var c = ColorRamp.RampSample(TempStops, -30f);
         Assert.IsTrue(c.IsEqualApprox(new Color(0.10f, 0.28f, 0.62f)));
     }
 
@@ -53,7 +66,7 @@ public class ColorRampTests
     [Test]
     public void RampSample_Temperature_MatchesLegacyLogic()
     {
-        // 旧 BiomeColors.TemperatureToColor 二分分段逻辑（2026-08-31 重构前快照）
+        // 旧二分分段逻辑（2026-08-31 重构前快照；原属 BiomeColors.TemperatureToColor）
         static Color Legacy(float t)
         {
             float[] breaks = { -85f, -30f, 0f, 15f, 30f, 45f };
@@ -72,7 +85,7 @@ public class ColorRampTests
 
         for (float t = -120f; t <= 80f; t += 0.5f)
         {
-            var got = ColorRamp.RampSample(BiomeColors.TempStops, t);
+            var got = ColorRamp.RampSample(TempStops, t);
             Assert.IsTrue(got.IsEqualApprox(Legacy(t)), $"温度 {t}°C 不等价: got={got} legacy={Legacy(t)}");
         }
     }

@@ -1,6 +1,6 @@
 using System;
 using World.Spatial;       // Ball
-using World.Planet;        // Thermal（热常数集中管理）
+using World.Constants;     // Thermal（热常数集中管理；2026-10-09 namespace World.Planet → World.Constants）
 
 namespace World.WorldGen;
 
@@ -29,7 +29,7 @@ public sealed class Temperature
     /// <summary>全球平均温度（℃；等积格 ⇒ 算术平均）。判读/量级锚用，非生产输入。</summary>
     public float MeanC { get; private set; }
 
-    // ── 系数：集中于 Planet.Thermal（已归一，不在此硬编码）────────────────
+    // ── 系数：集中于 Constants.Thermal（已归一，不在此硬编码）──────────────
     const float InputFlux = Thermal.AbsorbedSolarFluxWm2;        // 输入侧（含 α）
     const float CoolingInv = Thermal.RadiativeCoolingInverseWm2; // 输出侧（含 εσ）
     const float LapseRateCPerKm = Thermal.LapseRateCPerKm;

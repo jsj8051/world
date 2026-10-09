@@ -4,8 +4,10 @@ using System;
 namespace World.Utils;
 
 /// <summary>连续色带通用工具（2026-08-31 迁入 World.Utils——通用算法之家；业务色带定义
-/// 内聚各归属处：ElevationLayer.ElevationStops / BiomeColors.TempStops / PrecipitationLayer.PrecipStops，
-/// 本类只含采样与图例算法，不含业务色）。</summary>
+/// 内聚各归属处（2026-10-09 校正）：海拔色带在 `ElevationMode`、温度色带在 `TemperatureMode`、
+/// 降水色带在 `PrecipitationMode`——**色带归消费它的地图模式**；本类只含采样与图例算法，不含业务色。
+/// ★`World.Domain.BiomeColors` 已随 `World.Domain` 解散而删除（原三条旧名 ElevationLayer /
+///   PrecipitationLayer / BiomeColors.TempStops 均已不存在）。</summary>
 public static class ColorRamp
 {
     /// <summary>连续色带停点（坐标=物理域：海拔米 / 温度°C / 降水归一化 0..1）。

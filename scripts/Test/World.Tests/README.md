@@ -3,7 +3,7 @@
 NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**单元测试**（单类纯函数/机制契约）与
 **模块测试**（跨类不变量：确定性、守恒、往返、结构性质）。
 
-> 当前规模（2026-08 实测）：**470 用例全部通过**（本地执行器，含全部模块）。
+> 当前规模（2026-10-09 实测，`dotnet test`）：**305 用例全部通过**。
 
 ## 测试范围（重要）
 
@@ -50,11 +50,11 @@ NUnit 单元测试项目，引用 `world.csproj`（游戏程序集）。覆盖**
 | `DeterministicRandomTests.cs` | 确定性基石：同 seed 同序列、状态往返续跑、边界 |
 | `CivSimModelTests.cs` | CivSimContext 静态纯函数：Miami NPP、冲积因子、收益判据、影响力/产出权重查表、猎物比例、冷区 |
 | `CivSimMechanicTests.cs` | 注册表/商品目录/能力表；Growth/Origin/SplitMigrate/Settlement/Energy/Cultivate/Trade/War 单模型隔离；Territory/Chiefdom/State 纯派生重建；模块确定性（等价 tick 循环两次逐项对比 + 多 seed 分叉） |
-| `BiomeTests.cs` / `BiomeClimateTests.cs` | BiomeClassifier 柯本分类全带表（含南北半球干季/阈值边界）；BiomeType 序列化值；BiomeColors 色板全覆盖/插值；WindField 环流带/切平面/自转翻转/海陆分；OceanCurrent 小网格不变量 |
+| `BiomeTests.cs` | ★2026-10-09 **已重写**：只钉 `World.Constants.BiomeType` 词表（byte / **仅柯本 18 值** / 无重复）。原 Biome 模块测试的被测类型（BiomeClassifier / BiomeColors / MonsoonSystem）已全部不存在，且原方法**漏 `[Test]` 从未运行**——见 `docs/裁决-Domain解散与BiomeType归Constant.md` |
 | `HexPlanetTests.cs` | Icosahedron 顶点公式/反推/大 n long 安全/Subdivide 计数球面唯一性（纯几何函数，无日志直调）；SubdividedMesh 去重/三角邻居；GoldbergBuilder 五边形/六边形经典计数（12/12+30/…）、邻居对称、手工 icosahedron 全五边形 |
 | ~~`MapGenTests.cs`~~ | ★2026-10-09 **已删**（属 Legacy 载体簇：FieldCodec / WildCropsSystem）——见 `docs/裁决-Legacy载体簇删除.md` |
 | ~~`LogicGridTests.cs`~~ | ★2026-10-09 **已删**（属 Legacy 载体簇：GameGrid / MapData）——同上 |
-| `ServicesTests.cs` | EventBus 发布订阅/消费语义；PlanetColors 端点/边界；PowerPalette 最远点采样色距/顺序无关；TileIndex 面↔顶点不变量/缓存 |
+| ~~`ServicesTests.cs`~~ | ★2026-10-09 **已删**（唯一内容 = `PowerPalette` 测试；`PowerPalette` 已随 `World.Domain` 解散删除）——见 `docs/裁决-Domain解散与BiomeType归Constant.md` |
 | `TectonicsTests.cs` | FieldOps 场运算/形态学/插值/梯度/扩散；MatrixOps 正交/逆/旋转向量；Crust 池访问/质量/厚度/密度/浮力/均衡位移/AddDelta/ModelErosion 等守恒；Plate 映射/重采样/Move；SphereGrid 邻接/最近邻；Tectonophysics 纯函数；TectonicsSimulation ctor/MergePlatesToMaster 守恒/ApplySurfaceProcesses/SyncWorldToPlates 模块测试 |
 | `GridFeatureVerifyTests.cs` | 演示验证：构造 n=2 演示网格（42 胞：北半球陆地/南半球海洋）→ **逐个功能单独验证**（邻接/海陆/距离面积/层1生产力/野生作物/畜牧/土壤/矿藏/河流/洋流/风场/存档布局/往返），每个功能一个独立 `[Test]` |
 | `CivSimMechanics2Tests.cs` | **CivSim 模拟补全**：CivEngine 纯静态（RefreshCellState 三部曲/AccumulateStorage 衰变与容量/RecomputeProduction/DeriveLeadership/SettleDerived 幂等）；单模型隔离 Harvest/Influence/Absorption/Mode/Invention/Spread/Prestige/Culture/Religion/Conflict/War 守卫；模块确定性 `CivEngine.Continue` 续跑 = 从头跑 N+k（T04） |

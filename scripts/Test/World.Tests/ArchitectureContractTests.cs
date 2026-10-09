@@ -79,11 +79,14 @@ public class ArchitectureContractTests
 	/// <summary>
 	/// **D-3 切分清退完成钉**（用户 2026-10-04 拍板 (b)，§07 §10.5）。
 	/// 清退边界不是"目录"而是"类型语义 + 依赖方向"：
-	///   清退 A（自己生成世界）：World.Biome / World.MapGen / World.MapView / World.Tectonics
-	///   清退 E（旧表现与旧应用流程）：旧 UI 目录与场景、ArchiveService / SaveArchive / EventBus
-	///   保留 C+D（领域词汇与领域模拟 → World.Domain）、HexPlanet（球面网格几何基础设施）
-	///   ★2026-10-09：CivSim 已移出程序集；Legacy 载体簇（LogicGrid / Archive / WildCropsSystem）
-	///     已按用户拍板**整体删除**（之后重新实现）——见下方 `LegacyCarrierCluster_IsDeleted`。
+///   清退 A（自己生成世界）：World.Biome / World.MapGen / World.MapView / World.Tectonics
+///   清退 E（旧表现与旧应用流程）：旧 UI 目录与场景、ArchiveService / SaveArchive / EventBus
+///   保留 C+D（领域词汇与领域模拟）+ HexPlanet（球面网格几何基础设施）
+///   ★2026-10-09：CivSim 已移出程序集；Legacy 载体簇（LogicGrid / Archive / WildCropsSystem）
+///     已按用户拍板**整体删除**（之后重新实现）——见下方 `LegacyCarrierCluster_IsDeleted`。
+///   ★2026-10-09（同日稍晚）：`World.Domain` 这个"领域词汇保留区"**亦已解散**——
+///     `BiomeType` 迁 `World.Constants`（并裁剪为**仅柯本 18 值**），`PowerPalette` /
+///     `Calendar` / `BiomeColors` 删除 ⇒ 见下方 `DomainNamespace_IsDissolved`。
 	/// 本测试钉住"**旧世界生成链在程序集里已不存在**"这个**结果**，
 	/// 而不是"新线不引用它"这个方向——二者都要有：
 	/// 只有方向没有结果 ⇒ 旧链复活也测不出来；只有结果没有方向 ⇒ 无法防止重新耦合。
@@ -98,7 +101,7 @@ public class ArchitectureContractTests
 				survivors.Add($"{t.Namespace}.{t.Name}");
 		Assert.That(survivors, Is.Empty,
 			$"旧世界生成链仍有类型存活：{string.Join(",", survivors)}——D-3 已清退这四个命名空间，" +
-			"若新代码需要其中的能力，应判断它是『生成世界』还是『消费世界』：后者迁到 World.Domain/World.Archive，前者不应重建（§07 §10.5）");
+			"若新代码需要其中的能力，应判断它是『生成世界』还是『消费世界』：后者迁到领域词汇区（现为 World.Constants 等；World.Domain / World.Archive 均已删除），前者不应重建（§07 §10.5）");
 	}
 
 	/// <summary>
@@ -119,9 +122,10 @@ public class ArchitectureContractTests
 	///   故改写为**结果钉**，钉住"这簇确实已不在程序集里"，防止"删了又被悄悄接回"。
 	///   （先例：`CivSimAndGameplay_AreMovedOut`。）
 	///
-	/// ★注：`World.LogicGrid` / `World.Archive` 两个命名空间此前**只含**这簇类型 ⇒ 删除后整体消失；
-	///   `World.Domain` 仍保留（`BiomeColors` / `BiomeType` / `Calendar` / `PowerPalette`），
-	///   仅 `WildCropsSystem` 离开。
+/// ★注：`World.LogicGrid` / `World.Archive` 两个命名空间此前**只含**这簇类型 ⇒ 删除后整体消失。
+///   ★2026-10-09（同日稍晚）：`World.Domain` **亦已整体解散**——`BiomeType` → `World.Constants`
+///     （裁剪为仅柯本 18 值），`PowerPalette` / `Calendar` / `BiomeColors` 删除。
+///     见 `DomainNamespace_IsDissolved` 与 `docs/裁决-Domain解散与BiomeType归Constant.md`。
 	/// </summary>
 	[Test]
 	public void LegacyCarrierCluster_IsDeleted()
@@ -139,7 +143,7 @@ public class ArchitectureContractTests
 				"2026-10-09 该 Legacy 载体簇已整体删除（用户拍板：之后重新实现）");
 		}
 
-		// ② World.Domain 保留，但其中的 WildCropsSystem 须已离开
+		// ② 原 World.Domain 内的 WildCropsSystem 须已离开（`World.Domain` 随后亦整体解散）
 		var wildCrops = asm.GetTypes().Where(t => t.Name == "WildCropsSystem")
 			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
 		Assert.That(wildCrops, Is.Empty,
@@ -150,6 +154,53 @@ public class ArchitectureContractTests
 			"scripts/Logic/LogicGrid 应已删除（GameGrid 属已删的 Legacy 载体簇）");
 		Assert.That(FindRepoDir("scripts", "Logic", "Archive"), Is.Null,
 			"scripts/Logic/Archive 应已删除（MapData / FieldCodec 属已删的 Legacy 载体簇）");
+	}
+
+	/// <summary>
+	/// **`World.Domain` 解散钉（结果）**（2026-10-09 用户拍板：「PowerPalette 和 Calendar 可以删除，
+	/// 然后 biometype 放到 constant 中，只放柯本分类的生物群系，然后 biomecolors 应该是地图模式做的事情，
+	/// 这里先删除吧」）。
+	///
+	/// `World.Domain` 曾是 D-3 切分清退的**领域词汇保留区**（C 类），本次**整体解散**：
+	///   · `BiomeType`    → 迁入 `World.Constants`（`scripts/Logic/Constant/BiomeType.cs`），
+	///                      并**裁剪为仅柯本气候型**（2,3,14…29；删水面/地形附加类 0/1/12/13/30/31）；
+	///   · `PowerPalette` → 删除（原唯一消费者 = 已删的 `ServicesTests`）；
+	///   · `Calendar`     → 删除（`MonthsPerYear` 就地内联进 `Diagnostics/FieldCompare`）；
+	///   · `BiomeColors`  → 删除（色带职责归**地图模式**；测试改用夹具色带）。
+	///
+	/// ★与 `LegacyCarrierCluster_IsDeleted` 同型：**结果钉**——钉住"这层确实已不在程序集里"，
+	///   防止"删了又被悄悄接回"；同时**正向**钉住 `BiomeType` 的新家。
+	/// 决策见 `docs/裁决-Domain解散与BiomeType归Constant.md`。
+	/// </summary>
+	[Test]
+	public void DomainNamespace_IsDissolved()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+
+		// ① World.Domain 命名空间须整体消失
+		var survivors = asm.GetTypes()
+			.Where(t => t.Namespace == "World.Domain" || (t.Namespace != null && t.Namespace.StartsWith("World.Domain.")))
+			.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+		Assert.That(survivors, Is.Empty,
+			$"World.Domain 类型仍在程序集内：{string.Join(",", survivors)}——" +
+			"2026-10-09 该保留区已整体解散（BiomeType 迁 World.Constants；PowerPalette/Calendar/BiomeColors 删除）");
+
+		// ② 三个被删类型名不得复活
+		foreach (var dead in new[] { "PowerPalette", "Calendar", "BiomeColors" })
+		{
+			var found = asm.GetTypes().Where(t => t.Name == dead).Select(t => $"{t.Namespace}.{t.Name}").ToList();
+			Assert.That(found, Is.Empty, $"{dead} 应已随 World.Domain 解散删除：{string.Join(",", found)}");
+		}
+
+		// ③ 正向钉：BiomeType 已在新的家
+		Assert.That(typeof(World.Constants.BiomeType).Namespace, Is.EqualTo("World.Constants"),
+			"BiomeType 应迁至 World.Constants（与 Constant/Planet/Thermal.cs 同族）");
+
+		// ④ 源目录位置钉
+		Assert.That(FindRepoDir("scripts", "Logic", "Domain"), Is.Null,
+			"scripts/Logic/Domain 应已删除（World.Domain 已解散）");
+		Assert.That(FindRepoDir("scripts", "Logic", "Constant"), Is.Not.Null,
+			"scripts/Logic/Constant 应存在（BiomeType 的新家）");
 	}
 
 	/// <summary>
@@ -206,7 +257,7 @@ public class ArchitectureContractTests
 	/// "World → Human Input Bridge" 当前**尚不存在，连桩都没有**。
 	///
 	/// ★目的**不是**永久禁止所有桥，而是：**在桥正式设计（Phase 1–4 逐层迁移）之前，
-	///   不允许出现"私接消费者"**。任何把 Final 事实接进 `World.Domain` /
+	///   不允许出现"私接消费者"**。任何把 Final 事实接进领域词汇区（`World.Constants`）/
 	///   `Render` / `UI` / 其他外部层的改动，都必须**显式改这张白名单**并留下决策记录——
 	///   而不是"悄悄接一根线"。本契约就是那张必须被显式修改的表。
 	///   （★2026-10-09：`World.CivSim` 已移出程序集，不再是潜在私接方之一。）

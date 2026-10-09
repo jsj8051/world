@@ -12,8 +12,9 @@ namespace World.Render;
 // 取色纪律沿旧 new_HexWorld MapMode：取色方式统一由 `World.Utils.ColorRamp` 提供
 //   （`RampSample` 线性 / `RampSampleSmooth` 三次平滑 / `RampLegendColors` 图例），复用不复制。
 // ★色带归属（2026-10-08 收口）：**本抽象基类只装契约，不装色板**。各色带内聚其消费方文件
-//   （`WorldGen` 各地图模式类的 Precip/Temperature/Diverging/海拔分档表、`Domain.BiomeColors.TempStops`）；
+//   （`WorldGen` 各地图模式类的 Precip/Temperature/Diverging/海拔分档表）；
 //   模式在 `CellColorAt` 里自行决定用哪条色带，并直接调 `ColorRamp` 取色。
+//   ★2026-10-09：`Domain.BiomeColors.TempStops` 已随 `World.Domain` 解散而删除（色带职责归地图模式）。
 //模式类**只读**，不写任何状态；`BeginBake` 是唯一的重烘钩子（自适应域模式在此刷新 min-max）。
 //
 // ★模式契约三要素（2026-10-07 地图坞拍板，新增模式一律走统一入口）：

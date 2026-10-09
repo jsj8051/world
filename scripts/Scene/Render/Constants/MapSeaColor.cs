@@ -8,7 +8,7 @@ namespace World.Render.Constants;
 //
 // ★为什么独立成文件：本常量有**两个真实消费者**（海拔模式 + 地质区域模式），任何一边都不宜
 //   认领它（会造成兄弟模式间的伪依赖）。原为 `WorldGenMapModes` 内的 `OceanR/G/B` 三常量，
-//   2026-10-08 随地图模式拆分独立成档（与 `scripts/Planet/Thermal.cs` 同风格：共享常量
+//   2026-10-08 随地图模式拆分独立成档（与 `scripts/Logic/Constant/Planet/Thermal.cs` 同风格：共享常量
 //   各自独立成文件，不塞进汇总类）。★不是取色工具层：取色方式统一由 `World.Utils.ColorRamp`
 //   提供，本类只提供一个共享色值。
 //

@@ -1,6 +1,5 @@
 using NUnit.Framework;
 using Godot;
-using World.Domain;
 using World.WorldGen;
 using static World.Utils.ColorRamp;
 
@@ -10,9 +9,9 @@ namespace World.Tests;
 /// ① 降水色带 = **固定物理域** 0–3000 mm + 对数式显示变换（禁止 min-max 自动拉伸——
 ///    颜色须有稳定世界意义，跨世界可比较）；归一单调、域端点钉死、停点升序；
 /// ② 温度地图色带 = **地图专用**固定物理域 −40…+90 °C（2026-10-08 用户拍板"地图另立宽域"）——
-///    不复用 Domain.BiomeColors.TempStops（那张域 −85…45 °C 供未来 Biome；本模型 meanT≈+76 °C
-///    会整图夹红）；域端 clamp、停点升序、冷蓝热红；
-/// ③ BiomeColors.TempStops 自身域端 clamp 仍钉住（Domain 资产，供未来 Biome）。
+///    本模型 meanT≈+76 °C，用地球尺度窄域会整图夹红；域端 clamp、停点升序、冷蓝热红。
+///    ★2026-10-09：原先"不复用 Domain.BiomeColors.TempStops"的对照对象已随 `World.Domain`
+///    解散删除 ⇒ 该色带及其域端 clamp 钉子（原 ③）一并撤除。
 /// ★色带/派生表归属 = 各模式类自身（2026-10-08 地图模式拆分为独立文件：Precip 表在
 ///    PrecipitationMode、Temperature 表在 TemperatureMode）——本测试即其单一事实源的护栏。
 /// 纯静态标/色表测试：不写文件、不碰 GD.*。</summary>
@@ -51,7 +50,7 @@ public class WorldGenMapModeTests
             Assert.That(stops[i].Pos, Is.GreaterThan(stops[i - 1].Pos), $"停点 {i}");
     }
 
-    // ── 温度地图色带（地图专用固定域 −40…+90 °C；不复用 BiomeColors.TempStops）──
+    // ── 温度地图色带（地图专用固定域 −40…+90 °C）──
 
     [Test]
     public void TemperatureMapStops_AreStrictlyAscending_AndSpanDomain()
@@ -84,18 +83,5 @@ public class WorldGenMapModeTests
         var hot = RampSampleSmooth(stops, TemperatureMode.TempDomainMaxC);
         Assert.That(cold.B, Is.GreaterThan(cold.R), "冷端应偏蓝");
         Assert.That(hot.R, Is.GreaterThan(hot.B), "热端应偏红");
-    }
-
-    // ── 温度色带（复用 TempStops；固定物理域，端点 clamp 即"永不自动拉伸"）──
-
-    [Test]
-    public void TemperatureRamp_ClampsFixedDomain()
-    {
-        // 低温端：-85 °C 以下同色（不随世界最冷值拉伸）
-        Assert.IsTrue(BiomeColors.TemperatureToColor(-200f)
-            .IsEqualApprox(BiomeColors.TemperatureToColor(-85f)));
-        // 高温端：45 °C 以上同色
-        Assert.IsTrue(BiomeColors.TemperatureToColor(100f)
-            .IsEqualApprox(BiomeColors.TemperatureToColor(45f)));
     }
 }

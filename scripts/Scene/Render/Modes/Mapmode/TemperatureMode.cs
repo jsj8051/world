@@ -7,7 +7,7 @@ namespace World.WorldGen;
 /// <summary>温度（气候 · 注册序 = Id = 4）：逐格年均温 °C，Sequential 固定物理域 −40…+90 °C · 线性。
 /// 数据源 = `Temperature.CellTemperatureC`（逐格能量收支的年均值，陆海同口径）。
 /// ★月度温度场尚不存在 ⇒ **不为 UI 提前造月度数据**（同降水模式）；有月度事实后再加参数行。
-/// ★色带为本模式专用（不复用 BiomeColors.TempStops，理由见下方色带注释）。</summary>
+/// ★色带为本模式专用（原先考虑的 `Domain.BiomeColors.TempStops` 已随 `World.Domain` 解散删除）。</summary>
 public sealed class TemperatureMode : MapMode
 {
 	readonly WorldGenSimulation _p;
@@ -18,10 +18,11 @@ public sealed class TemperatureMode : MapMode
 		RampSampleSmooth(TemperatureStops, _p.Temperature.CellTemperatureC[i]);
 
 	// ── 温度色带（Sequential · 固定物理域 −40…+90 °C · 线性，无显示变换）──
-	// ★为什么本模式不直接复用 Domain.BiomeColors.TempStops：那张色带的域是 **−85…+45 °C**
-	//   （地球尺度，供未来 Biome 用）；而本模型是"理想黑体无温室"，赤道 ≈ +87 °C、全球均
-	//   +76 °C ⇒ 用 −85…45 会把纬度 < 56° 全部夹到红色，判读不出梯度。故**地图专用色带**独立
-	//   定义在此（与 PrecipStops 同构：地图色带归地图模式），BiomeColors 保持不动。
+	// ★为什么本模式**当初**不直接复用 Domain.BiomeColors.TempStops：那张色带的域是 −85…+45 °C
+	//   （地球尺度）；而本模型是"理想黑体无温室"，赤道 ≈ +87 °C、全球均 +76 °C ⇒ 用 −85…45
+	//   会把纬度 < 56° 全部夹到红色，判读不出梯度。故**地图专用色带**独立定义在此
+	//   （与 PrecipStops 同构：地图色带归地图模式）。
+	//   ★2026-10-09：`Domain.BiomeColors` 已随 `World.Domain` 解散而删除 ⇒ 上句现为历史说明。
 	//   域端固定 ⇒ 跨世界可比（禁 min-max 自动拉伸），超域由 RampSampleSmooth 夹端色。
 
 	/// <summary>固定物理域下界（°C）。★取 −40 而非模型理论下界 −273：`cos^0.25` 极平坦 ⇒
