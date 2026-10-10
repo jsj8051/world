@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using Godot;                            // 仅 Vector3 值类型
+using World.Data;                       // WorldSpec
 using World.H3Grid;
 using World.WorldGen;
 using World.Utils;                       // SphericalFbmNoise
@@ -23,6 +24,22 @@ internal static class Program
 	const float LandFraction = 0.29f;
 	const float TargetRegionAreaKm2 = 8_000_000f;
 	const int RiverThresholdCells = 12;
+
+	/// <summary>
+	/// **正库默认档**（`data/world_params.json`）——基准里 `LandSeaField` 除本文件上列几个外的其余参数取自它。
+	/// ★默认世界的唯一来源是那份数据文件（代码里没有默认值常量，见 `WorldParamTable` 头部），
+	///   故基准也必须读盘——但**定位与读盘都在参数管理器**（`WorldParamTable.Preset`），本文件不再自实现。
+	/// </summary>
+	static readonly WorldSpec PresetSpec = LoadPreset();
+
+	static WorldSpec LoadPreset()
+	{
+		var spec = WorldParamTable.Preset(out var problems);
+		if (problems.Count > 0)
+			throw new System.IO.FileNotFoundException(
+				"读正库默认档失败：" + string.Join(" | ", problems));
+		return spec;
+	}
 
 	static void Main(string[] args)
 	{
@@ -71,7 +88,7 @@ internal static class Program
 			var ball = new Ball(res, 1f);
 			var sc = SpatialScale.Of(ball);
 			var layout = new ContinentLayout(Seed, ContinentCount);
-			var field = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
+			var field = new LandSeaField(layout, Seed, PresetSpec.LandSea);
 			var proj = new H3LandSeaProjector();
 			proj.Generate(ball, field, LandFraction);
 			var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
@@ -228,7 +245,7 @@ internal static class Program
 		Console.Error.WriteLine($"[bench] res={res} cells={ball.CellIds.Length}");
 
 		var layout = Stage(rows, res, "ContinentLayout", () => new ContinentLayout(Seed, ContinentCount));
-		var field = Stage(rows, res, "LandSeaField", () => new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea));
+		var field = Stage(rows, res, "LandSeaField", () => new LandSeaField(layout, Seed, PresetSpec.LandSea));
 
 		var proj = new H3LandSeaProjector();
 		Stage(rows, res, "H3LandSeaProjector", () => proj.Generate(ball, field, LandFraction));
@@ -421,7 +438,7 @@ internal static class Program
 			int n = ball.CellDirs.Length;
 
 			var layout = new ContinentLayout(Seed, ContinentCount);
-			var field = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
+			var field = new LandSeaField(layout, Seed, PresetSpec.LandSea);
 			var proj = new H3LandSeaProjector();
 			proj.Generate(ball, field, LandFraction);
 			var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

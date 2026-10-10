@@ -1,24 +1,27 @@
 using System;
 using NUnit.Framework;
 using World.Data;                 // WorldSpec / LandSeaSpec / TerrainSpec（纯数据形状）
-using World.WorldGen;             // WorldSpecDefaults（退化档）/ WorldGenSimulation
-using World.Constants;            // Geology（区域粒度默认值）；Thermal 同族
+using World.WorldGen;             // WorldGenSimulation（纯逻辑入口）
+using World.Constants;            // Geology（区域粒度常量）；Thermal 同族
 
 namespace World.Tests;
 
 /// <summary>
-/// 世界定义 `WorldSpec` · **退化档 + 参数确实到位**的护栏（永久原则 4/5）。
+/// 世界定义 `WorldSpec` · **默认档内容 + 参数确实到位**的护栏（永久原则 4/5）。
 ///
 /// 背景（2026-10-10）：把 4 个位置参数（`int seed, int continentCount, float landFraction,
 /// float targetRegionAreaKm2`）收成 `WorldSpec`，**公式与数值一字未动**。
-/// 所以本文件不测"算得对不对"（那是各子系统测试的事），只钉两件本次改造**新引入**的风险：
-///   ① **退化档漂移**：`WorldSpecDefaults.Earth` 被改 ⇒ "默认世界"悄悄换掉，
-///      而默认世界是全部诊断读数与跨 seed 验收的参照物（改了没人会立刻发现）；
+/// 所以本文件不测"算得对不对"（那是各子系统测试的事），只钉两件改造**新引入**的风险：
+///   ① **默认世界漂移**：默认档 `data/world_params.json` 被改 ⇒ "默认世界"悄悄换掉，
+///      而默认世界是全部诊断读数与跨 seed 验收的参照物（改了没人会立刻发现）。
+///      ★2026-10-10 三次定型后，默认值**只**存在于那份数据文件里（代码里没有默认值常量，
+///        原 `WorldSpecDefaults` 已删除）⇒ **本测试的字面量就是它的守卫**，改档必先改这里；
 ///   ② **参数没到位**：解包时把 `spec.Seed` 或 `spec.LandSea.LandFraction` 接错/接漏 ——
-///      这类错误**编译通过、既有 281 条测试全绿**（它们不走 `WorldGenSimulation.Run` 这条链），
+///      这类错误**编译通过、既有测试全绿**（它们不走 `WorldGenSimulation.Run` 这条链），
 ///      只能靠一条真正跑 `Run(WorldSpec)` 的端到端断言照出来。
 ///
-/// 纪律（同 TemperatureModelTests）：只用 `[Test]`；不写文件；不触碰 `GD.*`。
+/// 纪律（同 TemperatureModelTests）：只用 `[Test]`；不写文件；不触碰 `GD.*`
+///   （读仓库里的默认档由 `WorldPreset` 负责，那是**读**、且读的正是本文件的被测对象本身）。
 /// </summary>
 public class WorldSpecTests
 {
@@ -33,42 +36,43 @@ public class WorldSpecTests
 	}
 
 	/// <summary>
-	/// **退化档 = 参数化之前的默认值**。三个值就是 2026-10-10 之前装配层 `[Export]` 的初值
-	/// （除 `TargetRegionAreaKm2` 本来就是常量引用）。改动本档 = 改动"默认世界"，请先改本测试。
+	/// **默认档 = 参数化之前的默认值**。这里每个字面量都是对 `data/world_params.json` 的守卫：
+	/// 它们就是 2026-10-10 参数化之前装配层 `[Export]` 的初值（除 `TargetRegionAreaKm2` 本来就是常量引用）。
+	/// 改动默认档 = 改动"默认世界"，请先改本测试。
 	/// </summary>
 	[Test]
 	public void EarthPresets_PinThePreParameterizationDefaults()
 	{
-		Assert.That(WorldSpecDefaults.Earth.LandSea.ContinentCount, Is.EqualTo(7),
-			"退化档陆块数应为参数化之前的默认值 7 —— 改它等于换掉默认世界");
-		Assert.That(WorldSpecDefaults.Earth.LandSea.LandFraction, Is.EqualTo(0.29f).Within(1e-6f),
-			"退化档陆海比应为 0.29 —— 改它会让所有跨 seed 验收的参照物失效");
+		Assert.That(WorldPreset.Earth.LandSea.ContinentCount, Is.EqualTo(7),
+			"默认档陆块数应为参数化之前的默认值 7 —— 改它等于换掉默认世界");
+		Assert.That(WorldPreset.Earth.LandSea.LandFraction, Is.EqualTo(0.29f).Within(1e-6f),
+			"默认档陆海比应为 0.29 —— 改它会让所有跨 seed 验收的参照物失效");
 
 		// ★① 阶段的另 10 个世界参数（2026-10-10 第二批）：原以**字段初值**形式住在 `LandSeaParams` 里
-		//   （内容装在形状里），现逐字搬入本档、`LandSeaParams` 已删除。它们同样是"默认世界"的一部分
+		//   （内容装在形状里），后逐字搬入默认档、`LandSeaParams` 已删除。它们同样是"默认世界"的一部分
 		//   ——改任何一个都会让既有诊断读数与跨 seed 验收失去参照，故一并在本测试钉住。
-		//   ★它们留在本档（而非进 `World.Constants`）的口径 = **消费者个数**：各自只有本档一个消费者；
-		//     反例是 `Geology.TargetRegionAreaKm2`（两个消费者）故成了具名常量。
-		var ls = WorldSpecDefaults.Earth.LandSea;
+		var ls = WorldPreset.Earth.LandSea;
 		// 域扭曲
-		Assert.That(ls.WarpWavelengthKm, Is.EqualTo(3000f), "退化档域扭曲波长");
-		Assert.That(ls.WarpOctaves, Is.EqualTo(3), "退化档域扭曲八度");
-		Assert.That(ls.WarpAmplitudeKm, Is.EqualTo(600f), "退化档域扭曲幅度");
+		Assert.That(ls.WarpWavelengthKm, Is.EqualTo(3000f), "默认档域扭曲波长");
+		Assert.That(ls.WarpOctaves, Is.EqualTo(3), "默认档域扭曲八度");
+		Assert.That(ls.WarpAmplitudeKm, Is.EqualTo(600f), "默认档域扭曲幅度");
 		// 三尺度轮廓调制
-		Assert.That(ls.LowWavelengthKm, Is.EqualTo(5000f), "退化档大尺度波长");
-		Assert.That(ls.LowOctaves, Is.EqualTo(2), "退化档大尺度八度");
-		Assert.That(ls.LowAmplitude, Is.EqualTo(0.35f), "退化档大尺度幅度");
-		Assert.That(ls.MediumWavelengthKm, Is.EqualTo(1200f), "退化档中尺度波长");
-		Assert.That(ls.MediumAmplitude, Is.EqualTo(0.25f), "退化档中尺度幅度");
-		Assert.That(ls.SmallWavelengthKm, Is.EqualTo(300f), "退化档小尺度波长");
-		Assert.That(ls.SmallAmplitude, Is.EqualTo(0.12f), "退化档小尺度幅度");
+		Assert.That(ls.LowWavelengthKm, Is.EqualTo(5000f), "默认档大尺度波长");
+		Assert.That(ls.LowOctaves, Is.EqualTo(2), "默认档大尺度八度");
+		Assert.That(ls.LowAmplitude, Is.EqualTo(0.35f), "默认档大尺度幅度");
+		Assert.That(ls.MediumWavelengthKm, Is.EqualTo(1200f), "默认档中尺度波长");
+		Assert.That(ls.MediumAmplitude, Is.EqualTo(0.25f), "默认档中尺度幅度");
+		Assert.That(ls.SmallWavelengthKm, Is.EqualTo(300f), "默认档小尺度波长");
+		Assert.That(ls.SmallAmplitude, Is.EqualTo(0.12f), "默认档小尺度幅度");
 
-		Assert.That(WorldSpecDefaults.Earth.Terrain.TargetRegionAreaKm2,
+		// ★JSON 是数据、写不了符号引用 ⇒ 区域粒度在档里必然是字面量 `4000000`；
+		//   本条把它与 `World.Constants.Geology.TargetRegionAreaKm2` 钉在一起，防两者分叉。
+		Assert.That(WorldPreset.Earth.Terrain.TargetRegionAreaKm2,
 			Is.EqualTo(Geology.TargetRegionAreaKm2),
-			"退化档区域粒度应**逐字等于** `World.Constants.Geology.TargetRegionAreaKm2`" +
-			"（不得改成字面量——那样常量与默认档会分叉）");
-		Assert.That(WorldSpecDefaults.Earth.Seed, Is.EqualTo(42),
-			"退化档种子应为 42 —— 改它会让所有既有诊断读数失去参照");
+			"默认档区域粒度应**逐字等于** `World.Constants.Geology.TargetRegionAreaKm2`" +
+			"（JSON 里写不了符号引用，只能靠本条防分叉）");
+		Assert.That(WorldPreset.Earth.Seed, Is.EqualTo(42),
+			"默认档种子应为 42 —— 改它会让所有既有诊断读数失去参照");
 	}
 
 	/// <summary>
@@ -81,7 +85,7 @@ public class WorldSpecTests
 	public void Run_LandFractionParam_ReachesLandSeaStage()
 	{
 		var sim = NewSim();
-		sim.Run(WorldSpecDefaults.Earth);
+		sim.Run(WorldPreset.Earth);
 
 		Assert.That(sim.Ball.CellIds.Length, Is.EqualTo(2 + 120 * 49),
 			"res2 格数应为 2+120·7² —— 不匹配说明 Ball 构造参数被换掉");
@@ -103,11 +107,11 @@ public class WorldSpecTests
 	public void Run_SeedParam_ReachesStages_AndStaysDeterministic()
 	{
 		var a = NewSim();
-		a.Run(WorldSpecDefaults.Earth);
+		a.Run(WorldPreset.Earth);
 		var b = NewSim();
-		b.Run(WorldSpecDefaults.Earth with { Seed = 7 });
+		b.Run(WorldPreset.Earth with { Seed = 7 });
 		var a2 = NewSim();
-		a2.Run(WorldSpecDefaults.Earth);
+		a2.Run(WorldPreset.Earth);
 
 		float ha = Sum(a.Terrain.Composer.HeightM);
 		float hb = Sum(b.Terrain.Composer.HeightM);

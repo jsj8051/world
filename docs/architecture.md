@@ -151,9 +151,10 @@ A 档全部（测的就是它自己 / 真实上游生产链）、**B 档 0 个**
 
 ### 3.1 架构契约测试（边界的可执行形式）
 
-`tests/World.Tests/ArchitectureContractTests.cs` —— **20 条**，反射扫描
-"方法参数 / 返回 + 字段 / 属性"。新增子系统时把类型加进 `NewWorldLineTypes` 单字段
-（漏扫= 契约静默失效，比不写更危险）。
+`scripts/Test/World.Tests/ArchitectureContractTests.cs` —— **29 条**，反射扫描
+"方法参数 / 返回 + 字段 / 属性"（深度面另加**方法体 IL**，见 `ReferencedTypesDeep`）。
+新增子系统时把类型加进 `NewWorldLineTypes` 单字段
+（漏扫 = 契约静默失效，比不写更危险）。
 
 三类钉，各有其不可替代的作用：
 
@@ -162,8 +163,11 @@ A 档全部（测的就是它自己 / 真实上游生产链）、**B 档 0 个**
 | **方向** | `NewWorldLine_DoesNotDependOnLegacyWorldLine` | 防重新耦合 |
 | **结果** | `LegacyWorldGenerationChain_IsGone` / `LegacyNoiseWorldLine_IsGone` | 防"没人用但还留着" |
 | **行为** | `EmptyFeatureList_EqualsPureBaseline` | 防"影响来自未注册的地方" |
+| **位置 + 白名单** | `H3Grid_NamespaceMatchesDirectory` / `WorldParams_AreReadOnlyByTheLogicLayerGate` / `WorldGenReadout_LivesOnlyInDiagnosticsScene` | 防"目录↔命名空间脱节"、"又一处悄悄读盘"、"判读爬回生产类" |
 
 ★**方向与结果两者都要有**：只有方向 ⇒ 旧代码删不掉；只有结果 ⇒ 重新引入测不出来。
+★**新写契约必带"非空转自检"**（如"扫到的白名单里必须含被测类型""必须扫到刻意保留的那两个 `[Export]`"）——
+否则扫描器一坏，断言就变成假绿。
 
 ### 3.2 表现层依赖白名单（唯一跨层豁免）
 
@@ -292,8 +296,9 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
       未纳入的边界件与理由见 `docs/裁决-数据层World.Data.md`。
       ★**2026-10-10 分两段**（子目录 = **自由分组**、不进命名空间；**段判据 = "谁构造它"**）：
         · `Data/Spec/`    = **世界定义**——装配层构造、按段切片喂给各阶段；
-                            **零默认值**（默认值唯一真相源 = `World.WorldGen.WorldSpecDefaults.Earth`，
-                            形状里写初值会形成第二个源，改一处漏一处 ⇒ 默认值悄悄分叉）：
+                            **零默认值**（默认世界唯一真相源 = 正库参数表 `data/world_params.json`，
+                            由 `World.WorldGen.WorldParamTable` 读入；形状里写初值会形成第二个源，
+                            改一处漏一处 ⇒ 默认值悄悄分叉）：
                             `WorldSpec` / `LandSeaSpec` / `TerrainSpec`
         · `Data/Carrier/` = **生成链内部流通的数据形状**——生成器写、下游读，不由人直接调：
                             `ContinentAnchor` / `MountainRidge` / `Scale3`
@@ -313,6 +318,29 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
       `Logic/H3Grid/`。理由：`World.Spatial` 与另两个同族名易混——`SpatialScale`（尺度口径）与
       `FinalSpatialIndex`（查询索引）**均属 `World.WorldGen`**；本命名空间的真实身份是
       **H3 球面网格本体**。见 `docs/裁决-Spatial改名H3Grid.md`）
+- ★**世界参数入口唯一**（2026-10-10 七轮收敛，见 `docs/裁决-参数管理器.md`）：
+  **`World.WorldGen.WorldParamTable`**（`scripts/Logic/WorldGen/Params/`）＝"世界定义从哪来"的**唯一**答案。
+  · **两份文件**：默认档 `data/world_params.json`（正库，随游戏走，只读）｜玩家档
+    `userdata/params/world_params.json`（首跑整份拷贝，不入库；**删掉 = 恢复出厂设置**）；
+  · **三个口**：`Preset(out)` 只读默认档｜`Load(out)` 默认档 ⊕ 玩家档｜`Merge(a,b,out)` 纯函数内核（不碰磁盘）；
+  · **合并语义**：玩家档只写要改的字段，其余由默认档补齐（**不反序列化文件**——缺字段被读成 `0` 是最坏失败模式）；
+  · **存储类 = spec 类型自身**（不建注册表 / key 清单 / 字段类型表）；**默认值只在 JSON 里**（代码无默认值常量）；
+  · **磁盘读写只在本类**（只用 `System.IO`，零引擎 API）⇒ 游戏 / 单测 / `PerfBench` 共用一份实现；
+  · **场景层不碰磁盘**：`WorldGenPlanet` 已删 4 个世界参数 `[Export]`（`ResLevel`/`Radius` 是**构造参数**，保留）；
+  · **第二参数入口不得复活**：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride` 已删（零消费者 ＋ 它绕开
+    "世界定义只有参数表一个来源"）⇒ **存档恢复世界 = 写玩家档 JSON 再 `Load`**；
+  · 护栏 `ArchitectureContractTests.WorldParams_AreReadOnlyByTheLogicLayerGate`
+    （位置 + **第二入口** + 磁盘白名单 + `[Export]` 结果钉）。
+- ★**判读读数住诊断场景**（2026-10-10 用户拍板"生产类不掺判读"，见
+  `docs/裁决-判读读数归诊断场景.md`）：
+  生产类 `WorldGenPlanet` **零 `GD.Print`**——`[WORLDGEN-PARAMS]` / `[WORLDGEN-TIMING]` /
+  `[WORLDGEN-READY]` 三处判读全部搬到 `scripts/Test/Diagnostics/WorldGenReadoutDiag.cs`
+  + `scenes/diag/WorldGenReadoutDiag.tscn`（继承 `DiagSceneBase`，带 `--res` / `--radius`，
+  产出 `PASS/FAIL` + 退出码）；`verify.sh` 增"世界生成读数"组（放在 `--fast` 之内）。
+  **有意保留**：`BuildSpec` 的 `GD.PushWarning`（坏档 / 首跑拷出的**错误可见性**，
+  搬走 = 坏档静默）；`WorldGenManager` 的 `[WORLDGEN-PICK]`（交互式，headless 无法复现）。
+  边界判据 = **"给人看世界算得对不对"⇒搬；"给人看有没有出错"⇒留**。
+  ⚠️ 净损失 = 表现层构建耗时 `[WORLDGEN-READY]` 不再自动产出（要看去主场景实机跑）。
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。
   已实证：`scripts/CivSim/Engine/CivSimContext.cs` 的命名空间是 `World.CivSim`（子目录不进命名空间）。
 - 文件名 = 类名；`partial` 分片用 `原类名.职责.cs` 后缀放同目录。

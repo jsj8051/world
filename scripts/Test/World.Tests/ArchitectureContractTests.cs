@@ -453,6 +453,192 @@ public class ArchitectureContractTests
 			"未发现任何 WorldGen 内部消费者——扫描器可能失效，或 Final 事实类型已改名（本契约的扫描面需要同步更新）");
 	}
 
+	/// <summary>
+	/// **参数入口唯一化 ＋ 场景层不碰磁盘（结果 + 位置 + 白名单钉）**
+	/// （2026-10-10 用户拍板：「读取数据和写数据应该交给逻辑层来做吧，场景那里不需要做这些，
+	///   export 也不需要，然后读取参数的活交给参数管理器干吧，从 `WorldGenPlanet` 拿出来」）。
+	///
+	/// 判定问题："世界参数（默认档 / 玩家档 JSON）由谁读？" ⇒ **只有** `WorldParamTable`（逻辑层管理器）。
+	/// 本轮收敛掉的**半套体系**（全部已删，本条防其复活）：
+	///   · 场景层桥：`WorldParamsSource` / `WorldParamFile`（读盘 + `[Export]` 面板参数）
+	///     —— 正是"**Scene↔Logic 中间桥层**"红线的违例；
+	///   · 注册表族：`WorldParamRegistry` / `ParamDescriptor` / `ParamTier`（自造"key 清单 + 字段类型表"）；
+	///   · 代码内默认值：`WorldSpecDefaults`（默认值已迁入正库数据文件 `data/world_params.json`）；
+	///   · 独立场景 `scenes/params/WorldParams.tscn`（"不生成世界、只看参数表"的能力被移除——
+	///     参数管理器的职责是**服务生成**）；
+	///   · 第二参数入口：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride`（零消费者，
+	///     且它绕开了"世界定义只有参数表一个来源"——从外面塞 spec 等价于开第二条入口）。
+	///
+	/// ★四条断言（分别管：**位置** / **第二入口** / **磁盘白名单** / **`[Export]` 已清**）：
+	///   ① 位置钉：`WorldParamTable` 在 `World.WorldGen`、住 `scripts/Logic/WorldGen/Params/`；
+	///      原场景层两文件与 `scenes/params` 目录须已不存在；
+	///   ①b 第二入口钉：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride` 不得复活——它零消费者，
+	///      **且**它本身就是绕开"世界定义只有参数表一个来源"的第二入口（存档恢复世界 = 写玩家档再 `Load`）；
+	///   ② 磁盘白名单：**整个游戏程序集**里，深度引用面触及 `System.IO` 读写的类型只准是那三项
+	///      ——新增消费者必须**显式改表**（防"又一处在悄悄读盘"）；
+	///   ③ `WorldGenPlanet` 上不得再有四个世界参数 `[Export]`
+	///      （`ContinentCount` / `LandFraction` / `Seed` / `TargetRegionAreaKm2` ——
+	///       它们恒被参数表遮蔽，且只覆盖 14 个参数里的 4 个 ⇒ 半套体系）。
+	///
+	/// ★`ResLevel` / `Radius` **刻意留着**：它们是**构造参数**（决定球壳规模），不是世界参数。
+	/// </summary>
+	[Test]
+	public void WorldParams_AreReadOnlyByTheLogicLayerGate()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+		const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic
+			| BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+		// ── ① 位置钉 ──
+		Assert.That(typeof(WorldParamTable).Namespace, Is.EqualTo("World.WorldGen"),
+			"参数管理器应住 World.WorldGen（逻辑层），不是场景层目录对应的命名空间");
+		Assert.That(FindRepoDir("scripts", "Logic", "WorldGen", "Params"), Is.Not.Null,
+			"scripts/Logic/WorldGen/Params 应存在（WorldParamTable 的新家）");
+		Assert.That(FindRepoDir("scenes", "params"), Is.Null,
+			"scenes/params 应已删除（独立参数场景已随场景层桥一并移除）");
+
+		// 被删类型名不得复活（结果钉）。
+		foreach (var dead in new[]
+		{
+			"WorldParamsSource", "WorldParamFile",              // 场景层桥（Scene↔Logic 红线）
+			"WorldParamRegistry", "ParamDescriptor", "ParamTier", // 注册表族（key 清单 / 字段类型表）
+			"WorldSpecDefaults",                                 // 代码内默认值（已迁 JSON）
+		})
+		{
+			var found = asm.GetTypes().Where(t => t.Name == dead)
+				.Select(t => $"{t.Namespace}.{t.Name}").ToList();
+			Assert.That(found, Is.Empty,
+				$"{dead} 应已删除：{string.Join(",", found)}——" +
+				"参数入口唯一化后不得复活（见本契约头文档；决策 docs/裁决-参数管理器.md）");
+		}
+
+		// ── ①b 第二个入口不得复活：`WorldGenPlanet` 上不准再有"外部塞一套参数"的口子 ──
+		//   `ApplyWorldSpec(WorldSpec)` / `_specOverride` 2026-10-10 删除，理由：零消费者（全仓 0 调用）
+		//   **且** 它本身就是绕开"世界定义只有参数表一个来源"的第二入口。
+		//   将来存档真要恢复世界 ⇒ 写玩家档 JSON 再 `Load`（而非另开注入通道）；
+		//   确要开新通道时，须显式改本契约并留决策记录。
+		Assert.That(typeof(WorldGenPlanet).GetMethods(all)
+				.Where(m => m.Name == "ApplyWorldSpec").ToList(),
+			Is.Empty,
+			"WorldGenPlanet.ApplyWorldSpec 已删除（零消费者 + 第二参数入口）——" +
+			"存档恢复世界的正解是写玩家档 JSON 再 Load，不是另开注入通道");
+		Assert.That(typeof(WorldGenPlanet).GetFields(all)
+				.Where(f => f.Name == "_specOverride").ToList(),
+			Is.Empty,
+			"WorldGenPlanet._specOverride 已删除（随 ApplyWorldSpec 一起）");
+
+		// ── ② 磁盘白名单 ──
+		var diskTypes = new HashSet<Type>
+		{
+			typeof(File), typeof(Directory), typeof(FileStream),
+			typeof(StreamReader), typeof(StreamWriter),
+			typeof(FileInfo), typeof(DirectoryInfo),
+		};
+		// 允许读写的类型（各自理由，新增必须显式登记）：
+		var whitelist = new HashSet<string>
+		{
+			"World.WorldGen.WorldParamTable",   // 参数管理器：默认档 / 玩家档的**唯一**读写口
+			"World.Utils.H3.H3Native",          // 加载原生 h3 动态库（File.Exists + NativeLibrary.Load）
+			"World.Utils.PngWriter",            // 诊断 PNG 写出（表现层像素级诊断）
+		};
+
+		var actual = new List<string>();
+		foreach (var t in asm.GetTypes())
+		{
+			if (ReferencedTypesDeep(t).Any(diskTypes.Contains))
+				actual.Add($"{t.Namespace}.{t.Name}");
+		}
+		var actualSet = new HashSet<string>(actual);
+		var added = actualSet.Where(x => !whitelist.Contains(x)).ToList();
+		Assert.That(added, Is.Empty,
+			$"有类型新增了对磁盘的读写：{string.Join(",", added)}——" +
+			"参数读写只准经 WorldParamTable；如确为新增的正当代价（诊断等），请显式扩展本契约的白名单并留下决策记录");
+
+		// 非空转自检：参数管理器必须在扫描结果里（否则说明扫描器失效）。
+		Assert.That(actualSet, Does.Contain("World.WorldGen.WorldParamTable"),
+			"未在磁盘访问类型里发现 WorldParamTable——扫描器可能失效（本契约的扫描面需要检查）");
+
+		// ── ③ WorldGenPlanet 上不得再留四个世界参数 [Export] ──
+		var planet = typeof(WorldGenPlanet);
+		var exportedNames = planet.GetFields(all).Concat(planet.GetProperties(all).Cast<MemberInfo>())
+			.Where(m => m.GetCustomAttributes(typeof(ExportAttribute), inherit: true).Length > 0)
+			.Select(m => m.Name)
+			.ToList();
+		var worldParamExports = exportedNames
+			.Where(n => n is "ContinentCount" or "LandFraction" or "Seed" or "TargetRegionAreaKm2")
+			.ToList();
+		Assert.That(worldParamExports, Is.Empty,
+			$"WorldGenPlanet 上仍有世界参数 [Export]：{string.Join(",", worldParamExports)}——" +
+			"参数入口唯一 = 参数表 JSON（WorldParamTable）；面板字段恒被遮蔽 ⇒ 是半套体系（2026-10-10 已删）");
+
+		// 非空转自检：`ResLevel` / `Radius`（构造参数，**刻意保留**）必须仍被扫到——
+		// 否则说明 `[Export]` 特性扫描失效，③ 的"没找到"就只是假绿。
+		Assert.That(exportedNames, Does.Contain("ResLevel").And.Contains("Radius"),
+			"未扫到 ResLevel / Radius 的 [Export]——`[Export]` 扫描器可能失效（③ 需要检查）");
+
+		// 正向钉：世界参数确实经参数管理器可取（防"删干净了连入口也没了"）。
+		var spec = WorldParamTable.Preset(out var problems);
+		Assert.That(problems, Is.Empty, "正库默认档必须干净可用：" + string.Join(" | ", problems));
+		Assert.That(spec.Seed, Is.EqualTo(42), "默认档 seed 应为 42");
+		Assert.That(spec.LandSea.ContinentCount, Is.EqualTo(7), "默认档陆块数应为 7");
+	}
+
+	/// <summary>
+	/// **判读读数只住在诊断场景（结果 + 位置钉）**
+	/// （2026-10-10 用户拍板：「检查一下 `WorldGenPlanet` 里面的测试内容，全部删掉或者移到 test 里面」
+	///   → 澄清为「指诊断打印」）。
+	///
+	/// 判定问题："世界生成的判读读数由谁产出？" ⇒ **诊断场景**，不是生产类。
+	/// 本轮从 `WorldGenPlanet` 搬走的三处（原散在 `_Ready` / `BuildSpec` / `Regenerate`）：
+	///   · `[WORLDGEN-READY]`  表现层构建耗时（ViewCtor / BuildChunks / RiverLinesBuild）；
+	///   · `[WORLDGEN-TIMING]` 全链事实摘要（n/res/land/regions/meanP/meanT/ridges/basins/lakes/thr）；
+	///   · `[WORLDGEN-PARAMS]` 参数表生效值。
+	/// 新家 = `scripts/Test/Diagnostics/WorldGenReadoutDiag.cs`（`World.Diagnostics`，与 `H3SmokeDiag` 同型）
+	///   + `scenes/diag/WorldGenReadoutDiag.tscn`；读数**逐字等价**（只读 `Sim` 的字段，与 Godot 无关）。
+	///
+	/// ★**有意保留**（**不**属本条约束，别误删）：
+	///   · `WorldGenPlanet.BuildSpec` 的 `GD.PushWarning` —— 报**读表报告**（坏档 / 首跑拷出玩家档），
+	///     那是**错误可见性**（生产可靠性），搬走会让"坏档静默"⇒ 功能回退；
+	///   · `WorldGenManager` 的 `[WORLDGEN-PICK]` —— **交互式**点选判读，需真实点击，
+	///     无法在 headless 诊断场景里复现 ⇒ 另案（本契约只覆盖 `WorldGenPlanet`）。
+	///
+	/// ★`[WORLDGEN-READY]`（表现层耗时）**不再产出**：它测 `BallView` / `RiverLineOverlay` 构建，
+	///   属表现层；诊断场景刻意只建逻辑侧（不建 View）⇒ 要该读数就去主场景实机跑。
+	/// </summary>
+	[Test]
+	public void WorldGenReadout_LivesOnlyInDiagnosticsScene()
+	{
+		string sceneDir = FindRepoDir("scripts", "Scene", "WorldGen", "Composition");
+		Assert.That(sceneDir, Is.Not.Null, "scripts/Scene/WorldGen/Composition 应存在");
+
+		// ① 生产类不得再有判读打印（`GD.PushWarning` 是错误可见性，**允许**）。
+		string planetSrc = Path.Combine(sceneDir, "WorldGenPlanet.cs");
+		Assert.That(File.Exists(planetSrc), Is.True, "WorldGenPlanet.cs 应可解析到");
+		Assert.That(File.ReadAllText(planetSrc), Does.Not.Contain("GD.Print("),
+			"WorldGenPlanet 不得再打印判读读数——读数应住在 " +
+			"scripts/Test/Diagnostics/WorldGenReadoutDiag.cs（2026-10-10 用户拍板）");
+
+		// ② 新家必须在（位置钉）。
+		string diagDir = FindRepoDir("scripts", "Test", "Diagnostics");
+		Assert.That(diagDir, Is.Not.Null, "scripts/Test/Diagnostics 应存在");
+		string diagCs = Path.Combine(diagDir, "WorldGenReadoutDiag.cs");
+		Assert.That(File.Exists(diagCs), Is.True, "读数诊断脚本 WorldGenReadoutDiag.cs 应存在");
+
+		string sceneDiagDir = FindRepoDir("scenes", "diag");
+		Assert.That(sceneDiagDir, Is.Not.Null, "scenes/diag 应存在");
+		Assert.That(File.Exists(Path.Combine(sceneDiagDir, "WorldGenReadoutDiag.tscn")), Is.True,
+			"读数诊断场景 WorldGenReadoutDiag.tscn 应存在（verify.sh 的回归入口）");
+
+		// ③ 非空转自检：扫描确实有效——诊断脚本里**必须**有 GD.Print，否则本条只是假绿。
+		Assert.That(File.ReadAllText(diagCs), Does.Contain("GD.Print("),
+			"诊断脚本里应有 GD.Print 读数——否则说明本条的扫描无效（假绿）");
+
+		// ④ 结构钉：诊断脚本须继承统一基类（ADR-0003：新诊断场景一律继承 DiagSceneBase）。
+		Assert.That(typeof(World.Diagnostics.WorldGenReadoutDiag).BaseType,
+			Is.EqualTo(typeof(World.Diagnostics.DiagSceneBase)),
+			"新诊断场景须继承 DiagSceneBase（统一 args 解析 / PASS-FAIL 报告 / 退出）");
+	}
+
 	[Test]
 	public void FinalGeography_DoesNotReferencePlacementProjector()
 	{
@@ -498,14 +684,15 @@ public class ArchitectureContractTests
 		// ── 阶段管线（2026-10-09：六阶段各成一类；只聚合引用，不复制数组）──
 		typeof(LandSeaPipeline), typeof(TerrainPipeline), typeof(FactsPipeline),
 		typeof(ClimatePipeline), typeof(HydrologyPipeline), typeof(IndexPipeline),
-		// ── 世界定义的默认档（2026-10-10）──
-		//   ★它是"地球档"预设（**内容**）：`static class` + 静态属性 = **计算属性**
-		//     ⇒ 按数据层判据（顶层 + 零方法 + 零计算属性 + 不引用生成域类型）进不了 `World.Data`，故留 WorldGen。
-		//   ⚠️ 2026-10-10 迁移后它**已不引用任何生成域类型**（区域粒度改读 `World.Constants.Geology`）——
-		//      但它仍是"内容提供者"而非"数据形状"，归属不变（判据的第一条就不满足）。
-		//   ⚠️ 新类型若落在 `World.WorldGen` 而不登记于此，下方两条扫描型契约（旧线命名空间 /
-		//      B 线生成类型回流）**会静默漏扫它**——漏扫比契约本身不写更危险。
-		typeof(WorldSpecDefaults),
+		// ── 世界参数管理器（2026-10-10 四次定型）──
+		//   ★"默认档 ＋ 玩家档 → WorldSpec"的**唯一**转换点，**也**是唯一的磁盘读写点
+		//     （用户拍板：文件读写归逻辑层的管理器，场景层不碰磁盘、相关 `[Export]` 全删；
+		//      原场景层 `WorldParamsSource` / `WorldParamFile` 已删除——那正是"Scene↔Logic 中间桥层"红线）。
+		//     权威清单 / 存储类 = **spec 类型自身**（不建注册表、key 清单、字段类型表）；
+		//     默认值 = **正库数据文件** `data/world_params.json` ⇒ 代码里**没有**默认值常量
+		//     （原 `WorldSpecDefaults` 已删除）。
+		//   ★路径解析只用 `System.IO`（向上找默认档）⇒ 不引引擎 API，游戏 / 单测 / PerfBench 共用一份实现。
+		typeof(WorldParamTable),
 		// ── Placement（生成依据）──
 		typeof(ContinentLayout), typeof(LandSeaField), typeof(H3LandSeaProjector),
 		typeof(SurfaceResolver), typeof(GeologicalRegions), typeof(TectonicField),
@@ -526,7 +713,7 @@ public class ArchitectureContractTests
 		//   ★世界定义（2026-10-10：4 个位置参数收成 WorldSpec；两级 = 全局 Seed + 阶段 spec）——
 		//     它们是**纯数据形状**（判据同上一行：顶层 + 零方法 + 零计算属性 + 不引用生成域类型），
 		//     与 `ContinentAnchor` 同类；依赖方向 WorldGen → Data 已既定。
-		//     退化档/预设（内容）**不在本层**，另立 `WorldSpecDefaults` 留 `World.WorldGen`。
+		//     默认值（内容）**不在本层**：它是正库数据文件 `data/world_params.json`，代码侧无默认值类型。
 		//   ⚠️ 2026-10-10 第二批：原数据载体 `LandSeaParams` 的 10 个世界参数已并入 `LandSeaSpec`
 		//      （它自带字段初值 = 内容装在形状里）⇒ 该类型**已删除**，不再是扫描面成员。
 		typeof(WorldSpec), typeof(LandSeaSpec), typeof(TerrainSpec),
@@ -819,7 +1006,7 @@ public class ArchitectureContractTests
 	{
 		const float target = 0.29f;
 		var layout = new ContinentLayout(42, 7);
-		var field = new LandSeaField(layout, 42, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(layout, 42, WorldPreset.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, target);
 
@@ -1195,7 +1382,7 @@ public class ArchitectureContractTests
 		//（Base + 三档 variation + MinLand 钳制）。手工构造基线并与空列表合成逐格对照。
 		int seed = 42;
 		var layout = new ContinentLayout(seed, 7);
-		var field = new LandSeaField(layout, seed, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(layout, seed, WorldPreset.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

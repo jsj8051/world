@@ -9,19 +9,19 @@ namespace World.WorldGen;
 
 /// <summary>
 /// 世界生成空间 · 星球组件（**场景接线层**）：只做"把逻辑入口接到 Godot"——
-/// 导出参数 → 建 <see cref="WorldGenSimulation"/> → `Run()` → 用结果建视图/河线叠加 → 挂节点 → 打印。
+/// 问参数管理器要参数 → 建 <see cref="WorldGenSimulation"/> → `Run()` → 用结果建视图/河线叠加 → 挂节点 → 打印。
 ///
 /// ★2026-10-09 拆层（用户拍板）：本类原先把"领域状态与管线"和"Godot 接线"混在一起；现按
 ///   **依赖的运行时**切开——引擎无关的那一半全部下沉到 <see cref="WorldGenSimulation"/>
 ///   （纯 C#，非节点，可在无 Godot 宿主下实例化）。本类此后**只保留**：
-///     ① `[Export]` 场景参数（Godot 编辑器/诊断场景注入点）；
+///     ① `[Export]` 场景参数（只剩 `ResLevel` / `Radius` 这类**构造参数**；见下方注释）；
 ///     ② `Node3D` 生命周期与 Node 树操作（`AddChild`）；
 ///     ③ 表现层装配（`BallView` / `RiverLineOverlay`）与重烘；
 ///     ④ 诊断打印（`GD.Print`）。
 ///   ⇒ 判据：**这段代码需要 Godot 运行时行为吗？** 需要留本类，不需要归 `WorldGenSimulation`。
 ///
 /// ★依赖方向（单向）：`WorldGenPlanet → WorldGenSimulation`。逻辑入口**不认识**本类，
-///   也不读任何 `[Export]` 值——参数由本类显式传入。
+///   也不读任何 `[Export]` 值——世界定义由本类经 <see cref="BuildSpec"/> 显式传入。
 /// ⚠️ 星球 Radius 导出与相机 _planetRadius 场景覆写须同值（取景/裁剪 ∝ R）。
 /// </summary>
 public partial class WorldGenPlanet : Node3D
@@ -39,13 +39,6 @@ public partial class WorldGenPlanet : Node3D
 	[Export(PropertyHint.Enum, "res2 (5.9k 格)/res3 (41k 格)/res4 (288k 格)")]
 	public int ResLevel = ProductionRes;   // 生产默认 = 世界生产分辨率（诊断时可手动切档）
 	[Export] public float Radius = 2.0f;        // 球半径（与轨道相机 _planetRadius 同值时取景正确）
-	// ★默认值一律取自 `WorldSpecDefaults.Earth`（退化档）——**默认值只有一处定义**，
-	//   不在这里再写一遍字面量（2026-10-10 参数收口）。
-	[Export] public int ContinentCount = WorldSpecDefaults.Earth.LandSea.ContinentCount;   // 大陆锚点数（蓝噪声撒布；海陆场塑形用，地图量=陆块连通分量）
-	[Export(PropertyHint.Range, "0.02,0.9,0.01")]
-	public float LandFraction = WorldSpecDefaults.Earth.LandSea.LandFraction;          // 目标陆地占比（分位校准钉死）
-	[Export] public int Seed = WorldSpecDefaults.Earth.Seed;   // 世界种子（**全局层**：各阶段经 SeedDerivation 派生 salt）
-	[Export] public float TargetRegionAreaKm2 = WorldSpecDefaults.Earth.Terrain.TargetRegionAreaKm2;   // 地质区域粒度（km²/区域）
 
 	[ExportGroup("LOD 与剔除")]
 	[Export] public float LodNearRatio = 6f;         // 相机距 < 球半径×此值 ⇒ 高分辨率面
@@ -91,28 +84,13 @@ public partial class WorldGenPlanet : Node3D
 		_riverLines.Build(Sim.Ball, Sim.Hydrology.RiverLines, Sim.Hydrology.RiverTopology);
 		sRiver.Stop();
 		viewMs.Add($"RiverLinesBuild={sRiver.Elapsed.TotalMilliseconds:F0}ms");
-
-		GD.Print($"[WORLDGEN-READY] {string.Join(" ", viewMs)}");
 	}
-
-	/// <summary>
-	/// **唯一的世界定义组装点**：把本类的 `[Export]` 参数打包成 <see cref="WorldSpec"/>。
-	/// ★这是"装配层 → 逻辑层"的**参数入口**——参数在此定型后随 `Run()` 注入，逻辑侧不自留参数。
-	/// ⚠️ 后续接运行期 UI 时，改的正是本方法读的来源（`[Export]` 字段 → 可变的 `WorldParams` 容器），
-	///   **生效点始终只有 <see cref="Regenerate"/> 一处**——不要改成参数一变就自动重算
-	///   （全量重算代价大，且会暴露"半更新的世界"）。
-	/// ★① 阶段只有 `ContinentCount`/`LandFraction` 两个 `[Export]` 旋钮，其余 10 个世界参数
-	///   （域扭曲 + 三尺度）仍取自退化档 ⇒ 用 `with` 覆盖，**分级暴露**等面板那批再做
-	///   （不把 10 个原始旋钮一次性铺到 Inspector 上）。
-	/// </summary>
-	WorldSpec BuildSpec() => new(
-		Seed,
-		WorldSpecDefaults.Earth.LandSea with
-		{
-			ContinentCount = ContinentCount,
-			LandFraction = LandFraction,
-		},
-		new TerrainSpec(TargetRegionAreaKm2));
+	WorldSpec BuildSpec()
+	{
+		var spec = WorldParamTable.Load(out var problems);
+		foreach (var p in problems) GD.PushWarning($"[WORLDGEN-PARAMS] {p}");
+		return spec;
+	}
 
 	/// <summary>
 	/// 全量重算 + 表现层重烘：把装配层的导出参数经 <see cref="WorldGenSimulation.Run"/> 注入管线，
@@ -124,18 +102,6 @@ public partial class WorldGenPlanet : Node3D
 		var sw = Stopwatch.StartNew();
 		Sim.Run(BuildSpec());
 		sw.Stop();
-
-		if (_timingDiag++ < 3)
-			GD.Print($"[WORLDGEN-TIMING] n={Sim.Ball.CellIds.Length} res={Sim.Ball.Res} " +
-					 $"land={Sim.LandSea.Projector.LandFraction:P1} regions={Sim.Terrain.Regions.Regions.Length} " +
-					 // P4-2 判读读数：降水事实的全球均值（等积格 ⇒ 算术平均；不是生产输入）
-					 $"meanP={Sim.Climate.Precipitation.MeanMm:F0}mm/年 " +
-					 $"meanT={Sim.Climate.Temperature.MeanC:F1}C " +
-					 $"ridges={Sim.Terrain.Mountains.Ridges.Length} " +
-					 // 2C-A 判读读数：流域总数 / 内流流域数（内流 = 湖泊候选，2C-B 才判定）
-					 $"basins={Sim.Hydrology.Basins.BasinCount}(endorheic {Sim.Hydrology.Basins.EndorheicBasinCount}) " +
-					 $"lakes={Sim.Hydrology.Lakes.LakeCount} " +
-					 $"thr={Sim.LandSea.Projector.ThresholdUsed:F3} total={sw.Elapsed.TotalMilliseconds:F0}ms");
 
 		if (View != null)
 		{

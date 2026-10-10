@@ -78,7 +78,7 @@ public sealed class LandSeaField : SphericalField
 	readonly SphericalFbmNoise _low, _med, _small;
 
 	/// <param name="seed">世界种子（**全局层**按值展开的 `int`；本类只负责喂噪声，不持有身份）。</param>
-	/// <param name="spec">① 阶段配置（唯一真相源 = `WorldSpecDefaults.Earth.LandSea` 或装配层切片）。</param>
+	/// <param name="spec">① 阶段配置（唯一真相源 = 正库默认档 `data/world_params.json` 的 `LandSea` 段，或装配层切片）。</param>
 	public LandSeaField(ContinentLayout layout, int seed, LandSeaSpec spec)
 	{
 		Influence = new ContinentInfluenceField(layout);

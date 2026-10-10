@@ -10,8 +10,6 @@
 script = ExtResource("1_mgr")
 
 [node name="WorldGenPlanet" parent="." instance=ExtResource("2_planet")]
-ContinentCount = 7
-LandFraction = 0.29
 
 [node name="OrbitalCamera" parent="." instance=ExtResource("3_cam")]
 _planetRadius = 2.0

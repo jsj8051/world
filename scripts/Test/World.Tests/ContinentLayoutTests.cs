@@ -116,21 +116,21 @@ public class ContinentLayoutTests
 	public void LandSea_SameSeed_BitwiseIdentical_AndWarpChangesValue()
 	{
 		var layout = new ContinentLayout(Seed, Count);
-		var a = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
-		var b = new LandSeaField(layout, Seed, WorldSpecDefaults.Earth.LandSea);
+		var a = new LandSeaField(layout, Seed, WorldPreset.Earth.LandSea);
+		var b = new LandSeaField(layout, Seed, WorldPreset.Earth.LandSea);
 		var dirs = SampleDirs(256);
 		CollectionAssert.AreEqual(a.SampleAll(dirs), b.SampleAll(dirs), "同种子海陆场须逐位同");
 
 		// 域扭曲关闭（幅度 0）须改变场（扭曲是形状的一部分）
 		var noWarp = new LandSeaField(layout, Seed,
-			WorldSpecDefaults.Earth.LandSea with { WarpAmplitudeKm = 0f });
+			WorldPreset.Earth.LandSea with { WarpAmplitudeKm = 0f });
 		CollectionAssert.AreNotEqual(a.SampleAll(dirs), noWarp.SampleAll(dirs), "扭曲幅度 0 ≠ 默认（扭曲须实际生效）");
 	}
 
 	[Test]
 	public void LandSea_BoundedByInfluencePlusNoiseAmplitudes()
 	{
-		var field = new LandSeaField(new ContinentLayout(Seed, Count), Seed, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(new ContinentLayout(Seed, Count), Seed, WorldPreset.Earth.LandSea);
 		var p = field.Spec;
 		float maxWeight = 0f;
 		foreach (var a in field.Influence.Layout.Anchors) maxWeight = MathF.Max(maxWeight, a.Weight);
@@ -148,7 +148,7 @@ public class ContinentLayoutTests
 		//   4 个幅度字段里任何一个在 `LandSeaField` 里接错/接漏，这里立刻红——
 		//   而既有的包络断言与"扭曲开关"断言照不出"中/小尺度幅度没接上"这类错。
 		var layout = new ContinentLayout(Seed, Count);
-		var spec = WorldSpecDefaults.Earth.LandSea with
+		var spec = WorldPreset.Earth.LandSea with
 		{
 			WarpAmplitudeKm = 0f,
 			LowAmplitude = 0f,

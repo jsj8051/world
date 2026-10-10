@@ -52,7 +52,7 @@ public class TemperatureModelTests
 	{
 		var ball = SharedBall.Value;
 		var layout = new ContinentLayout(42, 7);
-		var field = new LandSeaField(layout, 42, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(layout, 42, WorldPreset.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

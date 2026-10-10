@@ -22,7 +22,7 @@ public class H3LandSeaProjectorTests
 		float landTarget = 0.29f, int continents = 7)
 	{
 		var layout = new ContinentLayout(seed, continents);
-		var field = new LandSeaField(layout, seed, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(layout, seed, WorldPreset.Earth.LandSea);
 		var p = new H3LandSeaProjector();
 		p.Generate(Ball, field, landTarget);
 		return (p, field);
@@ -121,7 +121,7 @@ public class H3LandSeaProjectorTests
 		// 多点采样的目的（决策原典 §五）：海岸线（阈值横切）不因格心恰在脊上而突兀。
 		// 可观察量：同格数下多点模式的海岸带（|raw−thr| 极小格数）不高于单点模式。
 		var layout = new ContinentLayout(42, 7);
-		var field = new LandSeaField(layout, 42, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(layout, 42, WorldPreset.Earth.LandSea);
 		var single = new H3LandSeaProjector();
 		single.Generate(Ball, field, 0.29f, H3TerrainSampler.Mode.CenterOnly);
 		var multi = new H3LandSeaProjector();

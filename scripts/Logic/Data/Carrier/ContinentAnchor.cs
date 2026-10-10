@@ -13,8 +13,8 @@ namespace World.Data;
 //   本层类型须登记 `ArchitectureContractTests.NewWorldLineTypes`。
 //  ★**本层分两段（2026-10-10）**——子目录是**自由分组**（不进命名空间），段判据 = **"谁构造它"**：
 //     · `Data/Spec/`   = **世界定义**（`WorldSpec` / `LandSeaSpec` / `TerrainSpec`…）：
-//                        装配层构造、按段切片喂给各阶段；**零默认值**（默认值唯一真相源 =
-//                        `World.WorldGen.WorldSpecDefaults.Earth` —— 形状里写初值会形成第二个源）。
+//                        装配层构造、按段切片喂给各阶段；**零默认值**（默认世界的唯一真相源 =
+//                        正库参数表 `data/world_params.json` —— 形状里写初值会形成第二个源）。
 //     · `Data/Carrier/`= **生成链内部流通的数据形状**（本文件 / `MountainRidge` / `Scale3`）：
 //                        生成器写、下游读，不由人直接调。
 //     ⚠️ 二者**不是**"spec vs 非 spec"，而是"外部旋钮 vs 内部形状"：一个类型同时具备两边特征

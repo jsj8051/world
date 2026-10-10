@@ -30,7 +30,7 @@ public class SpatialIndexTests
 		Make(int seed = 42, bool withRiver = true)
 	{
 		var layout = new ContinentLayout(seed, 7);
-		var field = new LandSeaField(layout, seed, WorldSpecDefaults.Earth.LandSea);
+		var field = new LandSeaField(layout, seed, WorldPreset.Earth.LandSea);
 		var proj = new H3LandSeaProjector();
 		proj.Generate(Ball, field, 0.29f);
 		var surface = new SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);

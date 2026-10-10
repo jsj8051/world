@@ -60,7 +60,7 @@ public sealed class GeologicalRegions
 
 	// ── 分区旋钮 ──
 	// ★`TargetRegionAreaKm2` 已于 2026-10-10 迁出本类 ⇒ `World.Constants.Geology`（常量族）：
-	//   它的身份是"世界定义 ② 阶段的默认值"（退化档 `WorldSpecDefaults.Earth` 也读它），
+	//   它的身份是"世界定义 ② 阶段的默认值"（正库默认档 `data/world_params.json` 写同值），
 	//   挂在生成器上会藏起"默认世界由谁定义"。本类只保留**本类自己的**调参旋钮。
 	public const int MaxRegionsPerContinent = 14;
 	public const int LloydIterations = 2;                  // 决策 §七：1~3 次，多了过度规则

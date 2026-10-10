@@ -2,7 +2,7 @@
 # ═══════════════════════════════════════════════════════════════════
 # 一键回归脚本（2026-08-19 参数大扫除系列基建；2026-10-09 存档清退 + CivSim 移出后重标定）
 # 用法：bash scripts/verify.sh [--fast]
-#   --fast   只跑「构建 + 单测 + 主世界」，跳过诊断场景组
+#   --fast   只跑「构建 + 单测 + 主世界 + 世界生成读数」，跳过其余诊断场景组
 #
 # 设计动机（历史 bug 教训）：
 #   · 增量 build 可能静默失败（改 C# 后必须 Rebuild + 对比 DLL 时间戳）
@@ -14,7 +14,12 @@
 #      LogicGridDiag / CivSimDiag(T 全套)（依赖已删的 `.mpa` 读档）三条均移除。
 #   ② CivSim 移出：CivSimDiag（构造场景）随 CivSim 迁至 `scripts/_removed/`（用户拍板
 #      "等待正确时机回归，现在不需要"）⇒ 其回归组一并移除。
-#   现只保留**现存且无存档依赖**的场景：主世界 + H3 冒烟。
+#   现只保留**现存且无存档依赖**的场景：主世界 + 世界生成读数 + H3 冒烟。
+# ★2026-10-10 第三次重标定（用户拍板"诊断打印搬出生产类"）：
+#   主场景 `WorldGenPlanet` 不再打印 `[WORLDGEN-*]` 读数 ⇒ 新增诊断场景
+#   `scenes/diag/WorldGenReadoutDiag.tscn` 承接读数（`[WORLDGEN-PARAMS]` / `[WORLDGEN-TIMING]`
+#   + PASS/FAIL 健全性）。`[WORLDGEN-READY]`（表现层耗时）**不再产出**——它测 `BallView` 构建，
+#   属表现层，要它就去主场景实机跑。
 #
 # 前置：Godot mono 控制台 exe 路径（可用 GODOT_EXE 环境变量覆盖）
 # ═══════════════════════════════════════════════════════════════════
@@ -78,13 +83,19 @@ run_scene() {
 
 echo ""
 echo "═══ [3/3] headless 回归 ═══"
+# 主世界：验**场景挂载**（.tscn → 脚本，防路径漏改的静默失败）+ 全链零 ERROR。
+# ★2026-10-10：主场景不再打印任何读数字（判读已搬到下方诊断场景）⇒ 这一组的判据只剩"零 ERROR"。
 run_scene "主世界 WorldGenWorld"   "res://scenes/core/WorldGenWorld.tscn" "" 300 600
+# 世界生成**判读读数**（2026-10-10 从主场景 `WorldGenPlanet` 搬来）：
+# n / res / land / regions / meanP / meanT / ridges / basins / lakes / thr + PASS/FAIL 健全性。
+# ★放在 --fast 之内（"世界跑得对不对"是核心，不该被跳过）。
+run_scene "世界生成读数"           "res://scenes/diag/WorldGenReadoutDiag.tscn" "" 300
 
 if [ "$FAST" != "--fast" ]; then
     run_scene "H3SmokeDiag"          "res://scenes/diag/H3SmokeDiag.tscn" "" 180
 else
     echo ""
-    echo "（--fast：跳过诊断场景组）"
+    echo "（--fast：跳过其余诊断场景组）"
 fi
 
 echo ""
