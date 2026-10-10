@@ -149,7 +149,7 @@ public class CellHighlightRingTests
 	public void Highlight_MustNotLiftGeometryRadially()
 	{
 		var paths = FindRenderSources() ?? throw new System.IO.FileNotFoundException(
-			"未找到 scripts/Scene/Render/{CellQuery,BallView}.cs；跳过（路径脆弱，非失败）");
+			"未找到 scripts/Render/{CellQuery,BallView}.cs；跳过（路径脆弱，非失败）");
 
 		// ① 两个文件全扫：不得出现任何 radial lift 常量（注释里允许提反面例子 ⇒ 跳过注释行）
 		foreach (var path in paths)
@@ -218,8 +218,8 @@ public class CellHighlightRingTests
 		var dir = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
 		for (int i = 0; i < 10 && dir != null; i++)
 		{
-			var a = System.IO.Path.Combine(dir, "scripts", "Scene", "Render", "CellQuery.cs");
-			var b = System.IO.Path.Combine(dir, "scripts", "Scene", "Render", "BallView.cs");
+			var a = System.IO.Path.Combine(dir, "scripts", "Render", "CellQuery.cs");
+			var b = System.IO.Path.Combine(dir, "scripts", "Render", "BallView.cs");
 			if (System.IO.File.Exists(a) && System.IO.File.Exists(b)) return new[] { a, b };
 			dir = System.IO.Directory.GetParent(dir)?.FullName;
 		}

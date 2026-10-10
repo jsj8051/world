@@ -1,0 +1,8 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/Render/WorldView.cs" id="1_view"]
+
+[node name="WorldView" type="Node3D"]
+script = ExtResource("1_view")
+LodNearRatio = 6.0
+BackfaceCullRatio = 3.0

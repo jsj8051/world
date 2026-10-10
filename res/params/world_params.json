@@ -1,0 +1,44 @@
+// 世界参数表 · 默认档（"地球档"）—— 世界的默认定义就在这里
+//
+// 【位置】参数 JSON 只有这一个家：项目根 **res/params/**（2026-10-11 由 data/ + userdata/params/ 迁入）。
+//   读取一律从 res/ 来（World.Assets.WorldParamStore 定位内容根 → res/params/）。
+//
+// 【两个文件的分工】
+//   · res/params/world_params.json        = 本档，**正库存档**：默认世界的唯一定义（代码里没有第二份）；
+//   · res/params/world_params.user.json   = **用户档**（可写，UI 改参数就写它）：**整份覆盖**本档；
+//                                           不存在 = 没有任何用户改动（等价于照抄本档）。
+//   ⇒ 改「世界默认」= 改本档（会影响全部诊断读数与跨 seed 验收，谨慎）；
+//     想自己调着玩 ⇒ 别改本档，改用户档（或让 UI 去写它；删掉用户档 = 恢复出厂）。
+//
+// 【字段】必须完整（每个字段都要有）。字段名 / 类型由 WorldSpec 及两个阶段 spec 定义，
+//   含义见 scripts/Logic/Data/Spec/*.cs 的属性注释；拼错字段名会在读取时报错（不静默忽略）。
+//   ⚠️ 2026-10-11 起**不做字段补齐**（用户拍板"直接反序列化，不补齐"）：
+//     本档里**漏写**字段 ⇒ **整份拒绝**（报出缺了哪些字段，生效值一个字段都不动）——
+//     既不静默按 0 装载、也不静默补齐。请写全。
+//   守卫：scripts/Test/World.Tests/WorldSpecTests.cs 逐字钉住下面每个数值。
+{
+  "Seed": 42,
+
+  "LandSea": {
+    "ContinentCount": 7,
+    "LandFraction": 0.29,
+
+    "WarpWavelengthKm": 3000,
+    "WarpOctaves": 3,
+    "WarpAmplitudeKm": 600,
+
+    "LowWavelengthKm": 5000,
+    "LowOctaves": 2,
+    "LowAmplitude": 0.35,
+
+    "MediumWavelengthKm": 1200,
+    "MediumAmplitude": 0.25,
+
+    "SmallWavelengthKm": 300,
+    "SmallAmplitude": 0.12
+  },
+
+  "Terrain": {
+    "TargetRegionAreaKm2": 4000000
+  }
+}

@@ -285,27 +285,27 @@ public static class Program
                 try
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    var layout = new World.WorldGen.ContinentLayout(seed, 7);
-                    var field = new World.WorldGen.LandSeaField(layout,
+                    var layout = new World.Logic.ContinentLayout(seed, 7);
+                    var field = new World.Logic.LandSeaField(layout,
                         seed, World.Tests.WorldPreset.Earth.LandSea);
-                    var proj = new World.WorldGen.H3LandSeaProjector();
+                    var proj = new World.Logic.H3LandSeaProjector();
                     proj.Generate(ball, field, 0.29f);
-                    var regions = new World.WorldGen.GeologicalRegions(seed);
+                    var regions = new World.Logic.GeologicalRegions(seed);
                     regions.Generate(ball, proj);
-                    var surface = new World.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
-                    var mountains = new World.WorldGen.MountainSkeleton(seed);
+                    var surface = new World.Logic.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
+                    var mountains = new World.Logic.MountainSkeleton(seed);
                     mountains.Generate(ball, regions, surface);
-                    var landforms = new World.WorldGen.RegionalLandforms(seed);
+                    var landforms = new World.Logic.RegionalLandforms(seed);
                     landforms.Generate(ball, regions);
-                    var volcanoes = new World.WorldGen.VolcanoField();
+                    var volcanoes = new World.Logic.VolcanoField();
                     volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
-                    var features = new List<World.WorldGen.FeatureField>
+                    var features = new List<World.Logic.FeatureField>
                     {
-                        new(landforms, World.WorldGen.TerrainDomain.LandOnly),
-                        new(mountains, World.WorldGen.TerrainDomain.LandAndSea),
-                        new(volcanoes, World.WorldGen.TerrainDomain.LandAndSea),
+                        new(landforms, World.Logic.TerrainDomain.LandOnly),
+                        new(mountains, World.Logic.TerrainDomain.LandAndSea),
+                        new(volcanoes, World.Logic.TerrainDomain.LandAndSea),
                     };
-                    var composer = new World.WorldGen.HeightComposer(seed);
+                    var composer = new World.Logic.HeightComposer(seed);
                     composer.Generate(ball, surface, regions, features);
 
                     var rgb = new byte[width * height * 3];
@@ -324,12 +324,12 @@ public static class Program
                         }
                         relief[i] = h[i] - sum / cnt;
                     }
-                    var snow = new World.WorldGen.SnowOverlay(seed);
+                    var snow = new World.Logic.SnowOverlay(seed);
                     for (int p = 0; p < cellOfPixel.Length; p++)
                     {
                         int i = cellOfPixel[p];
                         // 渐变雪线（决策 04v2 §二）：分档色取雪线以下的山地档，向雪白按 alpha 过渡
-                        var c = World.WorldGen.ElevationMode.ElevationColor(Math.Min(h[i], 2790f));
+                        var c = World.Logic.ElevationMode.ElevationColor(Math.Min(h[i], 2790f));
                         float snowA = snow.Alpha(h[i], ball.CellDirs[i]);
                         c = new Godot.Color(
                             c.R + (0.97f - c.R) * snowA, c.G + (0.97f - c.G) * snowA, c.B + (1f - c.B) * snowA);
@@ -384,27 +384,27 @@ public static class Program
         Console.WriteLine($"== 连续图：seed {seed} res{res} {frames} 帧 {size}×{size} 倾角 {tiltDeg}° → {outDir} ==");
 
         var ball = new World.H3Grid.Ball(res, 1f);
-        var layout = new World.WorldGen.ContinentLayout(seed, 7);
-        var field = new World.WorldGen.LandSeaField(layout,
+        var layout = new World.Logic.ContinentLayout(seed, 7);
+        var field = new World.Logic.LandSeaField(layout,
             seed, World.Tests.WorldPreset.Earth.LandSea);
-        var proj = new World.WorldGen.H3LandSeaProjector();
+        var proj = new World.Logic.H3LandSeaProjector();
         proj.Generate(ball, field, 0.29f);
-        var regions = new World.WorldGen.GeologicalRegions(seed);
+        var regions = new World.Logic.GeologicalRegions(seed);
         regions.Generate(ball, proj);
-        var surface = new World.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
-        var mountains = new World.WorldGen.MountainSkeleton(seed);
+        var surface = new World.Logic.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
+        var mountains = new World.Logic.MountainSkeleton(seed);
         mountains.Generate(ball, regions, surface);
-        var landforms = new World.WorldGen.RegionalLandforms(seed);
+        var landforms = new World.Logic.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
-        var volcanoes = new World.WorldGen.VolcanoField();
+        var volcanoes = new World.Logic.VolcanoField();
         volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
-        var features = new List<World.WorldGen.FeatureField>
+        var features = new List<World.Logic.FeatureField>
         {
-            new(landforms, World.WorldGen.TerrainDomain.LandOnly),
-            new(mountains, World.WorldGen.TerrainDomain.LandAndSea),
-            new(volcanoes, World.WorldGen.TerrainDomain.LandAndSea),
+            new(landforms, World.Logic.TerrainDomain.LandOnly),
+            new(mountains, World.Logic.TerrainDomain.LandAndSea),
+            new(volcanoes, World.Logic.TerrainDomain.LandAndSea),
         };
-        var composer = new World.WorldGen.HeightComposer(seed);
+        var composer = new World.Logic.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);
         Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length}）");
 
@@ -421,7 +421,7 @@ public static class Program
                 sum += h[j]; cnt++;
             }
             float shade = Math.Clamp(1f + (h[i] - sum / cnt) / 1200f, 0.78f, 1.18f);
-            var c = World.WorldGen.ElevationMode.ElevationColor(h[i]);
+            var c = World.Logic.ElevationMode.ElevationColor(h[i]);
             cellRgb[i * 3] = (byte)Math.Clamp(c.R * 255f * shade, 0f, 255f);
             cellRgb[i * 3 + 1] = (byte)Math.Clamp(c.G * 255f * shade, 0f, 255f);
             cellRgb[i * 3 + 2] = (byte)Math.Clamp(c.B * 255f * shade, 0f, 255f);
@@ -521,35 +521,35 @@ public static class Program
         Console.WriteLine($"== 连续地形图：seed {seed} res{res} {width}×{height} → {outDir} ==");
 
         var ball = new World.H3Grid.Ball(res, 1f);
-        var layout = new World.WorldGen.ContinentLayout(seed, 7);
-        var field = new World.WorldGen.LandSeaField(layout,
+        var layout = new World.Logic.ContinentLayout(seed, 7);
+        var field = new World.Logic.LandSeaField(layout,
             seed, World.Tests.WorldPreset.Earth.LandSea);
-        var proj = new World.WorldGen.H3LandSeaProjector();
+        var proj = new World.Logic.H3LandSeaProjector();
         proj.Generate(ball, field, 0.29f);
-        var regions = new World.WorldGen.GeologicalRegions(seed);
+        var regions = new World.Logic.GeologicalRegions(seed);
         regions.Generate(ball, proj);
-        var surface = new World.WorldGen.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
-        var mountains = new World.WorldGen.MountainSkeleton(seed);
+        var surface = new World.Logic.SurfaceResolver(field, proj.ThresholdUsed, proj.SeaSpreadUsed);
+        var mountains = new World.Logic.MountainSkeleton(seed);
         mountains.Generate(ball, regions, surface);
-        var landforms = new World.WorldGen.RegionalLandforms(seed);
+        var landforms = new World.Logic.RegionalLandforms(seed);
         landforms.Generate(ball, regions);
-        var volcanoes = new World.WorldGen.VolcanoField();
+        var volcanoes = new World.Logic.VolcanoField();
         volcanoes.Place(ball, regions, mountains.Tectonic, seed, mountains.RangeAnchors());
-        var features = new List<World.WorldGen.FeatureField>
+        var features = new List<World.Logic.FeatureField>
         {
-            new(landforms, World.WorldGen.TerrainDomain.LandOnly),
-            new(mountains, World.WorldGen.TerrainDomain.LandAndSea),
-            new(volcanoes, World.WorldGen.TerrainDomain.LandAndSea),
+            new(landforms, World.Logic.TerrainDomain.LandOnly),
+            new(mountains, World.Logic.TerrainDomain.LandAndSea),
+            new(volcanoes, World.Logic.TerrainDomain.LandAndSea),
         };
-        var composer = new World.WorldGen.HeightComposer(seed);
+        var composer = new World.Logic.HeightComposer(seed);
         composer.Generate(ball, surface, regions, features);
-        var finalGeo = new World.WorldGen.FinalGeography();
+        var finalGeo = new World.Logic.FinalGeography();
         finalGeo.Generate(ball, composer, regions);
-        var rivers = new World.WorldGen.RiverNetwork();
+        var rivers = new World.Logic.RiverNetwork();
         rivers.Generate(ball, finalGeo, composer, riverThresholdCells: 20);
         Console.WriteLine($"生成完成 {sw.ElapsedMilliseconds} ms（regions={regions.Regions.Length} ridges={mountains.Ridges.Length} rivers={rivers.IsRiver.Count(x => x)}）——以下为逐像素表现层采样（世界真相 = SampleSurface 单一事实源）");
 
-        var snowCont = new World.WorldGen.SnowOverlay(seed);
+        var snowCont = new World.Logic.SnowOverlay(seed);
         var heights = new float[width * height];
         var lands = new bool[width * height];
         Parallel.For(0, height, y =>
@@ -575,7 +575,7 @@ public static class Program
                     (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Cos((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)),
                     (float)Math.Sin((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0),
                     (float)(Math.Cos((90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0) * Math.Sin((-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0)));
-                var c = World.WorldGen.ElevationMode.ElevationColor(Math.Min(heights[p], 2790f));
+                var c = World.Logic.ElevationMode.ElevationColor(Math.Min(heights[p], 2790f));
                 int ci = ball.CellIndexOf(World.Utils.H3.H3.LatLngToCell(new World.Utils.H3.LatLng(
                     (90.0 - (y + 0.5) / height * 180.0) * Math.PI / 180.0,
                     (-180.0 + (x + 0.5) / width * 360.0) * Math.PI / 180.0), res));

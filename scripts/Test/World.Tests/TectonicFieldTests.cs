@@ -2,7 +2,8 @@ using System;
 using Godot;
 using NUnit.Framework;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
+using World.Constants;              // RegionType（区域类型词表；2026-10-11 由 Logic 上提）
 
 namespace World.Tests;
 

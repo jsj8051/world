@@ -44,6 +44,11 @@
 | `Spatial/` `Planet/` `Gameplay/` `Archive/` `Services/` | 2 + 2 + 3 + 2 + 2 | `Logic/` | 球壳数据层 / 常数 / 命令层 / 持久化 / 通用服务 |
 
 > ⚠️ **这不是"搬目录"，而是"按文件重排"**：14 个一级目录里有 6 个横跨两侧（`WorldGen`、`Utils`、`Domain`、`Archive`、`Diagnostics`、`LogicGrid`）。
+>
+> ⚠️ **2026-10-11 后续变更**：本表的"两分区"（`Scene` ↔ `Logic`）已被
+> **`重整方案-按架构分层.md` 的八层**取代 —— 表内 `Utils/` 那行（"归 `Logic/`"）作废：
+> `Utils/` 现为**与 `Logic/` 平级的顶层**；`Logic/Data|Constant` 已独立成 `Data/`。
+> 另：`Utils/` 的 Godot 边界也已放开（可用类型、禁运行期调用），见重整方案 §二。
 
 ---
 

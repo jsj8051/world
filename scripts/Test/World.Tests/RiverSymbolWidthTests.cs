@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 using NUnit.Framework;
 using Godot;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
 
 namespace World.Tests;
 

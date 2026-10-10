@@ -1,5 +1,5 @@
 using Godot;
-using World.WorldGen;
+using World.Logic;
 
 namespace World.Tests;
 

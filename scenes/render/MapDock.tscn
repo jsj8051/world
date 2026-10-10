@@ -1,6 +1,6 @@
 [gd_scene load_steps=8 format=3]
 
-[ext_resource type="Script" path="res://scripts/Scene/Render/UI/MapDock.cs" id="1_dock"]
+[ext_resource type="Script" path="res://scripts/UI/MapDock.cs" id="1_dock"]
 
 [sub_resource type="StyleBoxFlat" id="sb_panel"]
 bg_color = Color(0.851, 0.776, 0.608, 0.95)

@@ -4,7 +4,7 @@ using System.Linq;
 using NUnit.Framework;
 using Godot;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
 
 namespace World.Tests;
 

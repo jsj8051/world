@@ -1,7 +1,7 @@
 using System;
 using Godot;
 using NUnit.Framework;
-using World.WorldGen;
+using World.Logic;
 
 
 namespace World.Tests;
@@ -122,8 +122,11 @@ public class ContinentLayoutTests
 		CollectionAssert.AreEqual(a.SampleAll(dirs), b.SampleAll(dirs), "同种子海陆场须逐位同");
 
 		// 域扭曲关闭（幅度 0）须改变场（扭曲是形状的一部分）
-		var noWarp = new LandSeaField(layout, Seed,
-			WorldPreset.Earth.LandSea with { WarpAmplitudeKm = 0f });
+		// ★2026-10-11：`LandSeaSpec` 由 readonly struct 改为可变类实例 ⇒ 不再有 `with` 值拷贝，
+		//   改用 `Clone()` 造独立副本再改字段（**绝不改 `WorldPreset.Earth` 里那份共享实例**）。
+		var noWarpSpec = WorldPreset.Earth.LandSea.Clone();
+		noWarpSpec.WarpAmplitudeKm = 0f;
+		var noWarp = new LandSeaField(layout, Seed, noWarpSpec);
 		CollectionAssert.AreNotEqual(a.SampleAll(dirs), noWarp.SampleAll(dirs), "扭曲幅度 0 ≠ 默认（扭曲须实际生效）");
 	}
 
@@ -148,13 +151,12 @@ public class ContinentLayoutTests
 		//   4 个幅度字段里任何一个在 `LandSeaField` 里接错/接漏，这里立刻红——
 		//   而既有的包络断言与"扭曲开关"断言照不出"中/小尺度幅度没接上"这类错。
 		var layout = new ContinentLayout(Seed, Count);
-		var spec = WorldPreset.Earth.LandSea with
-		{
-			WarpAmplitudeKm = 0f,
-			LowAmplitude = 0f,
-			MediumAmplitude = 0f,
-			SmallAmplitude = 0f,
-		};
+		// ★值语义退场后：用 Clone 造独立副本，四个幅度字段一起改（不改共享实例）。
+		var spec = WorldPreset.Earth.LandSea.Clone();
+		spec.WarpAmplitudeKm = 0f;
+		spec.LowAmplitude = 0f;
+		spec.MediumAmplitude = 0f;
+		spec.SmallAmplitude = 0f;
 		var field = new LandSeaField(layout, Seed, spec);
 		foreach (var d in SampleDirs(256))
 			Assert.That(field.Sample(d), Is.EqualTo(field.Influence.Sample(d)).Within(1e-6f),

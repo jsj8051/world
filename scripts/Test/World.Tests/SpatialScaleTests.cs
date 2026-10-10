@@ -1,9 +1,11 @@
 using System;
 using System.Linq;
+using Godot;                   // ExportAttribute（仅反射比对该特性，不调用任何引擎 API）
 using NUnit.Framework;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
 using World.Utils.H3;
+using World.Scene;
 
 namespace World.Tests;
 
@@ -37,12 +39,110 @@ public class SpatialScaleTests
 		//   "某模块在 res4 不工作 → 换 res3 → 另一个不工作 → 换 res2"的架构倒退。
 		//
 		// ⇒ 这条测试钉住"生产档"不被子系统表现反向绑架。改动它必须用户解冻。
-		var f = typeof(WorldGenPlanet).GetField("ProductionRes",
+		var f = typeof(WorldManager).GetField("ProductionRes",
 			System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
-		Assert.That(f, Is.Not.Null, "WorldGenPlanet.ProductionRes 必须存在（生产分辨率是显式架构事实）");
+		Assert.That(f, Is.Not.Null, "WorldManager.ProductionRes 必须存在（生产分辨率是显式架构事实）");
 		Assert.That(f.IsLiteral, Is.True, "ProductionRes 必须是编译期常量（防止运行期被改）");
 		Assert.That((int)f.GetRawConstantValue(), Is.EqualTo(4),
 			"生产分辨率 = res4 冻结；若要变更须用户解冻并同步 §07 §5.1 F");
+	}
+
+	/// <summary>
+	/// **球半径单源钉**（2026-10-11 用户拍板"ResLevel / Radius 不需要了，固定就好"）。
+	///
+	/// 收口前半径有**三个副本各自填**：`WorldGenPlanet.Radius`（`[Export]`）、`Ball`（构造拷贝）、
+	/// `OrbitalCamera._planetRadius`（`[Export]`，场景里覆盖成 2.0）；三者一致纯靠手工，
+	/// 只有"相机 vs 星球"一处有运行期校验。现在唯一的家 = `PlanetGeometry.ProductionRadius`。
+	///
+	/// 本测试钉住收口**真的发生了**（防止有人悄悄把 `[Export]` 加回来，退回"每场景手填"）：
+	///   ① 结果钉：全程序集不得再有名为 `WorldGenPlanet` 的类型——该类已于 2026-10-11 收编进
+	///      `WorldManager`（`Sim` 与 `ProductionRes` 都住在后者上），**不得复活**；
+	///      接替钉：`WorldManager` 上不得有任何 `[Export]`（含原 `ResLevel` / `Radius`）——
+	///      层叠包装收掉后它没有可填项；
+	///   ② `PlanetGeometry.ProductionRadius` 必须是**编译期常量** ⇒ "同源"是编译期事实，
+	///      而不是运行期巧合（若是 `static readonly`，改它仍可能漏掉某处缓存）；
+	///   ③ `OrbitalCamera._planetRadius` 反射读出的**实际初值**必须等于该常量
+	///      ⇒ 证明它确实吃的是唯一家，场景里那行 `_planetRadius = 2.0` 覆盖可以删掉。
+	/// </summary>
+	[Test]
+	public void PlanetRadius_HasSingleSource_AndNoSceneOverrideNeeded()
+	{
+		const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.Public
+			| System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance
+			| System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.DeclaredOnly;
+
+		// ① 结果钉：`WorldGenPlanet` 不得复活——该类已于 2026-10-11 收编进 `WorldManager`
+		//   （`WorldGenPlanet.cs` / `.tscn` 已删，`Sim` 与 `ProductionRes` 都在 `WorldManager` 上）。
+		//   接替钉：收编后的 `WorldManager` 一个 [Export] 都不该有（含原 ResLevel / Radius）——
+		//   层叠包装收掉后，它没有任何可填项。
+		Assert.That(typeof(WorldManager).Assembly.GetTypes().Any(t => t.Name == "WorldGenPlanet"), Is.False,
+			"WorldGenPlanet 复活了——该类已于 2026-10-11 收编进 WorldManager（世界事实的唯一入口 = World.Sim）；" +
+			"再立一层 `WorldManager > WorldGenPlanet` 的叠包装 = 把唯一入口重新变成两处");
+		var worldExports = typeof(WorldManager)
+			.GetFields(all).Concat(typeof(WorldManager).GetProperties(all).Cast<System.Reflection.MemberInfo>())
+			.Where(m => m.GetCustomAttributes(typeof(ExportAttribute), inherit: true).Length > 0)
+			.Select(m => m.Name).ToList();
+		Assert.That(worldExports, Is.Empty,
+			$"WorldManager 上仍有 [Export]：{string.Join(",", worldExports)}——" +
+			"分辨率/半径已收为编译期常量（ProductionRes / PlanetGeometry.ProductionRadius），" +
+			"退回「每场景手填」会让三处半径重新各说各话");
+
+		// ② 唯一家必须是编译期常量，且值 = 单位尺度球（R = 2.0）。
+		var constField = typeof(World.Constants.PlanetGeometry)
+			.GetField("ProductionRadius", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+		Assert.That(constField, Is.Not.Null, "PlanetGeometry.ProductionRadius 必须存在（球半径唯一家）");
+		Assert.That(constField.IsLiteral, Is.True,
+			"PlanetGeometry.ProductionRadius 必须是编译期常量（static readonly 会让'同源'退化成运行期巧合）");
+		Assert.That((float)constField.GetRawConstantValue(), Is.EqualTo(2.0f).Within(1e-6f),
+			"本世界是**单位尺度**球（R=2.0）——Ball 顶点/格心与相机取景共用这个尺度因子");
+
+		// ③ 相机字段的初值必须**来自唯一家**，且场景里的手填覆盖已撤。
+		//   ★不用"构造一个相机读初值"的探针：Node 未入树即构造是灰区（项目纪律：测试不触碰 GD.*）。
+		//     改用**纯静态**判据——源码里那个初始化式 + 场景里该节点块内无 `_planetRadius =`。
+		var camField = typeof(World.Client.OrbitalCamera).GetField("_planetRadius", all);
+		Assert.That(camField, Is.Not.Null, "OrbitalCamera._planetRadius 字段应存在（取景与裁剪 ∝ R 的标定）");
+		Assert.That(camField.GetCustomAttributes(typeof(ExportAttribute), inherit: true).Length, Is.EqualTo(1),
+			"_planetRadius 应仍带 [Export]：编辑器/诊断里改取景半径是有意保留的逃生口");
+		Assert.That(camField.IsInitOnly, Is.False, "_planetRadius 须可写（SetPlanetRadius 会改它）");
+
+		string camSrc = FindRepoFile("scripts", "Client", "OrbitalCamera.cs");
+		Assert.That(camSrc, Is.Not.Null, "未定位到 OrbitalCamera.cs（本判据需随路径更新）");
+		string camText = System.IO.File.ReadAllText(camSrc);
+		Assert.That(System.Text.RegularExpressions.Regex.IsMatch(
+				camText, @"_planetRadius\s*=\s*PlanetGeometry\.ProductionRadius\s*;"),
+			Is.True,
+			"_planetRadius 的初值必须写成 PlanetGeometry.ProductionRadius（不得再写死字面量）");
+
+		// ★只在**代码行**里禁旧常量：注释里允许提它（本文件正是用注释记录"6371 那个值属于已清退的
+		//   km 尺度世界，故已删"）。判据若连注释一起禁，就会把"解释为什么删它"也判成违规。
+		var camCode = string.Join("\n", System.IO.File.ReadAllLines(camSrc)
+			.Where(l => !l.TrimStart().StartsWith("//")));
+		Assert.That(camCode.Contains("DefaultPlanetRadiusKm"), Is.False,
+			"DefaultPlanetRadiusKm（6371，旧 km 尺度的世界里那个值）不得在代码里复活");
+
+		// 场景侧：主场景的 OrbitalCamera 节点块里不得再手填 `_planetRadius`（那正是单源要消灭的第三份）。
+		string sceneSrc = FindRepoFile("scenes", "core", "WorldGenWorld.tscn");
+		Assert.That(sceneSrc, Is.Not.Null, "未定位到主场景 WorldGenWorld.tscn（本判据需随路径更新）");
+		var lines = System.IO.File.ReadAllLines(sceneSrc).ToList();
+		int camNode = lines.FindIndex(l => l.StartsWith("[node name=\"OrbitalCamera\""));
+		Assert.That(camNode, Is.GreaterThanOrEqualTo(0), "主场景里应有 OrbitalCamera 节点");
+		int nextNode = lines.FindIndex(camNode + 1, l => l.StartsWith("[node "));
+		var camBlock = lines.GetRange(camNode + 1, (nextNode < 0 ? lines.Count : nextNode) - camNode - 1);
+		Assert.That(camBlock.Any(l => l.Contains("_planetRadius")), Is.False,
+			"主场景仍手填 _planetRadius——球半径已是单源常量，场景覆盖会让它重新变成两份真相");
+	}
+
+	/// <summary>从测试程序集向上找仓库根，再拼相对路径（与既有 `FindRepoDir` 同思路；找不到返回 null）。</summary>
+	static string FindRepoFile(params string[] parts)
+	{
+		var dir = System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location);
+		for (int i = 0; i < 10 && dir != null; i++)
+		{
+			var candidate = System.IO.Path.Combine(new[] { dir }.Concat(parts).ToArray());
+			if (System.IO.File.Exists(candidate)) return candidate;
+			dir = System.IO.Directory.GetParent(dir)?.FullName;
+		}
+		return null;
 	}
 
 	/// <summary>

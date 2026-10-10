@@ -2,7 +2,9 @@ using System;
 using System.Diagnostics;
 using Godot;
 using World.Data;       // WorldSpec（世界定义）
-using World.WorldGen;   // WorldGenSimulation / WorldParamTable / WorldGenPlanet
+using World.Params;     // WorldParams（参数管理器实例）+ WorldParamStore（参数文件 I/O）
+using World.Logic;   // WorldGenSimulation / WorldManager
+using World.Scene;             // WorldManager（装配层：世界本体）
 
 namespace World.Diagnostics;
 
@@ -28,11 +30,12 @@ namespace World.Diagnostics;
 /// Godot --headless --path . res://scenes/diag/WorldGenReadoutDiag.tscn
 /// Godot --headless --path . res://scenes/diag/WorldGenReadoutDiag.tscn -- --res=2 --radius=2.0
 /// </code>
-/// 默认档 = `WorldGenPlanet.ProductionRes`（res4）+ radius 2.0（与主场景一致）。
+/// 默认档 = `WorldManager.ProductionRes`（res4）+ radius 2.0（与主场景一致）。
 /// 退出码：0 = 读数健全；1 = 不健全（NaN/Inf / 陆占比越界 / 区域数为 0）。
 ///
 /// ▍保留的"生产侧"内容（**有意不搬**）
-/// `WorldGenPlanet.BuildSpec` 仍会用 `GD.PushWarning` 报**参数表读表报告**（坏档 / 首跑拷出）——
+/// 参数读表报告的 `GD.PushWarning` 现在住在**装配层** `WorldRoot._Ready`（它
+/// `foreach (var p in Params.LoadProblems) GD.PushWarning(...)` 逐条报，坏档 / 首跑拷出都在这报）——
 /// 那是**错误可见性**（生产可靠性），不是判读读数；搬走会让"坏档静默"，属功能回退。
 /// </summary>
 public partial class WorldGenReadoutDiag : DiagSceneBase
@@ -41,13 +44,16 @@ public partial class WorldGenReadoutDiag : DiagSceneBase
 	{
 		var args = ParseUserArgs();
 		int res = args.TryGetValue("res", out var r) && int.TryParse(r, out var rv)
-			? rv : WorldGenPlanet.ProductionRes;
+			? rv : WorldManager.ProductionRes;
 		float radius = args.TryGetValue("radius", out var rad) && float.TryParse(rad, out var radv)
 			? radv : 2.0f;
 
-		// ── 世界定义（与生产同一入口，不另开通道）──
-		var spec = WorldParamTable.Load(out var problems);
-		foreach (var p in problems) GD.Print($"  [WORLDGEN-PARAMS] {p}");
+		// ── 世界定义（与生产同一入口：参数管理器实例；本诊断自建一个，不与主场景共享）──
+		var params_ = new WorldParams();
+		params_.Reload();
+		foreach (var p in params_.LoadProblems) GD.Print($"  [WORLDGEN-PARAMS] {p}");
+		foreach (var p in params_.SaveProblems) GD.Print($"  [WORLDGEN-PARAMS] {p}");
+		var spec = params_.Active;
 		GD.Print($"[WORLDGEN-PARAMS] seed={spec.Seed} 陆块={spec.LandSea.ContinentCount} " +
 				 $"陆占比={spec.LandSea.LandFraction:P1}");
 

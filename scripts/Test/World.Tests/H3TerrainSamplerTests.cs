@@ -2,7 +2,7 @@ using System;
 using Godot;
 using NUnit.Framework;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
 using World.Utils.H3;
 
 namespace World.Tests;
@@ -58,7 +58,7 @@ public class H3TerrainSamplerTests
 			float max = min;
 			for (int k = 0; k < cornerCount; k++)
 			{
-				float v = field.Sample(Ball.VertexPositions[Ball.VertexIndexOf(vids[k])].Normalized());
+				float v = field.Sample(Ball.Vertices.PositionOf(vids[k]).Normalized());
 				min = MathF.Min(min, v);
 				max = MathF.Max(max, v);
 			}
@@ -107,7 +107,7 @@ public class H3TerrainSamplerTests
 			float cornerW = (1f - centerW) / cornerCount;
 			float sum = field.Sample(dirs[i]) * centerW;
 			for (int k = 0; k < cornerCount; k++)
-				sum += field.Sample(Ball.VertexPositions[Ball.VertexIndexOf(vids[k])].Normalized()) * cornerW;
+				sum += field.Sample(Ball.Vertices.PositionOf(vids[k]).Normalized()) * cornerW;
 			Assert.That(cached[i], Is.EqualTo(sum),
 				$"格 {i}：角点缓存版必须与无缓存直采逐位同（纯记忆化契约）");
 		}

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using World.WorldGen;
+using World.Logic;
 
 namespace World.Tests;
 

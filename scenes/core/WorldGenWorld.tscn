@@ -1,25 +1,50 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/Scene/WorldGen/Composition/WorldGenManager.cs" id="1_mgr"]
-[ext_resource type="PackedScene" path="res://scenes/worldgen/WorldGenPlanet.tscn" id="2_planet"]
-[ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="3_cam"]
-[ext_resource type="PackedScene" path="res://scenes/render/CellInfoCard.tscn" id="4_cellpanel"]
-[ext_resource type="PackedScene" path="res://scenes/render/MapDock.tscn" id="5_dock"]
+[ext_resource type="Script" path="res://scripts/Scene/WorldRoot.cs" id="1_root"]
+[ext_resource type="Script" path="res://scripts/Scene/WorldManager.cs" id="2_world"]
+[ext_resource type="Script" path="res://scripts/Scene/UIManager.cs" id="3_ui"]
+[ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="5_cam"]
+[ext_resource type="PackedScene" path="res://scenes/render/CellInfoCard.tscn" id="6_cellpanel"]
+[ext_resource type="PackedScene" path="res://scenes/render/MapDock.tscn" id="7_dock"]
+[ext_resource type="Script" path="res://scripts/Scene/RenderManager.cs" id="8_render"]
+[ext_resource type="PackedScene" path="res://scenes/render/WorldView.tscn" id="9_worldview"]
 
-[node name="WorldGenRoot" type="Node3D"]
-script = ExtResource("1_mgr")
+[node name="WorldRoot" type="Node3D"]
+script = ExtResource("1_root")
+WorldManagerPath = NodePath("WorldManager")
+RenderManagerPath = NodePath("RenderManager")
+UIManagerPath = NodePath("UIManager")
+CameraPath = NodePath("OrbitalCamera")
+DockPath = NodePath("UIManager/PanelLayer/MapDock")
 
-[node name="WorldGenPlanet" parent="." instance=ExtResource("2_planet")]
+[node name="OrbitalCamera" parent="." instance=ExtResource("5_cam")]
 
-[node name="OrbitalCamera" parent="." instance=ExtResource("3_cam")]
-_planetRadius = 2.0
+[node name="WorldManager" type="Node3D" parent="."]
+script = ExtResource("2_world")
 
-[node name="PanelLayer" type="CanvasLayer" parent="."]
+[node name="RenderManager" type="Node3D" parent="."]
+script = ExtResource("8_render")
+WorldViewPath = NodePath("WorldView")
 
-[node name="CellInfoCard" parent="PanelLayer" instance=ExtResource("4_cellpanel")]
+[node name="WorldView" parent="RenderManager" instance=ExtResource("9_worldview")]
+
+[node name="UIManager" type="Node3D" parent="."]
+script = ExtResource("3_ui")
+PanelLayerPath = NodePath("PanelLayer")
+DockPath = NodePath("PanelLayer/MapDock")
+CellCardPath = NodePath("PanelLayer/CellInfoCard")
+
+[node name="PanelLayer" type="CanvasLayer" parent="UIManager"]
+
+[node name="CellInfoCard" parent="UIManager/PanelLayer" instance=ExtResource("6_cellpanel")]
 offset_left = 12.0
 offset_top = 12.0
 offset_right = 12.0
 offset_bottom = 12.0
 
-[node name="MapDock" parent="PanelLayer" instance=ExtResource("5_dock")]
+[node name="MapDock" parent="UIManager/PanelLayer" instance=ExtResource("7_dock")]
+
+; ── 坞 → 渲染的信号连接（**实验**：验证场景文件充当"零编译期依赖的中介"）──
+; 若成立 ⇒ `MapDockController` 可删（它存在的唯一理由是"坞与渲染互不认识，需人手工订阅"）。
+[connection signal="ModeSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockModeSelected"]
+[connection signal="ParameterSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockParameterSelected"]

@@ -1,7 +1,7 @@
 using System;
 using NUnit.Framework;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
 
 namespace World.Tests;
 

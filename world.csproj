@@ -5,14 +5,14 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- 测试项目独立编译，不进入游戏程序集（2026-10-09 迁至 scripts/Test/）。
-         注意：只排除三个纯托管测试项目；scripts/Test/Diagnostics/ 例外——
-         诊断场景由 Godot 运行时加载，必须留在游戏程序集内。 -->
+         注意：只排除两个纯托管测试项目；scripts/Test/Diagnostics/ 例外——
+         诊断场景由 Godot 运行时加载，必须留在游戏程序集内。
+         ★2026-10-11：原第三个纯托管项目 `scripts/Test/PerfBench/`（性能基线工具）已删除
+         （用户拍板"之后重新写性能测试"），故下面不再有它的排除项。 -->
     <Compile Remove="scripts/Test/World.Tests/**/*.cs" />
     <Compile Remove="scripts/Test/World.Tests.Local/**/*.cs" />
-    <Compile Remove="scripts/Test/PerfBench/**/*.cs" />
     <None Remove="scripts/Test/World.Tests/**" />
     <None Remove="scripts/Test/World.Tests.Local/**" />
-    <None Remove="scripts/Test/PerfBench/**" />
     <!-- ★2026-10-09 CivSim 移出（用户拍板"等待正确时机回归"）：整棵闭包移入 scripts/_removed/
          （CivSim 本体 + Gameplay + CivSimDiag + CivSim 单测 + 其场景），在此整体排除编译。
          **是"移出"不是"删除"** —— 回归时把目录移回原位并删掉下面两行即可。

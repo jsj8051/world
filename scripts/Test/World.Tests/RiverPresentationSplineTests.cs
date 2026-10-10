@@ -2,7 +2,8 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Godot;
-using World.WorldGen;
+using World.Logic;
+using World.Render;                 // RiverLineOverlay / 地图模式（表现层）
 
 namespace World.Tests;
 

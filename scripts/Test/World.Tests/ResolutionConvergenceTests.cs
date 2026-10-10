@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using World.H3Grid;
-using World.WorldGen;
+using World.Logic;
 
 namespace World.Tests;
 
@@ -33,7 +33,10 @@ public class ResolutionConvergenceTests
 	const double ThresholdKm2 = 70_800.0;   // 黄河流域量级，跨 res 语义一致
 
 	// 只跑 res1..res3：res4 单档 4.2 s，测试套件已有 1 分钟，不宜再翻倍。
-	// res4 档由 `PerfBench --converge 1 2 3 4` 做人工判读（文档 §4.5 收录读数）。
+	// ⚠️ res4 档的人工判读原本由 `PerfBench --converge 1 2 3 4` 提供，该工具已于 2026-10-11 删除
+	//    （用户拍板"之后重新写性能测试"）⇒ 现阶段 res4 收敛性**只有下表这几条自动断言兜着**，
+	//    历史读数见 `docs/newdecision/设计-世界生成空间-07-阶段收口与债务清单.md` §4.5 / §13；
+	//    新性能测试写出来后应把它接回来（判据口径：物理阈值 70,800 km² 跨 res 不变）。
 	static readonly int[] ResSeq = { 1, 2, 3 };
 
 	sealed class Stats

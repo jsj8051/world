@@ -5,6 +5,10 @@
 # 用户数据（2026-08-25 地图≠存档分层：游戏目录旁 userdata/——maps 素材池 + saves 存档，绝不入库）
 userdata/
 
+# 世界参数·用户档（2026-10-11 参数迁入 res/params/：默认档 world_params.json 是正库、**入库**；
+# 用户档由 UI / 参数管理器随时改写 ⇒ 属运行产物，不入库。删掉它 = 恢复出厂）
+res/params/world_params.user.json
+
 # 数据编辑器自动备份（data/techs.csv.bak 等——每次保存前的快照，不入库）
 *.bak
 
@@ -39,3 +43,6 @@ obj/
 
 # Workbuddy 工具本地数据
 /.workbuddy/
+
+# DSH 沙箱 ACL 取证备份（工具本地产物：权限快照与回滚脚本，不入库）
+/.acl-recovery/

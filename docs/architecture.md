@@ -32,9 +32,13 @@ Placement（生成依据）→ Final（世界事实）→ SpatialIndex（查询�
 | **Final** | 世界究竟是什么 | **`FinalGeography`**（FinalLand / FinalLandmassId / FinalDistToCoast / FinalRegionOfCell） | 同上 |
 | **SpatialIndex** | 如何高效询问 | **`FinalSpatialIndex`**（nearest / distance / within） | 同上 |
 | **World Simulation** | 这个世界如何运行 | `PrecipitationModel` → `RiverNetwork` → `RiverGraph` / `BasinGraph` / `LakeState` → `WaterTopology` | 同上 |
-| **表现层** | 怎么画 | `BallView` / `MapMode` / `CellQuery` / `MapDock` / `CellInfoCard` / `RiverLineOverlay` | `World.Render` / `World.Render.UI` |
+| **表现层** | 怎么画 | `BallView` / `MapMode` / `CellQuery` / `WorldView` / `WorldPicker` / `RiverLineOverlay` | `World.Render` |
+| **界面层** | 面板与控件 | `MapDock` / `CellInfoCard` / `IMapModeHost` / `IPickedCellLabels`（后两者是窄口） | `World.UI` ★与 Render 平级 |
 
-装配序（依赖序）唯一接线点：`worldgen/WorldGenPlanet.Regenerate()`。
+装配序（依赖序）唯一接线点：`WorldManager.Regenerate()`（六阶段因果序的唯一驱动点）；
+**世界生成链之外**的接线（相机 / 坞 / 信息卡 / 每帧刷新顺序）唯一接线点：`WorldRoot`（根管理器，见下）。
+★2026-10-11：`WorldGenPlanet` 已收编进 `WorldManager`（连 `Regenerate` 一起）；
+点选链（手势 → 拾取 → 高亮 → 报数据）归 `RenderManager`，与"世界怎么生成"无关。
 
 **冻结日期 2026-10-03**（用户拍板 "Terrain Genesis Architecture v1 冻结"）。
 详见 `docs/newdecision/设计-世界生成空间-08-架构冻结与旧线清退.md`。
@@ -275,7 +279,9 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 - **提交门槛**：`.githooks/pre-commit`（build + 单元测试；
   安装 `git config core.hooksPath .githooks`）。
 - **测试**：`scripts/Test/World.Tests`（NUnit；2026-10-09 实测 `dotnet test` **280 用例全绿**）+
-  本地执行器 `scripts/Test/World.Tests.Local` + 性能台 `scripts/Test/PerfBench`。
+  本地执行器 `scripts/Test/World.Tests.Local`。
+  ⚠️ 2026-10-11：原性能台 `scripts/Test/PerfBench` 已删除（用户拍板"之后重新写性能测试"）——
+  见 `docs/裁决-参数实例化与res参数目录.md` §六。
   - 纪律：**只用 `[Test]`**（不写 `[TestCase]` 参数化）；**不写文件**；
     **不触碰 `GD.*` 等引擎原生调用**（在测试进程 = 进程级崩溃，不可捕获）。
   - 注意：`[Test]` 特性数 ≠ 用例数（参数化会展开）。
@@ -287,18 +293,27 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
 
 ## 9. 命名与目录约定
 
-  - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**）：
-    `World.Render(.UI/.Controllers/.Constants)` / `World.WorldGen` / **`World.Data`** / `World.Constants` /
-    `World.H3Grid` / `World.Utils(.H3)` / `World.Camera` / `World.Diagnostics`。
+  - 命名空间：`World.<领域>`。**当前实际清单**（按 `namespace` 判，**不按目录**；2026-10-11 八层重划分后为 12 个）：
+    `World.Data` / `World.Constants` / `World.Params` / `World.Utils`（`.H3`）/ `World.H3Grid` /
+    `World.Logic` / `World.Render`（`.Constants`）/ `World.UI` / `World.Client` / `World.Scene` /
+    `World.Diagnostics`。
+    （★旧名 `World.WorldGen` / `World.Camera` / `World.Render.UI` / `World.Render.Controllers`
+    **均已取消并列入"不得复活"契约**——见 `债务清单-架构与分层.md` A-9。）
+    （★2026-10-10 更晚：**新建 `World.Assets` = 资产装载（宿主适配）分区**，目录 `scripts/Assets/`
+      ——与 `scripts/{Scene,Logic}/` **并列的第三个顶层分区**（分区名本身不进命名空间，与另两个同规则）。
+      它是全仓**唯一**允许为"装载资产"而碰 Godot API（`ProjectSettings` / `FileAccess`）的地方；
+      首个成员 = `WorldParamStore`（世界参数表的引入 / 引出 / 修改）。
+      依赖**单向** `World.Assets → World.WorldGen`（适配层依赖逻辑层；逻辑层不得反向引用）。
+      见 `docs/裁决-Assets分区与世界参数宿主层.md`。）
     （★2026-10-09：**新建 `World.Data` = 数据层**，目录 `scripts/Logic/Data/`——只收"纯数据载体"，
       判据（机器可验）：**顶层类型 + 零方法 + 零计算属性 + 无嵌套 + 不引用生成域类型**；
       依赖**单向** `World.WorldGen → World.Data`（载体不得引用 `World.WorldGen` 的类型，否则成环）；
       未纳入的边界件与理由见 `docs/裁决-数据层World.Data.md`。
       ★**2026-10-10 分两段**（子目录 = **自由分组**、不进命名空间；**段判据 = "谁构造它"**）：
-        · `Data/Spec/`    = **世界定义**——装配层构造、按段切片喂给各阶段；
-                            **零默认值**（默认世界唯一真相源 = 正库参数表 `data/world_params.json`，
-                            由 `World.WorldGen.WorldParamTable` 读入；形状里写初值会形成第二个源，
-                            改一处漏一处 ⇒ 默认值悄悄分叉）：
+        · `Data/Spec/`    = **世界定义 · 参数实例**——装配层 / **参数管理器**构造，按段切片喂给各阶段。
+                            ★2026-10-11 起它们是**可变类**（有身份、可改），属性初值 = **出厂档**；
+                            内容真相源 = `res/params/world_params.json`（由 `World.Assets.WorldParamStore`
+                            读入、`WorldParamManager` 持有唯一实例）：
                             `WorldSpec` / `LandSeaSpec` / `TerrainSpec`
         · `Data/Carrier/` = **生成链内部流通的数据形状**——生成器写、下游读，不由人直接调：
                             `ContinentAnchor` / `MountainRidge` / `Scale3`
@@ -318,27 +333,104 @@ FinalHeight（地貌 / 渲染 / 判读 + LakeState 原始洼地语义）
       `Logic/H3Grid/`。理由：`World.Spatial` 与另两个同族名易混——`SpatialScale`（尺度口径）与
       `FinalSpatialIndex`（查询索引）**均属 `World.WorldGen`**；本命名空间的真实身份是
       **H3 球面网格本体**。见 `docs/裁决-Spatial改名H3Grid.md`）
-- ★**世界参数入口唯一**（2026-10-10 七轮收敛，见 `docs/裁决-参数管理器.md`）：
-  **`World.WorldGen.WorldParamTable`**（`scripts/Logic/WorldGen/Params/`）＝"世界定义从哪来"的**唯一**答案。
-  · **两份文件**：默认档 `data/world_params.json`（正库，随游戏走，只读）｜玩家档
-    `userdata/params/world_params.json`（首跑整份拷贝，不入库；**删掉 = 恢复出厂设置**）；
-  · **三个口**：`Preset(out)` 只读默认档｜`Load(out)` 默认档 ⊕ 玩家档｜`Merge(a,b,out)` 纯函数内核（不碰磁盘）；
-  · **合并语义**：玩家档只写要改的字段，其余由默认档补齐（**不反序列化文件**——缺字段被读成 `0` 是最坏失败模式）；
-  · **存储类 = spec 类型自身**（不建注册表 / key 清单 / 字段类型表）；**默认值只在 JSON 里**（代码无默认值常量）；
-  · **磁盘读写只在本类**（只用 `System.IO`，零引擎 API）⇒ 游戏 / 单测 / `PerfBench` 共用一份实现；
-  · **场景层不碰磁盘**：`WorldGenPlanet` 已删 4 个世界参数 `[Export]`（`ResLevel`/`Radius` 是**构造参数**，保留）；
+- ★**世界参数 = 一份实例 + 一个管理器 + `res/params/` 下两份 JSON**
+  （2026-10-10 七轮收敛 → 更晚二层切分 → **2026-10-11 实例化 ＋ 迁入 `res/` ＋ 去内核**；
+   见 `docs/裁决-参数管理器.md`、`docs/裁决-Assets分区与世界参数宿主层.md`、
+   **`docs/裁决-参数实例化与res参数目录.md`**）：
+  **`World.Assets.WorldParamStore`**（`scripts/Assets/Params/`，宿主 I/O：找文件 / 读 / 写）
+  ＋ **`World.Assets.WorldParamManager`**（同目录，**参数管理器**：持有唯一实例 / **JSON 转换** / 改参数）
+  ＝"世界定义从哪来、归谁"的**唯一**答案。
+  · **为什么是两个类型**：导出后内容在 `.pck` 内 ⇒ `System.IO` 读不到参数，只有 Godot `FileAccess`
+    读得到 ⇒ "怎么找 / 怎么读 / 怎么写"**必须允许碰引擎**；而"文本 ⇄ `WorldSpec` 实例"与实例持有
+    必须能在**没有引擎宿主**的进程里跑（`dotnet test`——测试进程里调引擎 API 是进程级崩溃）。
+    按**依赖的运行时**切开，两块各自纯正。
+    ⚠️ 2026-10-11 同日两次收敛：① `PerfBench`（无宿主进程之二）删除；② **原独立的编解码内核
+    `WorldSpecCodec` 删除**（用户拍板"就让管理器自己读 json、去反序列化好了，反正就一些 Data"）
+    ⇒ 参数链只剩上面两个类型，**旧内核名与 `scripts/Logic/WorldGen/Params/` 目录均不得复活**
+    （契约 ① / ①d 钉着）；
+  · **参数 JSON 只有一个家**：项目根 **`res/params/`**（读取一律从 `res/` 来）——
+    默认档 `world_params.json`（正库，随游戏走）｜用户档 `world_params.user.json`
+    （**可写**：UI 改参数就写它，**整份覆盖**默认档；删掉 = 恢复出厂；不入库）；
+  · **实例化（2026-10-11）**：`WorldSpec` / `LandSeaSpec` / `TerrainSpec` 由 `readonly record struct`
+    改为**可变类**，唯一生效实例 = `WorldParamManager.Active`（**身份不变**：`Reload` / `Set` 都就地改字段，
+    绝不换对象）；消费方（含持段引用的 `LandSeaField`）**现取即最新值**；
+    ※ `JsonSerializer.Deserialize` 只会造新对象 ⇒ "读进来"必然多一步"拷进既有实例"
+    （`ReadJsonInto`），这一步没有替代写法；
+  · **改参数 = 改实例 ＋ 改文件**：`WorldParamManager.Set("LandSea.LandFraction", "0.5")` 一个动作两半
+    ——先改内存实例，再把**同一份实例整份**写回用户档（scene 层只发意图，**磁盘仍只由 `World.Assets` 碰**）；
+  · **公开口（参数链的全部对外面）**：`WorldParamStore.ReadPresetText` / `ReadUserText` / `WriteUserText`
+    （宿主 I/O）｜`WorldParamManager.Active` / `Reload` / `Set` / `Save` / `ResetToFactory` /
+    `ParameterNames` / `CreatePresetSpec` / `ReadJson` / `ReadJsonInto` / `ToJson` / `JsonOptions`（管理器）；
+  · **路径选择规则**：**磁盘优先**（`AppContext.BaseDirectory` 向上找 ≤12 层 = 含 `res/params/` 的内容根）
+    ⇒ 找不到（= 导出，内容进了 `.pck`）才走引擎（`res://` 读默认档、写用户档）。
+    ⇒ 单测（唯一无宿主进程）永不进入引擎分支（引擎调用封在 `NoInlining` + `try/catch` 逃生门里，
+    与 `H3Native` 找 native dll 同型）；
+  · **不做字段合并、也不做逐字段校验**（2026-10-11 用户拍板"直接反序列化 …… 也不需要校验吧"）：
+    用户档**整份覆盖**默认档；**漏写的字段**（含整段缺失）⇒ 落回 spec 属性初值 = **出厂档值**，
+    **不报错**——这是显式接受的代价（给 spec 加/改字段时必须同步改两个档，否则新字段永远停在出厂值）；
+    仍然报错且不装载的只有三类"看得见"的坏档：**语法错 / 字段名拼错 / 类型不匹配**；
+    坏档 ⇒ 报问题并**保留上一层值**（默认档读不到时保留出厂档实例值）；
+  · **存储类 = spec 类型自身**（不建注册表 / key 清单 / 字段类型表）；**默认值内容只在 JSON 里**
+    （代码侧只有 spec 属性初值当出厂档）；
+  · **场景层不碰磁盘**：`WorldGenPlanet` 已删 4 个世界参数 `[Export]`；★`ResLevel` / `Radius`
+    两个构造参数**后来也删了**（2026-10-11 收为编译期常量：`WorldManager.ProductionRes` /
+    `PlanetGeometry.ProductionRadius`）⇒ 该类现已被收编进 `WorldManager`，全类零 `[Export]`；
   · **第二参数入口不得复活**：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride` 已删（零消费者 ＋ 它绕开
-    "世界定义只有参数表一个来源"）⇒ **存档恢复世界 = 写玩家档 JSON 再 `Load`**；
-  · 护栏 `ArchitectureContractTests.WorldParams_AreReadOnlyByTheLogicLayerGate`
-    （位置 + **第二入口** + 磁盘白名单 + `[Export]` 结果钉）。
+    "世界定义只有参数表一个来源"）⇒ **存档恢复世界 = 写用户档 JSON 再 `Reload`**
+    （该类已随收编消失，契约改钉 `WorldManager` 上不得复活同名成员）；
+  · 护栏 `ArchitectureContractTests.WorldParams_AreReadOnlyByTheLogicLayerGate`（**位置 ＋ 参数目录 ＋
+    正门唯一 ＋ 第二入口 ＋ 磁盘白名单 ＋ 引擎面唯一 ＋ 数据层不沾宿主 ＋ `[Export]` 结果钉**，
+    各带非空转自检；旧类型 `WorldParamTable` / `WorldSpecCodec` 进"不得复活"名单）
+    ＋ `WorldParamManagerTests`（实例身份 / 改实例即改文件 / 直接反序列化语义（含"漏写=出厂值"的
+    代价钉） / 位置钉）。
+- ★**主场景 = 根管理器 + 子系统**（2026-10-11 建，官方 `scene_organization` 的形态落地）：
+  官方两条规则的落点——①"每个游戏都该有一个**入口点**，在 Godot 里是一个 Main 节点"；
+  ②"**兄弟节点只应了解自身的层级，由祖先节点来中介它们的通信与引用**"。于是：
+
+  ```
+  WorldRoot (Node3D)            ← 根管理器：入口点 + 中介者（WorldGenWorld.tscn 的根）
+  ├── OrbitalCamera             ← 客户端外围（自驱动组件；世界与渲染两棵树都用它）
+  ├── WorldManager              ← 子系统①/②：世界本体（持 Sim：世界生成 + 全部世界事实）
+  ├── RenderManager             ← 子系统③：3D 世界表现（WorldView：BallView + 河线 + 高亮）
+  │      └── WorldView          ← 场景实例；BallView / RiverLines 由它运行期 AddChild
+  └── UIManager                 ← 子系统④：界面（PanelLayer + 信息卡 + 坞）
+     └── PanelLayer (CanvasLayer)
+        ├── CellInfoCard       ← 哑组件（由界面管理器持有并喂数据）
+        └── MapDock            ← 哑组件（同上；由坞驱动器驱动）
+  ```
+  ★**2026-10-11 收编**：原 `WorldManager > WorldGenPlanet` 两层已并为一层（`Sim` 直接住在
+  `WorldManager` 上，`WorldGenPlanet` 类与其 `.tscn` 已删）⇒ 树深 4 → 3、少一个 `[Export]`、
+  少一条跨场景依赖。点选（手势/拾取/高亮）也已从世界侧整体迁往 `RenderManager`。
+
+  · **`WorldRoot`**：`[Export] NodePath` 声明依赖（官方"Initialize a NodePath"）→ 按序
+    `World.Initialize(spec)` → `Render.Initialize(Sim, modes[0])` → `UI.Initialize(render, modes)`
+    → 每帧只转发 `Tick`；实现 `_GetConfigurationWarnings()`，**依赖没接好在编辑器场景面板就显示黄色警告**
+    （官方自文档化机制，与 `Area2D` 缺 `CollisionShape2D` 同型）；
+  · **`WorldManager`**：世界事实的唯一入口（`World.Sim`）；分辨率与球半径都是**编译期常量**
+    （`ProductionRes` / `PlanetGeometry.ProductionRadius`），**零 `[Export]`**；
+  · **`ITickable`**（`Tick`）：根管理器只认这一个方法，**不认识世界生成**
+    ——换一个世界/界面不必改根管理器；
+  · **谁拥有谁**（官方判据："移除父节点是否意味着子节点也该被移除？"）：世界事实归 `WorldManager`
+    （持 `Sim`）、3D 表现归 `RenderManager`（持 `WorldView`）、界面归 `UIManager`（持 `PanelLayer`）、
+    参数归 `WorldParams`——根管理器**不持有游戏数据**，只按序喂依赖并转发 `Tick`；
+  · **有意不做**（都有官方依据）：不建 EventBus/全局单例（官方 `autoloads_versus_regular_nodes`：
+    "修改别的系统数据的系统应定义成自己的脚本/场景，而不是 autoload"）、不做服务定位器/DI 容器
+    （官方推荐的是"父上下文显式提供依赖"）、不管场景切换（只有一个主场景，YAGNI）；
+  · **初始化顺序显式化**（本轮的实质收益）：原先靠"子节点 `_Ready` 先跑"这种**隐式**顺序
+    （谁先谁后取决于场景树排列，挪一个节点就静默变）⇒ 现在只有 `WorldRoot._Ready` 一处决定顺序，
+    且 `WorldManager` / `RenderManager` / `UIManager` 的初始化都**幂等**；
+  · ⚠️ **无人自动生成世界**：`WorldManager` 不实现 `_Ready`——单独挂它不会生成，
+    必须经根管理器或显式调 `Initialize()`（诊断场景走后者，见 `WorldGenReadoutDiag`，
+    它根本不建表现层，自建 `WorldGenSimulation`）。
 - ★**判读读数住诊断场景**（2026-10-10 用户拍板"生产类不掺判读"，见
   `docs/裁决-判读读数归诊断场景.md`）：
-  生产类 `WorldGenPlanet` **零 `GD.Print`**——`[WORLDGEN-PARAMS]` / `[WORLDGEN-TIMING]` /
-  `[WORLDGEN-READY]` 三处判读全部搬到 `scripts/Test/Diagnostics/WorldGenReadoutDiag.cs`
+  生产类（原 `WorldGenPlanet`，现 `WorldManager`）**零 `GD.Print`**——`[WORLDGEN-PARAMS]` /
+  `[WORLDGEN-TIMING]` / `[WORLDGEN-READY]` 三处判读全部搬到 `scripts/Test/Diagnostics/WorldGenReadoutDiag.cs`
   + `scenes/diag/WorldGenReadoutDiag.tscn`（继承 `DiagSceneBase`，带 `--res` / `--radius`，
   产出 `PASS/FAIL` + 退出码）；`verify.sh` 增"世界生成读数"组（放在 `--fast` 之内）。
-  **有意保留**：`BuildSpec` 的 `GD.PushWarning`（坏档 / 首跑拷出的**错误可见性**，
-  搬走 = 坏档静默）；`WorldGenManager` 的 `[WORLDGEN-PICK]`（交互式，headless 无法复现）。
+  **有意保留**：根管理器里参数读表报告的 `GD.PushWarning`（坏档 / 首跑拷出的**错误可见性**，
+  搬走 = 坏档静默）；点选判读 `[WORLDGEN-PICK]`（现住 `UIManager`，交互式，headless 无法复现）。
+  边界判据 = **"给人看世界算得对不对"⇒搬；"给人看有没有出错"⇒留**。
   边界判据 = **"给人看世界算得对不对"⇒搬；"给人看有没有出错"⇒留**。
   ⚠️ 净损失 = 表现层构建耗时 `[WORLDGEN-READY]` 不再自动产出（要看去主场景实机跑）。
 - ★**按类型语义定位，不按目录名定位**（D-3 切分原则）。

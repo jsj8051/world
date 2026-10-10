@@ -7,8 +7,11 @@ using System.IO;
 using NUnit.Framework;
 using Godot;
 using World.H3Grid;
-using World.WorldGen;
+using World.Params;
+using World.Logic;
 using World.Data;
+using World.Render;
+using World.Scene;
 
 namespace World.Tests;
 
@@ -197,10 +200,13 @@ public class ArchitectureContractTests
 			"BiomeType 应迁至 World.Constants（与 Constant/Planet/Thermal.cs 同族）");
 
 		// ④ 源目录位置钉
+		//   ★2026-10-11 随「按架构分层」批次 1 改路径：`Logic/Constant` → `Data/Constants`
+		//     （批次 1 只搬目录；测试路径断言原计划随批次 4 对齐，见
+		//      `docs/重整方案-按架构分层.md` §6.2，此处提前对齐以免回归一直红着）。
 		Assert.That(FindRepoDir("scripts", "Logic", "Domain"), Is.Null,
 			"scripts/Logic/Domain 应已删除（World.Domain 已解散）");
-		Assert.That(FindRepoDir("scripts", "Logic", "Constant"), Is.Not.Null,
-			"scripts/Logic/Constant 应存在（BiomeType 的新家）");
+		Assert.That(FindRepoDir("scripts", "Data", "Constants"), Is.Not.Null,
+			"scripts/Data/Constants 应存在（BiomeType 的新家）");
 	}
 
 	/// <summary>
@@ -311,13 +317,13 @@ public class ArchitectureContractTests
 	/// 命名沿革：`new_HexWorld/Ball` → `Spatial/Ball`（2026-10-06 E 步，ns `World.NewHexWorld`
 	///   → `World.Spatial`）→ **`H3Grid/`（本步，ns `World.Spatial` → `World.H3Grid`）**。
 	/// 改名理由：`World.Spatial` 与另两个同族名易混——`SpatialScale`（尺度口径）与
-	///   `FinalSpatialIndex`（空间查询索引）**均属 `World.WorldGen`**；而本命名空间的真实身份是
+	///   `FinalSpatialIndex`（空间查询索引）**均属 `World.Logic`**；而本命名空间的真实身份是
 	///   **H3 球面网格本体**（`Ball` 亦非"球"）。新名与 `Utils/H3`（`World.Utils.H3`）呼应。
 	///
 	/// ★本契约同时是**第一条通用的「目录 ↔ 命名空间」钉**（此前只有 `NewWorldLine_NamespaceIsWorldGen`
 	///   一条，且只钉 WorldGen）。规则：`scripts/{Scene,Logic}/<领域>/` 的**首层**必须逐字对应
 	///   `World.<领域>`；再往下的子目录是**自由分组**，可不进命名空间（同构先例：`Constant/Planet/`
-	///   ↔ `World.Constants`、`WorldGen/{6 子层}/` ↔ `World.WorldGen`）。
+	///   ↔ `World.Constants`、`WorldGen/{6 子层}/` ↔ `World.Logic`）。
 	///   它防的是"搬了目录忘改 namespace"或"改了 namespace 忘搬目录"——
 	///   这类脱节**编译器和单测都测不出来**（两边都自洽），只有靠钉。
 	///
@@ -328,11 +334,14 @@ public class ArchitectureContractTests
 	[Test]
 	public void H3Grid_NamespaceMatchesDirectory()
 	{
-		// ① 正向：两个类型都在新家
+		// ① 正向：三个类型都在新家（★该族的"闭合性"也在此钉住：新增 Ball 族成员要进本清单，
+		//    否则它落在哪一层没人看着——2026-10-11 加 `BallVertices` 时正是照这条做的）
 		Assert.That(typeof(Ball).Namespace, Is.EqualTo("World.H3Grid"),
 			"Ball 应落在 World.H3Grid");
 		Assert.That(typeof(BallGeoIndex).Namespace, Is.EqualTo("World.H3Grid"),
 			"BallGeoIndex 应落在 World.H3Grid");
+		Assert.That(typeof(BallVertices).Namespace, Is.EqualTo("World.H3Grid"),
+			"BallVertices 应落在 World.H3Grid（Ball 族：网格本体 / 经纬索引 / 顶点侧）");
 
 		// ② 旧名不得复活
 		var survivors = typeof(FinalGeography).Assembly.GetTypes()
@@ -344,9 +353,10 @@ public class ArchitectureContractTests
 			"2026-10-09 已改名 World.H3Grid（旧名与 SpatialScale / FinalSpatialIndex 易混）");
 
 		// ③ 目录位置钉（大小写逐字：Windows 文件系统大小写不敏感 ⇒ 另比真实目录名）
-		var dir = FindRepoDir("scripts", "Logic", "H3Grid");
+		//   ★2026-10-11 随「按架构分层」批次 1 改路径：`Logic/H3Grid` → `Utils/H3Grid`（同上）。
+		var dir = FindRepoDir("scripts", "Utils", "H3Grid");
 		Assert.That(dir, Is.Not.Null,
-			"未找到 scripts/Logic/H3Grid/ —— namespace World.H3Grid 与目录路径必须一致");
+			"未找到 scripts/Utils/H3Grid/ —— namespace World.H3Grid 与目录路径必须一致");
 		if (dir != null)
 			Assert.That(new DirectoryInfo(dir).Name, Is.EqualTo("H3Grid"),
 				"目录名应逐字为 'H3Grid'（大小写严格，否则目录与 namespace 脱节）");
@@ -359,7 +369,7 @@ public class ArchitectureContractTests
 	/// 等待正确时机回归，现在不需要"）。
 	///
 	/// ★本条的前身是 `CivSim_DoesNotReferenceWorldGen`（2026-10-06 ADR-0005 · C-4 §6.2 G1）——
-	///   一条"`World.CivSim` ⟂ `World.WorldGen`"的**方向守卫**（扫全程序集 + 解 IL 深度）。
+	///   一条"`World.CivSim` ⟂ `World.Logic`"的**方向守卫**（扫全程序集 + 解 IL 深度）。
 	///   被测类型整体移出程序集后，方向守卫已无从扫描（扫不到类型），故改写为**结果钉**：
 	///   钉住"CivSim 确实不在游戏程序集里"，防止"移出后又被悄悄接回"。
 	///
@@ -401,7 +411,7 @@ public class ArchitectureContractTests
 
 	/// <summary>
 	/// **桥面消费者白名单钉（R3）**：`FinalGeography` / `FinalSpatialIndex` 的仓内消费者
-	/// **只能是新世界线内部**（`World.WorldGen*`）（2026-10-06 · ADR-0005 §边界条款 B2 · C-4 §6.2 G2）。
+	/// **只能是新世界线内部**（`World.Logic*`）（2026-10-06 · ADR-0005 §边界条款 B2 · C-4 §6.2 G2）。
 	///
 	/// 判定问题："谁在消费 Final 世界事实？" ⇒ 目前**只有 WorldGen 自己**。
 	/// 实测（C-4 §2.3）：`scripts/Logic/WorldGen/Final/` 之外的仓内消费者 = **0**；
@@ -430,19 +440,54 @@ public class ArchitectureContractTests
 
 		// 唯一允许的生产消费者 = 新世界线内部（生成线各子层）。
 		static bool IsWorldGen(string ns) => ns != null
-			&& (ns == "World.WorldGen" || ns.StartsWith("World.WorldGen."));
+			&& (ns == "World.Logic" || ns.StartsWith("World.Logic."));
+
+		// ★登记的桥面消费者（**必须逐类型具名**，不许靠"名字像"放过）。
+		//
+		// ① **三个地图模式**：取色本来就靠读世界事实（"这一格画什么颜色"）——设计而非私接。
+		//    2026-10-11 目录/命名空间重划分后它们由散居的 `World.WorldGen` 归入 `World.Render`
+		//    （★子目录不进 namespace ⇒ 没有 `World.Render.Modes` 这一层，故**只能逐类型列名**）。
+		//    实测消费点：`ElevationMode` → `_p.Facts.Final.FinalLand`；
+		//    `CoastDistanceMode` → `FinalLand` / `FinalDistToCoast` / `FinalDistToLand`；
+		//    `RegionTypeMode` → `FinalRegionOfCell`。
+		//    ⚠️ 新增一个读 Final 的地图模式 ⇒ 必须在此具名（这是有意的摩擦力：渲染/界面层
+		//    直接消费 Final 值得每次停一下想想）。
+		// ② `WorldPicker`：**只读的"点选查询"桥**——`Facts.Final` 现取后逐字段填 `PickedCell`
+		//    （FinalRegionOfCell / FinalLand / FinalLandFraction / FinalLandmassId /
+		//     FinalDistToCoast / FinalDistToLand），不写事实、不派生新事实。
+		//    唯一调用者是 `RenderManager`（点选发起方）。**不得**照此再开第二处。
+		var bridgeConsumers = new[]
+		{
+			"World.Render.ElevationMode",      // 海拔模式：读 FinalLand
+			"World.Render.CoastDistanceMode",  // 离岸距离模式：读 FinalLand / FinalDistToCoast / FinalDistToLand
+			"World.Render.RegionTypeMode",     // 地质区域模式：读 FinalRegionOfCell
+			"World.Render.WorldPicker",        // 点选查询桥：现取 Final 逐字段填 PickedCell
+		};
+		foreach (var r in bridgeConsumers)
+		{
+			var t = asm.GetTypes().FirstOrDefault(x => $"{x.Namespace}.{x.Name}" == r);
+			Assert.That(t, Is.Not.Null,
+				$"桥面白名单里的 {r} 不存在（已改名/已删？）⇒ 表已陈旧，应一并清掉或改名");
+			// 非空转自检：**具名**白名单成员必须确实在消费（否则表在空转、扫描面已偏）。
+			Assert.That(ReferencedTypesDeep(t).Any(facts.Contains), Is.True,
+				$"桥面白名单里的 {r} 已不再消费 Final 事实 ⇒ 应从表中删除（陈旧的例外比没有例外更危险）");
+		}
 
 		var offending = new List<string>();
 		foreach (var t in asm.GetTypes())
 		{
-			if (IsWorldGen(t.Namespace)) continue;   // WorldGen 内部 = 合法生产消费者
+			if (IsWorldGen(t.Namespace)) continue;                        // 逻辑层内部 = 合法生产消费者
+			if (bridgeConsumers.Contains($"{t.Namespace}.{t.Name}")) continue;   // 显式登记的桥
 			foreach (var r in ReferencedTypesDeep(t))
 				if (facts.Contains(r))
 					offending.Add($"{t.Namespace}.{t.Name}");
 		}
 
+		// 非空转自检：**具名**白名单成员必须确实在消费（否则表在空转、扫描面已偏）
+		//   ——已并入上方登记循环，此处不再重复。
+
 		Assert.That(offending.Distinct().ToList(), Is.Empty,
-			$"Final 世界事实被 WorldGen 之外的类型消费：{string.Join(",", offending.Distinct())}——" +
+			$"Final 世界事实被逻辑层与已登记桥之外的类型消费：{string.Join(",", offending.Distinct())}——" +
 			"桥未正式设计前不得私接消费者（ADR-0005 §B2）；" +
 			"若确为正式接线，请显式扩展本测试的白名单并留下决策记录（C-4 §6.2 G2）");
 
@@ -454,33 +499,80 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
-	/// **参数入口唯一化 ＋ 场景层不碰磁盘（结果 + 位置 + 白名单钉）**
+	/// **参数入口唯一化 ＋ 宿主 I/O 隔离 ＋ 参数实例化（结果 + 位置 + 白名单 + 引擎面钉）**
 	/// （2026-10-10 用户拍板：「读取数据和写数据应该交给逻辑层来做吧，场景那里不需要做这些，
-	///   export 也不需要，然后读取参数的活交给参数管理器干吧，从 `WorldGenPlanet` 拿出来」）。
+	///   export 也不需要，然后读取参数的活交给参数管理器干吧，从 `WorldGenPlanet` 拿出来」；
+	///   同日更晚再拍板：「必须依赖 Godot 的那部分，放到与 `Scene`/`Logic` 并列的新目录」；
+	///   **2026-10-11 第三轮**：「参数 json 都放在 res 下，读取全部都从 res 下读取；读到的数据都是
+	///   各个 spec 下的类的数据；scene 的 UI 更改数据会直接修改文件中的参数和类实例；
+	///   使用参数时就从实例中使用，实例都在参数管理器中管理」）。
 	///
-	/// 判定问题："世界参数（默认档 / 玩家档 JSON）由谁读？" ⇒ **只有** `WorldParamTable`（逻辑层管理器）。
+	/// 判定问题："世界参数（默认档 / 用户档 JSON）由谁读、由谁写、**实例归谁**？" ⇒ **只有**
+	/// `World.Params` 下的两个家：`WorldParams`（实例 / JSON / 改参数）＋ `WorldParamStore`（文件 I/O）
+	/// （实例 + JSON 转换 + 改参数）。★2026-10-11：原第三层"参数内核"已并入管理器，参数链不再有第三个类型。
+	///
+	/// ★2026-10-11 **本轮变更**（本契约随之改写，理由与新口径见 `docs/裁决-参数实例化与res参数目录.md`）：
+	/// · **路径**：参数 JSON 从 `data/` ＋ `userdata/params/` 迁入**项目根 `res/params/`**
+	///   （默认档 `world_params.json` ＋ 用户档 `world_params.user.json`），**读取一律从 `res/` 来**；
+	/// · **实例化**：`WorldSpec` / `LandSeaSpec` / `TerrainSpec` 由 `readonly record struct`
+	///   改为**可变类**（参数实例有身份、可改），唯一生效实例 = `WorldParamManager.Active`；
+	/// · **改参数**：`WorldParamManager.Set` 一动作两半 = 改实例 ＋ 整份写回用户档；
+	/// · **取消合并**：不再"默认档 ⊕ 用户档按字段补齐"，改为**直接反序列化**（用户档整份覆盖）；
+	///   坏档 / 缺档时保留**出厂档实例值**（spec 属性初值），不再返回全零。
+	///
+	/// ★2026-10-10 **二层切分** → **2026-10-11 收敛为两类型**：导出后内容在 `.pck` 内 ⇒ `System.IO`
+	///   读不到默认档，只有 Godot `FileAccess` 能读 ⇒ "怎么找 / 怎么读 / 怎么写"**必须允许碰引擎**；
+	///   而"文本 ⇄ `WorldSpec` 实例"这一半**必须能在没有引擎宿主的进程里跑**（`dotnet test`——
+	///   测试进程里调引擎 API 是**进程级崩溃**，不可捕获）。于是参数链只剩两类，各占一头：
+	///     · `World.Params.WorldParamStore`（`scripts/Assets/Params/`）——**宿主 I/O**：
+	///       内容根解析、读、写，**全类唯一**碰磁盘与 Godot API 的地方
+	///       （引擎调用封在 `NoInlining` + `try/catch` 的逃生门里，与 `H3Native` 找 native dll 同型）；
+	///     · `World.Params.WorldParams`（同目录）——**实例 + JSON 编解码 + 改参数**的唯一正门。
+	///   ★原独立的编解码内核 `World.Logic.WorldSpecCodec` **已删除**（用户拍板"就让管理器自己读 json、
+	///     去反序列化好了，反正就一些 Data，也不需要校验吧"）⇒ 中间那一层没了，**旧名与本家不得复活**；
+	///     随之删掉的还有**逐字段校验**（残档不再被拒：漏写的字段用 spec 属性初值），
+	///     但"段整个缺失"仍报出来（spec 的不变量是"段恒非空"）。
+	///
 	/// 本轮收敛掉的**半套体系**（全部已删，本条防其复活）：
 	///   · 场景层桥：`WorldParamsSource` / `WorldParamFile`（读盘 + `[Export]` 面板参数）
 	///     —— 正是"**Scene↔Logic 中间桥层**"红线的违例；
 	///   · 注册表族：`WorldParamRegistry` / `ParamDescriptor` / `ParamTier`（自造"key 清单 + 字段类型表"）；
-	///   · 代码内默认值：`WorldSpecDefaults`（默认值已迁入正库数据文件 `data/world_params.json`）；
+	///   · 代码内默认值：`WorldSpecDefaults`（默认值内容是正库数据文件，代码侧只有 spec 属性初值）；
 	///   · 独立场景 `scenes/params/WorldParams.tscn`（"不生成世界、只看参数表"的能力被移除——
-	///     参数管理器的职责是**服务生成**）；
-	///   · 第二参数入口：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride`（零消费者，
-	///     且它绕开了"世界定义只有参数表一个来源"——从外面塞 spec 等价于开第二条入口）。
+	///     参数管理的职责是**服务生成**）；
+	///   · 第二参数入口：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride`（零消费者；
+	///     ★2026-10-11 收编：该类已并入 `WorldManager` ⇒ 防复活钉现钉在后者上，
+	///     且它绕开了"世界定义只有参数表一个来源"——从外面塞 spec 等价于开第二条入口）；
+	///   · **第三层内核**：`WorldSpecCodec`（`scripts/Logic/WorldGen/Params/`，2026-10-11 并入管理器）。
 	///
-	/// ★四条断言（分别管：**位置** / **第二入口** / **磁盘白名单** / **`[Export]` 已清**）：
-	///   ① 位置钉：`WorldParamTable` 在 `World.WorldGen`、住 `scripts/Logic/WorldGen/Params/`；
-	///      原场景层两文件与 `scenes/params` 目录须已不存在；
-	///   ①b 第二入口钉：`WorldGenPlanet.ApplyWorldSpec` / `_specOverride` 不得复活——它零消费者，
-	///      **且**它本身就是绕开"世界定义只有参数表一个来源"的第二入口（存档恢复世界 = 写玩家档再 `Load`）；
-	///   ② 磁盘白名单：**整个游戏程序集**里，深度引用面触及 `System.IO` 读写的类型只准是那三项
+	/// ★断言分别管：**位置 + 参数目录** / **正门唯一** / **第二入口** / **磁盘白名单** /
+	///   **引擎面唯一** / **`[Export]` 已清**：
+	///   ① 位置钉：`WorldParams` ＋ `WorldParamStore` 在 `World.Params`、住 `scripts/Params/`；
+	///      旧类型 `WorldParamTable` / `WorldSpecCodec`、场景层两文件、`scenes/params` 目录均须已不存在；
+	///   ①c 参数目录钉：两个参数 JSON 必须在 **`res/params/`** 下，
+	///      旧的 `data/world_params.json` / `userdata/params/` 不得复活；
+	///   ①d 正门唯一钉：JSON 转换与改参数都只在管理器里（`WorldParamManager` 是 public，
+	///      而"参数链的公开面"不得再出现第二个类型——由 ① 的删除名单 ＋ ②③ 白名单共同守住）；
+	///   ①b 第二入口钉：`WorldManager.ApplyWorldSpec` / `_specOverride` 不得复活
+	///      （`WorldGenPlanet` 已于 2026-10-11 收编进 `WorldManager`，钉随类走）——它零消费者，
+	///      **且**它本身就是绕开"世界定义只有参数表一个来源"的第二入口（存档恢复世界 = 写用户档再 `Reload`）；
+	///   ② 磁盘白名单：**整个世界线扫描面**里，深度引用面触及 `System.IO` 读写的类型只准是那三项
 	///      ——新增消费者必须**显式改表**（防"又一处在悄悄读盘"）；
-	///   ③ `WorldGenPlanet` 上不得再有四个世界参数 `[Export]`
+	///   ③ 引擎面唯一：深度引用面触及 **Godot 参数 I/O 类型**（`ProjectSettings` / `FileAccess`）
+	///      的类型只准是 `WorldParamStore` / `WorldParamManager`（与早已在册的 `H3Native`）
+	///      ——防"引擎依赖又漏回逻辑层 / 场景层"；
+	///   ④ **数据层不沾宿主**：`WorldSpec` / `LandSeaSpec` / `TerrainSpec` 三个参数实例类型的深度引用面
+	///      **不得**含 Godot 类型、也不得含 `System.IO` —— 这是"参数数据与宿主解耦 ⇒ 无宿主进程
+	///      （单测）能直接装配它们"的**可执行形式**（2026-10-11：原由内核承担，内核删除后改钉数据层）；
+	///   ⑤ `WorldManager` 上不得再有四个世界参数 `[Export]`，也不得有任何 `[Export]`
 	///      （`ContinentCount` / `LandFraction` / `Seed` / `TargetRegionAreaKm2` ——
-	///       它们恒被参数表遮蔽，且只覆盖 14 个参数里的 4 个 ⇒ 半套体系）。
+	///       它们恒被参数表遮蔽，且只覆盖 14 个参数里的 4 个 ⇒ 半套体系；
+	///       ★2026-10-11 收编：`WorldGenPlanet` 已并入 `WorldManager`（`Sim` / `ProductionRes`
+	///       都住在后者上）⇒ 本钉随收编落到后者，层叠包装收掉后它没有任何可填项）。
 	///
-	/// ★`ResLevel` / `Radius` **刻意留着**：它们是**构造参数**（决定球壳规模），不是世界参数。
+	/// ★`ResLevel` / `Radius` 曾是**刻意留着**的构造参数（决定球壳规模，不是世界参数）；
+	///   2026-10-11 用户拍板"固定就好" ⇒ 两者已删，球半径收进
+	///   `World.Constants.PlanetGeometry.ProductionRadius`（唯一家）。
 	/// </summary>
 	[Test]
 	public void WorldParams_AreReadOnlyByTheLogicLayerGate()
@@ -489,13 +581,46 @@ public class ArchitectureContractTests
 		const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic
 			| BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
 
-		// ── ① 位置钉 ──
-		Assert.That(typeof(WorldParamTable).Namespace, Is.EqualTo("World.WorldGen"),
-			"参数管理器应住 World.WorldGen（逻辑层），不是场景层目录对应的命名空间");
-		Assert.That(FindRepoDir("scripts", "Logic", "WorldGen", "Params"), Is.Not.Null,
-			"scripts/Logic/WorldGen/Params 应存在（WorldParamTable 的新家）");
+		// ── ① 位置钉：参数层（2026-10-11 迁入 `scripts/Params/`、命名空间 `World.Params`） ──
+		Assert.That(typeof(WorldParamStore).Namespace, Is.EqualTo("World.Params"),
+			"参数文件的宿主 I/O 应在 World.Params（`scripts/Params/`）——它是唯一碰参数文件的类型");
+		Assert.That(typeof(WorldParams).Namespace, Is.EqualTo("World.Params"),
+			"参数管理器（实例持有者 + JSON 转换 + 改参数正门）应在 World.Params");
+		// ①d 正门唯一：编解码已并入管理器 ⇒ 参数链的公开面就只有管理器一个类型。
+		Assert.That(typeof(WorldParams).IsPublic, Is.True,
+			"WorldParams 必须 public：它是 scene / UI 读参数、改参数的唯一正门");
+		//   旧内核目录不得复活：原 `scripts/Logic/WorldGen/Params/` 随两层搬迁已不存在
+		//   （`Logic/WorldGen/` 整个中间层已撤，参数层在 `scripts/Params/`）。
+		Assert.That(FindRepoDir("scripts", "Logic", "Params"), Is.Null,
+			"scripts/Logic/Params 不应存在（编解码内核已并入参数管理器，参数层在 scripts/Params）");
+		Assert.That(FindRepoDir("scripts", "Params"), Is.Not.Null,
+			"scripts/Params 应存在（WorldParams / WorldParamStore 的家）");
+		Assert.That(FindRepoDir("scripts", "Assets"), Is.Null,
+			"scripts/Assets 应已删除（参数层已迁入 scripts/Params/，2026-10-11）");
 		Assert.That(FindRepoDir("scenes", "params"), Is.Null,
 			"scenes/params 应已删除（独立参数场景已随场景层桥一并移除）");
+
+		// ── ①c 参数目录钉（2026-10-11）：两个参数 JSON 必须在项目根 res/params/ 下 ──
+		//   "参数 json 都放在 res 下，读取全部都从 res 下读取"——这句的可执行形式。
+		var paramsDir = FindRepoDir("res", "params");
+		Assert.That(paramsDir, Is.Not.Null,
+			"res/params 应存在（参数 JSON 唯一的家：默认档 + 用户档）");
+		Assert.That(File.Exists(Path.Combine(paramsDir, "world_params.json")), Is.True,
+			"默认档必须是 res/params/world_params.json（正库数据，随游戏走）");
+		Assert.That(File.Exists(Path.Combine(paramsDir, "world_params.user.json")), Is.True,
+			"用户档必须是 res/params/world_params.user.json（可写；删掉 = 恢复出厂）");
+		//   路径常量与目录事实必须一致（否则"改一个常量、挪一个目录"会静默错位）。
+		Assert.That(WorldParamStore.PresetRelativePath, Is.EqualTo("res/params/world_params.json"),
+			"默认档路径常量必须是 res/params/world_params.json");
+		Assert.That(WorldParamStore.UserRelativePath, Is.EqualTo("res/params/world_params.user.json"),
+			"用户档路径常量必须是 res/params/world_params.user.json");
+		//   旧位置不得复活（迁移后残留会让"读哪一份"变成两处真相）。
+		Assert.That(FindRepoDir("userdata", "params"), Is.Null,
+			"userdata/params 应已删除（参数已迁入 res/params/）");
+		//   旧的正库默认档 `data/world_params.json` 同理：用仓库根拼出旧路径，必须不存在。
+		var repoRoot = Directory.GetParent(paramsDir)?.FullName;
+		Assert.That(File.Exists(Path.Combine(repoRoot, "data", "world_params.json")), Is.False,
+			"data/world_params.json 应已删除（参数已迁入 res/params/）");
 
 		// 被删类型名不得复活（结果钉）。
 		foreach (var dead in new[]
@@ -503,6 +628,8 @@ public class ArchitectureContractTests
 			"WorldParamsSource", "WorldParamFile",              // 场景层桥（Scene↔Logic 红线）
 			"WorldParamRegistry", "ParamDescriptor", "ParamTier", // 注册表族（key 清单 / 字段类型表）
 			"WorldSpecDefaults",                                 // 代码内默认值（已迁 JSON）
+			"WorldParamTable",                                   // 二层切分前的合体类（已拆为 store + codec）
+			"WorldSpecCodec",                                    // ★第三层内核（2026-10-11 并入管理器，见 ①d）
 		})
 		{
 			var found = asm.GetTypes().Where(t => t.Name == dead)
@@ -512,20 +639,22 @@ public class ArchitectureContractTests
 				"参数入口唯一化后不得复活（见本契约头文档；决策 docs/裁决-参数管理器.md）");
 		}
 
-		// ── ①b 第二个入口不得复活：`WorldGenPlanet` 上不准再有"外部塞一套参数"的口子 ──
-		//   `ApplyWorldSpec(WorldSpec)` / `_specOverride` 2026-10-10 删除，理由：零消费者（全仓 0 调用）
-		//   **且** 它本身就是绕开"世界定义只有参数表一个来源"的第二入口。
-		//   将来存档真要恢复世界 ⇒ 写玩家档 JSON 再 `Load`（而非另开注入通道）；
+		// ── ①b 第二个入口不得复活：世界生产类上不准再有"外部塞一套参数"的口子 ──
+		//   `ApplyWorldSpec(WorldSpec)` / `_specOverride` 2026-10-10 从 `WorldGenPlanet` 删除，
+		//   理由：零消费者（全仓 0 调用）**且** 它本身就是绕开"世界定义只有参数表一个来源"
+		//   的第二入口。★2026-10-11 收编：`WorldGenPlanet` 已并入 `WorldManager`
+		//   ⇒ 防复活钉随之落到后者上（类没了 ≠ 口子可以重开）。
+		//   将来存档真要恢复世界 ⇒ 写用户档 JSON 再 `Reload`（而非另开注入通道）；
 		//   确要开新通道时，须显式改本契约并留决策记录。
-		Assert.That(typeof(WorldGenPlanet).GetMethods(all)
+		Assert.That(typeof(WorldManager).GetMethods(all)
 				.Where(m => m.Name == "ApplyWorldSpec").ToList(),
 			Is.Empty,
-			"WorldGenPlanet.ApplyWorldSpec 已删除（零消费者 + 第二参数入口）——" +
-			"存档恢复世界的正解是写玩家档 JSON 再 Load，不是另开注入通道");
-		Assert.That(typeof(WorldGenPlanet).GetFields(all)
+			"WorldManager.ApplyWorldSpec 已删除（零消费者 + 第二参数入口）——" +
+			"存档恢复世界的正解是写用户档 JSON 再 Reload，不是另开注入通道");
+		Assert.That(typeof(WorldManager).GetFields(all)
 				.Where(f => f.Name == "_specOverride").ToList(),
 			Is.Empty,
-			"WorldGenPlanet._specOverride 已删除（随 ApplyWorldSpec 一起）");
+			"WorldManager._specOverride 已删除（随 ApplyWorldSpec 一起）");
 
 		// ── ② 磁盘白名单 ──
 		var diskTypes = new HashSet<Type>
@@ -537,7 +666,7 @@ public class ArchitectureContractTests
 		// 允许读写的类型（各自理由，新增必须显式登记）：
 		var whitelist = new HashSet<string>
 		{
-			"World.WorldGen.WorldParamTable",   // 参数管理器：默认档 / 玩家档的**唯一**读写口
+			"World.Params.WorldParamStore",     // 参数表存储：默认档 / 用户档的**唯一**磁盘读写口（宿主 I/O）
 			"World.Utils.H3.H3Native",          // 加载原生 h3 动态库（File.Exists + NativeLibrary.Load）
 			"World.Utils.PngWriter",            // 诊断 PNG 写出（表现层像素级诊断）
 		};
@@ -552,35 +681,286 @@ public class ArchitectureContractTests
 		var added = actualSet.Where(x => !whitelist.Contains(x)).ToList();
 		Assert.That(added, Is.Empty,
 			$"有类型新增了对磁盘的读写：{string.Join(",", added)}——" +
-			"参数读写只准经 WorldParamTable；如确为新增的正当代价（诊断等），请显式扩展本契约的白名单并留下决策记录");
+			"参数读写只准经 World.Params.WorldParamStore；如确为新增的正当代价（诊断等），请显式扩展本契约的白名单并留下决策记录");
 
-		// 非空转自检：参数管理器必须在扫描结果里（否则说明扫描器失效）。
-		Assert.That(actualSet, Does.Contain("World.WorldGen.WorldParamTable"),
-			"未在磁盘访问类型里发现 WorldParamTable——扫描器可能失效（本契约的扫描面需要检查）");
+		// 非空转自检：参数表存储必须在扫描结果里（否则说明扫描器失效）。
+		Assert.That(actualSet, Does.Contain("World.Params.WorldParamStore"),
+			"未在磁盘访问类型里发现 WorldParamStore——扫描器可能失效（本契约的扫描面需要检查）");
 
-		// ── ③ WorldGenPlanet 上不得再留四个世界参数 [Export] ──
-		var planet = typeof(WorldGenPlanet);
-		var exportedNames = planet.GetFields(all).Concat(planet.GetProperties(all).Cast<MemberInfo>())
+		// ── ③ 引擎面唯一：碰 Godot 参数 I/O 的类型只准是参数存储与参数管理器（+ 早已在册的 H3Native）──
+		//   动机：切分的理由是"导出后只能靠 Godot FileAccess 读 `.pck` 内的参数"。
+		//   若这条不钉，引擎依赖又会从适配层漏回逻辑层 / 场景层，切分就白做了。
+		//   ★2026-10-11 管理器进册：它经存储层的逃生门读写（磁盘分支未命中时），
+		//     且**不得**自己碰 `System.IO`（那会被 ② 当场点名）——分工仍是"存储层管文件、管理器管实例"。
+		var engineTypes = new HashSet<Type> { typeof(ProjectSettings), typeof(Godot.FileAccess) };
+		var engineWhitelist = new HashSet<string>
+		{
+			"World.Params.WorldParamStore",     // 参数的引擎逃生门（res:// 读默认档 / 写用户档）
+			"World.Params.WorldParams",   // 参数管理器：实例持有者，经存储层逃生门读写（2026-10-11）
+			"World.Utils.H3.H3Native",          // 找 native h3：GlobalizePath("res://") 兜底（既定例外）
+		};
+		var engineUsers = asm.GetTypes()
+			.Where(t => ReferencedTypesDeep(t).Any(engineTypes.Contains))
+			.Select(t => $"{t.Namespace}.{t.Name}")
+			.ToHashSet();
+		var engineAdded = engineUsers.Where(x => !engineWhitelist.Contains(x)).ToList();
+		Assert.That(engineAdded, Is.Empty,
+			$"有类型新增了对 Godot 参数 I/O（ProjectSettings / FileAccess）的引用：{string.Join(",", engineAdded)}——" +
+			"参数链上的引擎面只准留在 World.Params（WorldParams / WorldParamStore）；" +
+			"本条就是那次按运行时切分的护栏");
+
+		// 非空转自检：WorldParamStore 必须在引擎面扫描结果里（否则说明扫描器失效）。
+		Assert.That(engineUsers, Does.Contain("World.Params.WorldParamStore"),
+			"未在引擎面类型里发现 WorldParamStore——扫描器可能失效（③ 需要检查）");
+
+		// ── ④ 数据层不沾宿主：三个**参数实例类型**既不碰引擎、也不碰磁盘 ──
+		//   2026-10-11：原由编解码内核承担这条（"纯内核留在 Logic"），内核删除后改钉**数据层**——
+		//   参数数据与宿主解耦，正是"无 Godot 宿主的单测进程能直接装配它们"的可执行形式
+		//   （`WorldSpec` 的段类型、字段类型、默认值里出现 `Node` / `FileAccess` / `File` 都会让这条红）。
+		var specTypes = new[] { typeof(WorldSpec), typeof(LandSeaSpec), typeof(TerrainSpec) };
+		var specDirty = specTypes
+			.SelectMany(ReferencedTypesDeep)
+			.Where(r => diskTypes.Contains(r) || engineTypes.Contains(r))
+			.Select(r => $"{r.Namespace}.{r.Name}")
+			.Distinct()
+			.ToList();
+		Assert.That(specDirty, Is.Empty,
+			$"参数实例类型沾上了磁盘 / 引擎：{string.Join(",", specDirty)}——" +
+			"WorldSpec / LandSeaSpec / TerrainSpec 必须保持「纯数据」（零 I/O、零引擎节点），" +
+			"宿主相关的活归 World.Params（WorldParams / WorldParamStore）");
+
+		// 非空转自检：扫描面确实覆盖了三个类型（否则这次反射只扫了空壳，"没沾脏"就只是假绿）。
+		Assert.That(specTypes.SelectMany(ReferencedTypesDeep), Does.Contain(typeof(LandSeaSpec)),
+			"未在 WorldSpec 的引用面里发现 LandSeaSpec——扫描器可能失效（④ 需要检查）");
+
+		// ── ⑤ WorldManager 上不得再留任何 [Export] ──
+		//   （2026-10-11 收紧：原为"不得留四个世界参数 [Export]"，当时刻意保留了 `ResLevel` / `Radius`
+		//     两个构造参数；用户同日拍板"固定就好" ⇒ 那两个也已删，球半径收进
+		//     `World.Constants.PlanetGeometry.ProductionRadius`（唯一家），生产档仍是
+		//     `WorldManager.ProductionRes`。★同日更晚的**收编**：`WorldGenPlanet` 已并入
+		//     `WorldManager`（`Sim` / `ProductionRes` 都住在后者上，`WorldGenPlanet.cs` 已删）
+		//     ⇒ 本钉随收编落到 `WorldManager`：它现在**一个 `[Export]` 都不该有**——
+		//     层叠包装收掉后，它没有任何可填项。）
+		var worldMgr = typeof(WorldManager);
+		var exportedNames = worldMgr.GetFields(all).Concat(worldMgr.GetProperties(all).Cast<MemberInfo>())
 			.Where(m => m.GetCustomAttributes(typeof(ExportAttribute), inherit: true).Length > 0)
 			.Select(m => m.Name)
 			.ToList();
+
+		// 正向钉（原"四个世界参数"那张具名名单同义）：世界参数类型的名字不得以 [Export] 复活。
 		var worldParamExports = exportedNames
 			.Where(n => n is "ContinentCount" or "LandFraction" or "Seed" or "TargetRegionAreaKm2")
 			.ToList();
 		Assert.That(worldParamExports, Is.Empty,
-			$"WorldGenPlanet 上仍有世界参数 [Export]：{string.Join(",", worldParamExports)}——" +
-			"参数入口唯一 = 参数表 JSON（WorldParamTable）；面板字段恒被遮蔽 ⇒ 是半套体系（2026-10-10 已删）");
+			$"WorldManager 上仍有世界参数 [Export]：{string.Join(",", worldParamExports)}——" +
+			"参数入口唯一 = 参数表 JSON（World.Params.WorldParamStore）；面板字段恒被遮蔽 ⇒ 是半套体系（2026-10-10 已删）");
 
-		// 非空转自检：`ResLevel` / `Radius`（构造参数，**刻意保留**）必须仍被扫到——
-		// 否则说明 `[Export]` 特性扫描失效，③ 的"没找到"就只是假绿。
-		Assert.That(exportedNames, Does.Contain("ResLevel").And.Contains("Radius"),
-			"未扫到 ResLevel / Radius 的 [Export]——`[Export]` 扫描器可能失效（③ 需要检查）");
+		Assert.That(exportedNames, Is.Empty,
+			$"WorldManager 上仍有 [Export]：{string.Join(",", exportedNames)}——" +
+			"分辨率/半径是**编译期常量**（ProductionRes / PlanetGeometry.ProductionRadius），" +
+			"不要退回「每场景手填、靠校验兜着」（2026-10-11 收口）；" +
+			"若确要重新开闸，请显式改本契约并留下决策记录");
 
-		// 正向钉：世界参数确实经参数管理器可取（防"删干净了连入口也没了"）。
-		var spec = WorldParamTable.Preset(out var problems);
-		Assert.That(problems, Is.Empty, "正库默认档必须干净可用：" + string.Join(" | ", problems));
-		Assert.That(spec.Seed, Is.EqualTo(42), "默认档 seed 应为 42");
-		Assert.That(spec.LandSea.ContinentCount, Is.EqualTo(7), "默认档陆块数应为 7");
+		// 非空转自检：扫描器本身必须有效——钉住**别处确实存在**的 [Export]。
+		//   ★2026-10-11 换桩：原桩是 WorldGenPlanet 的 `ResLevel` / `Radius`，两者已删；
+		//     同日收编后再换一次：`WorldManager.PlanetPath` 随 `WorldGenPlanet` 收编一起删除
+		//     （本类现在**没有子依赖**）⇒ 桩改取 `WorldRoot` 的 `WorldManagerPath` 与
+		//     `UIManager` 的 `PanelLayerPath`（它们是"依赖写成 [Export] NodePath"这一模式的
+		//     既定实例，长期稳定）⇒ ⑤ 的"没找到"才不是假绿。
+		var scannerProbe = new[] { typeof(WorldRoot), typeof(WorldManager), typeof(RenderManager), typeof(UIManager) }
+			.SelectMany(t => t.GetFields(all).Concat(t.GetProperties(all).Cast<MemberInfo>()))
+			.Where(m => m.GetCustomAttributes(typeof(ExportAttribute), inherit: true).Length > 0)
+			.Select(m => m.Name)
+			.ToList();
+		Assert.That(scannerProbe, Does.Contain("WorldManagerPath").And.Contains("PanelLayerPath"),
+			"未扫到管理器的 NodePath [Export]——`[Export]` 扫描器可能失效（⑤ 的断言需检查）");
+
+		// 正向钉：世界参数确实"能读成实例"（防"删干净了连入口也没了"）。
+		//   ★2026-10-11 起：参数管理器是**实例**（`WorldParams`），转换口只有它一个。
+		var params_ = new WorldParams();
+		params_.Reload();
+		Assert.That(params_.LoadProblems, Is.Empty,
+			"正库默认档必须干净可用：" + string.Join(" | ", params_.LoadProblems));
+		Assert.That(params_.Active, Is.Not.Null.And.InstanceOf<WorldSpec>(),
+			"读到的必须是 spec 类型的实例（2026-10-11 实例化口径），不是值副本");
+		Assert.That(params_.Active.Seed, Is.EqualTo(42), "默认档 seed 应为 42");
+		Assert.That(params_.Active.LandSea.ContinentCount, Is.EqualTo(7), "默认档陆块数应为 7");
+	}
+
+	/// <summary>
+	/// **工具层的 Godot 边界（2026-10-11 用户拍板"util 也放开吧，可以放 godot 依赖的工具"）**。
+	///
+	/// 放开的是**语法面**：`Utils` 里允许出现 Godot 的**类型与结构**（`Node` / `NodePath` /
+	/// `Vector3` / `Color`…）——它们能在无引擎进程里被声明与引用。落地例子 = `World.Utils.NodeDependency`
+	/// （`Require` / `Check` 扩展；原先四个管理器各抄一份，约 90 行）。
+	///
+	/// **没放开的是运行期面**：`GD.*` 是**运行期引擎调用**（内部走 native 互操作），
+	/// 在无 Godot 宿主的单测进程里是**进程级崩溃**——那正是本项目"测试不触碰 GD.*"纪律的根基。
+	/// ⇒ 本条钉住"`World.Utils` 下不得出现 `GD.*`"，并用正向桩证明扫描器真的看得见 `GD`
+	/// （否则"全绿"可能只是扫描器瞎了）。
+	///
+	/// ⚠️ 扫描面局限（写在明处）：它只覆盖**本程序集内联**的调用。IL 可见的"程序集内声明"扫不到
+	/// 外部预编译程序集内部的调用——本项目无此结构，故不为此增加复杂度。
+	/// </summary>
+	[Test]
+	public void Utils_MayUseGodotTypes_ButNoEngineRuntimeCalls()
+	{
+		var asm = typeof(FinalGeography).Assembly;
+
+		// ① 结果钉：World.Utils（含子命名空间）下不得引用 GD。
+		var gdOffenders = asm.GetTypes()
+			.Where(t => t.Namespace != null
+				&& (t.Namespace == "World.Utils" || t.Namespace.StartsWith("World.Utils.")))
+			.Where(t => ReferencedTypesDeep(t).Any(r => r == typeof(GD)))
+			.Select(t => $"{t.Namespace}.{t.Name}")
+			.ToList();
+		Assert.That(gdOffenders, Is.Empty,
+			$"World.Utils 下出现了 GD.* 调用：{string.Join(",", gdOffenders)}——" +
+			"工具层可以用 Godot **类型**（Node / NodePath / Vector3），" +
+			"但**不得**做运行期引擎调用：无引擎宿主的单测进程里那是进程级崩溃。" +
+			"诊断/报错归调用方（装配层），工具层只做结构性判断");
+
+		// ② 正向桩：同一个扫描器必须能在**装配层**看见 GD（WorldRoot 里有 GD.Print）。
+		//    立不住 ⇒ ①的"没找到"只是假绿。
+		Assert.That(ReferencedTypesDeep(typeof(WorldRoot)).Any(r => r == typeof(GD)), Is.True,
+			"扫描器在 WorldRoot 上都没看见 GD ⇒ 本条的扫描失效（①需要检查）");
+
+		// ③ 正向钉：边界放开**确实落地了**——`NodeDependency` 必须在，
+		//    且它引用了 Godot 的 **Node 类型**（而非仅值类型），证明"语法面放开"不是空话。
+		var dep = asm.GetTypes().FirstOrDefault(t => t.Name == "NodeDependency");
+		Assert.That(dep, Is.Not.Null, "World.Utils.NodeDependency 必须存在（依赖解析共用口）");
+		Assert.That(ReferencedTypesDeep(dep).Any(r => r == typeof(Node)), Is.True,
+			"NodeDependency 应引用 Godot.Node——它是 NodePath 解析口（语法面放开的实证）");
+	}
+
+	/// <summary>
+	/// **分层 `using` 白名单契约**（2026-10-11 建，用户拍板"加那条 UI using 白名单契约"）。
+	///
+	/// 动机（实测）：`重整方案` §四把 R1（只向下依赖）与 R2（引擎侧三层平级互不引用）写成规则，
+	/// 但**没有任何测试盯着**。后果 = 每次遇到跨层需求都得**临场发明机制**
+	/// （窄口接口、包装、转发），而每次发明都能自我说服——`UI` 里那个 `IMapModeHost`
+	/// 就是这么进去的，加的时候契约一声没响，靠人工逐层列 `using` 才发现。
+	/// ⇒ 把约束写成机器可验，就不需要临场发明了。
+	///
+	/// 扫描面 = `scripts/<层>/**/*.cs` 的**文件级 `using World.*`**（源码级，不用反射）：
+	/// 反射只看得见"类型是否被引用"，看不见"引用了哪个命名空间"；而层与命名空间**逐字对应**
+	/// （八层重划分的成果）⇒ 源码级恰好是最直接的判据。
+	///
+	/// 三条断言：① 白名单（越界即红）② 分层目录完整性（防"层改名字了契约还在扫空"）
+	/// ③ 正向桩（防"using 解析器瞎了"⇒ ① 变成假绿）。
+	/// </summary>
+	[Test]
+	public void LayerUsingWhitelist_IsEnforced()
+	{
+		// 白名单：层目录 → 允许引用的 World.* 命名空间（**只列允许的**；未列即禁止）
+		var allow = new (string Dir, string[] Ns)[]
+		{
+			("Data",   new[] { "World.Constants" }),
+			("Params", new[] { "World.Data" }),
+			("Utils",  new[] { "World.Utils" }),                       // 含 .H3 / .H3Grid 子族
+			("Logic",  new[] { "World.Constants", "World.Data", "World.H3Grid", "World.Utils" }),
+			//   ★同层的子命名空间**并列写入**（如 Render 的 `World.Render.Constants`）——
+			//     它不是跨层边；之所以要显式列，是因为 §2.2 的"层内子目录是自由分组"允许
+			//     **个别**子层进 namespace（Constants 就是唯一这样的子层）。
+			("Render", new[] { "World.Render", "World.Constants", "World.Data", "World.H3Grid", "World.Logic", "World.Utils" }),
+			("UI",     new[] { "World.Data", "World.Constants" }),     // ★哑组件层：不得引用 Render
+			("Client", new[] { "World.Constants", "World.Utils" }),
+			("Scene",  new[] { "World.Client", "World.Constants", "World.Data", "World.Logic",
+							   "World.Params", "World.Render", "World.UI", "World.Utils" }),  // 装配层看全部
+		};
+
+		var offenders = new List<string>();
+		var scanned = new Dictionary<string, int>();
+		int stubFiles = 0;
+
+		foreach (var (dir, allowed) in allow)
+		{
+			var full = FindRepoDir("scripts", dir);
+			Assert.That(full, Is.Not.Null,
+				$"未找到 scripts/{dir}/ —— 层目录改名了？本表的层名必须与目录逐字一致");
+			var files = Directory.GetFiles(full, "*.cs", SearchOption.AllDirectories);
+			scanned[dir] = files.Length;
+			foreach (var f in files)
+				foreach (var ns in WorldUsings(File.ReadAllLines(f)))
+				{
+					stubFiles++;
+					// 允许 = 白名单项**逐字相等**，或白名单项的**子命名空间**（Utils 允许 Utils.H3）。
+					// 同层自引用（如 `namespace World.Render` 里写 `using World.Render;`）视为冗余 ⇒ 也拒，
+					// 理由：它使依赖图多出一条自环，掩盖真实方向。
+					bool ok = allowed.Any(a => ns == a || ns.StartsWith(a + "."));
+					if (!ok) offenders.Add($"{dir}/{Path.GetFileName(f)} → {ns}");
+				}
+		}
+
+		// ① 越界即红
+		Assert.That(offenders.Distinct().ToList(), Is.Empty,
+			$"分层 using 白名单被突破：{string.Join(" | ", offenders.Distinct())}——" +
+			"R1（只向下依赖）/ R2（引擎侧三层平级）是既定架构；" +
+			"若确需新增一条边，请显式改本表并留下决策记录，**不要**用'窄口接口'把依赖改名（见债务清单 A-11）");
+
+		// ② 分层目录完整性（防"目录改名后本契约扫了个空"）
+		foreach (var (dir, _) in allow)
+			Assert.That(scanned[dir], Is.GreaterThan(0), $"scripts/{dir}/ 下没有 .cs —— 扫描面失效");
+
+		// ③ 正向桩：解析器必须真的能刮出 using（否则 ① 只是"什么都没扫到"的假绿）
+		Assert.That(stubFiles, Is.GreaterThan(10),
+			$"只刮出 {stubFiles} 条 `using World.*` —— 解析器可能失效（本行是 ① 的正向桩）");
+		string logicSrc = Path.Combine(FindRepoDir("scripts", "Logic")!, "Composition", "WorldGenSimulation.cs");
+		Assert.That(WorldUsings(File.ReadAllLines(logicSrc)).Contains("World.Data"), Is.True,
+			"未在 WorldGenSimulation.cs 里刮到 `using World.Data;` —— 解析器或路径失效（③ 需要检查）");
+	}
+
+	/// <summary>
+	/// **UI ↔ Render 单向边钉**（2026-10-11 随"坞归渲染侧驱动"一起立）。
+	///
+	/// 背景：坞与渲染在分层上是**平级的两个引擎侧层**，所以"谁能引用谁"没有天然答案。
+	/// 2026-10-11 的实际结构是：
+	///   · **坞→渲染走 Godot 信号，连接写在场景文件里**（`WorldGenWorld.tscn` 的 `[connection]`）
+	///     ⇒ 那是一条**元数据边**，两侧源码零互相 `using`；
+	///   · **渲染→坞走 `Node.Call`**（下行口 `BindModes` / `SetMode` / `SetParameterOptions` / `SetLegend`），
+	///     参数类型是 `PanelContainer`（坞的基类）⇒ 渲染侧源码同样不 `using World.UI`。
+	///
+	/// ⇒ 于是**编译期一条边都没有**，方向由"谁驱动谁"决定：**渲染驱动坞**（坞是哑组件、只发数字）。
+	///   本契约把这条**运行期方向**钉住：一旦有人让 `UI` 反向 import `Render`（编译期依赖），立刻红；
+	///   并允许 `Render` 将来显式登记 `World.UI`（若它需要直接调用坞的类型而非 `Call`）。
+	/// </summary>
+	[Test]
+	public void UiRenderEdge_IsOneWay()
+	{
+		// ① 结果钉：UI 的源码不得出现任何 `using World.Render*`（无论是直接写还是别名）。
+		var uiDir = FindRepoDir("scripts", "UI");
+		Assert.That(uiDir, Is.Not.Null, "未找到 scripts/UI/ —— 层目录改名了？");
+		var bad = new List<string>();
+		foreach (var f in Directory.GetFiles(uiDir, "*.cs", SearchOption.AllDirectories))
+			foreach (var ns in WorldUsings(File.ReadAllLines(f)))
+				if (ns == "World.Render" || ns.StartsWith("World.Render."))
+					bad.Add($"{Path.GetFileName(f)} → {ns}");
+		Assert.That(bad, Is.Empty,
+			$"UI 反向依赖了表现层：{string.Join(" | ", bad)}——" +
+			"箭头方向是「渲染驱动坞」（坞是哑组件），反过来会让两个平级层互相认识；" +
+			"坞按钮的点选结果应经**信号**上抛（连接在场景文件里），而不是让 UI 去 import Render");
+
+		// ② 非空转自检：UI 目录确实有源码（否则 ① 只是扫了个空）
+		Assert.That(Directory.GetFiles(uiDir, "*.cs", SearchOption.AllDirectories).Length,
+			Is.GreaterThan(0), "scripts/UI/ 下没有 .cs —— 扫描面失效");
+
+		// ③ 正向桩：同一解析器在**渲染侧**能刮到它真正用到的世界侧命名空间（证明解析有效）
+		var renderDir = FindRepoDir("scripts", "Render");
+		var renderNs = Directory.GetFiles(renderDir, "*.cs", SearchOption.AllDirectories)
+			.SelectMany(f => WorldUsings(File.ReadAllLines(f))).ToHashSet();
+		Assert.That(renderNs, Does.Contain("World.Logic"),
+			"未在 scripts/Render 刮到 `using World.Logic;` —— 解析器或路径失效（③ 需要检查）");
+	}
+
+	/// <summary>刮出一行里声明的 `World.*` 命名空间（`using` 语句；带别名/静态的也认）。</summary>
+	static IEnumerable<string> WorldUsings(IEnumerable<string> lines)
+	{
+		foreach (var raw in lines)
+		{
+			var m = System.Text.RegularExpressions.Regex.Match(raw,
+				@"^\s*using\s+(?:static\s+)?(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*)?(World\.[A-Za-z0-9_.]+)\s*;");
+			if (m.Success) yield return m.Groups[1].Value;
+		}
 	}
 
 	/// <summary>
@@ -597,10 +977,13 @@ public class ArchitectureContractTests
 	///   + `scenes/diag/WorldGenReadoutDiag.tscn`；读数**逐字等价**（只读 `Sim` 的字段，与 Godot 无关）。
 	///
 	/// ★**有意保留**（**不**属本条约束，别误删）：
-	///   · `WorldGenPlanet.BuildSpec` 的 `GD.PushWarning` —— 报**读表报告**（坏档 / 首跑拷出玩家档），
-	///     那是**错误可见性**（生产可靠性），搬走会让"坏档静默"⇒ 功能回退；
+	///   · 装配层 `WorldRoot._Ready` 的 `GD.PushWarning` —— 逐条报**参数读表报告**
+	///     （`Params.LoadProblems`：坏档 / 缺档；★2026-10-11 收编后读表报告住在装配层，
+	///     原 `WorldGenPlanet.BuildSpec` 已随收编消失），那是**错误可见性**（生产可靠性），
+	///     搬走会让"坏档静默"⇒ 功能回退；
 	///   · `WorldGenManager` 的 `[WORLDGEN-PICK]` —— **交互式**点选判读，需真实点击，
-	///     无法在 headless 诊断场景里复现 ⇒ 另案（本契约只覆盖 `WorldGenPlanet`）。
+	///     无法在 headless 诊断场景里复现 ⇒ 另案（本契约只覆盖**世界生产类**的判读打印：
+	///     原 `WorldGenPlanet`，2026-10-11 收编后即 `WorldManager`）。
 	///
 	/// ★`[WORLDGEN-READY]`（表现层耗时）**不再产出**：它测 `BallView` / `RiverLineOverlay` 构建，
 	///   属表现层；诊断场景刻意只建逻辑侧（不建 View）⇒ 要该读数就去主场景实机跑。
@@ -608,14 +991,16 @@ public class ArchitectureContractTests
 	[Test]
 	public void WorldGenReadout_LivesOnlyInDiagnosticsScene()
 	{
-		string sceneDir = FindRepoDir("scripts", "Scene", "WorldGen", "Composition");
-		Assert.That(sceneDir, Is.Not.Null, "scripts/Scene/WorldGen/Composition 应存在");
+		string sceneDir = FindRepoDir("scripts", "Scene");
+		Assert.That(sceneDir, Is.Not.Null, "scripts/Scene 应存在（装配层；2026-10-11 起四个管理器直接住这里）");
 
 		// ① 生产类不得再有判读打印（`GD.PushWarning` 是错误可见性，**允许**）。
-		string planetSrc = Path.Combine(sceneDir, "WorldGenPlanet.cs");
-		Assert.That(File.Exists(planetSrc), Is.True, "WorldGenPlanet.cs 应可解析到");
-		Assert.That(File.ReadAllText(planetSrc), Does.Not.Contain("GD.Print("),
-			"WorldGenPlanet 不得再打印判读读数——读数应住在 " +
+		//   ★2026-10-11 收编后换目标：`WorldGenPlanet.cs` 已随收编删除，世界生产类 = `WorldManager.cs`
+		//     （原类的内容并入了它）⇒ 本钉子随之落到后者上。
+		string worldSrc = Path.Combine(sceneDir, "WorldManager.cs");
+		Assert.That(File.Exists(worldSrc), Is.True, "WorldManager.cs 应可解析到");
+		Assert.That(File.ReadAllText(worldSrc), Does.Not.Contain("GD.Print("),
+			"WorldManager 不得再打印判读读数——读数应住在 " +
 			"scripts/Test/Diagnostics/WorldGenReadoutDiag.cs（2026-10-10 用户拍板）");
 
 		// ② 新家必须在（位置钉）。
@@ -673,7 +1058,7 @@ public class ArchitectureContractTests
 	}
 
 	/// <summary>
-	/// 新世界线（`World.WorldGen`）的类型清单——**架构契约的扫描面**。
+	/// 新世界线（`World.Logic`）的类型清单——**架构契约的扫描面**。
 	/// ★集中于此而非各测试内联：新增子系统时只改这一处，就不会漏进任何一条契约的扫描面
 	///   （漏扫 = 契约静默失效，比契约本身不写更危险）。
 	/// </summary>
@@ -684,15 +1069,17 @@ public class ArchitectureContractTests
 		// ── 阶段管线（2026-10-09：六阶段各成一类；只聚合引用，不复制数组）──
 		typeof(LandSeaPipeline), typeof(TerrainPipeline), typeof(FactsPipeline),
 		typeof(ClimatePipeline), typeof(HydrologyPipeline), typeof(IndexPipeline),
-		// ── 世界参数管理器（2026-10-10 四次定型）──
-		//   ★"默认档 ＋ 玩家档 → WorldSpec"的**唯一**转换点，**也**是唯一的磁盘读写点
-		//     （用户拍板：文件读写归逻辑层的管理器，场景层不碰磁盘、相关 `[Export]` 全删；
-		//      原场景层 `WorldParamsSource` / `WorldParamFile` 已删除——那正是"Scene↔Logic 中间桥层"红线）。
+		// ── 世界参数（2026-10-10 定型；更晚二层切分；2026-10-11 实例化 + 迁入 res/params/ + 去内核）──
+		//   ★"`res/params/` 下的 JSON → WorldSpec **实例**"的**唯一**转换点 = `World.Params.WorldParams`
+		//     （2026-10-11：原独立内核 `WorldSpecCodec` 已并入它，JSON 读写直接住在管理器里）。
+		//     宿主侧的"找文件 / 读 / 写"归 `World.Params.WorldParamStore`（导出后参数在 `.pck` 内，
+		//     只有 Godot `FileAccess` 读得到 ⇒ 必须允许碰引擎；用户拍板把那部分收编进
+		//     与 Scene/Logic 并列的 `scripts/Assets/`）。
 		//     权威清单 / 存储类 = **spec 类型自身**（不建注册表、key 清单、字段类型表）；
-		//     默认值 = **正库数据文件** `data/world_params.json` ⇒ 代码里**没有**默认值常量
-		//     （原 `WorldSpecDefaults` 已删除）。
-		//   ★路径解析只用 `System.IO`（向上找默认档）⇒ 不引引擎 API，游戏 / 单测 / PerfBench 共用一份实现。
-		typeof(WorldParamTable),
+		//     默认值（内容）= **正库数据文件** `res/params/world_params.json` ⇒ 代码里只有
+		//     spec 属性初值当"出厂档"（原 `WorldSpecDefaults` 早已删除）。
+		//   ⚠️ 两个参数类型（WorldParams / WorldParamStore）住在 `World.Params`，**不属本清单**
+		//     （本清单是逻辑层扫描面）；它们"不沾宿主里的磁盘面"由 ② / ③ 的白名单直接钉。
 		// ── Placement（生成依据）──
 		typeof(ContinentLayout), typeof(LandSeaField), typeof(H3LandSeaProjector),
 		typeof(SurfaceResolver), typeof(GeologicalRegions), typeof(TectonicField),
@@ -708,14 +1095,24 @@ public class ArchitectureContractTests
 		// ── 基础设施（表现层入口类由专项契约单独扫，见下）──
 		typeof(SnowOverlay), typeof(SeedDerivation), typeof(H3TerrainSampler),
 		// ── 数据层 World.Data（2026-10-09 建层：纯数据载体 = 顶层 + 零方法 + 零计算属性
-		//     + 无嵌套 + 不引用生成域类型；判据与依赖方向见 scripts/Logic/Data/Carrier/ContinentAnchor.cs 头部）──
+		//     + 无嵌套 + 不引用生成域类型；判据与依赖方向见 scripts/Data/Carrier/ContinentAnchor.cs 头部）──
 		typeof(ContinentAnchor), typeof(MountainRidge), typeof(Scale3),
+		//   ★2026-10-11 新增 `PickedCell`（拾取结果快照：原住 `World.Render.WorldPicker.cs`）：
+		//     迁入动因 = 消掉 `World.UI → World.Render` 这条跨层边（信息卡要吃这份数据）；
+		//     迁入前提 = 它引用的 `RegionType` 词表同期由 `World.Logic` 上提到 `World.Constants`
+		//     （否则数据层会引用逻辑层，撞上本层判据）。
+		typeof(PickedCell),
+		//   ★同类上提：`RegionType`（区域类型词表，与 `BiomeType` 同族）——
+		//     文案映射 `GeologicalRegions.TypeName` 仍留逻辑层（本层判据禁方法）。
+		typeof(World.Constants.RegionType),
 		//   ★世界定义（2026-10-10：4 个位置参数收成 WorldSpec；两级 = 全局 Seed + 阶段 spec）——
-		//     它们是**纯数据形状**（判据同上一行：顶层 + 零方法 + 零计算属性 + 不引用生成域类型），
-		//     与 `ContinentAnchor` 同类；依赖方向 WorldGen → Data 已既定。
-		//     默认值（内容）**不在本层**：它是正库数据文件 `data/world_params.json`，代码侧无默认值类型。
+		//     2026-10-11 起它们是**参数实例**（可变类、有身份）：装配层 / 参数管理器构造并持有，
+		//     按段切片喂给各阶段；依赖方向 WorldGen → Data 已既定。
+		//     默认值（内容）**不在本层独占**：正库数据文件 `res/params/world_params.json` 是真相源，
+		//     spec 属性初值只是"出厂档"（默认档读不到时的基底）；
+		//     两者同值由 `WorldSpecTests.FactoryDefaults_MatchThePresetFile` 钉住（防"删掉 JSON 就换世界"）。
 		//   ⚠️ 2026-10-10 第二批：原数据载体 `LandSeaParams` 的 10 个世界参数已并入 `LandSeaSpec`
-		//      （它自带字段初值 = 内容装在形状里）⇒ 该类型**已删除**，不再是扫描面成员。
+		//      ⇒ 该类型**已删除**，不再是扫描面成员。
 		typeof(WorldSpec), typeof(LandSeaSpec), typeof(TerrainSpec),
 	};
 
@@ -729,7 +1126,7 @@ public class ArchitectureContractTests
 	///     `.UI`（哑组件·可挂场景）/ `.Controllers`（非 Node 驱动类）/ `.Constants`（跨模式共享常量）。
 	///     三者为**平级类目**，不是"UI 包含一切"。
 	///
-	/// 背景：新线命名空间是 `World.WorldGen`，而 B 线旧单体在**父**命名空间
+	/// 背景：新线命名空间是 `World.Logic`，而 B 线旧单体在**父**命名空间
 	/// `World.NoiseWorld` ⇒ C# 作用域规则让新线**不加using 就能直接看到**父命名空间的类型。
 	/// 于是 `NewWorldLine_DoesNotDependOnLegacyWorldLine` 的四命名空间黑名单
 	///（World.Biome / MapGen / MapView / Tectonics）**完全管不到这一条**：
@@ -747,16 +1144,26 @@ public class ArchitectureContractTests
 	public void NewWorldLine_MayDependOnApprovedRenderContracts()
 	{
 		// 表现层入口类：新线唯一合法接触旧父命名空间的地方。
+		//   ★2026-10-11 增 `WorldRoot`：它是主场景**根管理器**，按设计直接认
+		//     `World.UI`（坞 / 信息卡）与 `World.Client`（相机）——属同一类"接线层"。
+		//   ★2026-10-11 增 `RenderManager`（渲染管理器拆分）：它按设计认 `World.Render`
+		//     （`WorldView` / `WorldPicker` / `MapMode`）——"表现子树的持有者"本身就是接线层，
+		//     且点选（手势 + 拾取 + 高亮 + 报数据给界面）已在同日收口到它名下。
+		//   ★2026-10-11 收编：原清单末尾的 `typeof(WorldGenPlanet)` 已随之删除
+		//     （该类并入 `WorldManager`，后者住装配层 `scripts/Scene/WorldGen/`，不属本扫描面）。
 		var renderEntryPoints = new[]
 		{
-			typeof(WorldGenPlanet), typeof(WorldGenManager), typeof(RiverLineOverlay),
+			typeof(WorldManager), typeof(UIManager), typeof(WorldRoot),
+			typeof(RenderManager), typeof(RiverLineOverlay),
 		};
 		// 新线的表现依赖目标（迁移完成后应当全部落在这里）。
-		// ⚠️ 这是**声明白名单**（供人对照），当前断言路径只比对旧父命名空间 `World.NoiseWorld`；
-		//    ★2026-10-09 补 `.Controllers`/`.Constants` 两个子层，与上方注释同源。
+		// ⚠️ 这是**声明白名单**（供人对照），当前断言路径只比对旧父命名空间 `World.NoiseWorld`。
+		//   ★2026-10-11 八层重划分后更新：原 `.UI` / `.Controllers` 两个**嵌套子层已取消**——
+		//     UI 与 Render 平级（`World.UI`）、坞驱动器归装配层（`World.Scene`）；
+		//     并补上客户端层 `World.Client`（相机从 `World.Camera` 改名而来）。
 		var renderLayer = new[]
 		{
-			"World.Render", "World.Render.UI", "World.Render.Controllers", "World.Render.Constants",
+			"World.Render", "World.Render.Constants", "World.UI", "World.Client", "World.Scene",
 		};
 
 		// 唯一批准保留的旧表现资产。
@@ -772,7 +1179,7 @@ public class ArchitectureContractTests
 		//     NoiseDock      —— 只发 `ModeSelected(int)` 信号 + 按鼠标更新按钮高亮，不认识任何生成类型
 		//     NoiseCellPanel —— 只被喂 `ShowCell(id, lat, lng, elevM)`，不感知星球与相机
 		//   与 BallView/MapMode 同类：有真实消费者 ⇒ 保留去噪，不是清退对象。
-		// ★2026-10-05 P1 完成后清单已换新名：4 类表现资产全部迁入 World.Render / World.Render.UI。
+		// ★2026-10-05 P1 完成后清单已换新名：4 类表现资产全部迁入 World.Render / World.UI。
 		//   这条契约从"允许依赖旧父命名空间的 4 个类型"变成
 		//   "**新线只准依赖 World.Render，不准再碰 World.NoiseWorld 根命名空间**"。
 		var approved = new[]
@@ -832,82 +1239,80 @@ public class ArchitectureContractTests
 
 		// 反向钉：被清退后测试确实不再依赖它（防"删了又偷偷加回来造场"）
 		// ★2026-10-06 A 步目录正规化：路径 scripts/worldgen/ → scripts/WorldGen/
-		//   （大小写正规化 + 六子层拆分；namespace 仍是 World.WorldGen 不变）
+		//   （大小写正规化 + 六子层拆分；namespace 仍是 World.Logic 不变）
 		// ★2026-10-09 Scene/Logic 两分区：`scripts/{Scene,Logic}/` 是**命名空间中性分区**
 		//   （不吃 namespace 段，如 `src/`），其下路径仍逐字对应 namespace
 		//   ⇒ 世界生成主链（逻辑侧）落在 scripts/Logic/WorldGen/。
-		Assert.That(Directory.Exists(FindRepoDir("scripts", "Logic", "WorldGen")), Is.True,
-			"scripts/Logic/WorldGen/ 应存在（世界生成主链目录）");
+		// ★2026-10-11 目录重划分（批次 2/3 的目录半）：主链由 `scripts/Logic/WorldGen/` 上抬到
+		//   `scripts/Logic/`（撤掉与 `Logic` 同义的中间层 WorldGen）⇒ 本钉随路径更新。
+		Assert.That(Directory.Exists(FindRepoDir("scripts", "Logic")), Is.True,
+			"scripts/Logic/ 应存在（世界生成主链目录；2026-10-11 起不再有 Logic/WorldGen 中间层）");
 	}
 
 	/// <summary>
-	/// **新线命名空间钉（namespace 重构后）**——世界生成主链必须落在 `World.WorldGen`。
+	/// **逻辑层命名空间钉**（2026-10-11 目录/命名空间重划分后重写）——世界生成主链必须落在 `World.Logic`。
 	///
-	/// ★为什么需要这条：2026-10-05 之前新线是 `World.NoiseWorld.WorldGen`
-	///   （B 线旧单体的**子命名空间**）。B 线清退后父命名空间已消失，
-	///   新线成了"没有父的子命名空间"⇒ 语义上是历史遗留的碎片。
-	///   已重构为 `World.WorldGen`（平级、语义自洽）。
+	/// ★沿革：2026-10-05 之前新线是 `World.NoiseWorld.*`（B 线旧单体的**子**命名空间）；
+	///   B 线清退后父命名空间消失，新线成了"没有父的子命名空间" ⇒ 改为 `World.WorldGen`（平级）。
+	///   ★2026-10-11 八层重划分：`World.WorldGen` 这个名字本身也失去了意义——它同时装着
+	///   逻辑层（阶段管线 / 事实）与装配层（管理器），是"一个概念劈成两半"的实证。
+	///   现按层拆开：**`World.Logic`**（本契约钉的）＋ `World.Scene`（装配）＋
+	///   `World.Render`（地图模式 / 叠加层）＋ `World.UI`（哑组件）。
 	///
-/// 钉住"名字 + 位置"两件事：
-///   名字 = `World.WorldGen`（防止有人改回带NoiseWorld 的名字）
-///   位置 = 目录 `scripts/Logic/WorldGen/`（防止代码与目录再次脱节）
-///   ★2026-10-09：两分区后主链在 `scripts/Logic/WorldGen/`（装配层在 `scripts/Scene/WorldGen/`）。
-/// ★2026-10-06 A 步：目录由 `scripts/worldgen/` 正规化为 `scripts/WorldGen/`
-	///   （Windows 大小写不敏感 ⇒ 改名走 `git mv` 两步法；namespace 刻意不改，
-	///    因本契约第①段把 6 个核心类型钉死在 `World.WorldGen`）。
+	/// 钉住"名字 + 位置 + 旧名不复活"三件事：
+	///   ① 名字 = `World.Logic`（核心类型抽样）；
+	///   ② 位置 = 目录 `scripts/Logic/`（八个子层是**层内分组**，不进 namespace）；
+	///   ③ 旧名 `World.WorldGen` / `World.NoiseWorld` 不得复活。
 	/// </summary>
 	[Test]
-	public void NewWorldLine_NamespaceIsWorldGen()
+	public void NewWorldLine_NamespaceIsLogic()
 	{
-		// ① 抽样核心类型：命名空间必须是 World.WorldGen（平级，不再挂 NoiseWorld）
+		// ① 抽样核心类型：命名空间必须是 World.Logic
 		var core = new[]
 		{
 			typeof(FinalGeography), typeof(HeightComposer), typeof(FinalSpatialIndex),
-			typeof(RiverNetwork), typeof(WaterTopology), typeof(WorldGenPlanet),
+			typeof(RiverNetwork), typeof(WaterTopology),
 		};
-		var wrong = core.Where(t => t.Namespace != "World.WorldGen")
+		var wrong = core.Where(t => t.Namespace != "World.Logic")
 			.Select(t => $"{t.Name}@{t.Namespace}")
 			.ToList();
 		Assert.That(wrong, Is.Empty,
-			$"世界生成主链类型不在 World.WorldGen：{string.Join(",", wrong)}——" +
-			"新线命名空间是 World.WorldGen（决策 08 §namespace 重构）");
+			$"世界生成主链类型不在 World.Logic：{string.Join(",", wrong)}——" +
+			"八层重划分后逻辑层命名空间是 World.Logic（2026-10-11）");
 
-		// ② 旧命名空间不得复活（它是B 线的痕迹，已清退）
-		var legacy = typeof(FinalGeography).Assembly.GetTypes()
-			.Where(t => t.Namespace != null && t.Namespace.StartsWith("World.NoiseWorld"))
-			.Select(t => $"{t.Namespace}.{t.Name}")
-			.ToList();
-		Assert.That(legacy, Is.Empty,
-			$"`World.NoiseWorld*` 命名空间复活了：{string.Join(",", legacy)}——" +
-			"B 线已清退、新线已改名为 World.WorldGen，不应再有 NoiseWorld 字样");
-
-		// ③ 目录与命名空间一致（D-3：按类型语义定位，但目录也不应误导）
-		//    ★用与 CellHighlightRingTests 相同的"向上查找仓库根"写法，
-		//    不用 Directory.GetParent 硬拼层级（测试输出目录深度会变）。
-		//    ★2026-10-09 Scene/Logic 两分区后，"目录 ↔ namespace"对应关系 = **分区之后**
-		//    的路径逐字对应：`scripts/Logic/WorldGen/` ↔ `World.WorldGen`。
-		//    顶层 `Scene/` 与 `Logic/` 是**命名空间中性分区**（不参与 namespace，如 `src/`）。
-		var worldgenDir = FindRepoDir("scripts", "Logic", "WorldGen");
-		Assert.That(worldgenDir, Is.Not.Null,
-			"未找到 scripts/Logic/WorldGen/ —— namespace World.WorldGen 与目录路径 " +
-			"scripts/Logic/WorldGen 必须一致（scripts/{Scene,Logic}/ 之下逐字对应 namespace，" +
-			"分区名本身不参与 namespace）");
-		// ★大小写严格钉：Windows 上 Directory.Exists 大小写不敏感 ⇒ 写 "worldgen" 也能命中，
-		//   那样这条契约就再也拦不住"目录名又退回全小写"。故额外比对真实目录名。
-		//   （A 步起因：Windows 大小写不敏感导致 `scripts/WorldGen` 曾被解析成 `scripts/worldgen`，
-		//    正规化必须走 `git mv worldgen __tmp && git mv __tmp WorldGen` 两步法。）
-		if (worldgenDir != null)
+		// ② 旧命名空间不得复活：NoiseWorld 是 B 线痕迹；WorldGen 是重划分前的旧名
+		var asm = typeof(FinalGeography).Assembly;
+		foreach (var dead in new[] { "World.NoiseWorld", "World.WorldGen" })
 		{
-			var actualDirName = new DirectoryInfo(worldgenDir).Name;
-			Assert.That(actualDirName, Is.EqualTo("WorldGen"),
-				$"目录名实际是 '{actualDirName}'，应为 'WorldGen' —— 本契约钉的是" +
-				"namespace World.WorldGen 与目录名大小写**逐字一致**（大写 W/G），" +
-				"否则 namespace 与目录脱节（契约原意）就失效了");
+			var alive = asm.GetTypes()
+				.Where(t => t.Namespace != null
+					&& (t.Namespace == dead || t.Namespace.StartsWith(dead + ".")))
+				.Select(t => $"{t.Namespace}.{t.Name}")
+				.ToList();
+			Assert.That(alive, Is.Empty,
+				$"`{dead}*` 命名空间复活了：{string.Join(",", alive)}——" +
+				(dead == "World.NoiseWorld"
+					? "B 线早已清退，不应再有 NoiseWorld 字样"
+					: "2026-10-11 已按层拆为 World.Logic / World.Scene / World.Render / World.UI"));
 		}
-		// 旧目录不得复活（含改名前的全小写形式——大小写不敏感文件系统上它同名）
-		// ★2026-10-09：分区后清退目录可能落在任一分区之下 ⇒ 两侧都查。
+
+		// ③ 目录与命名空间一致（D-3）：八层之后 `scripts/Logic/` ↔ `World.Logic`（**层名即 namespace**），
+		//    子目录（Composition/Hydrology/…）是**层内分组**，不参与 namespace。
+		//    ★用与 CellHighlightRingTests 相同的"向上查找仓库根"写法，
+		//      不用 Directory.GetParent 硬拼层级（测试输出目录深度会变）。
+		var logicDir = FindRepoDir("scripts", "Logic");
+		Assert.That(logicDir, Is.Not.Null, "未找到 scripts/Logic/ —— namespace World.Logic 的家");
+		foreach (var sub in new[] { "Composition", "Foundation", "Placement", "Discretization",
+			"Features", "Final", "Climate", "Hydrology" })
+			Assert.That(Directory.Exists(Path.Combine(logicDir, sub)), Is.True,
+				$"scripts/Logic/{sub}/ 应存在（八子层之一——层内分组，不参与 namespace）");
+
+		// ④ 已被撤掉的中间层不得复活：`scripts/Logic/WorldGen/` 曾与 `Logic` 同义（纯层级噪声）
+		Assert.That(FindRepoDir("scripts", "Logic", "WorldGen"), Is.Null,
+			"scripts/Logic/WorldGen/ 不应存在（2026-10-11 已撤：它与 Logic 同义，是纯层级噪声）");
+		// 旧目录不得复活（B 线清退物；分区后可能落在任一分区之下 ⇒ 两侧都查）
 		Assert.That(FindRepoDir("scripts", "Logic", "noise_world"), Is.Null,
-			"scripts/Logic/noise_world/ 不应存在（B 线已清退，新线在 scripts/Logic/WorldGen/）");
+			"scripts/Logic/noise_world/ 不应存在（B 线已清退）");
 		Assert.That(FindRepoDir("scripts", "Scene", "noise_world"), Is.Null,
 			"scripts/Scene/noise_world/ 不应存在（B 线已清退）");
 	}
@@ -923,13 +1328,13 @@ public class ArchitectureContractTests
 	///     只有结果 ⇒ 有人重新引入旧类型并引用它也测不出来。
 	///
 	/// 清退前的形态（决策 08 §4.2）：
-	///   生成逻辑/参数/场景/UI → 删；表现资产 4类 → 迁入 World.Render / World.Render.UI。
+	///   生成逻辑/参数/场景/UI → 删；表现资产 4类 → 迁入 World.Render / World.UI。
 	/// </summary>
 	[Test]
 	public void LegacyNoiseWorldLine_IsGone()
 	{
 		const string legacyParent = "World.NoiseWorld";
-		// 只认根命名空间本身。★2026-10-05 namespace 重构后新线已是 `World.WorldGen`（不再是子命名空间），
+		// 只认根命名空间本身。★2026-10-05 namespace 重构后新线已是 `World.Logic`（不再是子命名空间），
 		// 两者现在是**平级**——所以这条断言不会误伤新线。
 		var survivors = typeof(FinalGeography).Assembly.GetTypes()
 			.Where(t => t.Namespace == legacyParent)
@@ -986,7 +1391,7 @@ public class ArchitectureContractTests
 			foreach (var r in ReferencedTypes(t))
 			{
 				if (r.Name == null) continue;
-				if (r.Namespace != "World.NoiseWorld" && r.Namespace != "World.WorldGen") continue;
+				if (r.Namespace != "World.NoiseWorld" && r.Namespace != "World.Logic") continue;
 				if (forbidden.Contains(r.Name)) offending.Add($"{t.Name}→{r.Namespace}.{r.Name}");
 			}
 		Assert.That(offending, Is.Empty,
@@ -1023,13 +1428,14 @@ public class ArchitectureContractTests
 
 	/// <summary>从测试程序集位置向上找仓库根，再拼出相对路径；找不到返回 null。
 	/// （与 CellHighlightRingTests.FindRenderSources 同思路：输出目录深度会变，不能硬拼层级。）
-	/// ★上界 10：2026-10-09 测试项目迁至 `scripts/Test/World.Tests/` 后，
+	/// ★上界 12：2026-10-09 测试项目迁至 `scripts/Test/World.Tests/` 后，
 	///   输出目录 `scripts/Test/World.Tests/bin/Debug/net8.0` 到仓库根需向上 6 层，
-	///   原上界 6 恰好差一层 ⇒ 已放宽到 10（留出冗余深度）。</summary>
+	///   原上界 6 恰好差一层 ⇒ 已放宽到 10（留出冗余深度）；
+	///   2026-10-11 参数迁入 `res/params/` 后再放宽到 12（并记明来由，防它又变成隐式契约）。</summary>
 	static string FindRepoDir(params string[] rel)
 	{
 		var dir = Path.GetDirectoryName(typeof(FinalGeography).Assembly.Location);
-		for (int i = 0; i < 10 && dir != null; i++)
+		for (int i = 0; i < 12 && dir != null; i++)
 		{
 			var candidate = Path.Combine(new[] { dir }.Concat(rel).ToArray());
 			if (Directory.Exists(candidate)) return candidate;
@@ -1357,7 +1763,8 @@ public class ArchitectureContractTests
 		//
 		// ★名字澄清（收口 §07 §6.1-2，2026-10-04 审计）：本测试钉的是**类型级**依赖，
 		// 而 `FinalSpatialIndex` 实际还接收一份**数据级**输入——河流格列表
-		// （`WorldGenPlanet.cs:124-127` 把 `Rivers.IsRiver` 变成 `IReadOnlyList<int>` 传入）。
+		// （`WorldGenPlanet` 收编后这步住在阶段管线：`IndexPipeline.Run` 把 `Rivers.IsRiver`
+		//   变成 `IReadOnlyList<int>` 传给 `FinalSpatialIndex.Generate`）。
 		// 河流是**水文产物**，所以 SpatialIndex 的真实位置在 Final 与水文**之后**，
 		// 本测试的方法名（"只依赖 Final World"）并不准确。
 		// 这是**有意的依赖倒置**：只收 `IReadOnlyList<int>` 而不收 `RiverNetwork`，
