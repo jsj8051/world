@@ -6,7 +6,7 @@ using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Unicode;
-using World.Data;               // WorldSpec / LandSeaSpec / TerrainSpec（参数实例）
+using World.Data;               // WorldSpec / PlateSpec / TerrainSpec（参数实例）
 
 namespace World.Params;
 
@@ -69,7 +69,8 @@ public class WorldParams
 		Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
 	};
 
-	static bool IsSection(Type t) => t == typeof(LandSeaSpec) || t == typeof(TerrainSpec);
+	static bool IsSection(Type t) =>
+		t == typeof(PlateSpec) || t == typeof(TerrainSpec);
 
 	/// <summary>
 	/// **读成一份新实例**：`JSON 文本 → WorldSpec`（直接反序列化，不做字段补齐）。
@@ -137,7 +138,7 @@ public class WorldParams
 			}
 			// 段是 spec 的不变量（恒非空）：正常走不到这里（缺席的段自动落回出厂值）——
 			// 留着是防"有人把段改成可空 / 去掉初值"。
-			if (spec.LandSea == null) list.Add($"世界定义缺 {nameof(WorldSpec.LandSea)} 段（该段保持现值）。");
+			if (spec.Plate == null) list.Add($"世界定义缺 {nameof(WorldSpec.Plate)} 段（该段保持现值）。");
 			if (spec.Terrain == null) list.Add($"世界定义缺 {nameof(WorldSpec.Terrain)} 段（该段保持现值）。");
 			return spec;
 		}
@@ -216,8 +217,8 @@ public class WorldParams
 	// ─────────────────────────────────────────────────────────────────────
 
 	/// <summary>
-	/// **改一个参数**：`name` 如 <c>"Seed"</c> / <c>"LandSea.LandFraction"</c> /
-	/// <c>"Terrain.TargetRegionAreaKm2"</c>，`value` 用**字符串**写（UI 输入天然是文本）。
+	/// **改一个参数**：`name` 如 <c>"Seed"</c> / <c>"Plate.PlateCount"</c> / <c>"Plate.SeaLevel"</c>，
+	/// `value` 用**字符串**写（UI 输入天然是文本）。
 	///
 	/// 步骤：① 解析路径 → ② 按目标属性类型解析值 → ③ **改实例** → ④ **整份写回用户档**。
 	/// 返回本次问题清单（**空 = 实例与文件都改好了**）：
@@ -269,7 +270,7 @@ public class WorldParams
 	// ─────────────────────────────────────────────────────────────────────
 
 	/// <summary>
-	/// 把 <c>"LandSea.LandFraction"</c> 解析成"持有者实例 + 要写的属性"（**针对本实例的 `Active`**——
+	/// 把 <c>"Plate.SeaLevel"</c> 解析成"持有者实例 + 要写的属性"（**针对本实例的 `Active`**——
 	/// 每个 `WorldParams` 实例各管自己那份世界定义，不共享静态状态）。
 	/// 只走**公开实例属性**（= spec 类型自身就是参数清单），不认下标、不认方法。
 	/// </summary>

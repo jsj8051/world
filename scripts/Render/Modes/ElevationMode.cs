@@ -29,9 +29,8 @@ public sealed class ElevationMode : MapMode
 			: MapSeaColor.Deep;                        // 海 = 统一深蓝底
 
 	// ── 海拔分档色（9 档硬色阶 · 档界即等高线）──
-	// ★2026-10-11：**档界与档位名已上提到 `World.Constants.ElevationBands`**（世界侧的分类口径）。
-	//   本类只保留**颜色**这一表现层专属映射 ⇒ 三处（判读 / 文案 / 取色）不再各写一遍阈值，
-	//   此前色表与名表是两张手抄表且已漂一处（详见 ElevationBands 头注释）。
+	// 档界与档位名在 `World.Constants.ElevationBands`（世界侧的分类口径）；
+	// 本类只保留**颜色**这一表现层专属映射 ⇒ 判读 / 文案 / 取色共用同一份档界。
 
 	/// <summary>海拔 → 分档色（9 档硬色阶，含海陆；档界即等高线）。海拔模式的**陆地**取色来源。
 	/// ★档位判读走 `ElevationBands.Of`（与信息卡文案同一份档界）。</summary>

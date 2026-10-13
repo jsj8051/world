@@ -7,7 +7,7 @@ namespace World.Logic;
 
 // 世界生成空间 · Final 空间索引（#13，决策 08 v2——"Final World 空间查询基础设施"）：
 //   索引的是 **Final World 的事实**（FinalLand/FinalLandmassId/FinalRegionOfCell 的连通
-//   结构 + 特征锚点点集），**不是任何生成器的内部状态**——本类对 Placement 投影器、
+//   结构 + 特征锚点点集），**不是任何生成器的内部状态**——本类对放置期投影、
 //   Feature 生成器、TectonicField、SurfaceResolver 零引用（ArchitectureContractTests 钉死）。
 // v1 刻意窄（决策 08 v2 §#13）：
 //   面状事实（陆块/区域/河流）= **多源 BFS 距离场**——预计算 O(n) 一次，逐格表查询 O(1)，
@@ -41,15 +41,10 @@ public sealed class FinalSpatialIndex
 	public int[] NearestRiverDistHops { get; private set; } = Array.Empty<int>();
 
 	readonly Ball _ball;
-	readonly Vector3[] _mountainAnchors;
-	readonly Vector3[] _volcanoAnchors;
 
-	public FinalSpatialIndex(Ball ball, IReadOnlyList<Vector3> mountainAnchors,
-		IReadOnlyList<Vector3> volcanoAnchors)
+	public FinalSpatialIndex(Ball ball)
 	{
 		_ball = ball ?? throw new ArgumentNullException(nameof(ball));
-		_mountainAnchors = mountainAnchors as Vector3[] ?? new List<Vector3>(mountainAnchors).ToArray();
-		_volcanoAnchors = volcanoAnchors as Vector3[] ?? new List<Vector3>(volcanoAnchors).ToArray();
 	}
 
 	/// <summary>预计算全部距离场（O(n)；一次构建，此后查询 O(1)/O(K)）。</summary>
@@ -92,31 +87,8 @@ public sealed class FinalSpatialIndex
 	public bool WithinRiver(Vector3 dir, int maxHops) =>
 		DistanceToNearestRiver(dir) is int d && d >= 0 && d <= maxHops;
 
-	/// <summary>最近山系锚点（角距 rad；无锚点 = null）。</summary>
-	public (Vector3 anchor, float distRad)? NearestMountain(Vector3 dir) => NearestOf(_mountainAnchors, dir);
-
-	/// <summary>最近火山锚点（角距 rad；无 = null）。</summary>
-	public (Vector3 anchor, float distRad)? NearestVolcano(Vector3 dir) => NearestOf(_volcanoAnchors, dir);
-
-	/// <summary>within 语义：到最近山系锚点 ≤ maxRad。</summary>
-	public bool WithinMountain(Vector3 dir, float maxRad) =>
-		NearestMountain(dir) is var hit && hit.HasValue && hit.Value.distRad <= maxRad;
-
-	private static (Vector3, float)? NearestOf(Vector3[] anchors, Vector3 dir)
-	{
-		if (anchors.Length == 0) return null;
-		Vector3 best = default;
-		float bestD = float.PositiveInfinity;
-		foreach (var a in anchors)
-		{
-			float d = MathF.Acos(Math.Clamp(dir.Dot(a), -1f, 1f));
-			if (d < bestD) { bestD = d; best = a; }
-		}
-		return (best, bestD);
-	}
-
 	/// <summary>方向 → 本索引格表下标（dir → H3 格 → 全局下标；任意点查询的格粒度换算）。
-	/// ★公式收口在 `BallGeoIndex.CellAt`（原先此处与 `CellQuery.PickCell` 各一份相同实现）。</summary>
+	/// ★公式收口在 `BallGeoIndex.CellAt`。</summary>
 	private int CellAt(Vector3 dir) => BallGeoIndex.CellAt(_ball, dir);
 
 	/// <summary>多源 BFS 距离场：源格带 label，等权边扩散——每格首次到达即最近源

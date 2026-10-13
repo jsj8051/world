@@ -1,13 +1,13 @@
 using Godot;
-using World.Logic;                   // WorldGenSimulation / RiverGeometry / RiverGraph（世界事实与水文事实）
-using World.Constants;              // RegionType（区域类型词表；2026-10-11 由 Logic 上提）
-using World.Render.Constants;      // MapSeaColor（跨模式共享海格底色）——★父命名空间看不见子，必须显式
+using World.Logic;                   // WorldGenSimulation（世界事实来源）
+using World.Constants;              // GeologyClass（地质区域八类词表）
 
 namespace World.Render;
 
-/// <summary>地质区域类型（自然地理 · 注册序 = Id = 1）。七类固定色；主判读图——用户拍板的地图语义。
+/// <summary>地质区域图（自然地理 · 注册序 = Id = 1）。**八类固定色，全球覆盖**——
+/// 平原 / 盆地 / 海岸线 / 山脉 / 裂谷（陆）+ 浅海 / 深海 / 洋中脊（海）。
 /// 只做"地理结构分类"，不混入海拔/温度/植被/土壤语义。
-/// 收口（§07 D-1）：地图语义一律读 **Final 口径**（最终区域归属；Placement 版仅供生成内部）。</summary>
+/// 地图语义一律读 **Final 口径**（`FinalRegionOfCell`；放置版仅供生成内部）。</summary>
 public sealed class RegionTypeMode : MapMode
 {
 	readonly WorldGenSimulation _p;
@@ -15,18 +15,18 @@ public sealed class RegionTypeMode : MapMode
 	public override string Name => "地质区域";
 	public override Color CellColorAt(int i)
 	{
-		// 收口（§07 D-1）：地图语义一律读 **Final 口径**（最终区域归属；Placement 版仅供生成内部）
-		int r = _p.Facts.Final.FinalRegionOfCell[i];
-		if (r < 0) return MapSeaColor.Deep;   // 海格统一深蓝底（共享底色，画面连续）
-		return _p.Terrain.Regions.Regions[r].Type switch
+		int r = _p.Facts.Final.FinalRegionOfCell[i];   // 全球覆盖 ⇒ 恒 ≥ 0
+		if (r < 0) return Colors.Magenta;              // 理论不可达（防未生成时静默涂色）
+		return _p.Terrain.Regions.Regions[r].Class switch
 		{
-			RegionType.Plain => new Color(0.45f, 0.68f, 0.32f),   // 绿（平原）
-			RegionType.Highland => new Color(0.78f, 0.66f, 0.36f),   // 黄褐（高地）
-			RegionType.Basin => new Color(0.45f, 0.52f, 0.60f),   // 蓝灰（盆地）
-			RegionType.Mountain => new Color(0.52f, 0.40f, 0.28f),   // 深棕（山地）
-			RegionType.Plateau => new Color(0.85f, 0.55f, 0.30f),   // 橙（高原）
-			RegionType.Rift => new Color(0.68f, 0.32f, 0.52f),   // 紫红（裂谷）
-			RegionType.Coastal => new Color(0.55f, 0.78f, 0.55f),   // 青绿（沿岸）
+			GeologyClass.Plain => new Color(0.45f, 0.68f, 0.32f),   // 绿（平原）
+			GeologyClass.Basin => new Color(0.45f, 0.52f, 0.60f),   // 蓝灰（盆地）
+			GeologyClass.Coastline => new Color(0.85f, 0.80f, 0.45f),   // 沙黄（海岸线带）
+			GeologyClass.Mountain => new Color(0.52f, 0.40f, 0.28f),   // 深棕（山脉·碰撞带）
+			GeologyClass.Rift => new Color(0.62f, 0.33f, 0.42f),   // 紫红（裂谷·张裂带）
+			GeologyClass.ShallowSea => new Color(0.35f, 0.62f, 0.78f),   // 浅蓝（浅海/大陆架）
+			GeologyClass.DeepSea => new Color(0.10f, 0.20f, 0.42f),   // 深蓝（深海）
+			GeologyClass.Ridge => new Color(0.15f, 0.45f, 0.52f),   // 青（洋中脊·张裂带）
 			_ => Colors.Magenta,
 		};
 	}

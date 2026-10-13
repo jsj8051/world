@@ -6,14 +6,14 @@ using World.Utils.H3;
 
 namespace World.Logic;
 
-// 世界生成空间 · 离散化层（决策原典 §四/§五）：连续海拔场 → H3 逐格数组。
+// 世界生成空间 · 离散化层（决策原典 §四/§五）：逐点标量函数 → H3 逐格数组。
 //   六边形只是采样结果——本类是「连续世界」与「H3 世界」之间唯一的桥；
-//   场本身不知道 H3 存在 ⇒ 换分辨率/res 升级不需要动任何生成算法（原典 §八/§九 的解耦）。
+//   函数本身不知道 H3 存在 ⇒ 换分辨率/res 升级不需要动任何生成算法（原典 §八/§九 的解耦）。
 // 多点采样（原典 §五）：格心 + 该格 6 角点（H3 CellToVertexes），加权平均——
 //   防止"格心恰好落在山脊上 ⇒ 单格突兀跳变"；角点方向由 Ball.Vertices.Positions 归一化（同球半径尺度）。
 // 确定性：采样点集由格 id 决定（与线程/次序无关）；加权平均按固定顺序累加（心 → 角点升序）。
 /// <summary>
-/// H3 地形采样器：把连续场离散化到 Ball 的逐格数组（顺序与 CellDirs 对齐）。
+/// H3 地形采样器：把逐点标量函数离散化到 Ball 的逐格数组（顺序与 CellDirs 对齐）。
 /// </summary>
 public sealed class H3TerrainSampler
 {
@@ -28,37 +28,39 @@ public sealed class H3TerrainSampler
 
 	public H3TerrainSampler(Ball ball) => _ball = ball ?? throw new ArgumentNullException(nameof(ball));
 
-	/// <summary>全量采样：返回逐格海拔（米）。</summary>
-	public float[] SampleField(SphericalField field, Mode mode = Mode.CenterAndCorners)
+	/// <summary>全量采样：返回逐格值（单位由 <paramref name="field"/> 决定）。</summary>
+	/// <param name="field">逐点标量函数（输入单位方向，输出场值）。</param>
+	/// <param name="mode">采样模式。</param>
+	public float[] SampleField(Func<Vector3, float> field, Mode mode = Mode.CenterAndCorners)
 	{
 		if (field == null) throw new ArgumentNullException(nameof(field));
 		var dirs = _ball.CellDirs;
 		int n = dirs.Length;
 		var elev = new float[n];
 
-		// ★并行纪律（2026-10-07 启动优化②）：场求值 = 纯函数（SphericalFbmNoise 零可变状态），
+		// ★并行纪律（2026-10-07 启动优化②）：函数求值 = 纯函数（SphericalFbmNoise 零可变状态），
 		//   逐格/逐顶点只写**自己的下标** ⇒ Parallel.For 结果与线程调度无关（逐位确定性保持）。
 		if (mode == Mode.CenterOnly || CenterWeight >= 1f)
 		{
-			Parallel.For(0, n, i => elev[i] = field.Sample(dirs[i]));
+			Parallel.For(0, n, i => elev[i] = field(dirs[i]));
 			return elev;
 		}
 
 		// ★角点采样缓存（2026-10-07 启动优化①，用户拍板方案①）：每个顶点被 3 个格共享，
-		//   按 Ball 全局唯一顶点表缓存角点采样值 ⇒ 场求值次数从 ~7n 降到 ~3n
+		//   按 Ball 全局唯一顶点表缓存角点采样值 ⇒ 求值次数从 ~7n 降到 ~3n
 		//   （格心 n + 唯一角点 ~2n）。**纯记忆化**：同一顶点同一输入方向 ⇒ 逐位同结果；
 		//   累加顺序不变（心 → 角点 vids 序），权重仍在使用点现场乘（五边形格 cornerW 不同）。
 		//   两阶段并行：先并行采全部唯一顶点（每顶点恰好一次，无竞态），再并行逐格累加。
 		var cornerVal = new float[_ball.Vertices.Count];
 		var vertices = _ball.Vertices;                       // 顶点侧整体（id 表 + 坐标 + 反查同属它）
 		Parallel.For(0, cornerVal.Length, v =>
-			cornerVal[v] = field.Sample(vertices.Positions[v].Normalized()));
+			cornerVal[v] = field(vertices.Positions[v].Normalized()));
 		Parallel.For(0, n, i =>
 		{
 			ulong[] vids = H3.CellToVertexes(_ball.CellIds[i]);   // 集合序（不保证环序；采样无序要求）
 			int cornerCount = Math.Min(vids.Length, 6);           // 五边形格 5 角点 ⇒ 权重按实际角数均分
 			float cornerW = (1f - CenterWeight) / cornerCount;
-			float sum = field.Sample(dirs[i]) * CenterWeight;
+			float sum = field(dirs[i]) * CenterWeight;
 			for (int k = 0; k < cornerCount; k++)
 				sum += cornerVal[vertices.IndexOf(vids[k])] * cornerW;
 			elev[i] = sum;

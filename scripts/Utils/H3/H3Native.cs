@@ -237,6 +237,12 @@ namespace World.Utils.H3
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint getPentagons(int res, [In, Out] ulong[] outCells);
 
+        // 大圆距离（H3 官方口径，球面弧长）：两点经纬（弧度）→ km / 弧度
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern double greatCircleDistanceKm(ref LatLng a, ref LatLng b);
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
+        internal static extern double greatCircleDistanceRads(ref LatLng a, ref LatLng b);
+
         // 面积 / 边长（含五边形时需按格子精确算）
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint cellAreaKm2(ulong h3, out double area);

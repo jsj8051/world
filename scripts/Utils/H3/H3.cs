@@ -106,6 +106,15 @@ namespace World.Utils.H3
             return d;
         }
 
+        /// <summary>两个经纬点之间的**大圆距离**（km；H3 官方 `greatCircleDistanceKm`，球面弧长口径）。
+        /// 要"跨 res 语义一致的真实距离"用它，不要用 `GridDistance`（后者是拓扑步数）。</summary>
+        public static double GreatCircleDistanceKm(LatLng a, LatLng b)
+            => H3Native.greatCircleDistanceKm(ref a, ref b);
+
+        /// <summary>两个经纬点之间的大圆距离（**弧度**；H3 官方 `greatCircleDistanceRads`）。</summary>
+        public static double GreatCircleDistanceRads(LatLng a, LatLng b)
+            => H3Native.greatCircleDistanceRads(ref a, ref b);
+
         /// <summary>两格之间的网格连线（含两端点），可用作插值/寻路骨架。</summary>
         public static ulong[] GridPathCells(ulong start, ulong end)
         {

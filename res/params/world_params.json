@@ -10,8 +10,8 @@
 //   ⇒ 改「世界默认」= 改本档（会影响全部诊断读数与跨 seed 验收，谨慎）；
 //     想自己调着玩 ⇒ 别改本档，改用户档（或让 UI 去写它；删掉用户档 = 恢复出厂）。
 //
-// 【字段】必须完整（每个字段都要有）。字段名 / 类型由 WorldSpec 及两个阶段 spec 定义，
-//   含义见 scripts/Logic/Data/Spec/*.cs 的属性注释；拼错字段名会在读取时报错（不静默忽略）。
+// 【字段】必须完整（每个字段都要有）。字段名 / 类型由 WorldSpec 及三个阶段 spec 定义，
+//   含义见 scripts/Data/Spec/*.cs 的属性注释；拼错字段名会在读取时报错（不静默忽略）。
 //   ⚠️ 2026-10-11 起**不做字段补齐**（用户拍板"直接反序列化，不补齐"）：
 //     本档里**漏写**字段 ⇒ **整份拒绝**（报出缺了哪些字段，生效值一个字段都不动）——
 //     既不静默按 0 装载、也不静默补齐。请写全。
@@ -19,9 +19,16 @@
 {
   "Seed": 42,
 
-  "LandSea": {
-    "ContinentCount": 7,
-    "LandFraction": 0.29,
+  "Plate": {
+    "PlateCount": 12,
+    "MinSpeed": 0,
+    "MaxSpeed": 1,
+    "BoundaryAmplitude": 5,
+    "BoundaryWavelengthKm": 1200,
+    "BoundaryOctaves": 4,
+
+    "SeaLevel": 0.60,
+    "IsLandThreshold": 0.5,
 
     "WarpWavelengthKm": 3000,
     "WarpOctaves": 3,
@@ -38,7 +45,5 @@
     "SmallAmplitude": 0.12
   },
 
-  "Terrain": {
-    "TargetRegionAreaKm2": 4000000
-  }
+  "Terrain": {}
 }

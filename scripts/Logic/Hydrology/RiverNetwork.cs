@@ -5,7 +5,7 @@ namespace World.Logic;
 
 // 世界生成空间 · 水文层（World Simulation 的**第一个下游消费者**，决策 08 v2）：
 //   架构边界验证口——本类**只依赖 Final 世界事实**（FinalLand 掩码 + 最终高度数组），
-//   不读 PlacementLand、不知道任何 LandformFeature/投影器/噪声的存在。
+//   不读 PlacementLand、不知道任何 LandformFeature/放置期投影/噪声的存在。
 //   生成阶段的实现细节对它不可见——这是"Final World + Consumers"架构的成立性检验。
 // 第一版（刻意克制，决策 08 v2 §3）：Final 地形 → 单流向 → 汇流累积 → 河流掩码。
 //   只回答四件事：① 河流只在 FinalLand 上运行；② 海洋是最终汇出口；③ 高程梯度稳定

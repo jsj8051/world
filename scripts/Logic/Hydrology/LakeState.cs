@@ -73,17 +73,14 @@ public sealed class LakeState
 		var h = rawHeightM;
 		if (h.Length != n)
 			throw new ArgumentException($"高度数组长度 {h.Length} ≠ 格数 {n}", nameof(rawHeightM));
-		// ★格面积统一走 SpatialScale（收口 D-10）：此前本类内置一张 H3 平均面积表，
-		// 而 GeologicalRegions / MountainSkeleton / VolcanoField 用球面均分 4πR²/n
-		// —— 同一世界里"一格多大"有两个口径（res1 差 0.24%）。现统一为**等积口径**
-		// （Σ 格面积 = 地球表面积严格守恒，是收敛测试与守恒断言的前提）。
+		// 格面积统一走 SpatialScale（等积口径）：Σ 格面积 = 地球表面积严格守恒，
+		// 是收敛测试与守恒断言的前提。不要另立 H3 平均面积表（同一世界里"一格多大"只能有一个口径）。
 		double A = SpatialScale.Of(ball).CellAreaKm2;   // km²/格（等积口径）
 		var basinId = depressionBasins.BasinId;
 		var nbrs = ball.CellNeighbors;
 
 		// ★D-16：逐格分区对外暴露，供水文拓扑层（WaterTopology）按**原始洼地**接湖
 		DepressionIdOf = (int[])basinId.Clone();
-
 		// pass1：按流域收集成员格
 		var members = new List<int>[depressionBasins.BasinCount];
 		for (int b = 0; b < members.Length; b++) members[b] = new List<int>();
