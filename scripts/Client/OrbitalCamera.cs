@@ -1,5 +1,5 @@
 using Godot;
-using World.Constants;    // PlanetGeometry（球半径的唯一定义）
+using World.Data;         // PlanetGeometry（球半径的唯一定义）
 using World.Utils;        // PointerGesture（指针手势判据的唯一处，与点选共用）
 
 namespace World.Client

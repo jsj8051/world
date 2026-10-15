@@ -1,4 +1,4 @@
-namespace World.Constants;
+namespace World.Data;
 
 /// <summary>
 /// **海拔分档**（9 档 + 档界）：这是**世界事实的分类口径**，不是渲染策略——

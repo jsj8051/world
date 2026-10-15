@@ -1,6 +1,6 @@
 using Godot;
 using World.Logic;                   // WorldGenSimulation（世界事实来源）
-using World.Constants;              // GeologyClass（地质区域八类词表）
+using World.Data;                    // GeologyClass（地质区域八类词表）
 
 namespace World.Render;
 

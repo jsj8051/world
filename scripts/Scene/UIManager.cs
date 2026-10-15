@@ -3,8 +3,7 @@ using System.Collections.Generic;
 using World.Utils;                 // NodeDependency（Require / Check 扩展）
 using World.UI;             // MapDock / CellInfoCard（哑组件）
 using World.Logic;             // GeologicalRegionManager（区域类型名）
-using World.Constants;              // GeologyClass / ElevationBands（两个词表都在世界侧）
-using World.Data;                  // PickedCell（拾取结果载体）
+using World.Data;                  // PickedCell / GeologyClass / ElevationBands（载体与词表）
 
 namespace World.Scene;
 

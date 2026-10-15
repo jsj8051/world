@@ -1,4 +1,4 @@
-namespace World.Constants;
+namespace World.Data;
 
 /// <summary>
 /// 地质区域类别（8 类；**覆盖全球**——海格也有类别）。顺序即命名序。

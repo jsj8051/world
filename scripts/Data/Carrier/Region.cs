@@ -1,5 +1,3 @@
-using World.Constants;    // GeologyClass（地质区域类别词表；常量族不是生成域类型）
-
 namespace World.Data;
 
 /// <summary>

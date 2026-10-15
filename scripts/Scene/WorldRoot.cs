@@ -1,7 +1,7 @@
 using Godot;
 using System.Collections.Generic;
 using World.Client;                // OrbitalCamera（取景半径一致性校验用）
-using World.Constants;             // PlanetGeometry（球半径的唯一定义）
+using World.Data;                  // PlanetGeometry（球半径的唯一定义）
 using World.Params;                // WorldParams（参数管理器实例）
 using World.Render;                // MapMode（表现层契约：模式表由本类建好注入）
 using World.Utils;                 // NodeDependency（Require / Check 扩展）

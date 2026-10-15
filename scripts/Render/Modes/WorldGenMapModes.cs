@@ -32,7 +32,7 @@ namespace World.Render;
 public static class WorldGenMapModes
 {
 	/// <summary>全部模式（注册序 = 坞按钮序 = Id）。「板块」画的是 ⓪ 板块阶段真正产出的
-	///   **板块划分事实**（`PlateOfCell`，全球覆盖、每格恒有归属）——不含陆地语义（洋壳也归板块）。</summary>
+	///   **板块划分事实**（`PlateOfCell`，全球覆盖、每格恒有归属）——只涂划分，不涂壳型（洋壳也归板块）。</summary>
 	public static List<MapMode> CreateAll(WorldGenSimulation sim) => new()
 	{
 		// 列表序 = 坞按钮序 = 模式身份（下标）。增删/换序**只改这里**，不必碰任何模式类。

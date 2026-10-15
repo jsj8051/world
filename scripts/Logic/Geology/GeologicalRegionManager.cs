@@ -4,7 +4,6 @@ using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试
 using World.Data;            // Region（区域元数据载体）/ Plate（板块载体）
 using World.H3Grid;          // Ball（H3 球壳数据层）
 using World.Utils;
-using World.Constants;       // GeologyClass（区域类别词表——常量层，与 BiomeType 同族）
 
 namespace World.Logic;
 

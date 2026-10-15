@@ -27,8 +27,9 @@
     "BoundaryWavelengthKm": 1200,
     "BoundaryOctaves": 4,
 
+    "ContinentalRatio": 0.5,
+
     "SeaLevel": 0.60,
-    "IsLandThreshold": 0.5,
 
     "WarpWavelengthKm": 3000,
     "WarpOctaves": 3,

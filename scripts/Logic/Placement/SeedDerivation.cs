@@ -17,6 +17,8 @@ public static class SeedDerivation
 	public const int Plate_Seeds = 0x914E;
 	/// <summary>板块**边界扰动**噪声母流（`PlateManager.GrowWithResistance` 的 fBm 阻力场）。</summary>
 	public const int Plate_Distort = 0x914F;
+	/// <summary>板块**壳型**判定流（`PlateManager.AssignCrustTypes` 的陆壳挑选抖动）。</summary>
+	public const int Plate_Crust = 0x9150;
 
 	// ── HeightComposer ──
 	/// <summary>大尺度基线噪声（5000 km）。</summary>
@@ -37,7 +39,7 @@ public static class SeedDerivation
 	/// <summary>全表标签（唯一性与覆盖率检查用）。</summary>
 	public static readonly int[] AllTags =
 	{
-		Plate_Seeds, Plate_Distort,
+		Plate_Seeds, Plate_Distort, Plate_Crust,
 		Regions_Noise, Regions_Blocks,
 		Composer_Large, Composer_Medium, Composer_Detail,
 		Snow_Climate,

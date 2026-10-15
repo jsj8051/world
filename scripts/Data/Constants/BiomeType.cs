@@ -1,4 +1,4 @@
-namespace World.Constants;
+namespace World.Data;
 
 /// <summary>
 /// 生物群系类型 —— **只放柯本气候分类（Köppen–Geiger climate classification）**。
@@ -11,10 +11,7 @@ namespace World.Constants;
 ///     （裁决见 `docs/裁决-Domain解散与BiomeType归Constant.md`；
 ///      所修订的上游语义契约见 `docs/裁决-P4-3-Biome事实定义.md`）。
 ///
-/// ★位置（2026-10-09）：由 `scripts/Logic/Domain/BiomeType.cs`（`World.Domain`）迁入
-///   `scripts/Logic/Constant/`，命名空间 `World.Constants`（与 `Constant/Planet/Thermal.cs` 同族）。
-///   `World.Domain` 随本次一并解散——另三件 `PowerPalette` / `Calendar` / `BiomeColors` 已删除
-///   （色带职责归地图模式；月数常量就地内联；势力调色板待重新实现）。
+/// ★位置：`scripts/Data/Constants/BiomeType.cs`，命名空间 `World.Data`（与 `Planet/Thermal.cs` 同族）。
 ///
 /// ★编号一律**不重排**：编号即语义，且曾按 byte 写入存档 ⇒ 删掉的编号成为**空缺**。
 ///   历史：4–11（Taiga/ColdDesert/TemperateForest/…）为 2026-08-07 删除的化石值；

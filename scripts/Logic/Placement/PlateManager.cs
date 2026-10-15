@@ -9,12 +9,14 @@ using World.Utils.H3;        // H3（LatLngToCell：种子点找落格）
 namespace World.Logic;
 
 /// <summary>
-/// 板块实现：撒种子点（带速度）→ fBm 阻力场洪泛划分 → 由板块派生大陆锚点 → 逐格陆地掩码。
+/// 板块实现：撒种子点（带速度）→ fBm 阻力场洪泛划分 → 派定壳型（陆壳/洋壳）
+/// → 只在陆壳上派生大陆锚点 → 逐格陆地掩码。
 /// 步骤由 <see cref="PlatePipeline"/> 编排，参数从 <see cref="PlateSpec"/> 传入。
 ///
 /// · 用洪泛而非加噪 argmin：保证连通，不出飞地。
 /// · 边界 = 累积代价等值线，被阻力场扭成蜿蜒曲线。
 /// · 面积重尾（大板块吞小块）是有意为之，不做 Lloyd 松弛。
+/// · 壳型先于陆场：陆壳才发锚点 ⇒ 陆地长在陆壳上，洋壳是海。
 /// </summary>
 public sealed class PlateManager
 {
@@ -24,7 +26,7 @@ public sealed class PlateManager
 	public Plate[] Plates { get; private set; } = Array.Empty<Plate>();
 	/// <summary>逐块格数（长度 = 板块数；Σ = 格数）。</summary>
 	public int[] SizeOfPlate { get; private set; } = Array.Empty<int>();
-	/// <summary>大陆锚点表（一对一：一块板块一个锚点；由 <see cref="BuildAnchors"/> 填）。</summary>
+	/// <summary>大陆锚点表（**陆壳一对一**：每块陆壳板块一个锚点，按板块号升序；由 <see cref="BuildAnchors"/> 填）。</summary>
 	public ContinentAnchor[] Anchors { get; private set; } = Array.Empty<ContinentAnchor>();
 	/// <summary>陆地掩码（海格 false / 陆格 true；由 <see cref="BuildLandMask"/> 填）。生成依据，非世界事实。</summary>
 	public bool[] PlacementLand { get; private set; } = Array.Empty<bool>();
@@ -59,7 +61,6 @@ public sealed class PlateManager
 				V = v,
 				VTheta = v * MathF.Cos(psi),
 				VPhi = v * MathF.Sin(psi) / sinTheta,
-				IsLand = false,          // 掩码生成后回填
 			};
 		}
 	}
@@ -141,19 +142,56 @@ public sealed class PlateManager
 		SizeOfPlate = plateSize;
 	}
 
-	/// <summary>派生大陆锚点（一对一）：每块板块 → 一个锚点，位置 = 板块种子点方向，
-	/// 属性（半径/拉伸/朝向/海岸复杂度/权重）按固定次序随机派生。</summary>
+	/// <summary>派定壳型：每块板块按「格数 × 随机抖动」打分，取前 N 块当**陆壳**，其余**洋壳**。
+	/// N = clamp(round(板块数 × <paramref name="spec"/>.ContinentalRatio), 1, 板块数)——
+	/// 至少留一块陆壳，否则一个锚点也发不出来（⇒ 全球是海）。
+	/// 抖动 ∈ [0.5,1.5) ⇒ 大板块更容易当陆壳，但不是必然。</summary>
+	/// <param name="seed">世界种子（走 `Plate_Crust` 流）。</param>
+	/// <param name="spec">板块配置（陆壳占比）。</param>
+	public void AssignCrustTypes(int seed, PlateSpec spec)
+	{
+		int p = Plates.Length;
+		if (p < 1) throw new InvalidOperationException("先 BuildSeeds 再 AssignCrustTypes（板块表为空）");
+		if (SizeOfPlate.Length != p)
+			throw new InvalidOperationException("先 GrowWithResistance 再 AssignCrustTypes（缺各板块格数）");
+
+		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Plate_Crust));
+		int want = Math.Clamp((int)MathF.Round(p * spec.ContinentalRatio), 1, p);
+
+		var order = new int[p];
+		var score = new float[p];
+		for (int k = 0; k < p; k++)
+		{
+			order[k] = k;
+			score[k] = SizeOfPlate[k] * (0.5f + (float)rnd.NextDouble());
+		}
+		// 分高者在前；同分按板块号 ⇒ 与线程 / 调用次序无关的全序
+		Array.Sort(order, (a, b) => score[a] != score[b] ? score[b].CompareTo(score[a]) : a.CompareTo(b));
+
+		for (int k = 0; k < p; k++) Plates[k].Crust = CrustType.Oceanic;
+		for (int i = 0; i < want; i++) Plates[order[i]].Crust = CrustType.Continental;
+	}
+
+	/// <summary>派生大陆锚点（**陆壳一对一**）：每块陆壳板块 → 一个锚点，位置 = 板块种子点方向，
+	/// 属性（半径/拉伸/朝向/海岸复杂度/权重）按固定次序随机派生；**洋壳板块不发锚点**。</summary>
 	/// <param name="seed">世界种子（属性派生用）。</param>
 	public void BuildAnchors(int seed)
 	{
 		if (Plates.Length < 1) throw new InvalidOperationException("先 BuildSeeds 再 BuildAnchors（板块表为空）");
 
+		int cont = 0;
+		for (int k = 0; k < Plates.Length; k++) if (Plates[k].Crust == CrustType.Continental) cont++;
+		if (cont < 1)
+			throw new InvalidOperationException("先 AssignCrustTypes 再 BuildAnchors（没有陆壳板块 ⇒ 一个锚点也发不出来）");
+
 		var rnd = new DeterministicRandom(seed);
-		Anchors = new ContinentAnchor[Plates.Length];
+		var list = new List<ContinentAnchor>(cont);
 
 		// 属性：固定次序（半径→拉伸→轴→海岸→权重）逐锚点派生——增删锚点不影响前面锚点的属性
 		for (int c = 0; c < Plates.Length; c++)
 		{
+			// 洋壳板块跳过 ⇒ 陆地只产在陆壳上
+			if (Plates[c].Crust != CrustType.Continental) continue;
 			var center = CoordUtil.LatLngToSphere(
 				CoordUtil.EulerToLatLng(Plates[c].SeedTheta, Plates[c].SeedPhi), 1f).Normalized();
 			float radiusKm = MinRadiusKm + (MaxRadiusKm - MinRadiusKm) * (float)rnd.NextDouble();
@@ -165,7 +203,7 @@ public sealed class PlateManager
 			var axisV = center.Cross(axisU);                                   // 切平面内与 U 正交（右手系）
 			float coastCx = MinCoastCx + (MaxCoastCx - MinCoastCx) * (float)rnd.NextDouble();
 			float weight = MinWeight + (MaxWeight - MinWeight) * (float)rnd.NextDouble();
-			Anchors[c] = new ContinentAnchor
+			list.Add(new ContinentAnchor
 			{
 				Dir = center,
 				RadiusKm = radiusKm,
@@ -175,8 +213,9 @@ public sealed class PlateManager
 				StretchV = stretchV,
 				CoastComplexity = coastCx,
 				Weight = weight,
-			};
+			});
 		}
+		Anchors = list.ToArray();
 	}
 
 	/// <summary>造全球阻力场：每格一个 > 0 的乘性跨越代价（噪声 ∈ [−1,1] ⇒ 阻力恒正）。

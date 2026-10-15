@@ -2,7 +2,6 @@ using Godot;
 using World.Data;                  // PickedCell（拾取结果载体；2026-10-11 由本文件迁入数据层）
 using World.Utils.H3;              // H3（格 id → 经纬）
 using World.Logic;              // WorldGenSimulation（世界事实来源）＋ 地质区域图
-using World.Constants;              // GeologyClass（地质区域八类词表）
 
 namespace World.Render;
 

@@ -1,4 +1,4 @@
-namespace World.Constants;
+namespace World.Data;
 
 /// <summary>
 /// **星球几何标定**（世界生成空间的尺度常数）：球半径的**唯一家**。

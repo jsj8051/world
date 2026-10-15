@@ -1,6 +1,6 @@
 using System;
 using World.H3Grid;       // Ball
-using World.Constants;     // Thermal（热常数集中管理；2026-10-09 namespace World.Planet → World.Constants）
+using World.Data;          // Thermal（热常数集中管理）
 
 namespace World.Logic;
 

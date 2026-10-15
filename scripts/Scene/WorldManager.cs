@@ -1,7 +1,6 @@
 using Godot;
 using System.Collections.Generic;
-using World.Constants;             // PlanetGeometry（球半径的唯一定义）
-using World.Data;                  // WorldSpec（世界定义实例：不自己取，由根管理器注入）
+using World.Data;                  // WorldSpec（世界定义实例）+ PlanetGeometry（球半径的唯一定义）
 using World.Utils;                 // NodeDependency（Require / Check 扩展）
 using World.Render;
 using World.Logic;                   // WorldGenSimulation / RiverGeometry / RiverGraph（世界事实与水文事实）

@@ -1,5 +1,5 @@
 using Godot;
-using World.Constants;             // ElevationBands（海拔分档：档界与档位名的唯一处）
+using World.Data;                  // ElevationBands（海拔分档：档界与档位名的唯一处）
 using World.Render.Constants;      // MapSeaColor（跨模式共享海格底色）——★父命名空间看不见子，必须显式
 using World.Logic;                   // WorldGenSimulation / RiverGeometry / RiverGraph（世界事实与水文事实）
 
@@ -29,7 +29,7 @@ public sealed class ElevationMode : MapMode
 			: MapSeaColor.Deep;                        // 海 = 统一深蓝底
 
 	// ── 海拔分档色（9 档硬色阶 · 档界即等高线）──
-	// 档界与档位名在 `World.Constants.ElevationBands`（世界侧的分类口径）；
+	// 档界与档位名在 `World.Data.ElevationBands`（世界侧的分类口径）；
 	// 本类只保留**颜色**这一表现层专属映射 ⇒ 判读 / 文案 / 取色共用同一份档界。
 
 	/// <summary>海拔 → 分档色（9 档硬色阶，含海陆；档界即等高线）。海拔模式的**陆地**取色来源。

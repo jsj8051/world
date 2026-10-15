@@ -1,4 +1,4 @@
-namespace World.Constants;
+namespace World.Data;
 
 /// <summary>
 /// **热力学常数**（温度场 / 能量平衡模型）。
