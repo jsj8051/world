@@ -5,14 +5,13 @@ using World.H3Grid;    // Ball（H3 球壳数据层）
 namespace World.Logic;
 
 /// <summary>
-/// 最终地理（世界事实层）：由最终高度派生 FinalLand 掩码，再派生陆块 / 区域 / 海岸距离。
+/// 最终地理（世界事实层）：由最终高度派生 FinalLand 掩码，再派生陆块 / 海岸距离。
 /// 此阶段之后，下游（气候 / 水文 / 表现层）只看这里的产物。
 ///
 /// · FinalLand = 最终高度 &gt; 0（与渲染逐格一致——掩码说陆则画面必是陆）；
 /// · FinalLandFraction = 格 + 6 邻居中陆占比 ∈[0,1]（海岸过渡/滩涂/植被边缘用的连续辅助量，不做硬判）；
 /// · FinalLandmassId = FinalLand 连通分量（一片连通陆地 = 一个陆块；海格 = −1）；
-/// · FinalDistToCoast/Land = FinalLand 的双向 BFS 跳数；
-/// · FinalRegionOfCell = 地质区域图的逐格归属（**全球覆盖**：海格也有区域）。
+/// · FinalDistToCoast/Land = FinalLand 的双向 BFS 跳数。
 /// </summary>
 public sealed class FinalGeography
 {
@@ -27,10 +26,8 @@ public sealed class FinalGeography
 	public int[] FinalDistToCoast { get; private set; } = Array.Empty<int>();
 	/// <summary>海格离岸跳数（陆格 = 0）。</summary>
 	public int[] FinalDistToLand { get; private set; } = Array.Empty<int>();
-	/// <summary>最终区域归属（地质区域图的逐格归属；**全球覆盖**，海格也有）。</summary>
-	public int[] FinalRegionOfCell { get; private set; } = Array.Empty<int>();
 
-	public void Generate(Ball ball, HeightComposer composer, GeologicalRegionManager regions)
+	public void Generate(Ball ball, HeightComposer composer)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		int n = ball.CellDirs.Length;
@@ -60,8 +57,5 @@ public sealed class FinalGeography
 		// ── ③ 双向 BFS 海岸距离 ──
 		FinalDistToCoast = LandMaskOps.HopsFrom(ball, i => !FinalLand[i]);
 		FinalDistToLand = LandMaskOps.HopsFrom(ball, i => FinalLand[i]);
-
-		// ── ④ 最终区域归属 = 地质区域图的逐格归属（全球覆盖，直接沿用）──
-		FinalRegionOfCell = (int[])regions.RegionOfCell.Clone();
 	}
 }

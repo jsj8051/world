@@ -6,12 +6,6 @@ namespace World.Logic;
 /// </summary>
 public static class SeedDerivation
 {
-	// ── GeologicalRegionManager（区域图：八类划分）──
-	/// <summary>区域图判定场三条流的**母流**（带宽抖动 / 盆地块 / 缝合带宽度，构造时按固定次序派生）。</summary>
-	public const int Regions_Noise = 0x600D;
-	/// <summary>块体种子撒布流（缝合带网络的骨架；`BuildSutureDistance`）。</summary>
-	public const int Regions_Blocks = 0xB10C;
-
 	// ── PlatePipeline（⓪ 板块：均匀随机种子 + 球面 Voronoi）──
 	/// <summary>板块**种子点**撒布流（`PlateManager.BuildSeeds`；每点消费 3 次抽样：θ / φ / 随机速率）。</summary>
 	public const int Plate_Seeds = 0x914E;
@@ -19,6 +13,8 @@ public static class SeedDerivation
 	public const int Plate_Distort = 0x914F;
 	/// <summary>板块**壳型**判定流（`PlateManager.AssignCrustTypes` 的陆壳挑选抖动）。</summary>
 	public const int Plate_Crust = 0x9150;
+	/// <summary>板块**密度**流（`PlateManager.BuildSeeds`；每块消费 1 次抽样）。</summary>
+	public const int Plate_Density = 0x9151;
 
 	// ── HeightComposer ──
 	/// <summary>大尺度基线噪声（5000 km）。</summary>
@@ -39,8 +35,7 @@ public static class SeedDerivation
 	/// <summary>全表标签（唯一性与覆盖率检查用）。</summary>
 	public static readonly int[] AllTags =
 	{
-		Plate_Seeds, Plate_Distort, Plate_Crust,
-		Regions_Noise, Regions_Blocks,
+		Plate_Seeds, Plate_Distort, Plate_Crust, Plate_Density,
 		Composer_Large, Composer_Medium, Composer_Detail,
 		Snow_Climate,
 	};

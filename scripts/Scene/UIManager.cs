@@ -2,8 +2,7 @@ using Godot;
 using System.Collections.Generic;
 using World.Utils;                 // NodeDependency（Require / Check 扩展）
 using World.UI;             // MapDock / CellInfoCard（哑组件）
-using World.Logic;             // GeologicalRegionManager（区域类型名）
-using World.Data;                  // PickedCell / GeologyClass / ElevationBands（载体与词表）
+using World.Data;                  // PickedCell / ElevationBands（载体与词表）
 
 namespace World.Scene;
 
@@ -14,8 +13,8 @@ namespace World.Scene;
 /// <para>★**不碰地图模式**：模式表 / 当前模式 / 坞的按钮与参数行同步全归渲染侧
 /// （`RenderManager`）。坞→渲染的信号连接写在**场景文件**里
 /// （`scenes/core/WorldGenWorld.tscn` 的 `[connection]`）⇒ 两侧代码互不 import。</para>
-/// <para>信息卡订阅渲染侧的 `CellPicked` 事件；名称类文案由本层自己取——**两个词表都在世界侧**
-/// （`ElevationBands` / `GeologicalRegionManager.ClassName`）⇒ 界面层不必向表现层要任何文案。</para>
+/// <para>信息卡订阅渲染侧的 `CellPicked` 事件；名称类文案由本层自己取——**词表在世界侧**
+/// （`ElevationBands`）⇒ 界面层不必向表现层要任何文案。</para>
 /// </summary>
 public partial class UIManager : Node3D, ITickable
 {
@@ -56,16 +55,14 @@ public partial class UIManager : Node3D, ITickable
 		if (picked == null) { CellCard?.Clear(); return; }
 		var cell = picked.Value;
 
-		// 名称类文案由界面侧取（**两个词表都在世界侧**）：
-		//   档位名 ← `ElevationBands`（海拔分档；与海拔色带同一份档界）；
-		//   区域名 ← `GeologicalRegionManager.ClassName`（地质区域八类词表）。
+		// 名称类文案由界面侧取（**词表在世界侧**）：
+		//   档位名 ← `ElevationBands`（海拔分档；与海拔色带同一份档界）。
 		string band = ElevationBands.Name(ElevationBands.Of(cell.ElevM));
-		string region = $"区域{cell.RegionId}({GeologicalRegionManager.ClassName(cell.RegionClass)})";
-		CellCard?.ShowCell(cell, band, region);
+		CellCard?.ShowCell(cell, band);
 
 		if (_pickDiag++ >= 20) return;   // 判读限次（信息卡常驻）
 		GD.Print($"[WORLDGEN-PICK] 格 {cell.Index} lat={cell.LatDeg:F1} lng={cell.LngDeg:F1} " +
-				 $"land={cell.IsLand}({cell.LandFraction:P0}) 陆块={cell.LandmassId} {region} " +
+				 $"land={cell.IsLand}({cell.LandFraction:P0}) 陆块={cell.LandmassId} " +
 				 $"离海={cell.DistToCoast} 离岸={cell.DistToLand} elev={cell.ElevM:F0}m");
 	}
 

@@ -6,7 +6,7 @@ using World.H3Grid;          // Ball（H3 球壳数据层）
 namespace World.Logic;
 
 /// <summary>
-/// 板块边界算子：由逐格板块号 + 板块速度，算每条边界的**相对运动**，并把结果铺到逐格上。
+/// 板块边界算子：由逐格板块号 + 板块表，算每条边界的**相对运动**与**汇聚角色**，并把结果铺到逐格上。
 ///
 /// 「碰撞 / 分离」是**逐条边界**的性质，不是整块板块的性质——一块板块可以跟东邻撞、跟西邻裂。
 /// 每条边界取两块速度在**边界法向**上的分量之差：&lt; 0 迎面（汇聚）｜&gt; 0 背向（张裂）｜≈ 0 走滑。
@@ -37,12 +37,91 @@ public static class PlateBoundaryOps
 	}
 
 	/// <summary>
+	/// 逐格**汇聚边界角色**（上盘 / 下盘；够不到汇聚边界的格 = <see cref="BoundaryRole.None"/>）。
+	///
+	/// ① 边界格取「异板块邻居里**最负**的那一对」（迎面最强的对手）⇒ 定出该格的**对侧板块号**；
+	/// ② 把对侧板块号沿邻接图扩散，**只在同板块内扩散**（不跨边界 ⇒ 两侧角色天然分开）；
+	/// ③ 逐格按「本方板块, 对侧板块」现算角色。
+	/// </summary>
+	/// <returns>逐格角色（全球覆盖——无汇聚邻接的格为 <see cref="BoundaryRole.None"/>）。</returns>
+	public static BoundaryRole[] BoundaryRoles(Ball ball, int[] plateOfCell, Plate[] plates)
+	{
+		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
+		if (plates == null) throw new ArgumentNullException(nameof(plates));
+		int n = ball.CellDirs.Length;
+		if (plateOfCell.Length != n)
+			throw new ArgumentException($"板块号长度 {plateOfCell.Length} ≠ 格数 {n}", nameof(plateOfCell));
+
+		var dirs = ball.CellDirs;
+		var neighbors = ball.CellNeighbors;
+
+		// ① 边界格定对侧板块号：取唯一位于汇聚侧（相对运动 < 0）、且最负的那一对
+		var otherPlate = new int[n];
+		Array.Fill(otherPlate, -1);
+		var settled = new bool[n];
+		var queue = new System.Collections.Generic.Queue<int>(n);
+		for (int i = 0; i < n; i++)
+		{
+			int p = plateOfCell[i];
+			float best = 0f;                          // 只收 < 0（汇聚）的对；0 = 还没找到
+			int bestPlate = -1;
+			foreach (int j in neighbors[i])
+			{
+				int q = plateOfCell[j];
+				if (q == p) continue;
+				float m = RelativeMotion(dirs[i], dirs[j], plates[p], plates[q]);
+				if (m < best) { best = m; bestPlate = q; }
+			}
+			if (bestPlate < 0) continue;
+			otherPlate[i] = bestPlate;
+			settled[i] = true;
+			queue.Enqueue(i);
+		}
+
+		// ② 扩散（同板块内；多源 BFS 先到者胜 ⇒ 确定性）
+		while (queue.Count > 0)
+		{
+			int i = queue.Dequeue();
+			foreach (int j in neighbors[i])
+			{
+				if (settled[j]) continue;
+				if (plateOfCell[j] != plateOfCell[i]) continue;   // 不跨边界
+				otherPlate[j] = otherPlate[i];
+				settled[j] = true;
+				queue.Enqueue(j);
+			}
+		}
+
+		// ③ 逐格现算角色
+		var role = new BoundaryRole[n];
+		for (int i = 0; i < n; i++)
+		{
+			int q = otherPlate[i];
+			if (q < 0) continue;
+			role[i] = PairRole(plates[plateOfCell[i]], plates[q]);
+		}
+		return role;
+	}
+
+	/// <summary>
+	/// 一对相邻板块在汇聚边界上**本方**的角色：陆×洋 ⇒ 陆侧恒为上盘、洋侧恒为下盘；
+	/// 同壳型（陆×陆 / 洋×洋）⇒ 密度小的当上盘。
+	/// </summary>
+	static BoundaryRole PairRole(in Plate mine, in Plate other)
+	{
+		if (mine.Crust != other.Crust)
+			return mine.Crust == CrustType.Continental ? BoundaryRole.Overriding : BoundaryRole.Subducting;
+		return mine.Density < other.Density ? BoundaryRole.Overriding : BoundaryRole.Subducting;
+	}
+
+	/// <summary>
 	/// 逐格**边界相对运动**（法向分量之差，无量纲，正值 = 张裂 / 负值 = 汇聚）。
 	/// 只对边界格的邻接对投票、逐格取其邻接对的**均值**（同格的邻居可能分属不同的对），
 	/// 再按邻接图向内部扩散（多源 BFS 取先到者），于是整格场连续可用。
 	///
 	/// 法向 = 两格方向差在球面上的切向单位向量（指向对方）；
-	/// 每块速度的球面切向分量 = `VTheta * e_θ + VPhi * sinθ * e_φ`（`VPhi` 存的是 φ̇，需乘 sinθ 转成切向速率）。
+	/// 每块的逐点速度 = 刚体转动 `ω × 格心方向`（见 <see cref="TangentVelocity"/>）。
 	/// </summary>
 	/// <returns>逐格值：边界格 = 该处相对运动；内部格 = 最近边界格的值。</returns>
 	public static float[] BoundaryMotion(Ball ball, int[] plateOfCell, Plate[] plates)
@@ -109,23 +188,8 @@ public static class PlateBoundaryOps
 	}
 
 	/// <summary>
-	/// 板块速度在**该点**的球面切向分量（单位球上的角速率向量）：
-	/// <c>v = VTheta · e_θ + VPhi · sinθ · e_φ</c>。
-	/// `VPhi` 存的是 φ̇（方位角角速率），乘 sinθ 才是真正的切向速率——极点处 sinθ → 0，天然收敛。
+	/// 板块在**该点**的切向速度：刚体转动 <c>v = ω × dir</c>（结果自动与 dir 正交）。
+	/// 同一板块各格共用同一个 ω ⇒ 角速度一致、线速度随位置变。
 	/// </summary>
-	static Vector3 TangentVelocity(Vector3 dir, in Plate plate)
-	{
-		// 球面基：e_θ 沿经线向南（θ 增大方向），e_φ 沿纬线向东
-		float theta = MathF.Acos(Math.Clamp(dir.Y, -1f, 1f));   // 极角
-		float sinTheta = MathF.Sin(theta);
-		float cosTheta = MathF.Cos(theta);
-		float sinPhi = dir.Z, cosPhi = dir.X;
-		float phi = MathF.Atan2(sinPhi, cosPhi);
-		float cosPhi2 = MathF.Cos(phi), sinPhi2 = MathF.Sin(phi);
-
-		var eTheta = new Vector3(cosTheta * cosPhi2, -sinTheta, cosTheta * sinPhi2);   // θ̂
-		var ePhi = new Vector3(-sinPhi2, 0f, cosPhi2);                                  // φ̂
-
-		return plate.VTheta * eTheta + plate.VPhi * sinTheta * ePhi;
-	}
+	static Vector3 TangentVelocity(Vector3 dir, in Plate plate) => plate.Omega.Cross(dir);
 }

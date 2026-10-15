@@ -17,7 +17,7 @@ public sealed class WorldGenSimulation
 
 	/// <summary>⓪ 板块（划分 + 陆地掩码）。</summary>
 	public PlatePipeline Plate { get; } = new();
-	/// <summary>① 区域与地形（地质区域图 + 最终高度）。</summary>
+	/// <summary>① 地形（最终高度）。</summary>
 	public TerrainPipeline Terrain { get; } = new();
 	/// <summary>② 世界事实（唯一事实源）。</summary>
 	public FactsPipeline Facts { get; } = new();
@@ -37,7 +37,7 @@ public sealed class WorldGenSimulation
 
 	/// <summary>
 	/// 全量重算。六个阶段按固定因果序执行——顺序不可换（后段吃前段产物）：
-	/// ⓪ 板块（含陆地）→ ① 区域地形 → ② 世界事实 → ③ 气候 → ④ 水文 → ⑤ 空间索引。
+	/// ⓪ 板块（含陆地）→ ① 地形 → ② 世界事实 → ③ 气候 → ④ 水文 → ⑤ 空间索引。
 	/// 本方法是唯一持有全量 `WorldSpec` 的地方：`spec.Seed` 按值展开成 `int` 逐阶段传，
 	/// 各阶段配置按段切片下传（阶段类收不到 `WorldSpec`）。
 	/// </summary>
@@ -45,9 +45,8 @@ public sealed class WorldGenSimulation
 	public void Run(WorldSpec spec)
 	{
 		Plate.Run(Ball, spec.Seed, spec.Plate);                                     // ⓪（板块划分 + 陆地掩码）
-		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlacementLand,            // ①
-			Plate.PlateOfCell, Plate.Plates);
-		Facts.Run(Ball, Terrain.Composer, Terrain.Regions);                         // ②
+		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlacementLand);            // ①
+		Facts.Run(Ball, Terrain.Composer);                                          // ②
 		Climate.Run(Ball, Facts.Final, Terrain.Composer);                           // ③
 		Hydrology.Run(Ball, Facts.Final, Terrain.Composer, Climate.Precipitation);  // ④
 		Index.Run(Ball, Facts.Final, Hydrology.Rivers);                             // ⑤

@@ -1,7 +1,7 @@
 using Godot;
 using World.Data;                  // PickedCell（拾取结果载体；2026-10-11 由本文件迁入数据层）
 using World.Utils.H3;              // H3（格 id → 经纬）
-using World.Logic;              // WorldGenSimulation（世界事实来源）＋ 地质区域图
+using World.Logic;              // WorldGenSimulation（世界事实来源）
 
 namespace World.Render;
 
@@ -40,9 +40,7 @@ public sealed class WorldPicker
 		if (i < 0) return false;
 
 		var facts = _sim.Facts.Final;          // 现取（不复用引用）
-		var regions = _sim.Terrain.Regions;
 		var ll = H3.CellToLatLng(id.Value);
-		int rid = facts.FinalRegionOfCell[i];
 
 		cell = new PickedCell
 		{
@@ -56,8 +54,6 @@ public sealed class WorldPicker
 			LandmassId = facts.FinalLandmassId[i],
 			DistToCoast = facts.FinalDistToCoast[i],
 			DistToLand = facts.FinalDistToLand[i],
-			RegionId = rid,
-			RegionClass = regions.Regions[rid].Class,   // ★区域图全球覆盖 ⇒ rid 恒 ≥ 0
 		};
 		return true;
 	}

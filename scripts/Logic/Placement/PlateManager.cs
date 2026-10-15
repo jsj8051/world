@@ -37,8 +37,9 @@ public sealed class PlateManager
 	const float MinCoastCx = 0.5f, MaxCoastCx = 1.6f;
 	const float MinWeight = 0.8f, MaxWeight = 1.25f;   // 影响权重（进影响场 ⇒ 加权 Voronoi）
 
-	/// <summary>撒种子点：球面均匀随机撒 `plateCount` 个点，每点附随机速度。
-	/// 速度 = 速率 V ∈ [minSpeed, maxSpeed) + 随机方向 ψ，分解成 (VTheta, VPhi) 两个分量。</summary>
+	/// <summary>撒种子点：球面均匀随机撒 `plateCount` 个点，每点附随机速度与密度。
+	/// 速度 = 种子点处切向速率 V ∈ [minSpeed, maxSpeed) + 切平面内随机方位 ψ；
+	/// 由它反解**欧拉矢量** ω（ω ⊥ 种子点方向 ⇒ 种子点速度恒等于该切向速度，其余格按刚体转动）。</summary>
 	public void BuildSeeds(int seed, int plateCount, float minSpeed, float maxSpeed)
 	{
 		if (plateCount < 1)
@@ -46,21 +47,26 @@ public sealed class PlateManager
 				$"板块数须 ≥ 1（实得 {plateCount}）——0 块会让每格都没有归属，本阶段不产出那种世界");
 
 		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Plate_Seeds));
+		var densRnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Plate_Density));
 		Plates = new Plate[plateCount];
 		for (int p = 0; p < plateCount; p++)
 		{
-			var (theta, phi) = CoordUtil.ToEuler(CoordUtil.UniformSphere(rnd));
+			var dir = CoordUtil.UniformSphere(rnd);
+			var (theta, phi) = CoordUtil.ToEuler(dir);
 			float v = minSpeed + (maxSpeed - minSpeed) * (float)rnd.NextDouble();
 			float psi = MathF.Tau * (float)rnd.NextDouble();     // 切平面内的运动方位
-			float sinTheta = MathF.Max(MathF.Abs(MathF.Sin(theta)), 1e-3f);   // 夹下界防极区发散
+			float cosT = MathF.Cos(theta), sinT = MathF.Sin(theta);
+			float cosP = MathF.Cos(phi), sinP = MathF.Sin(phi);
+			var eTheta = new Vector3(cosT * cosP, -sinT, cosT * sinP);   // 沿经线向南
+			var ePhi = new Vector3(-sinP, 0f, cosP);                     // 沿纬线向东
+			var vTan = v * (MathF.Cos(psi) * eTheta + MathF.Sin(psi) * ePhi);
 			Plates[p] = new Plate
 			{
 				PlateId = p,
 				SeedTheta = theta,
 				SeedPhi = phi,
-				V = v,
-				VTheta = v * MathF.Cos(psi),
-				VPhi = v * MathF.Sin(psi) / sinTheta,
+				Omega = dir.Cross(vTan),    // ω ⊥ dir ⇒ `ω × dir` 恰为该切向速度
+				Density = (float)densRnd.NextDouble(),
 			};
 		}
 	}

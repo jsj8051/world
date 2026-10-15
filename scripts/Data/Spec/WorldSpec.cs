@@ -10,7 +10,7 @@ namespace World.Data;
 /// <list type="bullet">
 /// <item><c>Seed</c>：世界种子（全局层，各阶段经 `SeedDerivation` 派生 salt）。</item>
 /// <item><c>Plate</c>：板块阶段配置（含板块划分与陆地场）。</item>
-/// <item><c>Terrain</c>：区域与地形阶段配置。</item>
+/// <item><c>Terrain</c>：地形阶段配置。</item>
 /// </list>
 /// </remarks>
 public sealed class WorldSpec
@@ -21,7 +21,7 @@ public sealed class WorldSpec
 	/// <summary>板块阶段配置。恒非空；生效期要改就 <see cref="CopyTo"/> 逐字段写进去，别换实例。</summary>
 	public PlateSpec Plate { get; init; } = new();
 
-	/// <summary>区域与地形阶段配置。恒非空；生效期要改就 <see cref="CopyTo"/> 逐字段写进去。</summary>
+	/// <summary>地形阶段配置。恒非空；生效期要改就 <see cref="CopyTo"/> 逐字段写进去。</summary>
 	public TerrainSpec Terrain { get; init; } = new();
 
 	/// <summary>

@@ -46,7 +46,7 @@ public partial class RenderManager : Node3D, ITickable
 
 	/// <summary>
 	/// **点选结果出口**（`null` = 点空 / 取消选中）：一份自足的 `PickedCell`（经纬 / 海拔 /
-	/// 海陆 / 附块 / 区域 / 各距离），界面侧订阅后直接写信息卡 ⇒ 不必回头找世界侧补数据。
+	/// 海陆 / 附块 / 各距离），界面侧订阅后直接写信息卡 ⇒ 不必回头找世界侧补数据。
 	/// 高亮不在这里——它在 <see cref="PickAt"/> 里就地完成（本管理器就是发起方）。
 	/// </summary>
 	public event System.Action<PickedCell?> CellPicked;

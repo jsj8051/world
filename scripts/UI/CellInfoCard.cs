@@ -39,9 +39,9 @@ public partial class CellInfoCard : PanelContainer
 	/// 显示一格。数据是**自足的一份**（<see cref="PickedCell"/> = 拾取结果本身），
 	/// 故本卡不再"自己推导事实"（海陆取 `IsLand` 字段，不取海拔正负号）——
 	/// 与地图坞同源（都以世界权威字段为准），不会静默分叉。
-	/// 档位名 / 区域名由**宿主喂入**：本卡不依赖任何色带或区域类型。
+	/// 档位名由**宿主喂入**：本卡不依赖任何色带。
 	/// </summary>
-	public void ShowCell(in PickedCell cell, string bandName, string regionName)
+	public void ShowCell(in PickedCell cell, string bandName)
 	{
 		string lat = $"{Math.Abs(cell.LatDeg):F1}°{(cell.LatDeg >= 0f ? "N" : "S")}";
 		string lng = $"{Math.Abs(cell.LngDeg):F1}°{(cell.LngDeg >= 0f ? "E" : "W")}";
@@ -50,7 +50,6 @@ public partial class CellInfoCard : PanelContainer
 					 $"经纬    {lat}, {lng}\n" +
 					 $"海拔    {elev}（{bandName}）\n" +
 					 $"海陆    {(cell.IsLand ? "陆地" : "海洋")}（陆占比 {cell.LandFraction:P0}）\n" +
-					 $"区域    {regionName}\n" +
 					 $"离海    {cell.DistToCoast} 格      离岸 {cell.DistToLand} 格";
 		Visible = true;
 	}

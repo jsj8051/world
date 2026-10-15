@@ -15,12 +15,12 @@ namespace World.Render;
 //
 // ★注册序 = 坞按钮序 = **模式身份（下标）**，按判读链排布：成因 → 自然地理 → 气候。
 //   模式类**不自报 Id** ⇒ 增删模式只改本表行序，零连带。
-//   判读链：板块（成因层）→ 海拔 → 地质区域 → 离岸距离 → 降水 → 温度。
+//   判读链：板块（成因层）→ 海拔 → 离岸距离 → 降水 → 温度。
 //   各模式只读**各自的生产事实**，坞内不做模式间互相计算。
 //   ⚠️ 新增/删除模式必须同步 `scenes/render/MapDock.tscn` 的 ModeRow 按钮（数量不符 BindModes 即抛）。
 //
 // ★文件切分：本类只留**注册表**；每个模式实现各自独立成文件——
-//   板块 `PlateMode`｜海拔 `ElevationMode`｜地质区域 `RegionTypeMode`｜离岸距离 `CoastDistanceMode`
+//   板块 `PlateMode`｜海拔 `ElevationMode`｜离岸距离 `CoastDistanceMode`
 //   ｜降水 `PrecipitationMode`｜温度 `TemperatureMode`。
 //   模式专属色带/派生表随模式走（色带内聚其消费方文件）；
 //   两模式共用的海格底色见 `Render/Constants/MapSeaColor.cs`。
@@ -38,7 +38,6 @@ public static class WorldGenMapModes
 		// 列表序 = 坞按钮序 = 模式身份（下标）。增删/换序**只改这里**，不必碰任何模式类。
 		new PlateMode(sim),            // 成因层（⓪ 板块划分）
 		new ElevationMode(sim),        // 自然地理
-		new RegionTypeMode(sim),       // 自然地理
 		new CoastDistanceMode(sim),    // 自然地理
 		new PrecipitationMode(sim),    // 气候
 		new TemperatureMode(sim),      // 气候

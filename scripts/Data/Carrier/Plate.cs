@@ -2,7 +2,7 @@ using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试
 
 namespace World.Data;
 
-/// <summary>板块：种子点位置 + 速度 + 壳型。纯数据载体。</summary>
+/// <summary>板块：种子点位置 + 欧拉矢量 + 壳型 + 密度。纯数据载体。</summary>
 public struct Plate
 {
     /// <summary>板块号（= 板块表下标，与逐格板块号 PlateOfCell 同域）。</summary>
@@ -11,12 +11,11 @@ public struct Plate
     public float SeedTheta;
     /// <summary>种子点方位角 φ（弧度）。</summary>
     public float SeedPhi;
-    /// <summary>速率大小。</summary>
-    public float V;
-    /// <summary>速度的 θ 方向分量（θ̇，弧度/单位时间）。</summary>
-    public float VTheta;
-    /// <summary>速度的 φ 方向分量（φ̇，弧度/单位时间）。</summary>
-    public float VPhi;
+    /// <summary>欧拉矢量：方向 = 旋转的欧拉极轴，模 = 角速率。整块板块绕它做**刚体**转动，
+    /// 逐格速度 = `Omega × 格心方向`（角速度逐板块恒定，线速度随位置变）。</summary>
+    public Vector3 Omega;
     /// <summary>壳型（生成期判定，本板块的**唯一**陆海身份）：陆壳发一个大陆锚点，洋壳不发 ⇒ 陆地产在陆壳上。</summary>
     public CrustType Crust;
+    /// <summary>密度（生成期随机量，与壳型无关）。只用于汇聚边界上分上下盘：**密度小的当上盘**。</summary>
+    public float Density;
 }

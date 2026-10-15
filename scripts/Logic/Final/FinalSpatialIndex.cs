@@ -6,11 +6,11 @@ using World.H3Grid;    // Ball（H3 球壳数据层）+ BallGeoIndex（dir→cel
 namespace World.Logic;
 
 // 世界生成空间 · Final 空间索引（#13，决策 08 v2——"Final World 空间查询基础设施"）：
-//   索引的是 **Final World 的事实**（FinalLand/FinalLandmassId/FinalRegionOfCell 的连通
-//   结构 + 特征锚点点集），**不是任何生成器的内部状态**——本类对放置期投影、
+//   索引的是 **Final World 的事实**（FinalLand/FinalLandmassId 的连通结构 + 特征锚点点集），
+//   **不是任何生成器的内部状态**——本类对放置期投影、
 //   Feature 生成器、TectonicField、SurfaceResolver 零引用（ArchitectureContractTests 钉死）。
 // v1 刻意窄（决策 08 v2 §#13）：
-//   面状事实（陆块/区域/河流）= **多源 BFS 距离场**——预计算 O(n) 一次，逐格表查询 O(1)，
+//   面状事实（陆块/河流）= **多源 BFS 距离场**——预计算 O(n) 一次，逐格表查询 O(1)，
 //   批量查询天然廉价（表本身就是预计算的批量结果）；
 //   点状事实（山系/火山锚点）= O(K) 暴力（数量 ~10-30，暴力即最优；KD-tree 等留到 K 上千）。
 // 距离口径 = **H3 图距（跳数）**，与 FinalDistToCoast/DistToLand 同口径；km 换算 = 跳数 ×
@@ -26,7 +26,7 @@ namespace World.Logic;
 //   基础水文拓扑由自身 flow graph 决定；SpatialIndex 只做二级操作（排序/邻近挂接/查询）。
 //   反射钉子在 ArchitectureContractTests.RiverNetwork_OnlyDependsOnFinalLayer。
 /// <summary>
-/// Final World 空间索引：陆块/区域/河流/山系/火山的 nearest/distance/within 查询。
+/// Final World 空间索引：陆块 / 河流的 nearest / distance / within 查询。
 /// </summary>
 public sealed class FinalSpatialIndex
 {
@@ -34,8 +34,6 @@ public sealed class FinalSpatialIndex
 	public int[] NearestLandmassId { get; private set; } = Array.Empty<int>();
 	/// <summary>每格到最近陆块的图距（跳数；陆格 = 0）。</summary>
 	public int[] NearestLandmassDistHops { get; private set; } = Array.Empty<int>();
-	/// <summary>每格最近区域号（FinalRegionOfCell 的空间扩展——海格/新增岛屿亦有最近区域）。</summary>
-	public int[] NearestRegionId { get; private set; } = Array.Empty<int>();
 	/// <summary>每格最近河流格索引（−1 = 无河流数据）与其图距。</summary>
 	public int[] NearestRiverCell { get; private set; } = Array.Empty<int>();
 	public int[] NearestRiverDistHops { get; private set; } = Array.Empty<int>();
@@ -56,10 +54,6 @@ public sealed class FinalSpatialIndex
 		(NearestLandmassId, NearestLandmassDistHops) = MultiSourceBfs(
 			_ball, i => (final.FinalLand[i], final.FinalLandmassId[i]));
 
-		// 区域：FinalRegionOfCell ≥ 0 的格为源
-		(NearestRegionId, _) = MultiSourceBfs(
-			_ball, i => (final.FinalRegionOfCell[i] >= 0, final.FinalRegionOfCell[i]));
-
 		// 河流：河流格为源（label = 源格索引——查询返回最近河流格索引）
 		var riverSet = new HashSet<int>(riverCells);
 		(NearestRiverCell, NearestRiverDistHops) = MultiSourceBfs(
@@ -73,9 +67,6 @@ public sealed class FinalSpatialIndex
 
 	/// <summary>到最近陆块的图距（跳数）。</summary>
 	public int DistanceToNearestLandmass(Vector3 dir) => CellAt(dir) is int i && i >= 0 ? NearestLandmassDistHops[i] : -1;
-
-	/// <summary>最近区域号。</summary>
-	public int NearestRegion(Vector3 dir) => CellAt(dir) is int i && i >= 0 ? NearestRegionId[i] : -1;
 
 	/// <summary>最近河流格索引（−1 = 世界无河流数据）。</summary>
 	public int NearestRiver(Vector3 dir) => CellAt(dir) is int i && i >= 0 ? NearestRiverCell[i] : -1;

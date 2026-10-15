@@ -11,17 +11,21 @@ namespace World.Logic;
 /// 陆格 = `LandBaseM` + 三档变化；海格 = `FlatSeaFloorM`（0 m）。
 /// 三档变化是"让水文活着"的最小代价——单流向汇流需要坡向，完全平的陆面流不动。
 ///
+/// 幅度预算：基线 30 m + 三档幅值（45 / 27 / 15，均方根合成 ≈ 55 m，峰 ≈ 1.1×）
+/// ⇒ 陆面约落在 [0, 90] m（下限由 `MinLandElevationM` 兜住）——这是待地形塑造的**低平台**，
+/// 抬升（山脉/岛弧/洋中脊）与下陷（裂谷/海沟）都从这个底子往上叠。
+///
 /// 契约：
 /// ① 海陆分支由**掩码**决定（陆格恒 &gt; 0 ⇒ 世界事实 `FinalLand = 高度 &gt; 0` 口径不变）；
 /// ② 陆格海拔钳 ≥ `MinLandElevationM`（放置期陆地不因变化场淹死）。
 /// </summary>
 public sealed class HeightComposer
 {
-	public const float LandBaseM = 300f;        // 陆面常量基线（米）——"没有实际内容"的量化形式
-	public const float RegionalNoiseM = 80f;    // H_detail：小尺度细节（米）
-	public const float MediumVariationM = 130f; // H_medium：丘陵/山谷起伏（300-900 km 波长）
-	public const float LargeVariationM = 260f;  // H_large：大地形起伏（5000 km 波长）
-	public const float MinLandElevationM = 30f; // 陆格海拔保底（放置期陆地不因变化场淹死）
+	public const float LandBaseM = 30f;         // 陆面常量基线（米）——低平台底子
+	public const float RegionalNoiseM = 15f;    // H_detail：小尺度细节（米）
+	public const float MediumVariationM = 27f;  // H_medium：丘陵/山谷起伏（300-900 km 波长）
+	public const float LargeVariationM = 45f;   // H_large：大地形起伏（5000 km 波长）
+	public const float MinLandElevationM = 5f;  // 陆格海拔保底（放置期陆地不因变化场淹死）
 	/// <summary>海面/海底：**平坦 0 m**（海底地形已退役）。</summary>
 	public const float FlatSeaFloorM = 0f;
 
