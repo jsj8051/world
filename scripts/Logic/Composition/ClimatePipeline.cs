@@ -12,12 +12,12 @@ public sealed class ClimatePipeline
 	public PrecipitationModel Precipitation { get; private set; }  // 降水（水文阶段 ⑤ 的输入）
 	public Temperature Temperature { get; private set; }          // 温度场（v1：逐格能量收支）
 
-	public void Run(Ball ball, FinalGeography final, HeightComposer composer)
+	public void Run(Ball ball, FinalGeography final, float[] heightM)
 	{
 		Precipitation = new PrecipitationModel();
 		Precipitation.Generate(ball, final);
 
 		Temperature = new Temperature();
-		Temperature.Generate(ball, composer, final);
+		Temperature.Generate(ball, heightM, final);
 	}
 }

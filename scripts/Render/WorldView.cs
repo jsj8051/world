@@ -36,7 +36,7 @@ public partial class WorldView : Node3D
 
 	/// <summary>
 	/// **装配整个世界表现**（幂等）。世界生成产物经 <paramref name="sim"/> 现取：
-	/// 初始取色源 = `sim.Terrain.DisplayElevation`，河线 = `sim.Hydrology.RiverLines`。
+	/// 初始取色源 = `sim.Terrain.HeightM`，河线 = `sim.Hydrology.RiverLines`。
 	/// </summary>
 	/// <param name="sim">世界事实来源（调用方持有，本类不接管生命周期）。</param>
 	/// <param name="initialMode">初始地图模式（装配层注入，本类不内置默认）。</param>
@@ -46,7 +46,7 @@ public partial class WorldView : Node3D
 		_sim = sim ?? throw new System.ArgumentNullException(nameof(sim));
 		if (initialMode == null) throw new System.ArgumentNullException(nameof(initialMode));
 
-		_ballView = new BallView(sim.Ball, sim.Terrain.DisplayElevation, initialMode, LodNearRatio, BackfaceCullRatio);
+		_ballView = new BallView(sim.Ball, sim.Terrain.HeightM, initialMode, LodNearRatio, BackfaceCullRatio);
 		AddChild(_ballView);
 		_ballView.BuildChunks();
 
@@ -66,7 +66,7 @@ public partial class WorldView : Node3D
 	public void Rebake()
 	{
 		if (_ballView == null || _sim == null) return;
-		_ballView.SetElevationSource(_sim.Terrain.DisplayElevation);
+		_ballView.SetElevationSource(_sim.Terrain.HeightM);
 		_ballView.RefreshColors();
 		_riverLines?.Build(_sim.Ball, _sim.Hydrology.RiverLines, _sim.Hydrology.RiverTopology);
 	}

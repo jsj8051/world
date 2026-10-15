@@ -16,7 +16,7 @@ namespace World.Logic;
 // ★契约（决策 08 v2 §2）：本类不得依赖 FinalSpatialIndex——基础水文拓扑由自身 flow
 //   graph 决定，SpatialIndex 只做二级查询（反射钉子在 ArchitectureContractTests）。
 // 复用：H3Hydrology（W1 基建激活）——单流向（严格降高、平局取格索引最小）+ 拓扑序汇流。
-//   海口判定 elev ≤ 0 与 FinalLand（HeightM > 0 = 陆）严格互补 ⇒ 无第二套海陆判断。
+//   海口判定 elev ≤ seaLevel 与 FinalLand（高度 > seaLevel = 陆）严格互补 ⇒ 无第二套海陆判断。
 /// <summary>
 /// 河网（水文第一版）：Final 地形上的单流向汇流网络 + 河流掩码。
 /// </summary>
@@ -66,26 +66,26 @@ public sealed class RiverNetwork
 	/// 二者在同一 res 下判据**完全等价**（× 格面积是等价变换）⇒ 迁移零行为漂移，
 	/// 跨 res 时才显出"物理阈值才是尺度无关的那个"。
 	/// </summary>
-	public void Generate(Ball ball, FinalGeography final, HeightComposer composer,
+	public void Generate(Ball ball, FinalGeography final, float[] heightM, float seaLevelM,
 		int riverThresholdCells = RiverThresholdCells, float[] annualPrecipMm = null,
 		double? riverThresholdAreaKm2 = null, bool? useDepressionFill = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (final == null) throw new ArgumentNullException(nameof(final));
-		if (composer == null) throw new ArgumentNullException(nameof(composer));
+		if (heightM == null) throw new ArgumentNullException(nameof(heightM));
 
 		// ── 水文路由表面（D-11 Batch A）─────────────────────────────────────────
-		// ★在**派生表面**上跑汇流，而不是直接用 `composer.HeightM`：
+		// ★在**派生表面**上跑汇流，而不是直接用最终高度：
 		//   Final 地形事实保持不动（地貌/渲染/LakeState 原始洼地语义不受影响），
 		//   填洼只作用于水文路由。开关关闭 ⇒ RoutingHeightM 与源高度逐点相同 ⇒ 零漂移。
 		Routing = new HydrologyRoutingSurface();
-		Routing.Generate(ball, composer.HeightM, 0f, useDepressionFill);
+		Routing.Generate(ball, heightM, seaLevelM, useDepressionFill);
 
-		// H3Hydrology 的海判定（elev ≤ seaLevel=0）与 FinalLand（HeightM > 0 = 陆）严格互补
+		// H3Hydrology 的海判定（elev ≤ seaLevel）与 FinalLand（高度 > seaLevel = 陆）严格互补
 		var hydro = new H3Hydrology();
 		// 权重 = 逐格年降水（River 2A）：无降水输入时 cellWeight=null ⇒ WeightedAccum 退化为
 		// 上游格数（与 FlowAccum 同义），W1 行为不漂移
-		hydro.Generate(ball, Routing.RoutingHeightM, 0f, annualPrecipMm);
+		hydro.Generate(ball, Routing.RoutingHeightM, seaLevelM, annualPrecipMm);
 		Downstream = hydro.Downstream;
 		FlowAccum = hydro.FlowAccum;
 		RunoffAccum = hydro.WeightedAccum;

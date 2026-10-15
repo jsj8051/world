@@ -45,10 +45,11 @@ public sealed class WorldGenSimulation
 	public void Run(WorldSpec spec)
 	{
 		Plate.Run(Ball, spec.Seed, spec.Plate);                                     // ⓪（板块划分 + 陆地掩码）
+		float seaM = spec.Terrain.SeaLevelM;                                        // 海陆基准（单一来源）
 		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlacementLand);            // ①
-		Facts.Run(Ball, Terrain.Composer);                                          // ②
-		Climate.Run(Ball, Facts.Final, Terrain.Composer);                           // ③
-		Hydrology.Run(Ball, Facts.Final, Terrain.Composer, Climate.Precipitation);  // ④
+		Facts.Run(Ball, Terrain.HeightM, seaM);                                     // ②
+		Climate.Run(Ball, Facts.Final, Terrain.HeightM);                            // ③
+		Hydrology.Run(Ball, Facts.Final, Terrain.HeightM, seaM, Climate.Precipitation);  // ④
 		Index.Run(Ball, Facts.Final, Hydrology.Rivers);                             // ⑤
 	}
 }

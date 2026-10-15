@@ -16,13 +16,13 @@ public static class SeedDerivation
 	/// <summary>板块**密度**流（`PlateManager.BuildSeeds`；每块消费 1 次抽样）。</summary>
 	public const int Plate_Density = 0x9151;
 
-	// ── HeightComposer ──
+	// ── TerrainManager（① 地形：高度合成的三档变化场）──
 	/// <summary>大尺度基线噪声（5000 km）。</summary>
-	public const int Composer_Large = 0x1A6E;
+	public const int Terrain_Large = 0x1A6E;
 	/// <summary>中尺度噪声（600 km）。</summary>
-	public const int Composer_Medium = 0x4E02;
+	public const int Terrain_Medium = 0x4E02;
 	/// <summary>细节噪声（90 km）。</summary>
-	public const int Composer_Detail = 0x4E01;
+	public const int Terrain_Detail = 0x4E01;
 
 	// ── SnowOverlay ──
 	/// <summary>局部雪线气候噪声（2500 km）。</summary>
@@ -36,7 +36,7 @@ public static class SeedDerivation
 	public static readonly int[] AllTags =
 	{
 		Plate_Seeds, Plate_Distort, Plate_Crust, Plate_Density,
-		Composer_Large, Composer_Medium, Composer_Detail,
+		Terrain_Large, Terrain_Medium, Terrain_Detail,
 		Snow_Climate,
 	};
 }

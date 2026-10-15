@@ -8,7 +8,7 @@ namespace World.Logic;
 /// 最终地理（世界事实层）：由最终高度派生 FinalLand 掩码，再派生陆块 / 海岸距离。
 /// 此阶段之后，下游（气候 / 水文 / 表现层）只看这里的产物。
 ///
-/// · FinalLand = 最终高度 &gt; 0（与渲染逐格一致——掩码说陆则画面必是陆）；
+/// · FinalLand = 最终高度 &gt; 海面标高（与渲染逐格一致——掩码说陆则画面必是陆）；
 /// · FinalLandFraction = 格 + 6 邻居中陆占比 ∈[0,1]（海岸过渡/滩涂/植被边缘用的连续辅助量，不做硬判）；
 /// · FinalLandmassId = FinalLand 连通分量（一片连通陆地 = 一个陆块；海格 = −1）；
 /// · FinalDistToCoast/Land = FinalLand 的双向 BFS 跳数。
@@ -27,15 +27,18 @@ public sealed class FinalGeography
 	/// <summary>海格离岸跳数（陆格 = 0）。</summary>
 	public int[] FinalDistToLand { get; private set; } = Array.Empty<int>();
 
-	public void Generate(Ball ball, HeightComposer composer)
+	/// <param name="heightM">逐格最终海拔（米）。</param>
+	/// <param name="seaLevelM">海面标高（米）——高于它才是陆。</param>
+	public void Generate(Ball ball, float[] heightM, float seaLevelM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		if (heightM == null) throw new ArgumentNullException(nameof(heightM));
 		int n = ball.CellDirs.Length;
 
-		// ── ① FinalLand（世界事实 = 最终高度符号；渲染逐格一致）──
+		// ── ① FinalLand（世界事实 = 最终高度高过海面；渲染逐格一致）──
 		FinalLand = new bool[n];
 		for (int i = 0; i < n; i++)
-			FinalLand[i] = composer.HeightM[i] > 0f;
+			FinalLand[i] = heightM[i] > seaLevelM;
 
 		// ── ①b 陆占比：格 + 6 邻居中 FinalLand 占比 ∈[0,1] ──
 		FinalLandFraction = new float[n];

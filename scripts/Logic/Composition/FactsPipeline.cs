@@ -11,9 +11,9 @@ public sealed class FactsPipeline
 	/// <summary>最终地理（世界事实层）。</summary>
 	public FinalGeography Final { get; private set; }
 
-	public void Run(Ball ball, HeightComposer composer)
+	public void Run(Ball ball, float[] heightM, float seaLevelM)
 	{
 		Final = new FinalGeography();
-		Final.Generate(ball, composer);
+		Final.Generate(ball, heightM, seaLevelM);
 	}
 }

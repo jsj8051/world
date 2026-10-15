@@ -21,11 +21,11 @@ public sealed class HydrologyPipeline
 	public LakeState Lakes { get; private set; }          // 湖泊状态层（River 2C-B：水量平衡）
 	public WaterTopology WaterSystem { get; private set; } // 水系拓扑（River 2C-C：组合层）
 
-	public void Run(Ball ball, FinalGeography final, HeightComposer composer,
+	public void Run(Ball ball, FinalGeography final, float[] heightM, float seaLevelM,
 		PrecipitationModel precipitation)
 	{
 		Rivers = new RiverNetwork();
-		Rivers.Generate(ball, final, composer, annualPrecipMm: precipitation.AnnualMm);
+		Rivers.Generate(ball, final, heightM, seaLevelM, annualPrecipMm: precipitation.AnnualMm);
 		// River 2B：水文事实（图）与几何表现（连续河线）分离——线只表达图，不改图
 		RiverTopology = new RiverGraph();
 		RiverTopology.Generate(ball, final, Rivers);
@@ -42,13 +42,13 @@ public sealed class HydrologyPipeline
 		// ★填洼只改变"水怎么走"，不改变"湖是否存在" ⇒ LakeState 绝不能从 `Basins`
 		//   （路由表面上的流域）派生，否则开启填洼后内流湖会全部消失（实测 3,671 → 0）。
 		RawHydro = new H3Hydrology();
-		RawHydro.Generate(ball, composer.HeightM, 0f, precipitation.AnnualMm);
+		RawHydro.Generate(ball, heightM, seaLevelM, precipitation.AnnualMm);
 		DepressionBasins = new BasinGraph();
 		DepressionBasins.Generate(ball, final, RawHydro.Downstream, RawHydro.WeightedAccum);
 
 		// River 2C-B：湖泊状态层（水量平衡；只消费原始洼地分区/降水/地形，不回写任何冻结层）
 		Lakes = new LakeState();
-		Lakes.Generate(ball, final, composer.HeightM, DepressionBasins, precipitation.AnnualMm);
+		Lakes.Generate(ball, final, heightM, DepressionBasins, precipitation.AnnualMm);
 		// River 2C-C：水系拓扑（组合层——只连接既有水体，不改 River/Basin/Lake 任何事实）
 		WaterSystem = new WaterTopology();
 		WaterSystem.Generate(ball, final, Rivers, RiverTopology, Basins, Lakes);

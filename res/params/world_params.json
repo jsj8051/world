@@ -46,5 +46,21 @@
     "SmallAmplitude": 0.12
   },
 
-  "Terrain": {}
+  "Terrain": {
+    "SeaLevelM": 0,
+    "MinLandElevationM": 5,
+
+    "LandBaseM": 30,
+
+    "LargeVariationM": 45,
+    "MediumVariationM": 27,
+    "RegionalNoiseM": 15,
+
+    "LargeWavelengthKm": 5000,
+    "LargeOctaves": 2,
+    "MediumWavelengthKm": 600,
+    "MediumOctaves": 3,
+    "RegionalWavelengthKm": 90,
+    "RegionalOctaves": 2
+  }
 }

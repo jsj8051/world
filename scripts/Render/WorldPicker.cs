@@ -48,7 +48,7 @@ public sealed class WorldPicker
 			Index = i,
 			LatDeg = (float)(ll.Lat * 180 / System.Math.PI),
 			LngDeg = (float)(ll.Lng * 180 / System.Math.PI),
-			ElevM = _sim.Terrain.DisplayElevation[i],     // 现取
+			ElevM = _sim.Terrain.HeightM[i],     // 现取
 			IsLand = facts.FinalLand[i],
 			LandFraction = facts.FinalLandFraction[i],
 			LandmassId = facts.FinalLandmassId[i],

@@ -37,7 +37,7 @@ public sealed class H3Hydrology
 	/// 水文（单流向 + 汇流累积）。cellWeight 可选：逐格径流权重（River 2A = 年降水 mm）——
 	/// null = 均匀（每格 1，纯格数累积，W1 行为不变）。
 	/// </summary>
-	public void Generate(Ball ball, float[] elevationM, float seaLevelM = 0f, float[] cellWeight = null)
+	public void Generate(Ball ball, float[] elevationM, float seaLevelM, float[] cellWeight = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (elevationM == null) throw new ArgumentNullException(nameof(elevationM));

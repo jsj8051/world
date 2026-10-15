@@ -7,8 +7,8 @@ namespace World.Logic;
 // 世界生成空间 · **水文路由表面**（D-11）。
 //
 // ── ★核心概念：两个高度，不是改一个高度 ──────────────────────────────────────
-//   FinalHeight（Composer.HeightM）
-//     ├── 地貌 / 渲染 / 判读（DisplayElevation、FinalGeography）
+//   FinalHeight（`Terrain.HeightM`）
+//     ├── 地貌 / 渲染 / 判读（`Terrain.HeightM`、FinalGeography）
 //     └── LakeState 的**原始洼地语义**（哪里是真实内流盆地/湖盆）
 //   HydrologyRoutingHeight（本类产出）
 //     └── priority-flood 填洼**后**的水文路由表面 → FlowDirection / BasinGraph / FlowAccum
@@ -75,7 +75,7 @@ public sealed class HydrologyRoutingSurface
 	/// <summary>填洼时为保证**严格下降**注入的微小梯度（m）。</summary>
 	public const float DescentEpsilonM = 1e-3f;
 
-	public void Generate(Ball ball, float[] rawHeightM, float seaLevelM = 0f, bool? useFill = null)
+	public void Generate(Ball ball, float[] rawHeightM, float seaLevelM, bool? useFill = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (rawHeightM == null) throw new ArgumentNullException(nameof(rawHeightM));

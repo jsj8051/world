@@ -32,7 +32,7 @@ public partial class WorldManager : Node3D
 
 	/// <summary>
 	/// **纯逻辑入口**（引擎无关：球壳数据层 + 全部生成产物 + 管线序列）。全部世界事实
-	/// （`Final` / `DisplayElevation` / …）都从它取：`Sim.Facts.Final`，**不镜像**。
+	/// （`Facts.Final` / `Terrain.HeightM` / …）都从它取：`Sim.Facts.Final`，**不镜像**。
 	/// ★全量重算 = `Sim.Run()`（**复用同一实例**——地图模式持它引用并现取字段）。
 	/// </summary>
 	public WorldGenSimulation Sim { get; private set; }

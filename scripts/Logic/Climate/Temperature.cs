@@ -35,10 +35,10 @@ public sealed class Temperature
     const float LapseRateCPerKm = Thermal.LapseRateCPerKm;
     const float KelvinToCelsius = Thermal.KelvinToCelsius;
 
-    public void Generate(Ball ball, HeightComposer composer, FinalGeography final)
+    public void Generate(Ball ball, float[] heightM, FinalGeography final)
     {
         if (ball == null) throw new ArgumentNullException(nameof(ball));
-        if (composer == null) throw new ArgumentNullException(nameof(composer));
+        if (heightM == null) throw new ArgumentNullException(nameof(heightM));
         if (final == null) throw new ArgumentNullException(nameof(final));
         var geo = ball.Geo;                   // 经纬度索引随 Ball 组合而来
         int n = ball.CellIds.Length;
@@ -47,7 +47,7 @@ public sealed class Temperature
         float sum = 0f;
         for (int i = 0; i < n; i++)
         {
-            float elevKm = composer.HeightM[i] * 1e-3f;          // 海拔 → km
+            float elevKm = heightM[i] * 1e-3f;                   // 海拔 → km
             // 纬度弧度直接取自 BallGeoIndex（Cos 为偶函数 ⇒ 无需取 |纬度|）
             float qIn = InputFlux * MathF.Cos(geo.LatRad[i]);     // 纬度输入
             // ⚠️ 极地 qIn→0 ⇒ tEqC→−273.15（奇异，见类注释）；不夹不护，如实暴露。

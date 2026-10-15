@@ -7,9 +7,8 @@ namespace World.Render;
 
 // 海拔模式（自然地理 · 注册序 = Id = 0）。
 //
-// 数据链：FinalHeight（Composer.HeightM 单一表面真相）→ DisplayElevation（显示层别名，同一数组
-//   非第二份数据）→ ElevationColor。海格统一深蓝底（与海拔色带深海档同色，画面连续）——
-//   共享底色单一事实源 = MapSeaColor。
+// 数据链：FinalHeight（`Terrain.HeightM` 单一表面真相）→ ElevationColor。海格统一深蓝底
+//   （与海拔色带深海档同色，画面连续）——共享底色单一事实源 = MapSeaColor。
 //
 // ★色带/档位表归属（2026-10-08）：**模式专属派生表内聚模式文件**（2026-10-08 随模式拆分保持）。
 //   原为独立的 WRender/ElevationBandModeW（W: MapModeW，B 线迁移资产）；解耦后 Render 侧已无
@@ -25,7 +24,7 @@ public sealed class ElevationMode : MapMode
 	public override string Name => "海拔";
 	public override Color CellColorAt(int i) =>
 		_p.Facts.Final.FinalLand[i]
-			? ElevationColor(_p.Terrain.DisplayElevation[i])   // 陆 = 合成海拔分档（HeightComposer 唯一出处）
+			? ElevationColor(_p.Terrain.HeightM[i])   // 陆 = 合成海拔分档（Terrain.HeightM 唯一出处）
 			: MapSeaColor.Deep;                        // 海 = 统一深蓝底
 
 	// ── 海拔分档色（9 档硬色阶 · 档界即等高线）──
