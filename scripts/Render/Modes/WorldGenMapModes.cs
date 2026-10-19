@@ -22,8 +22,7 @@ namespace World.Render;
 // ★文件切分：本类只留**注册表**；每个模式实现各自独立成文件——
 //   板块 `PlateMode`｜海拔 `ElevationMode`｜离岸距离 `CoastDistanceMode`
 //   ｜降水 `PrecipitationMode`｜温度 `TemperatureMode`。
-//   模式专属色带/派生表随模式走（色带内聚其消费方文件）；
-//   两模式共用的海格底色见 `Render/Constants/MapSeaColor.cs`。
+//   模式专属色带/派生表随模式走（色带内聚其消费方文件）。
 //
 // ★色带纪律：物理固定域，**禁止 min-max 自动拉伸**（否则跑 100 个世界互不可比）；
 //   长尾量（降水）允许"对数式显示变换"——只变换显示采样，**数据本身不改、生产公式不动**。

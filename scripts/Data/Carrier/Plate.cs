@@ -14,7 +14,7 @@ public struct Plate
     /// <summary>欧拉矢量：方向 = 旋转的欧拉极轴，模 = 角速率。整块板块绕它做**刚体**转动，
     /// 逐格速度 = `Omega × 格心方向`（角速度逐板块恒定，线速度随位置变）。</summary>
     public Vector3 Omega;
-    /// <summary>壳型（生成期判定，本板块的**唯一**陆海身份）：陆壳发一个大陆锚点，洋壳不发 ⇒ 陆地产在陆壳上。</summary>
+    /// <summary>壳型（生成期判定，本板块的**唯一**陆海身份）：陆壳的格铺陆面高度，洋壳铺海面。</summary>
     public CrustType Crust;
     /// <summary>密度（生成期随机量，与壳型无关）。只用于汇聚边界上分上下盘：**密度小的当上盘**。</summary>
     public float Density;

@@ -8,6 +8,7 @@ namespace World.Utils
 	//
 	// 结构：Perlin 梯度噪声（晶格角点整数哈希 → 12 向梯度表 → 五次 fade → 三线性插值）
 	//       → fBm 倍频叠加（lacunarity 2 / gain 0.5，**按振幅平方和的均方根归一**）。
+	// 两种叠法：Sample = 普通 fBm（圆丘起伏，值 ≈ [−1,1]）；SampleRidged = 山脊 fBm（尖脊，值 ∈ [0,1]）。
 	//       值域 ≈ [−1, 1]，均值 ≈ 0，分布近高斯（σ ≈ 0.29；实测峰值 ≈ 1.1 × 标称幅度——res3/seed42 洋底起伏
 	//       实测 +396 m / 标称 350 m；理论极值上限 1.45）。
 	//
@@ -24,7 +25,7 @@ namespace World.Utils
 	//   采样点 = 单位方向 × (R_earth / 基波长)，于是噪声空间里相邻两个"特征"相隔 1 个单位
 	//   ⇒ 球面上相邻两个特征相隔 ≈ 基波长 km。换 res / 换半径不改场，只改采样密度。
 	//
-	// ⚠️ 为什么自写而不用 Godot 的 FastNoiseLite（同 SphericalBlobNoise 的教训，2026-09-11 实测）：
+	// ⚠️ 为什么自写而不用 Godot 的 FastNoiseLite（同 SphericalBlobNoise）：
 	//   它是**引擎类型**，纯 .NET 测试宿主里构造会 access violation 崩掉整个测试进程；逻辑层的
 	//   单测纪律要求"无引擎宿主也能跑"。
 	//
@@ -36,12 +37,13 @@ namespace World.Utils
 		/// 不反向引用板块模块，故自带一份常量（改其一须同步）。</summary>
 		public const float EarthRadiusKm = 6371f;
 
-		readonly int _seed;
-		readonly int _octaves;
-		readonly float _lacunarity;
-		readonly float _gain;
-		readonly float _baseScale;       // 单位方向 → 噪声空间半径 = R_earth / 基波长
-		readonly float _normalization;   // 1 / √Σgain²ⁱ（均方根归一：振幅与层数解耦）
+	readonly int _seed;
+	readonly int _octaves;
+	readonly float _lacunarity;
+	readonly float _gain;
+	readonly float _baseScale;       // 单位方向 → 噪声空间半径 = R_earth / 基波长
+	readonly float _normalization;   // 1 / √Σgain²ⁱ（均方根归一：振幅与层数解耦）
+	readonly float _ridgedNorm;      // 1 / Σgainⁱ（山脊噪声按振幅和归一 ⇒ 值落在 [0,1]）
 
 		/// <param name="seed">确定性种子（同种子同场）。</param>
 		/// <param name="baseWavelengthKm">基波长（km）：最大一层的特征尺寸（如大陆级起伏 2000–4000 km）。</param>
@@ -63,9 +65,15 @@ namespace World.Utils
 			_lacunarity = lacunarity;
 			_gain = gain;
 			_baseScale = EarthRadiusKm / baseWavelengthKm;
-			double squareSum = 0, amplitude = 1;
-			for (int o = 0; o < _octaves; o++) { squareSum += amplitude * amplitude; amplitude *= gain; }
+			double squareSum = 0, amplitudeSum = 0, amplitude = 1;
+			for (int o = 0; o < _octaves; o++)
+			{
+				squareSum += amplitude * amplitude;
+				amplitudeSum += amplitude;
+				amplitude *= gain;
+			}
 			_normalization = (float)(1.0 / Math.Sqrt(squareSum));
+			_ridgedNorm = (float)(1.0 / amplitudeSum);
 		}
 
 		/// <summary>单位方向处的 fBm 值（≈ [−1, 1]）。入参会在内部归一化，非单位向量也可传。</summary>
@@ -84,6 +92,34 @@ namespace World.Utils
 				amplitude *= _gain;
 			}
 			return sum * _normalization;
+		}
+
+		/// <summary>
+		/// 单位方向处的**山脊噪声**（ridged fBm，值域 ≈ [0, 1]；大值 = 脊线）。
+		///
+		/// 每层先取 <c>r = (1 − |n|)²</c>——噪声穿过零线处取极大 ⇒ 成**尖脊**（普通 fBm 是圆丘）；
+		/// 再乘前一层留下的压权 <c>weight</c>（<c>weight ← min(1, 2r)</c>）——低处的细层被压低，
+		/// 脊线才连续不断成"一条条山脊"而不是满屏碎脊。最后按**振幅和**归一（不是均方根）
+		/// ⇒ 输出落在 [0,1]，可直接与阈值比较（如"只让最陡的 5% 冒头成古山系"）。
+		/// </summary>
+		public float SampleRidged(Vector3 unitDirection)
+		{
+			Vector3 p = unitDirection.Normalized();
+			float x = p.X * _baseScale, y = p.Y * _baseScale, z = p.Z * _baseScale;
+			float sum = 0f, amplitude = 1f, weight = 1f;
+			for (int o = 0; o < _octaves; o++)
+			{
+				float r = 1f - MathF.Abs(Perlin(x, y, z, _seed + o * 7919));
+				r *= r;
+				r *= weight;
+				weight = MathF.Min(1f, r * 2f);
+				sum += amplitude * r;
+				x *= _lacunarity;
+				y *= _lacunarity;
+				z *= _lacunarity;
+				amplitude *= _gain;
+			}
+			return sum * _ridgedNorm;
 		}
 
 		/// <summary>批量取值（同 <see cref="Sample"/> 逐元素调用；顺序无关）。</summary>

@@ -5,9 +5,10 @@ using World.H3Grid;          // Ball（H3 球壳数据层）
 namespace World.Logic;
 
 /// <summary>
-/// 板块阶段组装：撒种子点 → 阻力场洪泛划分 → 派定壳型 → 只在陆壳上派生锚点 → 逐格陆地掩码。
+/// 板块阶段组装：撒种子点 → 阻力场洪泛划分 → 派定壳型（陆壳 / 洋壳）。
 /// 只做步骤编排与产物转发，算法全在 <see cref="PlateManager"/>。
-/// 产物：板块划分（<see cref="PlateOfCell"/> / <see cref="Plates"/>，含每块壳型）与陆地掩码（<see cref="PlacementLand"/>）。
+/// 产物：板块划分（<see cref="PlateOfCell"/> / <see cref="Plates"/>，含每块壳型）——
+/// 陆海的**唯一依据**是壳型，海岸线由 ① 阶段的高度定。
 /// </summary>
 public sealed class PlatePipeline
 {
@@ -18,12 +19,10 @@ public sealed class PlatePipeline
 	public int[] PlateOfCell => _impl.PlateOfCell;
 	/// <summary>板块表（含每块壳型 <see cref="World.Data.Plate.Crust"/>）。</summary>
 	public Plate[] Plates => _impl.Plates;
-	/// <summary>陆地掩码（海格 false / 陆格 true）。生成依据，非世界事实。</summary>
-	public bool[] PlacementLand => _impl.PlacementLand;
 
 	/// <param name="ball">球壳数据层。</param>
 	/// <param name="seed">世界种子。</param>
-	/// <param name="spec">板块配置（含板块划分与陆地场）。</param>
+	/// <param name="spec">板块配置（划分 + 壳型）。</param>
 	public void Run(Ball ball, int seed, PlateSpec spec)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
@@ -33,10 +32,7 @@ public sealed class PlatePipeline
 		// 阻力场洪泛划分
 		_impl.GrowWithResistance(ball.CellIds, ball.Res, ball.CellDirs, ball.CellNeighbors,
 			seed, spec.BoundaryAmplitude, spec.BoundaryWavelengthKm, spec.BoundaryOctaves);
-		// 派定壳型（陆壳 / 洋壳），只在陆壳上派生大陆锚点
+		// 派定壳型（陆壳 / 洋壳）——本阶段最后一步，壳型即陆海身份
 		_impl.AssignCrustTypes(seed, spec);
-		_impl.BuildAnchors(seed);
-		// 逐格陆地掩码
-		_impl.BuildLandMask(ball, seed, spec);
 	}
 }

@@ -37,9 +37,10 @@ public static class PlateBoundaryOps
 	}
 
 	/// <summary>
-	/// 逐格**汇聚边界角色**（上盘 / 下盘；够不到汇聚边界的格 = <see cref="BoundaryRole.None"/>）。
+	/// 逐格**汇聚边界角色**（四档之一；够不到汇聚边界的格 = <see cref="BoundaryRole.None"/>）。
 	///
-	/// ① 边界格取「异板块邻居里**最负**的那一对」（迎面最强的对手）⇒ 定出该格的**对侧板块号**；
+	/// ① 边界格先按「异板块邻居的**均值** &lt; 0」判汇聚（**与 <see cref="BoundaryMotion"/> 同口径**），
+	///    再取其中**最负**的一对 ⇒ 定出该格的**对侧板块号**；
 	/// ② 把对侧板块号沿邻接图扩散，**只在同板块内扩散**（不跨边界 ⇒ 两侧角色天然分开）；
 	/// ③ 逐格按「本方板块, 对侧板块」现算角色。
 	/// </summary>
@@ -64,16 +65,20 @@ public static class PlateBoundaryOps
 		for (int i = 0; i < n; i++)
 		{
 			int p = plateOfCell[i];
-			float best = 0f;                          // 只收 < 0（汇聚）的对；0 = 还没找到
+			float sum = 0f;                           // 邻接对均值（与 BoundaryMotion 同口径）
+			int cnt = 0;
+			float best = 0f;                          // 最负的一对 ⇒ 定对侧板块号
 			int bestPlate = -1;
 			foreach (int j in neighbors[i])
 			{
 				int q = plateOfCell[j];
 				if (q == p) continue;
 				float m = RelativeMotion(dirs[i], dirs[j], plates[p], plates[q]);
+				sum += m;
+				cnt++;
 				if (m < best) { best = m; bestPlate = q; }
 			}
-			if (bestPlate < 0) continue;
+			if (cnt == 0 || !(sum / cnt < 0f)) continue;   // 均值汇聚才算（否则与强度口径打架）
 			otherPlate[i] = bestPlate;
 			settled[i] = true;
 			queue.Enqueue(i);
@@ -105,14 +110,22 @@ public static class PlateBoundaryOps
 	}
 
 	/// <summary>
-	/// 一对相邻板块在汇聚边界上**本方**的角色：陆×洋 ⇒ 陆侧恒为上盘、洋侧恒为下盘；
-	/// 同壳型（陆×陆 / 洋×洋）⇒ 密度小的当上盘。
+	/// 一对相邻板块在汇聚边界上**本方**的角色（见 <see cref="BoundaryRole"/>）：
+	/// 陆×陆 ⇒ 密度小的当上盘、密度大的当下盘（**两块都成山**）；
+	/// 陆×洋 ⇒ 陆侧恒为 <see cref="BoundaryRole.Arc"/>、洋侧恒为 <see cref="BoundaryRole.Slab"/>；
+	/// 洋×洋 ⇒ 密度小的当上盘（成岛弧）、密度大的当下盘（成海沟）。
 	/// </summary>
 	static BoundaryRole PairRole(in Plate mine, in Plate other)
 	{
-		if (mine.Crust != other.Crust)
-			return mine.Crust == CrustType.Continental ? BoundaryRole.Overriding : BoundaryRole.Subducting;
-		return mine.Density < other.Density ? BoundaryRole.Overriding : BoundaryRole.Subducting;
+		bool mineContinental = mine.Crust == CrustType.Continental;
+		bool otherContinental = other.Crust == CrustType.Continental;
+		bool mineRides = mine.Density < other.Density;
+
+		if (mineContinental && otherContinental)
+			return mineRides ? BoundaryRole.Upper : BoundaryRole.Lower;
+		if (mineContinental != otherContinental)
+			return mineContinental ? BoundaryRole.Arc : BoundaryRole.Slab;
+		return mineRides ? BoundaryRole.Arc : BoundaryRole.Slab;
 	}
 
 	/// <summary>

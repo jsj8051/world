@@ -44,9 +44,9 @@ public sealed class WorldGenSimulation
 	/// <param name="spec">世界定义（见 <see cref="WorldSpec"/>）。</param>
 	public void Run(WorldSpec spec)
 	{
-		Plate.Run(Ball, spec.Seed, spec.Plate);                                     // ⓪（板块划分 + 陆地掩码）
+		Plate.Run(Ball, spec.Seed, spec.Plate);                                     // ⓪（板块划分 + 壳型）
 		float seaM = spec.Terrain.SeaLevelM;                                        // 海陆基准（单一来源）
-		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlacementLand);            // ①
+		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlateOfCell, Plate.Plates); // ①（陆面/海面 + 造山 → 高度）
 		Facts.Run(Ball, Terrain.HeightM, seaM);                                     // ②
 		Climate.Run(Ball, Facts.Final, Terrain.HeightM);                            // ③
 		Hydrology.Run(Ball, Facts.Final, Terrain.HeightM, seaM, Climate.Precipitation);  // ④

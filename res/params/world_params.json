@@ -20,47 +20,108 @@
   "Seed": 42,
 
   "Plate": {
-    "PlateCount": 12,
+    "PlateCount": 8,
     "MinSpeed": 0,
     "MaxSpeed": 1,
     "BoundaryAmplitude": 5,
     "BoundaryWavelengthKm": 1200,
     "BoundaryOctaves": 4,
 
-    "ContinentalRatio": 0.5,
-
-    "SeaLevel": 0.60,
-
-    "WarpWavelengthKm": 3000,
-    "WarpOctaves": 3,
-    "WarpAmplitudeKm": 600,
-
-    "LowWavelengthKm": 5000,
-    "LowOctaves": 2,
-    "LowAmplitude": 0.35,
-
-    "MediumWavelengthKm": 1200,
-    "MediumAmplitude": 0.25,
-
-    "SmallWavelengthKm": 300,
-    "SmallAmplitude": 0.12
+    "ContinentalRatio": 0.5
   },
 
   "Terrain": {
     "SeaLevelM": 0,
-    "MinLandElevationM": 5,
 
-    "LandBaseM": 30,
+    "LandBaseM": 180,
 
-    "LargeVariationM": 45,
-    "MediumVariationM": 27,
-    "RegionalNoiseM": 15,
+    "LargeVariationM": 900,
+    "MediumVariationM": 300,
+    "RegionalNoiseM": 120,
 
-    "LargeWavelengthKm": 5000,
+    "LargeWavelengthKm": 8000,
     "LargeOctaves": 2,
     "MediumWavelengthKm": 600,
     "MediumOctaves": 3,
     "RegionalWavelengthKm": 90,
-    "RegionalOctaves": 2
+    "RegionalOctaves": 2,
+
+    "MountainPeakM": 4800,
+    "MountainKnee": 0.85,
+    "MountainKneeCompress": 0.45,
+    "MountainUpperCoef": 1.65,
+    "MountainLowerCoef": 1.65,
+    "MountainArcCoef": 1.45,
+    "MountainSlabCoef": 0.35,
+    "MountainUpperBandKm": 260,
+    "MountainBandConvSpreadKm": 400,
+    "MountainArcInlandKm": 176,
+    "MountainArcBandKm": 100,
+    "MountainSlabBandKm": 117,
+    "MountainRidgeWavelengthKm": 700,
+    "MountainRidgeOctaves": 3,
+    "MountainRidgeFloor": 0.15,
+    "MountainSmoothWeight": 0.3,
+
+    "OldMountainHeightM": 2000,
+    "HillsHeightM": 600,
+
+    "RiftSuppressStrength": 0.75,
+    "RiftBandKm": 391,
+
+    "PlateauUpperReachKm": 548,
+    "PlateauArcReachKm": 313,
+    "PlateauReachSpreadKm": 665,
+    "PlateauInnerRampKm": 235,
+    "PlateauOuterRampKm": 313,
+    "PlateauUpperHeightM": 3400,
+    "PlateauArcHeightM": 2600,
+    "PlateauConvMin": 0.25,
+    "PlateauConvFull": 0.8,
+    "PlateauShieldHeightM": 1400,
+    "PlateauCoastFadeM": 120,
+    "PlateauSmoothPasses": 1,
+
+    "MountainDetailAmount": 0.35,
+    "ErosionDepthM": 900,
+    "ErosionExponent": 0.5,
+    "ErosionMaxCutFraction": 0.6,
+    "ErosionSteps": 3,
+
+    "OceanShallowestM": -20,
+    "OceanDeepestM": -10500,
+
+    "RidgeCrestDepthM": -2700,
+    "RidgeAgeDepthM": 2700,
+    "RidgeAgeSpanKm": 3100,
+    "RidgeCrestRiseM": 500,
+    "RidgeBandKm": 270,
+
+    "AbyssHillLargeM": 300,
+    "AbyssHillFineM": 90,
+
+    "ShelfShallowestM": -30,
+    "ShelfDeepestM": -180,
+    "ShelfMinWidthKm": 60,
+    "ShelfMaxWidthKm": 565,
+    "SlopeBottomM": -6680,
+    "SlopeSpanKm": 470,
+    "MarginWidenKm": 400,
+    "ActiveMarginBandKm": 585,
+
+    "ArcCrestDepthM": -1600,
+    "ArcRiseM": 2200,
+    "ArcOffsetKm": 215,
+    "ArcBandKm": 175,
+    "ArcIslandPeakM": 2400,
+
+    "TrenchDepthM": 3200,
+    "TrenchConvDepthM": 3300,
+    "TrenchBandKm": 175,
+    "TrenchMinCoastKm": 40,
+    "TrenchFullCoastKm": 270,
+
+    "OceanSmoothPasses": 8,
+    "TrenchSmoothPasses": 1
   }
 }
