@@ -49,6 +49,14 @@ public sealed class SpatialScale
 	/// <summary>等积口径的单格等效半径（km；内切圆 = s·√3/2）。</summary>
 	public double CellInradiusKm { get; }
 
+	/// <summary>邻格中心距 / 等积格边长的**实测典型比值**（`--probe`：res1 1.78 / res2 1.77 / res3 1.78，
+	/// 离散度 ±25%、最短 1.23 ⇒ 是典型值，不是严格常数）。</summary>
+	public const double NeighborCenterRatio = 1.78;
+
+	/// <summary>**邻格中心距**（km）= <see cref="CellEdgeKm"/> × <see cref="NeighborCenterRatio"/>。
+	/// 「带宽 km → 跳数」的折算走它（⚠️ 直接用 `CellEdgeKm` 折算会把带宽低估约 1.8 倍）。</summary>
+	public double NeighborCenterKm => CellEdgeKm * NeighborCenterRatio;
+
 	SpatialScale(int res, int cellCount)
 	{
 		Res = res;

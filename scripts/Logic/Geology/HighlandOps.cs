@@ -32,19 +32,6 @@ namespace World.Logic;
 /// </summary>
 public static class HighlandOps
 {
-	/// <summary>活动边界的判定阈值（法向相对速率，无量纲）：超过它才算一条张裂边界。</summary>
-	const float ActiveMotion = 0.25f;
-
-	/// <summary>强度归一尺度：<c>cs = clamp(|motion| / 本值, 0, 1)</c>。</summary>
-	const float MotionScale = 0.9f;
-
-	/// <summary>平滑权重 ≈ 6/7 —— 等价于「自身 + 6 个邻居 取平均」（球面网格上九成以上的格是 6 邻居）。</summary>
-	const float BlurWeight = 6f / 7f;
-
-	/// <summary>带宽 km → 跳数 的折算系数：实测「真实邻格中心距 / 等积格边长」≈ 1.78
-	/// （直接用 `CellEdgeKm` 折算会把带宽低估约 1.8 倍）。</summary>
-	const double HopToEdgeRatio = 1.78;
-
 	// 噪声尺度（形状常量，与 `OceanDepthOps` 同分工：物理旋钮进 TerrainSpec，纹理尺度留在这里）
 	const float OldWavelengthKm = 8100f;
 	const int OldOctaves = 5;
@@ -113,7 +100,7 @@ public static class HighlandOps
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 		float seaM = spec.SeaLevelM;
-		float hopKm = (float)(SpatialScale.Of(ball).CellEdgeKm * HopToEdgeRatio);
+		float hopKm = (float)SpatialScale.Of(ball).NeighborCenterKm;
 
 		// ── ① 边界格标记（跳数 0 = 该格有异板块邻居）+ 到最近汇聚边界的跳数（同板块内扩散）──
 		int[] boundaryHops = PlateBoundaryOps.BoundaryHops(ball, plateOfCell);
@@ -122,9 +109,9 @@ public static class HighlandOps
 		// ── ② 张裂带：到最近活动张裂边界的真实距离 + 强度 ──
 		var riftSources = new List<int>();
 		for (int i = 0; i < n; i++)
-			if (boundaryHops[i] == 0 && motion[i] > ActiveMotion) riftSources.Add(i);
+			if (boundaryHops[i] == 0 && motion[i] > PlateBoundaryOps.ActiveMotion) riftSources.Add(i);
 		var rift = DistanceFieldOps.Build(ball, riftSources,
-			i => MathF.Min(1f, motion[i] / MotionScale), 4f * spec.RiftBandKm);
+			i => MathF.Min(1f, motion[i] / PlateBoundaryOps.MotionScale), 4f * spec.RiftBandKm);
 
 		// ── ③ 噪声场 ──
 		var ridge = new SphericalFbmNoise(
@@ -187,7 +174,7 @@ public static class HighlandOps
 			if (r == BoundaryRole.None) return;
 			int h = hops[i];
 			if (h < 0) return;
-			float cs = MathF.Min(1f, -motion[i] / MotionScale);
+			float cs = MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale);
 			if (!(cs > 0f)) return;
 
 			float cd = h * hopKm;
@@ -237,7 +224,7 @@ public static class HighlandOps
 			if (!continental[i]) return;
 			Vector3 dir = dirs[i];
 			BoundaryRole r = role[i];
-			float cs = MathF.Min(1f, -motion[i] / MotionScale);
+			float cs = MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale);
 			if (!(cs > 0f)) cs = 0f;
 			float cd = hops[i] >= 0 ? hops[i] * hopKm : float.MaxValue;
 
@@ -269,7 +256,7 @@ public static class HighlandOps
 		// ── ⑨ 山体细化 + 虚拟侵蚀：光滑的一堵墙 → 脊谷相间的山系 ──
 		mountain = ErosionOps.Build(ball, seed, spec, continental, mountain);
 
-		FieldBlurOps.Blur(ball, plateau, BlurWeight, spec.PlateauSmoothPasses);
+		FieldBlurOps.Blur(ball, plateau, FieldBlurOps.NeighborMeanWeight, spec.PlateauSmoothPasses);
 
 		return new Field(mountain, plateau);
 	}

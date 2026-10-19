@@ -28,17 +28,8 @@ namespace World.Logic;
 /// </summary>
 public static class OceanDepthOps
 {
-	/// <summary>活动边界的判定阈值（法向相对速率，无量纲）：|motion| 超过它才算一条汇聚 / 张裂边界。</summary>
-	const float ActiveMotion = 0.25f;
-
-	/// <summary>强度归一尺度：<c>strength = clamp(|motion| / 本值, 0, 1)</c>。</summary>
-	const float MotionScale = 0.9f;
-
-	/// <summary>平滑权重 ≈ 6/7 —— 等价于「自身 + 6 个邻居 取平均」（球面网格上九成以上的格是 6 邻居）。</summary>
-	const float BlurWeight = 6f / 7f;
-
-	// 海底噪声的波长 / 层数：这些是**纹理尺度**（形状常量），与 `TerrainManager.HopToEdgeRatio` 同类，
-	// 不进 `TerrainSpec`（那里放的是能改画面的物理旋钮：深度、宽度、高度）。
+	// 海底噪声的波长 / 层数：这些是**纹理尺度**（形状常量），不进 `TerrainSpec`
+	// （那里放的是能改画面的物理旋钮：深度、宽度、高度）。
 	const float SeaLargeWavelengthKm = 7680f;
 	const int SeaLargeOctaves = 5;
 	const float SeaFineWavelengthKm = 1707f;
@@ -99,14 +90,14 @@ public static class OceanDepthOps
 			if (!boundary) continue;
 
 			float m = motion[i];
-			if (m < -ActiveMotion) convSources.Add(i);
-			else if (m > ActiveMotion) divSources.Add(i);
+			if (m < -PlateBoundaryOps.ActiveMotion) convSources.Add(i);
+			else if (m > PlateBoundaryOps.ActiveMotion) divSources.Add(i);
 		}
 
 		// ── 三个真实距离场（km）：到汇聚边界 / 到大洋张裂边界 / 到陆地 ──
 		// 截断半径 = 该场最远的有效尺度（带之外 / 年龄满值之后都不再改变结果），越远越省。
 		var conv = DistanceFieldOps.Build(ball, convSources,
-			i => MathF.Min(1f, -motion[i] / MotionScale),
+			i => MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale),
 			4f * spec.ActiveMarginBandKm);
 
 		// 洋中脊只在大洋里：大陆里的张裂是裂谷，不算洋中脊
@@ -114,7 +105,7 @@ public static class OceanDepthOps
 		foreach (int i in divSources)
 			if (!continental[i]) ridgeSources.Add(i);
 		var ridge = DistanceFieldOps.Build(ball, ridgeSources,
-			i => MathF.Min(1f, motion[i] / MotionScale),
+			i => MathF.Min(1f, motion[i] / PlateBoundaryOps.MotionScale),
 			MathF.Max(spec.RidgeAgeSpanKm, 4f * spec.RidgeBandKm));
 
 		var coastSources = new List<int>();
@@ -186,7 +177,7 @@ public static class OceanDepthOps
 		});
 
 		// ── 平滑海底，去掉距离场的折线痕迹；海沟**在平滑之后**再挖（窄而深，不被抹平）──
-		FieldBlurOps.Blur(ball, depth, BlurWeight, spec.OceanSmoothPasses);
+		FieldBlurOps.Blur(ball, depth, FieldBlurOps.NeighborMeanWeight, spec.OceanSmoothPasses);
 
 		var trench = new float[n];
 		Parallel.For(0, n, i =>
@@ -198,7 +189,7 @@ public static class OceanDepthOps
 				* Band(conv.DistKm[i], spec.TrenchBandKm)
 				* Smoothstep(spec.TrenchMinCoastKm, spec.TrenchFullCoastKm, coast.DistKm[i]);
 		});
-		FieldBlurOps.Blur(ball, trench, BlurWeight, spec.TrenchSmoothPasses);
+		FieldBlurOps.Blur(ball, trench, FieldBlurOps.NeighborMeanWeight, spec.TrenchSmoothPasses);
 
 		for (int i = 0; i < n; i++)
 		{

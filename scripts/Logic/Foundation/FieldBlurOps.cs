@@ -13,6 +13,10 @@ namespace World.Logic;
 /// </summary>
 public static class FieldBlurOps
 {
+	/// <summary>「自身 + 邻居取平均」的混合权重 ≈ 6/7 —— 球面网格上九成以上的格是 6 邻居，
+	/// 取它即等价于「自身与 6 个邻居做算术平均」（最常用的那档平滑）。</summary>
+	public const float NeighborMeanWeight = 6f / 7f;
+
 	/// <summary>
 	/// 就地平滑 <paramref name="field"/>。
 	/// <paramref name="weight"/> ≤ 0 或 <paramref name="passes"/> ≤ 0 ⇒ 原样返回（关断）。

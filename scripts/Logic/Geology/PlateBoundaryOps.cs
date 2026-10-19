@@ -13,6 +13,15 @@ namespace World.Logic;
 /// </summary>
 public static class PlateBoundaryOps
 {
+	/// <summary>**活动边界的判定阈值**（法向相对速率，无量纲）：<c>|motion|</c> 超过它才算一条
+	/// 活动的汇聚 / 张裂边界。山带（<see cref="HighlandOps"/>）与海底（<see cref="OceanDepthOps"/>）
+	/// 共用这一份口径。</summary>
+	public const float ActiveMotion = 0.25f;
+
+	/// <summary>**强度归一尺度**：<c>strength = clamp(|motion| / 本值, 0, 1)</c>。
+	/// 山带与海底共用这一份口径。</summary>
+	public const float MotionScale = 0.9f;
+
 	/// <summary>
 	/// 逐格判定「是不是板块边界」及**到边界的跳数**。
 	/// 边界格 = 存在邻格属于别的板块。返回 <c>hops</c>（边界格 = 0；−1 表示未连通到任何边界）。
