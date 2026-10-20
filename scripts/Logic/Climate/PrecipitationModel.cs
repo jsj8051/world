@@ -7,7 +7,7 @@ namespace World.Logic;
 /// <summary>
 /// 降水事实：逐格年降水（mm/年，绝对量纲）= 纬向基准 ZonalMm(|lat|) × 海洋性系数
 /// （<see cref="InteriorRatio"/> 为渐近下限，再按 exp(−内陆 km / <see cref="CoastDecayKm"/>) 衰减）。
-/// 只消费 Final 层（FinalLand / FinalDistToCoast），不读 CivSim / .mpa，逐格与 ball.CellIds 对齐；
+/// 只消费 ① 的世界事实（FinalLand / FinalDistToCoast），不读 CivSim / .mpa，逐格与 ball.CellIds 对齐；
 /// 海格取海面降水真值、不参与大陆性，每格都有值，没有 0/null 缺失语义。
 /// 副热带深内陆可达真实干旱量级，勿回退到相对量纲。不表达地形雨、季风、洋流、季节循环。
 /// </summary>
@@ -18,7 +18,7 @@ public sealed class PrecipitationModel
 
 	/// <summary>全球均值（mm/年）。H3 等积格 ⇒ 全球 cell 均值 = 算术平均（再乘 cos(lat) 是二次面积加权，会虚高）。
 	/// 用途：<c>RiverNetwork</c> 的径流阈值自锚定（<c>RunoffThreshold = meanPrecip × 阈值格数</c>）与
-	/// ④ 对照的量级锚，不是新的生产输入。与 <c>TemperatureModel.MeanC</c> 同性质。</summary>
+	/// ③ 对照的量级锚，不是新的生产输入。与 <c>TemperatureModel.MeanC</c> 同性质。</summary>
 	public float MeanMm { get; private set; }
 
 	/// <summary>大陆性 e 折长度（km；几何尺度 B，不随 res 变）：离岸每增加此长度，
@@ -43,19 +43,19 @@ public sealed class PrecipitationModel
 		(50f, 0.45f), (65f, 0.55f), (90f, 0.65f),
 	};
 
-	/// <summary>生成逐格年降水（只消费 Final 层：<c>FinalLand</c> / <c>FinalDistToCoast</c>）。
+	/// <summary>生成逐格年降水（只消费 ① 的世界事实：<c>FinalLand</c> / <c>FinalDistToCoast</c>）。
 	/// 绝不读取 CivSim / <c>.mpa</c> 文件。</summary>
-	public void Generate(Ball ball, FinalGeography final)
+	public void Generate(Ball ball, TerrainPipeline terrain)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (final == null) throw new ArgumentNullException(nameof(final));
+		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 		AnnualMm = new float[n];
 
 		// hop → km：正六边形蜂窝的几何关系（相邻格中心距 = √3 × 等积格边长），随 res 变。
 		// 这是尺度换算，不是 hop × 固定常数。BFS 不沿大圆、逐跳离散 ±25%，24 km 级（约 10 跳）
-		// 误差约 ±8%，对平滑权重可接受；要精确离岸距离应在 Final 层加真实距离场，不在这里提精度。
+		// 误差约 ±8%，对平滑权重可接受；要精确离岸距离应在 ① 的事实派生里加真实距离场，不在这里提精度。
 		double kmPerHop = Math.Sqrt(3.0) * SpatialScale.Of(ball).CellEdgeKm;
 
 		float sum = 0f;
@@ -63,9 +63,9 @@ public sealed class PrecipitationModel
 		{
 			float latDeg = MathF.Abs(MathF.Asin(Math.Clamp(dirs[i].Y, -1f, 1f)) * 180f / MathF.PI);
 			float zonalMm = ZonalMm(latDeg);
-			bool land = final.FinalLand[i];
+			bool land = terrain.FinalLand[i];
 			// 读离岸距离 FinalDistToCoast（陆格改用 FinalDistToLand 会恒 0）
-			float maritime = land ? CoastFactor(final.FinalDistToCoast[i], kmPerHop, latDeg) : 1f;
+			float maritime = land ? CoastFactor(terrain.FinalDistToCoast[i], kmPerHop, latDeg) : 1f;
 			float v = zonalMm * maritime;
 			AnnualMm[i] = v;
 			sum += v;
@@ -97,7 +97,7 @@ public sealed class PrecipitationModel
 
 	/// <summary>海洋性渗透系数 ∈ (0, 1]：海岸格 1.0，内陆按 e 折长度 <see cref="CoastDecayKm"/> 单调衰减。
 	/// 与纬度无关（纬度只通过 <see cref="InteriorRatio"/> 决定渐近下限）⇒ 可独立钉住"衰减长度是 km 不是 hop"。</summary>
-	/// <param name="distToCoastHops"><c>FinalGeography.FinalDistToCoast</c>（自海格 BFS；陆格 ≥ 1，海格 = 0）。</param>
+	/// <param name="distToCoastHops"><c>FinalDistToCoast</c>（自海格 BFS；陆格 ≥ 1，海格 = 0）。</param>
 	/// <param name="kmPerHop">本 res 的相邻格中心距（km；随 res 变）。</param>
 	public static float CoastalPenetration(int distToCoastHops, double kmPerHop)
 	{

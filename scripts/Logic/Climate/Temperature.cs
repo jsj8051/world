@@ -35,11 +35,10 @@ public sealed class Temperature
     const float LapseRateCPerKm = Thermal.LapseRateCPerKm;
     const float KelvinToCelsius = Thermal.KelvinToCelsius;
 
-    public void Generate(Ball ball, float[] heightM, FinalGeography final)
+    public void Generate(Ball ball, float[] heightM)
     {
         if (ball == null) throw new ArgumentNullException(nameof(ball));
         if (heightM == null) throw new ArgumentNullException(nameof(heightM));
-        if (final == null) throw new ArgumentNullException(nameof(final));
         var geo = ball.Geo;                   // 经纬度索引随 Ball 组合而来
         int n = ball.CellIds.Length;
         CellTemperatureC = new float[n];

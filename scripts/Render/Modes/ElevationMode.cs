@@ -23,7 +23,7 @@ public sealed class ElevationMode : MapMode
 	/// <summary>坞图例：声明固定域与线性口径（数值是屏幕 sRGB 灰阶，不是线性亮度）。</summary>
 	public override string ScaleCaption => "海拔灰度 · 线性：−4000 m 黑 → +4000 m 白（0 m 中灰）";
 
-	public override Color CellColorAt(int i) => ElevationColor(_p.Terrain.HeightM[i]);
+	public override Color CellColorAt(int i) => ElevationColor(_p.Facts.HeightM[i]);
 
 	/// <summary>
 	/// 海拔（米）→ sRGB 灰阶：固定域 ±4000 m 线性归一化，域外 clamp。

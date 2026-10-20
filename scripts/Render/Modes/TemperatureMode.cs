@@ -5,7 +5,7 @@ using World.Logic;                   // WorldGenSimulation / RiverGeometry / Riv
 namespace World.Render;
 
 /// <summary>温度（气候 · 注册序 = Id = 4）：逐格年均温 °C，Sequential 固定物理域 −40…+90 °C · 线性。
-/// 数据源 = `Temperature.CellTemperatureC`（逐格能量收支的年均值，陆海同口径）。
+/// 数据源 = `Facts.TemperatureC`（逐格能量收支的年均值，陆海同口径）。
 /// ★月度温度场尚不存在 ⇒ **不为 UI 提前造月度数据**（同降水模式）；有月度事实后再加参数行。
 /// ★色带为本模式专用（原先考虑的 `Domain.BiomeColors.TempStops` 已随 `World.Domain` 解散删除）。</summary>
 public sealed class TemperatureMode : MapMode
@@ -15,7 +15,7 @@ public sealed class TemperatureMode : MapMode
 	public override string Name => "温度";
 	public override string ScaleCaption => $"固定物理域 {TempDomainMinC:F0}…+{TempDomainMaxC:F0} °C（年均 · 不随世界拉伸）";
 	public override Color CellColorAt(int i) =>
-		RampSampleSmooth(TemperatureStops, _p.Climate.Temperature.CellTemperatureC[i]);
+		RampSampleSmooth(TemperatureStops, _p.Facts.TemperatureC[i]);
 
 	// ── 温度色带（Sequential · 固定物理域 −40…+90 °C · 线性，无显示变换）──
 	// ★为什么本模式**当初**不直接复用 Domain.BiomeColors.TempStops：那张色带的域是 −85…+45 °C

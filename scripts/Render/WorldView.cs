@@ -13,7 +13,7 @@ namespace World.Render;
 /// </summary>
 public partial class WorldView : Node3D
 {
-	WorldGenSimulation _sim;                              // 世界事实来源；Run() 会换数组实例 ⇒ 每次现取，不缓存数组
+	WorldGenSimulation _sim;                              // 世界事实来源；Run() 会换快照 ⇒ 每次现取 _sim.Facts
 	BallView _ballView;                                   // 球面网格（LOD / 剔除 / 拾取 / 高亮）
 	RiverLineOverlay _riverLines;                         // 连续河线叠加（只读 RiverGeometry，不改水文）
 
@@ -42,7 +42,7 @@ public partial class WorldView : Node3D
 
 	/// <summary>
 	/// 装配整个世界表现（幂等）。世界生成产物经 <paramref name="sim"/> 现取：
-	/// 初始取色源 = <c>sim.Terrain.HeightM</c>，河线 = <c>sim.Hydrology.RiverLines</c>。
+	/// 初始取色源 = <c>Facts.HeightM</c>，河线 = <c>Facts.RiverLines</c> / <c>Facts.RiverTopology</c>。
 	/// </summary>
 	/// <param name="sim">世界事实来源（调用方持有，本类不接管生命周期）。</param>
 	/// <param name="initialMode">初始地图模式（装配层注入，本类不内置默认）。</param>
@@ -52,7 +52,8 @@ public partial class WorldView : Node3D
 		_sim = sim ?? throw new System.ArgumentNullException(nameof(sim));
 		if (initialMode == null) throw new System.ArgumentNullException(nameof(initialMode));
 
-		_ballView = new BallView(sim.Ball, sim.Terrain.HeightM, initialMode, LodNearRatio, BackfaceCullRatio);
+		var facts = sim.Facts ?? throw new System.InvalidOperationException("世界尚未生成（先 Run）");
+		_ballView = new BallView(facts.Ball, facts.HeightM, initialMode, LodNearRatio, BackfaceCullRatio);
 		AddChild(_ballView);
 		_ballView.BuildChunks();
 
@@ -60,23 +61,25 @@ public partial class WorldView : Node3D
 
 		_riverLines = new RiverLineOverlay { Name = "RiverLines" };
 		_ballView.AddChild(_riverLines);
-		_riverLines.Build(sim.Ball, sim.Hydrology.RiverLines, sim.Hydrology.RiverTopology);
+		_riverLines.Build(facts.Ball, facts.RiverLines, facts.RiverTopology);
 	}
 
 	/// <summary>选中高亮（<c>null</c> = 清除）。宿主（渲染管理器）点选后就地调它。</summary>
 	public void SetHighlight(ulong? cellId) => _ballView?.HighlightCell(cellId);
 
 	/// <summary>
-	/// 重算后重烘（世界侧 <c>Sim.Run()</c> 之后的唯一正确做法）：<c>Run</c> 会换海拔数组实例 ⇒
+	/// 重算后重烘（世界侧 <c>Sim.Run()</c> 之后的唯一正确做法）：<c>Run</c> 会换快照 ⇒
 	/// 重新绑定海拔源再重烘颜色纹理，河线按新图重建一遍。
 	/// 几何/UV 不重建（<c>BuildChunks</c> 与 <c>SetElevationSource</c> 成对使用）。
 	/// </summary>
 	public void Rebake()
 	{
 		if (_ballView == null || _sim == null) return;
-		_ballView.SetElevationSource(_sim.Terrain.HeightM);
+		var facts = _sim.Facts;
+		if (facts == null) return;
+		_ballView.SetElevationSource(facts.HeightM);
 		_ballView.RefreshColors();
-		_riverLines?.Build(_sim.Ball, _sim.Hydrology.RiverLines, _sim.Hydrology.RiverTopology);
+		_riverLines?.Build(facts.Ball, facts.RiverLines, facts.RiverTopology);
 	}
 
 	/// <summary>取色函数换了（地图模式 / 参数行）⇒ 只重烘颜色纹理，不动几何、不动海拔源。</summary>

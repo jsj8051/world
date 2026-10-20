@@ -27,12 +27,12 @@ public sealed class TerrainMode : MapMode
 
 	public override Color CellColorAt(int i)
 	{
-		float h = _p.Terrain.HeightM[i];
+		float h = _p.Facts.HeightM[i];
 
 		// 陆地：量化到 350 m 等高带；色带按高度单调加深，山脊 = 最深的一条带。
 		// 不要交替明暗：那会在一条脊的两侧各造出一条"假脊线"。
 		// 海陆判据读世界事实、不写死 0 m——海面标高变化时海岸线与事实保持一致。
-		if (_p.Facts.Final.FinalLand[i])
+		if (_p.Facts.FinalLand[i])
 		{
 			float center = MathF.Floor(h / BandM) * BandM + BandM * 0.5f;
 			return ColorRamp.RampSampleSmooth(Stops, center);

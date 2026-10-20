@@ -42,22 +42,22 @@ public sealed class BasinGraph
 	public int EndorheicBasinCount { get; private set; }
 
 	/// <summary>由 flow graph 派生流域拓扑（只读 RiverNetwork + FinalLand）。</summary>
-	public void Generate(Ball ball, FinalGeography final, RiverNetwork rivers)
+	public void Generate(Ball ball, TerrainPipeline terrain, RiverNetwork rivers)
 	{
 		if (rivers == null) throw new ArgumentNullException(nameof(rivers));
-		Generate(ball, final, rivers.Downstream, rivers.RunoffAccum);
+		Generate(ball, terrain, rivers.Downstream, rivers.RunoffAccum);
 	}
 
 	/// <summary>由任意下游链派生流域拓扑：传原始高度上算出的 <c>Downstream</c>，得到"内流洼地"分区，
 	/// 与 <c>HydrologyRoutingSurface</c>（填洼路由）无关 ⇒ 湖判据可基于原始地形事实而非填洼后的图。</summary>
-	public void Generate(Ball ball, FinalGeography final, int[] downstream, float[] accumMm = null)
+	public void Generate(Ball ball, TerrainPipeline terrain, int[] downstream, float[] accumMm = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (final == null) throw new ArgumentNullException(nameof(final));
+		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 		if (downstream == null) throw new ArgumentNullException(nameof(downstream));
 
 		int n = ball.CellDirs.Length;
-		var land = final.FinalLand;
+		var land = terrain.FinalLand;
 		var down = downstream;
 
 		// pass1：终止陆格（路径压缩一次成型——沿链走到"下游是海 / 无下游"为止）

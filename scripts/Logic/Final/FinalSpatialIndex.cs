@@ -46,13 +46,14 @@ public sealed class FinalSpatialIndex
 	}
 
 	/// <summary>预计算全部距离场（O(n)；一次构建，此后查询 O(1)/O(K)）。</summary>
-	public void Generate(FinalGeography final, IReadOnlyList<int> riverCells)
+	public void Generate(TerrainPipeline terrain, IReadOnlyList<int> riverCells)
 	{
+		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 		int n = _ball.CellDirs.Length;
 
 		// 陆块：FinalLandmassId ≥ 0 的格为源（label = 陆块号），多源 BFS 溢出到海
 		(NearestLandmassId, NearestLandmassDistHops) = MultiSourceBfs(
-			_ball, i => (final.FinalLand[i], final.FinalLandmassId[i]));
+			_ball, i => (terrain.FinalLand[i], terrain.FinalLandmassId[i]));
 
 		// 河流：河流格为源（label = 源格索引——查询返回最近河流格索引）
 		var riverSet = new HashSet<int>(riverCells);

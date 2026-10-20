@@ -58,11 +58,10 @@ public sealed class LakeState
 	/// ★语义：**填洼只改变"水怎么走"，不改变"湖是否存在"**。因此本方法的输出
 	/// 对 `useDepressionFill = true/false` **必须保持不变**（反事实测试逐对象钉死）。
 	/// </summary>
-	public void Generate(Ball ball, FinalGeography final, float[] rawHeightM,
+	public void Generate(Ball ball, float[] rawHeightM,
 		BasinGraph depressionBasins, float[] annualPrecipMm)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (final == null) throw new ArgumentNullException(nameof(final));
 		if (rawHeightM == null) throw new ArgumentNullException(nameof(rawHeightM));
 		if (depressionBasins == null) throw new ArgumentNullException(nameof(depressionBasins));
 		if (annualPrecipMm == null)

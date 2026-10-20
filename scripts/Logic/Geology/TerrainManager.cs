@@ -17,11 +17,24 @@ namespace World.Logic;
 /// 物理旋钮都在 <see cref="TerrainSpec"/>；采样下限 / 域扭曲倍频层数是实现常量。
 /// 契约：<c>FinalLand = 高度 &gt; SeaLevelM</c> 是世界事实的唯一口径；陆壳高地的加性抬升恒 ≥ 0，
 /// 洋壳海底恒 ≤ <see cref="TerrainSpec.OceanShallowestM"/>（只有岛弧成岛项能抬出水面）。
+/// 世界事实（陆海掩码 / 陆块 / 海岸距离）是高度的纯派生，随本阶段一并产出。
 /// </summary>
 public sealed class TerrainManager
 {
 	/// <summary>逐格最终海拔（米；已乘 <see cref="TerrainSpec.VerticalScale"/>；渲染 / 信息卡 / 下游阶段的唯一来源）。</summary>
 	public float[] HeightM { get; private set; } = Array.Empty<float>();
+
+	/// <summary>最终陆海掩码（世界事实；与渲染高度逐格一致）。</summary>
+	public bool[] FinalLand { get; private set; } = Array.Empty<bool>();
+	/// <summary>陆占比 ∈[0,1]（格 + 6 邻居 FinalLand 占比；连续辅助数据）。</summary>
+	public float[] FinalLandFraction { get; private set; } = Array.Empty<float>();
+	/// <summary>陆块归属（FinalLand 连通分量；海格 = −1）。</summary>
+	public int[] FinalLandmassId { get; private set; } = Array.Empty<int>();
+	public int FinalLandmassCount { get; private set; }
+	/// <summary>陆格离海跳数（海格 = 0）。</summary>
+	public int[] FinalDistToCoast { get; private set; } = Array.Empty<int>();
+	/// <summary>海格离岸跳数（陆格 = 0）。</summary>
+	public int[] FinalDistToLand { get; private set; } = Array.Empty<int>();
 
 	/// <summary>
 	/// 逐格合成最终海拔：陆壳取陆面基底 + 高地，洋壳取海底 + 岛弧成岛。
@@ -138,6 +151,34 @@ public sealed class TerrainManager
 			for (int i = 0; i < n; i++) h[i] *= verticalScale;
 
 		HeightM = h;
+		DeriveWorldFacts(ball, seaM);
+	}
+
+	/// <summary>由最终高度派生世界事实：陆海掩码 → 陆占比 → 陆块分量 → 双向海岸距离。</summary>
+	void DeriveWorldFacts(Ball ball, float seaLevelM)
+	{
+		int n = HeightM.Length;
+
+		FinalLand = new bool[n];
+		for (int i = 0; i < n; i++)
+			FinalLand[i] = HeightM[i] > seaLevelM;
+
+		FinalLandFraction = new float[n];
+		for (int i = 0; i < n; i++)
+		{
+			float sum = FinalLand[i] ? 1f : 0f;
+			int cnt = 1;
+			foreach (int j in ball.CellNeighbors[i])
+			{
+				sum += FinalLand[j] ? 1f : 0f;
+				cnt++;
+			}
+			FinalLandFraction[i] = sum / cnt;
+		}
+
+		(FinalLandmassId, FinalLandmassCount) = LandMaskOps.Components(ball, i => FinalLand[i]);
+		FinalDistToCoast = LandMaskOps.HopsFrom(ball, i => !FinalLand[i]);
+		FinalDistToLand = LandMaskOps.HopsFrom(ball, i => FinalLand[i]);
 	}
 
 	/// <summary>陆面基底 = 基线 + 三档幅值 × 各自变化场；不夹保底——基线可落到海面之下，

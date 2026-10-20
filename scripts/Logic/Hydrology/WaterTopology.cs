@@ -47,11 +47,11 @@ public sealed class WaterTopology
 	public int SinkCount { get; private set; }
 
 	/// <summary>组合水体连接（只读全部输入层；lakes 可为 null = 无湖泊层）。</summary>
-	public void Generate(Ball ball, FinalGeography final, RiverNetwork rivers, RiverGraph graph,
+	public void Generate(Ball ball, TerrainPipeline terrain, RiverNetwork rivers, RiverGraph graph,
 		BasinGraph basins, LakeState lakes)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (final == null) throw new ArgumentNullException(nameof(final));
+		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 		if (rivers == null) throw new ArgumentNullException(nameof(rivers));
 		if (graph == null) throw new ArgumentNullException(nameof(graph));
 		if (basins == null) throw new ArgumentNullException(nameof(basins));
@@ -182,7 +182,7 @@ public sealed class WaterTopology
 					via[node] = cur;
 					break;
 				}
-				if (!final.FinalLand[cur])
+				if (!terrain.FinalLand[cur])
 				{
 					if (OceanNode < 0)
 					{

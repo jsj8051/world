@@ -8,7 +8,7 @@ namespace World.Render;
 /// <summary>
 /// **格拾取**：屏幕坐标 → 一格的世界事实。只依赖"视图 + 相机 + 世界事实"；
 /// **不持有节点、不写界面、不打印** ⇒ 可脱离管理器单独用 / 单测。
-/// ★世界事实**每次现取**（`Sim.Run()` 会换数组实例，缓存数组引用会读到旧场）。
+/// ★世界事实**每次现取**（`Sim.Run()` 会换快照，缓存引用会读到旧场）。
 /// ★相机**可换**（<see cref="SetCamera"/>）：它由宿主在每次点选前现取活动相机后喂进来，
 ///   所以本类不会因为"相机被换掉"而拿着陈旧的一台。
 /// </summary>
@@ -39,7 +39,8 @@ public sealed class WorldPicker
 		int i = _view.PickCellIndex(id.Value);
 		if (i < 0) return false;
 
-		var facts = _sim.Facts.Final;          // 现取（不复用引用）
+		var facts = _sim.Facts;
+		if (facts == null) return false;
 		var ll = H3.CellToLatLng(id.Value);
 
 		cell = new PickedCell
@@ -48,7 +49,7 @@ public sealed class WorldPicker
 			Index = i,
 			LatDeg = (float)(ll.Lat * 180 / System.Math.PI),
 			LngDeg = (float)(ll.Lng * 180 / System.Math.PI),
-			ElevM = _sim.Terrain.HeightM[i],     // 现取
+			ElevM = facts.HeightM[i],
 			IsLand = facts.FinalLand[i],
 			LandFraction = facts.FinalLandFraction[i],
 			LandmassId = facts.FinalLandmassId[i],

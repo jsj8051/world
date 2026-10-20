@@ -4,7 +4,7 @@ using World.Logic;                   // WorldGenSimulation（世界事实来源�
 namespace World.Render;
 
 /// <summary>板块图（自然地理 · 成因层）：逐格板块号 → **一块一色**。
-/// 数据源 = ⓪ 板块阶段的 `PlateOfCell`（全球覆盖、每格恒有归属）——**几何划分本身**。
+/// 数据源 = `Facts.PlateOfCell`（⓪ 板块阶段的产物：全球覆盖、每格恒有归属）——**几何划分本身**。
 /// 本模式**只涂划分，不涂壳型**（一块板块的陆海身份见 `Plate.Crust`，洋壳也归板块）。
 ///
 /// ★为何色相只由**板块号**决定：本模式是**划分图**，判读的问题只有"这两格是不是同一块"。
@@ -12,8 +12,8 @@ namespace World.Render;
 ///   ——判读最需要区分的恰是相邻块。故取黄金角（137.5°）步进散开色相：任意两块色相不同，
 ///   且相邻号之间散得最开（黄金角的性质）。**与世界无关的固定映射** ⇒ 同参数跨世界可比。
 ///
-/// ★与生成的关系：本模式**只读**板块归属（`CellColorAt` 里现取，不在构造期存数组引用——
-///   `Run()` 会换数组实例），不反向依赖生成过程（地图坞契约 ③）。</summary>
+/// ★与生成的关系：本模式**只读**板块归属（`CellColorAt` 里现取，不在构造期缓存快照——
+///   `Run()` 会换一份），不反向依赖生成过程（地图坞契约 ③）。</summary>
 public sealed class PlateMode : MapMode
 {
 	readonly WorldGenSimulation _p;
@@ -25,7 +25,7 @@ public sealed class PlateMode : MapMode
 
 	public override Color CellColorAt(int i)
 	{
-		int p = _p.Plate.PlateOfCell[i];
+		int p = _p.Facts.PlateOfCell[i];
 		if (p < 0) return Colors.Magenta;      // 理论不可达（⓪ 阶段全球覆盖）——防"没跑就涂色"的静默
 		return PlateColor(p);
 	}

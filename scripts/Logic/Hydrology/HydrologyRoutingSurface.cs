@@ -8,14 +8,14 @@ namespace World.Logic;
 //
 // ── ★核心概念：两个高度，不是改一个高度 ──────────────────────────────────────
 //   FinalHeight（`Terrain.HeightM`）
-//     ├── 地貌 / 渲染 / 判读（`Terrain.HeightM`、FinalGeography）
+//     ├── 地貌 / 渲染 / 判读（`Terrain.HeightM`、`Terrain.FinalLand`）
 //     └── LakeState 的**原始洼地语义**（哪里是真实内流盆地/湖盆）
 //   HydrologyRoutingHeight（本类产出）
 //     └── priority-flood 填洼**后**的水文路由表面 → FlowDirection / BasinGraph / FlowAccum
 //
 // **填洼是水文计算的派生预处理，不是世界地形真的被"填平"。**
 // 一旦直接改 FinalHeight，就会把"这里存在一个内流盆地"错误地变成
-// "这个世界事实里根本没有这个盆地"，破坏已建立的 LakeState / FinalGeography 语义。
+// "这个世界事实里根本没有这个盆地"，破坏已建立的 LakeState / 世界事实语义。
 // （D-11 实测依据：res4 有 3,765 个闭合洼地把陆地切碎、攒不到阈值出不了河；
 //   补填洼后 res3/res4 达阈值面积比 13.8×→2.43×。详见 §13.4。）
 //

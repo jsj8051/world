@@ -21,8 +21,8 @@ public partial class WorldManager : Node3D
 	public const int ProductionRes = 4;
 
 	/// <summary>
-	/// 纯逻辑入口（引擎无关：球壳数据层 + 全部生成产物 + 管线序列）。全部世界事实
-	/// （<c>Facts.Final</c> / <c>Terrain.HeightM</c> / …）都从它取，不镜像。
+	/// 纯逻辑入口（引擎无关：球壳数据层 + 全部生成产物 + 管线序列）。全部世界事实都从
+	/// <c>Sim.Facts</c> 取（一次生成一份只读快照），不镜像。
 	/// 全量重算 = <c>Sim.Run()</c>，复用同一实例——地图模式持它引用并现取字段。
 	/// </summary>
 	public WorldGenSimulation Sim { get; private set; }

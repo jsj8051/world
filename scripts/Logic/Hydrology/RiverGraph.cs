@@ -45,10 +45,10 @@ public sealed class RiverGraph
 	public List<int> Outlets { get; private set; } = new();
 
 	/// <summary>从水文 flow graph 派生河流拓扑（只读 RiverNetwork，不回写）。</summary>
-	public void Generate(Ball ball, FinalGeography final, RiverNetwork rivers)
+	public void Generate(Ball ball, TerrainPipeline terrain, RiverNetwork rivers)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (final == null) throw new ArgumentNullException(nameof(final));
+		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 		if (rivers == null) throw new ArgumentNullException(nameof(rivers));
 
 		int n = ball.CellDirs.Length;
@@ -70,7 +70,7 @@ public sealed class RiverGraph
 			int j = down[i];
 			while (j >= 0 && !isRiver[j])
 			{
-				if (!final.FinalLand[j]) break;      // 入海：出口
+				if (!terrain.FinalLand[j]) break;      // 入海：出口
 				j = down[j];                          // 内流洼地（down = −1）亦在此退出
 			}
 			if (j >= 0 && isRiver[j]) DownstreamRiver[i] = j;

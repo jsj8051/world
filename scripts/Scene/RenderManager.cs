@@ -26,7 +26,7 @@ public partial class RenderManager : Node3D, ITickable
 	/// <summary>世界视图（本管理器内部持有：供拾取、取色、剔除与重烘；不外借）。</summary>
 	WorldView View { get; set; }
 
-	/// <summary>世界事实来源（初始化时注入；初始取景要读 <c>Facts.Final</c>）。</summary>
+	/// <summary>世界事实来源（初始化时注入；初始取景要读 <c>Facts.FinalLand</c>）。</summary>
 	WorldGenSimulation _sim;
 
 	/// <summary>
@@ -89,15 +89,16 @@ public partial class RenderManager : Node3D, ITickable
 	public void FrameLand(OrbitalCamera camera)
 	{
 		if (camera == null) return;
-		var final = _sim?.Facts.Final;
-		var dirs = _sim?.Ball.CellDirs;
-		if (final == null || dirs == null || final.FinalLand.Length != dirs.Length) return;
+		var facts = _sim?.Facts;
+		if (facts == null) return;
+		var dirs = facts.Ball.CellDirs;
+		if (facts.FinalLand.Length != dirs.Length) return;
 
 		Vector3 sum = Vector3.Zero;
 		int count = 0;
 		for (int i = 0; i < dirs.Length; i++)
 		{
-			if (!final.FinalLand[i]) continue;
+			if (!facts.FinalLand[i]) continue;
 			sum += dirs[i];
 			count++;
 		}

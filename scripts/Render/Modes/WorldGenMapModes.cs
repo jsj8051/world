@@ -19,7 +19,7 @@ public static class WorldGenMapModes
 	public static List<MapMode> CreateAll(WorldGenSimulation sim) => new()
 	{
 		// 列表序 = 坞按钮序 = 模式身份（下标）。增删/换序只改这里，不必碰任何模式类。
-		// 模式持 sim 引用但每次现取字段：Run() 会换数组实例，存数组引用会读到旧场。
+		// 模式持 sim 引用但每次现取 Facts：Run() 会换快照，存旧快照会读到旧场。
 		new TerrainMode(sim),          // 自然地理（初始画面：350 m 等高带高度图）
 		new ElevationMode(sim),        // 自然地理（纯海拔判读）
 		new PlateMode(sim),            // 成因层（⓪ 板块划分）

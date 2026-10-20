@@ -4,9 +4,9 @@ using World.H3Grid;
 namespace World.Logic;
 
 /// <summary>
-/// 河网：Final 地形上的单流向汇流网络 + 河流掩码。
-/// 只依赖 Final 世界事实（FinalLand 掩码 + 最终高度），不读 ⓪ 的板块划分 / 壳型，也不知道 ① 的噪声场与构造项。
-/// 流程：Final 地形 → 单流向（严格降高、平局取格索引最小）→ 汇流累积 → 河流掩码；
+/// 河网：最终地形上的单流向汇流网络 + 河流掩码。
+/// 只依赖 ① 的世界事实（FinalLand 掩码 + 最终高度），不读 ⓪ 的板块划分 / 壳型，也不知道 ① 的噪声场与构造项。
+/// 流程：最终地形 → 单流向（严格降高、平局取格索引最小）→ 汇流累积 → 河流掩码；
 /// 有降水时按径流（mm）判河，无降水时退化为格数判据，两者在同 res 下等价。
 /// 海洋是最终出口：elev ≤ seaLevel 与 FinalLand 严格互补，没有第二套海陆判断。
 /// </summary>
@@ -32,7 +32,7 @@ public sealed class RiverNetwork
 	public float RunoffThreshold { get; private set; }
 	/// <summary>本次实际生效的阈值（几何量，km² 汇水面积）——跨 res 可比的唯一口径。</summary>
 	public double RiverThresholdKm2 { get; private set; }
-	/// <summary>水文路由表面：本类在它上面跑汇流，而不是在 <c>composer.HeightM</c> 上。
+	/// <summary>水文路由表面：本类在它上面跑汇流，而不是在 <c>Terrain.HeightM</c> 上。
 	/// 开关关闭时与源高度逐点相同 ⇒ 既有行为零漂移。</summary>
 	public HydrologyRoutingSurface Routing { get; private set; } = new();
 
@@ -48,19 +48,18 @@ public sealed class RiverNetwork
 	/// <summary>生成河网。<paramref name="riverThresholdCells"/> 是拓扑口径（格数），
 	/// <paramref name="riverThresholdAreaKm2"/> 是物理口径（km²），后者优先。
 	/// 同 res 下两者完全等价（× 格面积是等价变换）；跨 res 才显出物理阈值尺度无关。</summary>
-	public void Generate(Ball ball, FinalGeography final, float[] heightM, float seaLevelM,
+	public void Generate(Ball ball, TerrainPipeline terrain, float seaLevelM,
 		int riverThresholdCells = RiverThresholdCells, float[] annualPrecipMm = null,
 		double? riverThresholdAreaKm2 = null, bool? useDepressionFill = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (final == null) throw new ArgumentNullException(nameof(final));
-		if (heightM == null) throw new ArgumentNullException(nameof(heightM));
+		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 
 		// ── 水文路由表面 ──
-		// 在派生表面上跑汇流而非最终高度：Final 地形事实不动（地貌 / 渲染 / 原始洼地语义不受影响），
+		// 在派生表面上跑汇流而非最终高度：地形事实不动（地貌 / 渲染 / 原始洼地语义不受影响），
 		// 填洼只作用于路由；开关关闭 ⇒ RoutingHeightM 与源高度逐点相同 ⇒ 零漂移。
 		Routing = new HydrologyRoutingSurface();
-		Routing.Generate(ball, heightM, seaLevelM, useDepressionFill);
+		Routing.Generate(ball, terrain.HeightM, seaLevelM, useDepressionFill);
 
 		var hydro = new H3Hydrology();
 		// 权重 = 逐格年降水；无降水输入时 WeightedAccum 退化为上游格数（同 FlowAccum），行为不漂移。
@@ -99,7 +98,7 @@ public sealed class RiverNetwork
 
 		IsRiver = new bool[n];
 		for (int i = 0; i < n; i++)
-			IsRiver[i] = final.FinalLand[i] && (annualPrecipMm != null
+			IsRiver[i] = terrain.FinalLand[i] && (annualPrecipMm != null
 				? RunoffAccum[i] >= RunoffThreshold
 				: FlowAccum[i] >= thresholdCellsEq);
 	}
