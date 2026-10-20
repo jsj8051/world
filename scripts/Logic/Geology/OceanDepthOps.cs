@@ -2,42 +2,34 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
-using World.Data;            // TerrainSpec（海底旋钮）+ BoundaryRole（上盘 / 下盘）
-using World.H3Grid;          // Ball（H3 球壳数据层）
-using World.Utils;           // SphericalFbmNoise（深海丘陵 / 大陆架 / 岛弧串噪声）
+using World.Data;
+using World.H3Grid;
+using World.Utils;
 
 namespace World.Logic;
 
 /// <summary>
-/// 海底深度算子：给**洋壳**的格算出海底深度（负值），另给出岛弧成岛的附加高度。
-/// 陆壳的格一律不参与——它们由 ① 的陆面（基线 + 三档 + 山脉）定。
-///
-/// 三条来源互补（都吃 <see cref="PlateBoundaryOps"/> 已产出的边界场）：
-/// · **洋中脊**：到大洋里**张裂边界**的距离 = 洋壳年龄 ⇒ 深度 **∝ √年龄**，
-///   脊顶约 −2700 m、最老洋底约 −5400 m；脊顶再按张裂强度隆起一道；
-/// · **大陆架 / 大陆坡**：按**离岸距离**，近岸一段浅（−30 → −180 m），
-///   出架后顺着大陆坡下到深海；被动边缘宽、俯冲带一侧窄（由汇聚强度调制）；
-/// · **岛弧**：**上盘**（<see cref="BoundaryRole.Arc"/>）的洋壳在海沟后方一条窄带上隆起成海底脊；
-///   沿带噪声的峰处再叠一层高度 ⇒ 抬过海面即成**一串岛**（弧形岛链）。
-///
-/// 以及 **海沟**：**俯冲侧**（<see cref="BoundaryRole.Slab"/>）的洋壳、紧贴边界挖一道窄而深的槽——
-/// 「先平滑海底、再挖海沟」，故海沟不会被平滑抹平。
-///
-/// 深度只在此处受钳制：上界 <see cref="TerrainSpec.OceanShallowestM"/>（最浅的海）、
-/// 下界 <see cref="TerrainSpec.OceanDeepestM"/>（最深的海）。
+/// 海底深度算子：给洋壳格算海底深度（负值），另给岛弧成岛的附加高度；陆壳格不参与
+/// （陆面由 <see cref="TerrainManager"/> 装配）。
+/// 三条互补来源：洋中脊与岛弧吃 <see cref="PlateBoundaryOps"/> 的边界场，大陆架 / 大陆坡吃离岸距离。
+/// 洋中脊按到大洋张裂边界的距离当年龄（深度 ∝ √年龄，脊顶约 −143 m、最老洋底约 −287 m，
+/// 脊顶再按张裂强度隆起）；大陆架 / 大陆坡近岸 −1.6 → −9.6 m，出架后下到深海
+/// （被动边缘宽、俯冲侧窄）；岛弧（<see cref="BoundaryRole.Arc"/>）在上盘洋壳的海沟后方窄带隆起，
+/// 沿带噪声峰处再叠高度 ⇒ 抬过海面成一串岛。海沟在俯冲侧（<see cref="BoundaryRole.Slab"/>）、
+/// 平滑之后才挖（否则会被抹平）。深度只在此处钳制：上界 <see cref="TerrainSpec.OceanShallowestM"/>、
+/// 下界 <see cref="TerrainSpec.OceanDeepestM"/>。
 /// </summary>
 public static class OceanDepthOps
 {
-	// 海底噪声的波长 / 层数：这些是**纹理尺度**（形状常量），不进 `TerrainSpec`
-	// （那里放的是能改画面的物理旋钮：深度、宽度、高度）。
-	const float SeaLargeWavelengthKm = 7680f;
+	// 海底噪声的波长 / 层数是纹理尺度（形状常量），不进 TerrainSpec——那里放能改画面的物理旋钮。
+	const float SeaLargeWavelengthKm = 407f;
 	const int SeaLargeOctaves = 5;
-	const float SeaFineWavelengthKm = 1707f;
-	const int SeaFineOctaves = 5;
-	const float ShelfNoiseWavelengthKm = 9600f;
+	const float SeaFineWavelengthKm = 91f;
+	const int SeaFineOctaves = 4;      // 最细层 11.4 km ≈ 4.6 格（再细就压到采样极限，混叠成条纹）
+	const float ShelfNoiseWavelengthKm = 509f;
 	const int ShelfNoiseOctaves = 3;
-	const float ArcBeadWavelengthKm = 741f;
-	const float ArcIsleWavelengthKm = 1958f;
+	const float ArcBeadWavelengthKm = 40f;
+	const float ArcIsleWavelengthKm = 104f;
 	const int ArcIsleOctaves = 4;
 
 	/// <summary>结果。<c>DepthM</c>：洋壳格的海底深度（恒 ≤ <see cref="TerrainSpec.OceanShallowestM"/>；陆壳格不用）；
@@ -54,12 +46,8 @@ public static class OceanDepthOps
 		}
 	}
 
-	/// <param name="ball">球壳数据层。</param>
-	/// <param name="seed">世界种子。</param>
-	/// <param name="spec">本阶段配置（海底段旋钮）。</param>
-	/// <param name="plateOfCell">逐格板块号（判边界格用）。</param>
-	/// <param name="continental">逐格是否陆壳。</param>
-	/// <param name="land">逐格是否**露出水面**（陆壳 且 合成高度 &gt; 海面）——离岸距离的源。</param>
+	/// <summary>构建海底场：只算洋壳格，陆壳格留 0。</summary>
+	/// <param name="land">逐格是否露出水面（陆壳且合成高度 &gt; 海面）——离岸距离的源。</param>
 	/// <param name="motion">逐格边界法向相对速率（&lt; 0 汇聚 / &gt; 0 张裂）。</param>
 	/// <param name="role">逐格汇聚角色（见 <see cref="BoundaryRole"/>）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell,
@@ -77,7 +65,7 @@ public static class OceanDepthOps
 		var dirs = ball.CellDirs;
 		var neighbors = ball.CellNeighbors;
 
-		// ── 源集：活动边界格（汇聚 / 张裂）──
+		// ── 源集：活动边界格（|motion| 超过 ActiveMotion；阈值与山带共用）──
 		var convSources = new List<int>();
 		var divSources = new List<int>();
 		for (int i = 0; i < n; i++)
@@ -95,12 +83,12 @@ public static class OceanDepthOps
 		}
 
 		// ── 三个真实距离场（km）：到汇聚边界 / 到大洋张裂边界 / 到陆地 ──
-		// 截断半径 = 该场最远的有效尺度（带之外 / 年龄满值之后都不再改变结果），越远越省。
+		// 截断半径取该场最远的有效尺度（带外 / 年龄满值后不再改变结果），越远越省。
 		var conv = DistanceFieldOps.Build(ball, convSources,
 			i => MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale),
 			4f * spec.ActiveMarginBandKm);
 
-		// 洋中脊只在大洋里：大陆里的张裂是裂谷，不算洋中脊
+		// 洋中脊只在大洋里：大陆里的张裂是裂谷，不算洋中脊。
 		var ridgeSources = new List<int>();
 		foreach (int i in divSources)
 			if (!continental[i]) ridgeSources.Add(i);
@@ -112,7 +100,7 @@ public static class OceanDepthOps
 		for (int i = 0; i < n; i++)
 			if (land[i]) coastSources.Add(i);
 		var coast = DistanceFieldOps.Build(ball, coastSources, _ => 0f,
-			spec.ShelfMaxWidthKm + spec.SlopeSpanKm);
+			MathF.Max(spec.ShelfMinWidthKm, spec.ShelfMaxWidthKm) + spec.SlopeSpanKm);
 
 		// ── 噪声场 ──
 		var seaLarge = new SphericalFbmNoise(
@@ -126,7 +114,7 @@ public static class OceanDepthOps
 		var isleNoise = new SphericalFbmNoise(
 			SeedDerivation.Derive(seed, SeedDerivation.Ocean_ArcIsle), ArcIsleWavelengthKm, ArcIsleOctaves);
 
-		// ── 逐格海底剖面（只算洋壳；陆壳格留 0，下面也当"岸"用）──
+		// ── 逐格海底剖面（只算洋壳；陆壳格保持 0）──
 		var depth = new float[n];
 		var arcIsland = new float[n];
 		Parallel.For(0, n, i =>
@@ -138,15 +126,15 @@ public static class OceanDepthOps
 			float rs = ridge.Strength[i];
 			float age = MathF.Min(1f, ridge.DistKm[i] / spec.RidgeAgeSpanKm);
 			float d = spec.RidgeCrestDepthM - spec.RidgeAgeDepthM * MathF.Sqrt(age)
-				+ spec.RidgeCrestRiseM * rs * Band(ridge.DistKm[i], spec.RidgeBandKm);
+				+ spec.RidgeCrestRiseM * rs * MathOps.GaussianBand(ridge.DistKm[i], spec.RidgeBandKm);
 			d += spec.AbyssHillLargeM * seaLarge.Sample(dir)
 				+ spec.AbyssHillFineM * seaFine.Sample(dir);
 
 			// ② 大陆架 / 大陆坡：离岸一段浅，出架后顺着坡下到深海
-			float active = conv.Strength[i] * Band(conv.DistKm[i], spec.ActiveMarginBandKm);
+			float active = conv.Strength[i] * MathOps.GaussianBand(conv.DistKm[i], spec.ActiveMarginBandKm);
 			float shelfWidth = (spec.ShelfMinWidthKm
 					+ (spec.ShelfMaxWidthKm - spec.ShelfMinWidthKm) * (1f - active)
-						* (0.35f + 0.65f * Smoothstep(-0.4f, 0.5f, shelfNoise.Sample(dir))))
+						* (0.35f + 0.65f * MathOps.Smoothstep(-0.4f, 0.5f, shelfNoise.Sample(dir))))
 				* (coast.DistKm[i] < spec.MarginWidenKm ? 1.3f : 0.7f);
 			if (shelfWidth < 1f) shelfWidth = 1f;
 
@@ -154,13 +142,13 @@ public static class OceanDepthOps
 			float shelf = dc < shelfWidth
 				? spec.ShelfShallowestM + (spec.ShelfDeepestM - spec.ShelfShallowestM) * (dc / shelfWidth)
 				: spec.ShelfDeepestM + (spec.SlopeBottomM - spec.ShelfDeepestM)
-					* Smoothstep(0f, spec.SlopeSpanKm, dc - shelfWidth);
+					* MathOps.Smoothstep(0f, spec.SlopeSpanKm, dc - shelfWidth);
 			d = MathF.Max(d, shelf);
 
 			// ③ 岛弧：上盘的洋壳在海沟后方一条窄带上隆起成海底脊
 			float cs = conv.Strength[i];
 			float cd = conv.DistKm[i];
-			float arcBand = Band(cd - spec.ArcOffsetKm, spec.ArcBandKm);
+			float arcBand = MathOps.GaussianBand(cd - spec.ArcOffsetKm, spec.ArcBandKm);
 			bool overriding = role[i] == BoundaryRole.Arc;
 			if (overriding)
 				d = MathF.Max(d, spec.ArcCrestDepthM - spec.ArcRiseM * (1f - cs * arcBand));
@@ -170,13 +158,13 @@ public static class OceanDepthOps
 			// ④ 岛弧成岛：沿带的 bead 峰处再叠一层高度 ⇒ 抬过海面即成一串岛
 			if (overriding)
 			{
-				float beads = Smoothstep(-0.35f, 0.45f,
+				float beads = MathOps.Smoothstep(-0.35f, 0.45f,
 					beadNoise.Sample(dir) + 0.35f * isleNoise.Sample(dir));
 				arcIsland[i] = MathF.Max(0f, spec.ArcIslandPeakM * cs * arcBand * beads);
 			}
 		});
 
-		// ── 平滑海底，去掉距离场的折线痕迹；海沟**在平滑之后**再挖（窄而深，不被抹平）──
+		// ── 先平滑海底（削距离场折线），海沟在平滑之后才挖——窄而深，不被邻域均值抹平 ──
 		FieldBlurOps.Blur(ball, depth, FieldBlurOps.NeighborMeanWeight, spec.OceanSmoothPasses);
 
 		var trench = new float[n];
@@ -186,8 +174,8 @@ public static class OceanDepthOps
 			if (role[i] != BoundaryRole.Slab) return;
 			trench[i] = (spec.TrenchDepthM + spec.TrenchConvDepthM * conv.Strength[i])
 				* conv.Strength[i]
-				* Band(conv.DistKm[i], spec.TrenchBandKm)
-				* Smoothstep(spec.TrenchMinCoastKm, spec.TrenchFullCoastKm, coast.DistKm[i]);
+				* MathOps.GaussianBand(conv.DistKm[i], spec.TrenchBandKm)
+				* MathOps.Smoothstep(spec.TrenchMinCoastKm, spec.TrenchFullCoastKm, coast.DistKm[i]);
 		});
 		FieldBlurOps.Blur(ball, trench, FieldBlurOps.NeighborMeanWeight, spec.TrenchSmoothPasses);
 
@@ -200,22 +188,4 @@ public static class OceanDepthOps
 		return new Field(depth, arcIsland);
 	}
 
-	/// <summary>高斯带：<c>exp(−(d/w)²)</c>；<c>|d/w| &gt; 4</c> ⇒ 0（远场截断）。<c>w ≤ 0</c> ⇒ 0（关断）。</summary>
-	static float Band(float d, float w)
-	{
-		if (!(w > 0f)) return 0f;
-		float t = d / w;
-		if (t > 4f || t < -4f) return 0f;
-		return MathF.Exp(-t * t);
-	}
-
-	/// <summary>平滑阶跃：<c>x ≤ a</c> ⇒ 0、<c>x ≥ b</c> ⇒ 1，中间二阶连续。<c>b ≤ a</c> ⇒ 硬阶跃。</summary>
-	static float Smoothstep(float a, float b, float x)
-	{
-		if (!(b > a)) return x >= b ? 1f : 0f;
-		float t = (x - a) / (b - a);
-		if (t <= 0f) return 0f;
-		if (t >= 1f) return 1f;
-		return t * t * (3f - 2f * t);
-	}
 }

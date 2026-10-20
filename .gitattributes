@@ -2,3 +2,7 @@
 *.tscn text eol=lf
 *.gdshader text eol=lf
 *.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+.githooks/* text eol=lf

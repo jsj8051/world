@@ -9,11 +9,12 @@ namespace World.Render;
 //   不认识任何生成类型。正因为如此它才被批准从 B 线旧单体回收，而不是随 B 线清退。
 //   类名去掉 `Noise` 前缀：新架构已无"噪声线"概念（`NoiseTerrain`/`NoisePlates` 等已清退）。
 //
-// 取色纪律沿旧 new_HexWorld MapMode：取色方式统一由 `World.Utils.ColorRamp` 提供
-//   （`RampSample` 线性 / `RampSampleSmooth` 三次平滑 / `RampLegendColors` 图例），复用不复制。
-// ★色带归属（2026-10-08 收口）：**本抽象基类只装契约，不装色板**。各色带内聚其消费方文件
-//   （`WorldGen` 各地图模式类的 Precip/Temperature/Diverging/海拔分档表）；
-//   模式在 `CellColorAt` 里自行决定用哪条色带，并直接调 `ColorRamp` 取色。
+// 取色纪律沿旧 new_HexWorld MapMode：色带取色统一由 `World.Utils.ColorRamp` 提供
+//   （`RampSample` 线性 / `RampSampleSmooth` 三次平滑 / `RampLegendColors` 图例），复用不复制；
+//   连续灰度这类直接映射在模式里算，不经过 ColorRamp。
+// ★色带归属（2026-10-08 收口）：**本抽象基类只装契约，不装色板**。各色带/灰度映射内聚其消费方文件
+//   （`WorldGen` 各地图模式类的 Precip/Temperature/Diverging/海拔灰度表）；
+//   模式在 `CellColorAt` 里自行决定取色方式（色带可调 `ColorRamp`，灰度可直接算）。
 //   ★2026-10-09：`Domain.BiomeColors.TempStops` 已随 `World.Domain` 解散而删除（色带职责归地图模式）。
 //模式类**只读**，不写任何状态；`BeginBake` 是唯一的重烘钩子（自适应域模式在此刷新 min-max）。
 //

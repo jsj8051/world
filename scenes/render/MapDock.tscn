@@ -9,6 +9,7 @@ border_width_top = 1
 border_width_right = 1
 border_width_bottom = 1
 border_color = Color(0.722, 0.525, 0.043, 0.9)
+content_margin_bottom = 6.0
 corner_radius_top_left = 12
 corner_radius_top_right = 12
 corner_radius_bottom_right = 12
@@ -101,6 +102,20 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 4
 theme_override_constants/separation = 4
+
+[node name="ModeTerrain" type="Button" parent="DockBox/ModeRow"]
+custom_minimum_size = Vector2(84, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_colors/font_hover_color = Color(0.227, 0.173, 0.102, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("sb_btn")
+theme_override_styles/pressed = SubResource("sb_btn_pressed")
+theme_override_styles/hover = SubResource("sb_btn_hover")
+theme_override_styles/focus = SubResource("sb_btn")
+toggle_mode = true
+button_group = SubResource("bg_modes")
+text = "地形"
 
 [node name="ModePlate" type="Button" parent="DockBox/ModeRow"]
 custom_minimum_size = Vector2(84, 34)

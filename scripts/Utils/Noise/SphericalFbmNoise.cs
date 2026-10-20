@@ -3,47 +3,34 @@ using Godot;                 // Vector3（纯结构体，不需要引擎运行�
 
 namespace World.Utils
 {
-	// 球面 3D 噪声 + fBm 分形（纯 C#，**零引擎依赖**）：给世界生成提供连续、各向同性、无缝的起伏基场
-	// （初始地壳的陆地/洋底起伏用它铺；将来山带/矿脉/区域扰动也可复用）。
+	// 球面 3D 噪声 + fBm（纯 C#，零引擎依赖）：连续、各向同性、无缝的起伏基场（初始地壳的陆海起伏用它铺）。
 	//
-	// 结构：Perlin 梯度噪声（晶格角点整数哈希 → 12 向梯度表 → 五次 fade → 三线性插值）
-	//       → fBm 倍频叠加（lacunarity 2 / gain 0.5，**按振幅平方和的均方根归一**）。
-	// 两种叠法：Sample = 普通 fBm（圆丘起伏，值 ≈ [−1,1]）；SampleRidged = 山脊 fBm（尖脊，值 ∈ [0,1]）。
-	//       值域 ≈ [−1, 1]，均值 ≈ 0，分布近高斯（σ ≈ 0.29；实测峰值 ≈ 1.1 × 标称幅度——res3/seed42 洋底起伏
-	//       实测 +396 m / 标称 350 m；理论极值上限 1.45）。
+	// 结构：Perlin 梯度噪声（整数哈希 → 12 向梯度表 → 五次 fade → 三线性插值）→ fBm 叠层
+	// （lacunarity 2 / gain 0.5，按振幅平方和的均方根归一）。Sample 普通 fBm（圆丘，≈[−1,1]）；
+	// SampleRidged 山脊 fBm（尖脊，∈[0,1]）。均值 ≈ 0、近高斯（σ ≈ 0.29，理论极值上限 1.45）。
 	//
-	// ⚠️ 归一化为什么用 **√Σgain²** 而不是 Σgain（两者都常见）：按振幅**和**归一时，每加一层
-	//   倍频，全场振幅就被多除一次（各层峰不重合，是均方叠加）——6 层场只剩 σ 的 0.6 倍，
-	//   "层数"这个旋钮会偷偷改振幅，同一个"起伏半幅"在不同层数下含义不同。均方根归一让
-	//   **振幅与层数解耦**：层数只加细节（斜率/粗糙度涨 ≈ √层数），振幅旋钮在任何层数下同义。
+	// 归一化用 √Σgain² 而非 Σgain：按振幅和归一时，每加一层倍频就把全场振幅多除一次（各层峰不重合，
+	// 是均方叠加），「层数」这个旋钮会偷偷改振幅；均方根归一让振幅与层数解耦，层数只加细节。
 	//
-	// ⚠️ 为什么用 **3D** 噪声采样单位球方向（而不是经纬 2D 噪声）：
-	//   球面没有边界——2D 经纬噪声在 ±180° 经线处有接缝、在两极被拉伸；3D 噪声只在 R³ 里取值，
-	//   球面只是它的一张切片，天然无缝、无极点畸变。这也正是 fBm 在球上"接得干净"的唯一做法。
+	// 用 3D 噪声采样单位球方向而非经纬 2D：2D 在 ±180° 经线有接缝、两极被拉伸；3D 噪声的球面切片天然无缝。
+	// 频率口径 = 基波长（km）：采样点 = 单位方向 × (WorldRadiusKm / 基波长) ⇒ 球面特征间距 ≈ 基波长，换 res 不改场。
 	//
-	// 频率口径 = **基波长（km）**（项目纪律：以物理尺度给参数，不给"噪声频率"这种无量纲魔数）：
-	//   采样点 = 单位方向 × (R_earth / 基波长)，于是噪声空间里相邻两个"特征"相隔 1 个单位
-	//   ⇒ 球面上相邻两个特征相隔 ≈ 基波长 km。换 res / 换半径不改场，只改采样密度。
-	//
-	// ⚠️ 为什么自写而不用 Godot 的 FastNoiseLite（同 SphericalBlobNoise）：
-	//   它是**引擎类型**，纯 .NET 测试宿主里构造会 access violation 崩掉整个测试进程；逻辑层的
-	//   单测纪律要求"无引擎宿主也能跑"。
-	//
-	// 确定性：晶格整数哈希 + 每倍频种子偏移，**不消耗任何 rng、与调用顺序无关**——
-	// 同种子同方向逐位一致（同一方向可在任意时刻重复采样）。
+	// 不用 Godot 的 FastNoiseLite：它是引擎类型，纯 .NET 测试宿主里构造会 access violation 崩掉整个测试进程。
+	// 确定性：晶格整数哈希 + 每倍频种子偏移，不消耗 rng、与调用顺序无关，同一方向可任意时刻重复采样。
 	public sealed class SphericalFbmNoise
 	{
-		/// <summary>基准半径（km）。与 `H3PlateMotion.EarthRadiusKm` 同值；本类零引擎/零业务依赖，
-		/// 不反向引用板块模块，故自带一份常量（改其一须同步）。</summary>
-		public const float EarthRadiusKm = 6371f;
+		/// <summary>世界半径（km）——球面上「多少 km」的唯一换算口（噪声波长、<c>SpatialScale</c> 的面积 / 距离都经它）。
+		/// 由「res4 每格 5 km² × 288,122 格 = 1,440,610 km²」推出 R = √(A/4π) ≈ 338.586 km。
+		/// 本类零引擎 / 零业务依赖，故自带这份常量；改「每格多大」就改这里。</summary>
+		public const float WorldRadiusKm = 338.586f;
 
-	readonly int _seed;
-	readonly int _octaves;
-	readonly float _lacunarity;
-	readonly float _gain;
-	readonly float _baseScale;       // 单位方向 → 噪声空间半径 = R_earth / 基波长
-	readonly float _normalization;   // 1 / √Σgain²ⁱ（均方根归一：振幅与层数解耦）
-	readonly float _ridgedNorm;      // 1 / Σgainⁱ（山脊噪声按振幅和归一 ⇒ 值落在 [0,1]）
+		readonly int _seed;
+		readonly int _octaves;
+		readonly float _lacunarity;
+		readonly float _gain;
+		readonly float _baseScale;       // 单位方向 → 噪声空间半径 = WorldRadiusKm / 基波长
+		readonly float _normalization;   // 1 / √Σgain²ⁱ
+		readonly float _ridgedNorm;      // 1 / Σgainⁱ
 
 		/// <param name="seed">确定性种子（同种子同场）。</param>
 		/// <param name="baseWavelengthKm">基波长（km）：最大一层的特征尺寸（如大陆级起伏 2000–4000 km）。</param>
@@ -64,7 +51,7 @@ namespace World.Utils
 			_octaves = Math.Clamp(octaves, 1, 12);
 			_lacunarity = lacunarity;
 			_gain = gain;
-			_baseScale = EarthRadiusKm / baseWavelengthKm;
+			_baseScale = WorldRadiusKm / baseWavelengthKm;
 			double squareSum = 0, amplitudeSum = 0, amplitude = 1;
 			for (int o = 0; o < _octaves; o++)
 			{
@@ -95,12 +82,11 @@ namespace World.Utils
 		}
 
 		/// <summary>
-		/// 单位方向处的**山脊噪声**（ridged fBm，值域 ≈ [0, 1]；大值 = 脊线）。
-		///
-		/// 每层先取 <c>r = (1 − |n|)²</c>——噪声穿过零线处取极大 ⇒ 成**尖脊**（普通 fBm 是圆丘）；
-		/// 再乘前一层留下的压权 <c>weight</c>（<c>weight ← min(1, 2r)</c>）——低处的细层被压低，
-		/// 脊线才连续不断成"一条条山脊"而不是满屏碎脊。最后按**振幅和**归一（不是均方根）
-		/// ⇒ 输出落在 [0,1]，可直接与阈值比较（如"只让最陡的 5% 冒头成古山系"）。
+		/// 单位方向处的山脊噪声（ridged fBm，≈[0, 1]；大值 = 脊线）。
+		/// 每层先取 <c>r = (1 − |n|)²</c>：噪声穿过零线处取极大 ⇒ 成尖脊（普通 fBm 是圆丘）；
+		/// 再乘前一层留下的门控 <c>weight ← clamp(2r, 0, 1)</c>：低处的细层被压低，脊线才连续成条。
+		/// 门控是纯级联 ⇒ 形状由最粗一层独断，棱长而连续、棱距 ≈ 半个基波长；棱距不到 3 倍格距会混叠成条纹。
+		/// 最后按振幅和归一（不是均方根）⇒ 输出落在 [0,1]，可直接与阈值比较。
 		/// </summary>
 		public float SampleRidged(Vector3 unitDirection)
 		{
@@ -130,7 +116,7 @@ namespace World.Utils
 			return values;
 		}
 
-		// ── Perlin 3D（经典 12 向梯度表；五次 fade 保证二阶导连续 —— 地形场不要有折痕）──
+		// ── Perlin 3D（经典 12 向梯度表） ──
 
 		static float Perlin(float x, float y, float z, int seed)
 		{
@@ -156,8 +142,8 @@ namespace World.Utils
 			return y0 + (y1 - y0) * w;
 		}
 
-		// 晶格角点贡献 = 该角点梯度 · 到角点的偏移向量。12 向梯度表（±1 分量、长 √2）是 Perlin
-		// 经典选取：张成的方向覆盖立方体的 12 条棱，无轴向偏好 → 不会出现轴对齐的条纹伪影。
+		// 晶格角点贡献 = 该角点梯度 · 到角点的偏移向量。12 向梯度表（±1 分量、长 √2）是 Perlin 的经典选取：
+		// 方向覆盖立方体 12 条棱，无轴向偏好 → 不出现轴对齐的条纹伪影。
 		static float Corner(int x, int y, int z, int seed, float dx, float dy, float dz)
 		{
 			int g = Hash(x, y, z, seed) % 12;
@@ -175,8 +161,8 @@ namespace World.Utils
 			0f, 1f, 1f,  0f, -1f, 1f,  0f, 1f, -1f,  0f, -1f, -1f,
 		};
 
-		// 整数哈希（SplitMix 式尾混；不依赖 rng 状态 ⇒ 与调用顺序无关）。加法/乘法用 unchecked
-		// 溢出回绕，结果只取决于 (x, y, z, seed) 的位模式。
+		// 整数哈希（SplitMix 式尾混；不依赖 rng 状态 ⇒ 与调用顺序无关）。加法 / 乘法用 unchecked 溢出回绕，
+		// 结果只取决于 (x, y, z, seed) 的位模式。
 		static int Hash(int x, int y, int z, int seed)
 		{
 			unchecked

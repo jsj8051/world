@@ -1,11 +1,7 @@
 #!/bin/sh
-# ═══════════════════════════════════════════════════════════════════
-# pre-commit 门槛（2026-08-19，ADR-0001 配套）：
-#   dotnet build + 单元测试（本地执行器，~30s）。
+# pre-commit 门槛：dotnet build 0 错误 0 警告；tests/World.Tests.Local 存在时再跑单元测试。
 # 安装：git config core.hooksPath .githooks
-# 说明：快速路径；headless 回归（scripts/verify.sh）留给 push 前/CI 自托管作业。
-# 只按退出码判定（避免中文输出/本地化差异导致的误判）。
-# ═══════════════════════════════════════════════════════════════════
+# 只按退出码判定，不解析输出（中文与本地化差异会让文本匹配误判）。
 set -u
 cd "$(dirname "$0")/.." || exit 1
 
@@ -16,12 +12,18 @@ if ! dotnet build world.csproj -m:1 -nodeReuse:false -p:NuGetAudit=false >/dev/n
 fi
 echo "✓ 构建通过"
 
+TEST_PROJ="tests/World.Tests.Local/World.Tests.Local.csproj"
+if [ ! -f "$TEST_PROJ" ]; then
+    echo "（tests/ 下暂无测试工程，跳过单元测试）"
+    exit 0
+fi
+
 echo "═══ [pre-commit 2/2] 单元测试（World.Tests.Local）═══"
-if ! dotnet build tests/World.Tests.Local/World.Tests.Local.csproj -m:1 -nodeReuse:false -p:NuGetAudit=false >/dev/null 2>&1; then
+if ! dotnet build "$TEST_PROJ" -m:1 -nodeReuse:false -p:NuGetAudit=false >/dev/null 2>&1; then
     echo "❌ 测试项目构建失败——提交已阻止"
     exit 1
 fi
-if ! dotnet run --project tests/World.Tests.Local/World.Tests.Local.csproj --no-build >/dev/null 2>&1; then
+if ! dotnet run --project "$TEST_PROJ" --no-build >/dev/null 2>&1; then
     echo "❌ 单元测试失败——提交已阻止（先修复测试）"
     exit 1
 fi

@@ -1,13 +1,8 @@
 namespace World.Data;
 
 /// <summary>
-/// **海拔分档**（9 档 + 档界）：这是**世界事实的分类口径**，不是渲染策略——
-/// 回答"这个海拔属于哪一档"，与"这一档画什么颜色"无关。
-///
-/// 档界只有这一份：色与名各自映射同一个枚举，两者不会漂移。
-///
-/// ⚠️ 分工：**颜色属表现层**（`ElevationMode.ElevationColor` 按本枚举取色）、
-///   **判读与文案属本层**（判读 = 世界事实的分类，文案 = 该分类的词表）。
+/// 海拔分档：把海拔归进 9 档，是判读口径，不是渲染策略（取色归 <c>ElevationMode</c>）。
+/// 档界只有这一份，文案经 <see cref="Name"/>；海拔模式现为连续灰度、不再按档取色，两者仍同序。
 /// </summary>
 public static class ElevationBands
 {
@@ -15,9 +10,9 @@ public static class ElevationBands
 	public enum Band { DeepSea, Ocean, ShallowSea, Shelf, Lowland, Plain, Highland, Mountain, Snowline }
 
 	/// <summary>
-	/// **档界**（米）：第 i 档的上界（不含），末档 <c>float.PositiveInfinity</c> = 以上全部。
-	/// 语义 = "海拔 &lt; 本值则归本档"，与迁出前的 `switch` 逐档等价（**阈值一字未改**）。
-	/// ★这是**唯一的一份档界**：色带与文案都必须经 <see cref="Of"/>，不得各自写 `switch`。
+	/// 第 i 档的上界（米，不含；末档 +∞）：海拔 &lt; 本值即归本档。
+	/// 地球尺度固定档界（−3000 / −1000 / −200 / 0 / 300 / 900 / 1800 / 2800），
+	/// 不随世界 / seed 自适应 ⇒ 跨世界可比。
 	/// </summary>
 	public static readonly float[] UpperBoundsM =
 	{
@@ -29,14 +24,14 @@ public static class ElevationBands
 		"深海", "大洋", "浅海", "岸棚", "低地", "平原", "高地", "山地", "雪线",
 	};
 
-	/// <summary>海拔（米）→ 档位。**唯一的判读口**。</summary>
+	/// <summary>海拔（米）→ 档位；判读的唯一入口。</summary>
 	public static Band Of(float elevationM)
 	{
 		for (int i = 0; i < UpperBoundsM.Length; i++)
 			if (elevationM < UpperBoundsM[i]) return (Band)i;
-		return Band.Snowline;   // 兜底（末档为 +∞，正常到不了）
+		return Band.Snowline;
 	}
 
-	/// <summary>档位中文名（文案消费方：信息卡）。★与 <see cref="Of"/> 同表 ⇒ 文案与判读恒一致。</summary>
+	/// <summary>档位中文名（信息卡等文案用），与 <see cref="Of"/> 同表。</summary>
 	public static string Name(Band band) => Names[(int)band];
 }

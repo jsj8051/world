@@ -3,15 +3,12 @@ using Godot;                 // Vector3（纯结构体，不需要引擎运行�
 
 namespace World.Utils
 {
-	// 球面低频"团噪声"（纯 C#，**零引擎依赖**）：给初始地壳生成提供空间连续的排名场。
+	// 球面低频团噪声（纯 C#，零引擎依赖）：给初始地壳生成提供空间连续的排名场。
+	// 结构：K 个随机团心的高斯团场取最大（主尺度 = 大陆块尺度）+ 高频细节团场（次尺度），
+	// 按 0.65 / 0.35 加权后归一到 0..1。团心数直接对应「大陆块数」这个旋钮（比「噪声频率」直观）。
 	//
-	// 结构：K 个随机团心的高斯团场取**最大**（主尺度 = 大陆块尺度）+ 高频细节团场（次尺度），
-	// 按 0.65 / 0.35 加权 → 归一到 0..1。团心数直接对应"大陆块数"这个旋钮（比"噪声频率"直观）。
-	//
-	// ⚠️ 为什么不用 Godot 的 FastNoiseLite（2026-09-11 实测教训）：
-	// 它是**引擎类型**，在 World.Tests.Local（纯 .NET 控制台宿主，未初始化引擎）里构造会
-	// 直接 access violation 崩掉整个测试进程；而老 Tectonics 用 FastNoiseLite 没暴露问题是
-	// 因为它的单测从没走过 GenerateInitialCrust。测试纪律要求逻辑层能在无引擎宿主下跑。
+	// 不用 Godot 的 FastNoiseLite：它是引擎类型，未初始化引擎的纯 .NET 测试宿主里构造会 access violation
+	// 崩掉整个进程；而逻辑层要求能在无引擎宿主下跑。
 	public sealed class SphericalBlobNoise
 	{
 		readonly Vector3[] _mainCenters;
@@ -29,8 +26,8 @@ namespace World.Utils
 			_mainCenters = RandomUnitVectors(rng, mainCount);
 			_detailCenters = RandomUnitVectors(rng, Math.Max(1, (int)(mainCount * detailFrequencyScale)));
 
-			// 团宽标定：球面上 K 个团心时每个团分到的立体角 ≈ 4π/K → 张角 θ ≈ 2/sqrt(K)，
-			// 用 (1 − cosθ) ≈ θ²/2 作距离代理 → σ² ≈ 2/K。取 1.2 倍留重叠（团要连成块而不是孤岛）。
+			// 团宽标定：K 个团心时每个团分到的立体角 ≈ 4π/K → 张角 θ ≈ 2/√K，
+			// 用 (1 − cosθ) ≈ θ²/2 作距离代理 → σ² ≈ 2/K；取 1.2 倍留重叠（团要连成块而不是孤岛）。
 			float mainSigma = 2.4f / mainCount;
 			float detailSigma = mainSigma / (detailFrequencyScale * detailFrequencyScale);
 			_mainSharpness = 1f / MathF.Max(mainSigma, 1e-6f);

@@ -1,29 +1,25 @@
 using System;
 using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
-using World.H3Grid;          // Ball（H3 球壳数据层）
-using World.Utils;           // SphericalFbmNoise.EarthRadiusKm（球半径常量）
+using World.H3Grid;
+using World.Utils;
 
 namespace World.Logic;
 
 /// <summary>
-/// 逐格图的**真实距离算子**：多源 Dijkstra，从若干源格出发，逐格求出
-/// 「到最近源的**大圆距离**（km）／那个源携带的强度／最近的是哪个源」。
+/// 逐格图的真实距离算子：多源 Dijkstra，逐格求到最近源的大圆距离（km）、该源强度、最近源格号。
 ///
-/// 与 <see cref="LandMaskOps.HopsFrom"/>（跳数 BFS）的分工：跳数是**拓扑**量
-/// （与 res 强相关、系数有偏），本类给的是**几何**量（km，跨 res 同义）。
-/// 凡是按 km 给的带宽 / 深度剖面 / 衰减尺度，都必须走本类，不得用跳数 × 常数 折算。
+/// 与 <see cref="LandMaskOps.HopsFrom"/>（跳数 BFS）分工：跳数是拓扑量（随 res 变、系数有偏），
+/// 本类给几何量（km，跨 res 同义）。按 km 给的带宽 / 深度剖面 / 衰减尺度必须走本类，不得用跳数 × 常数折算。
 ///
-/// 距离一律用 <c>double</c> 累加并与堆优先级同精度，只在出口转 <c>float</c>——
-/// 若中途存 <c>float</c>，向下舍入会让"出堆时比 dist 大"的过期判定误伤活结点，
-/// 使一部分格不再向外扩展、距离系统性偏长。
+/// 距离用 <c>double</c> 累加并与堆优先级同精度，只在出口转 <c>float</c>：中途存 <c>float</c> 时，
+/// 向下舍入会让「出堆时比 dist 大」的过期判定误伤活结点，使部分格不再向外扩展、距离系统性偏长。
 /// </summary>
 public static class DistanceFieldOps
 {
-	/// <summary>
-	/// 距离场：逐格到最近源的距离（km）、该源的强度、该源的格号。
+	/// <summary>距离场：逐格到最近源的距离（km）、该源强度、该源格号。
 	/// 超出 <c>capKm</c>（或与该源不连通）的格：<c>DistKm = capKm</c>、<c>Strength = 0</c>、<c>Src = −1</c>。
-	/// </summary>
+	/// <c>capKm ≤ 0</c> ⇒ 空场：<c>DistKm = +∞</c>、<c>Strength = 0</c>、<c>Src = −1</c>（等价于关断）。</summary>
 	public readonly struct Field
 	{
 		public readonly float[] DistKm;
@@ -38,23 +34,24 @@ public static class DistanceFieldOps
 		}
 	}
 
-	/// <summary>
-	/// 多源 Dijkstra 距离场。<paramref name="strengthOf"/> 只对源格调用一次
-	/// （强度沿最近源的路径带走，逐格继承）。
-	/// </summary>
-	/// <param name="ball">球壳数据层。</param>
+	/// <summary>多源 Dijkstra 距离场。<paramref name="strengthOf"/> 只对源格调用一次，
+	/// 强度沿最近源的路径逐格继承。</summary>
 	/// <param name="sources">源格（重复无所谓；越界项忽略）。</param>
 	/// <param name="strengthOf">源格 → 携带强度（非源格不调用）。</param>
 	/// <param name="capKm">搜索截断半径（km）：超出即停，未到达的格取 <paramref name="capKm"/>。
-	/// 它只影响"够不到的远方"，不改变截止距离内的结果。</param>
-	public static Field Build(Ball ball, IReadOnlyList<int> sources, Func<int, float> strengthOf, double capKm)
+	/// 它只影响「够不到的远方」，不改变截止距离内的结果。<c>≤ 0</c> ⇒ 返回空场（关断）。</param>
+	/// <param name="passable">边通行谓词 <c>(from, to) → 是否可走</c>（如「只在同一板块内扩散」）；
+	/// <c>null</c> = 全通。被拒的边不计距离，也绝不穿越。</param>
+	public static Field Build(Ball ball, IReadOnlyList<int> sources, Func<int, float> strengthOf, double capKm,
+		Func<int, int, bool> passable = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (sources == null) throw new ArgumentNullException(nameof(sources));
 		if (strengthOf == null) throw new ArgumentNullException(nameof(strengthOf));
-		if (!(capKm > 0)) throw new ArgumentOutOfRangeException(nameof(capKm), capKm, "截断距离须为正（km）");
 
 		int n = ball.CellDirs.Length;
+		if (!(capKm > 0)) return Empty(n);
+
 		var dirs = ball.CellDirs;
 		var neighbors = ball.CellNeighbors;
 
@@ -82,6 +79,7 @@ public static class DistanceFieldOps
 
 			foreach (int j in neighbors[i])
 			{
+				if (passable != null && !passable(i, j)) continue;
 				double nd = priority + EdgeKm(dirs[i], dirs[j]);
 				if (nd >= dist[j] || nd > capKm) continue;
 				dist[j] = nd;
@@ -97,12 +95,21 @@ public static class DistanceFieldOps
 		return new Field(distKm, strength, src);
 	}
 
-	/// <summary>两格心之间的**大圆距离**（km）。入参是球面单位方向；非单位向量也可传（内部夹紧）。</summary>
+	static Field Empty(int n)
+	{
+		var distKm = new float[n];
+		Array.Fill(distKm, float.PositiveInfinity);
+		var src = new int[n];
+		Array.Fill(src, -1);
+		return new Field(distKm, new float[n], src);
+	}
+
+	/// <summary>两格心之间的大圆距离（km）。入参是球面单位方向；非单位向量也可传（内部夹紧）。</summary>
 	static double EdgeKm(Vector3 a, Vector3 b)
 	{
 		double dot = a.Dot(b);
 		if (dot > 1.0) dot = 1.0;
 		else if (dot < -1.0) dot = -1.0;
-		return SphericalFbmNoise.EarthRadiusKm * Math.Acos(dot);
+		return SphericalFbmNoise.WorldRadiusKm * Math.Acos(dot);
 	}
 }

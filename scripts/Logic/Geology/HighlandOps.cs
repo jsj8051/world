@@ -2,51 +2,43 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
-using World.Data;            // TerrainSpec（高地旋钮）+ BoundaryRole（四档汇聚角色）
-using World.H3Grid;          // Ball（H3 球壳数据层）
-using World.Utils;           // SphericalFbmNoise（山脊 / 老山 / 丘陵 / 高原场）
+using World.Data;
+using World.H3Grid;
+using World.Utils;
 
 namespace World.Logic;
 
 /// <summary>
-/// 陆壳高地的构造算子：给**陆壳**的格算出两样加性高度 ——
-/// <c>MountainM</c>（山带 + 古老山系 + 丘陵）与 <c>PlateauM</c>（高原底座）。
-/// 洋壳的格一律不参与——它们由 <see cref="OceanDepthOps"/> 定。
-///
-/// **山带按汇聚角色分档**（见 <see cref="BoundaryRole"/>）：同样一场碰撞，
-/// 陆×陆两侧都长宽带高山、陆×洋只在陆侧退后一条窄山链、俯冲侧只剩一道低矮增生楔。
-/// 带宽 = 基础带宽 + 加宽量 × 汇聚强度（撞得越狠铺得越开）；陆侧山链的峰**内移**一段
-/// （海岸那一段留给大陆架）。张裂带把抬升压低——张裂处不该跟着旁边的山一起被抬起来。
-///
-/// 幅度走**归一制**：先算全场相对抬升，再把第 99.7 百分位映射到
-/// <see cref="TerrainSpec.MountainPeakM"/>（⇒ 峰高跨种子可比），最后把折点以上的部分压缩
-/// （⇒ 不会冒出万米高峰）。归一在**平滑之后**做 ⇒ 平毛刺不改峰高目标。
-///
-/// 高原底座是**独立的一层**（不是把山铺平）：山带背后一大片平坦高地，沿海岸收掉。
-///
-/// 最后一步把山体交给 <see cref="ErosionOps"/> 细化 + 虚拟侵蚀（分形噪声加细碎起伏、
-/// 按虚拟水系下切）⇒ 山带不再是等高的墙。
-///
-/// 与 <see cref="OceanDepthOps"/> 同分工：本类只产"陆壳的构造高度"，
-/// 陆面的噪声基底由 <see cref="TerrainManager.SampleLand"/> 给。
+/// 陆壳高地的构造算子：给陆壳格算 <c>MountainM</c>（山带 + 老山 + 丘陵）与 <c>PlateauM</c>
+/// （高原底座）两样加性高度；洋壳格不参与，海底由 <see cref="OceanDepthOps"/> 定。
+/// 山带按 <see cref="BoundaryRole"/> 分档（陆×陆两侧宽带高山、陆×洋陆侧退后窄链、俯冲侧低矮增生楔），
+/// 陆×陆带宽随汇聚强度加宽、张裂带压低抬升；走向弯曲与 <see cref="SphericalFbmNoise.SampleRidged"/>
+/// 山脊骨架只改形状，不改峰高目标。
+/// 幅度走归一制：相对抬升的 P99.7 映射到 <see cref="TerrainSpec.MountainPeakM"/>、折点以上压峰；
+/// 归一在平滑之后做，故削毛刺不改峰高目标。高原底座是独立一层且沿海岸收掉，末步交
+/// <see cref="ErosionOps"/> 细化 + 虚拟侵蚀；本类只产构造高度，陆面噪声基底由
+/// <see cref="TerrainManager.SampleLand"/> 给。
 /// </summary>
 public static class HighlandOps
 {
-	// 噪声尺度（形状常量，与 `OceanDepthOps` 同分工：物理旋钮进 TerrainSpec，纹理尺度留在这里）
-	const float OldWavelengthKm = 8100f;
+	// 噪声尺度（形状常量）：物理旋钮进 TerrainSpec，纹理尺度留在这里（与 OceanDepthOps 同分工）。
+	const float OldWavelengthKm = 430f;
 	const int OldOctaves = 5;
-	const float HillsWavelengthKm = 7000f;
+	const float HillsWavelengthKm = 370f;
 	const int HillsOctaves = 4;
-	const float ReachWavelengthKm = 14000f;
+	const float ReachWavelengthKm = 743f;
 	const int ReachOctaves = 4;
-	const float AlongWavelengthKm = 6700f;
+	const float AlongWavelengthKm = 356f;
 	const int AlongOctaves = 4;
-	const float ShieldWavelengthKm = 12800f;
+	const float ShieldWavelengthKm = 679f;
 	const int ShieldOctaves = 4;
+	const float BeltWarpWavelengthKm = 110f;
+	const int BeltWarpOctaves = 2;
+	const float BranchWavelengthKm = 45f;
+	const int BranchOctaves = 2;
 
-	// 「冒头门」的分位（在陆壳格上取）：低分位 = 开始出现，高分位 = 完全出现。
-	// 用分位而不是固定阈值 ⇒ 与具体噪声实现的值域无关，换噪声也不用重调。
-	// 覆盖率 ≈ (1 − 低分位)：老山 ≈ 10%（成形于最陡的 1%），丘陵 ≈ 30%（成形于最丘的 3%）。
+	// 「冒头门」的分位（只在陆壳格上取）：低分位开始出现、高分位完全出现。
+	// 用分位而非固定阈值 ⇒ 与噪声值域无关；覆盖率 ≈ 1 − 低分位（老山 ≈10%，丘陵 ≈30%）。
 	const double OldQtyLow = 0.90;
 	const double OldQtyHigh = 0.99;
 	const double HillsQtyLow = 0.70;
@@ -58,11 +50,11 @@ public static class HighlandOps
 	const double ShieldQtyLow = 0.45;
 	const double ShieldQtyHigh = 0.85;
 
-	/// <summary>分位抽样的上限格数（超过就隔格取）——只用于定阈值，不必全量排序。</summary>
+	/// <summary>分位抽样的样本上限（格集超过它就按步长抽样；只用于定阈值，不必全量排序）。</summary>
 	const int QuantileSampleCap = 262144;
 
 	/// <summary>结果。<c>MountainM</c>：山带 + 老山 + 丘陵（≥ 0）；<c>PlateauM</c>：高原底座（≥ 0）。
-	/// 两者都只对陆壳格有效（洋壳格 = 0）。</summary>
+	/// 两场只在陆壳格上有意义；<c>MountainM</c> 经 <see cref="ErosionOps"/> 沉积后可能被相邻格搬入物质 ⇒ 只读陆壳格。</summary>
 	public readonly struct Field
 	{
 		public readonly float[] MountainM;
@@ -75,18 +67,14 @@ public static class HighlandOps
 		}
 	}
 
-	/// <param name="ball">球壳数据层。</param>
-	/// <param name="seed">世界种子。</param>
-	/// <param name="spec">本阶段配置（山带分档 / 老山 / 丘陵 / 裂谷 / 高原）。</param>
-	/// <param name="plateOfCell">逐格板块号（判边界格用）。</param>
-	/// <param name="continental">逐格是否陆壳。</param>
-	/// <param name="landHeight">逐格**陆面基底**（常量基线 + 三档变化场；非陆壳格不用）。</param>
+	/// <summary>构建陆壳高地场；洋壳格不参与。</summary>
+	/// <param name="landHeight">逐格陆面基底（常量基线 + 三档变化场；非陆壳格不用）。</param>
 	/// <param name="motion">逐格边界法向相对速率（&lt; 0 汇聚 / &gt; 0 张裂）。</param>
-	/// <param name="role">逐格汇聚角色。</param>
-	/// <param name="large">大尺度陆海场——兼作"有多深入大陆内"的判据（盾状台地用）。</param>
+	/// <param name="large">大尺度陆海场——兼作「有多深入大陆」的判据（盾状台地用）。</param>
+	/// <param name="landDir">逐格陆面采样方向（已过域扭曲，含近岸细节；与陆面基底同一坐标）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell,
 		bool[] continental, float[] landHeight, float[] motion, BoundaryRole[] role,
-		SphericalFbmNoise large)
+		SphericalFbmNoise large, Vector3[] landDir)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -96,17 +84,18 @@ public static class HighlandOps
 		if (motion == null) throw new ArgumentNullException(nameof(motion));
 		if (role == null) throw new ArgumentNullException(nameof(role));
 		if (large == null) throw new ArgumentNullException(nameof(large));
+		if (landDir == null) throw new ArgumentNullException(nameof(landDir));
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 		float seaM = spec.SeaLevelM;
-		float hopKm = (float)SpatialScale.Of(ball).NeighborCenterKm;
 
-		// ── ① 边界格标记（跳数 0 = 该格有异板块邻居）+ 到最近汇聚边界的跳数（同板块内扩散）──
+		// ── ① 边界格 + 到最近汇聚边界的真实距离 ──
+		// 山带坐标必须是 km 连续量：跳数 × 常数只有整数档 ⇒ 高斯带被量化成等跳数的平行长条（山带成阶梯）。
 		int[] boundaryHops = PlateBoundaryOps.BoundaryHops(ball, plateOfCell);
-		int[] hops = ConvergenceHops(ball, plateOfCell, role, boundaryHops);
+		float[] convKm = ConvergenceDistanceKm(ball, spec, plateOfCell, role, boundaryHops);
 
-		// ── ② 张裂带：到最近活动张裂边界的真实距离 + 强度 ──
+		// ── ② 张裂带：到最近活动张裂边界的真实距离 + 强度（⑧ 用来压低抬升）──
 		var riftSources = new List<int>();
 		for (int i = 0; i < n; i++)
 			if (boundaryHops[i] == 0 && motion[i] > PlateBoundaryOps.ActiveMotion) riftSources.Add(i);
@@ -115,7 +104,13 @@ public static class HighlandOps
 
 		// ── ③ 噪声场 ──
 		var ridge = new SphericalFbmNoise(
-			SeedDerivation.Derive(seed, SeedDerivation.Terrain_Ridge), spec.MountainRidgeWavelengthKm, spec.MountainRidgeOctaves);
+			SeedDerivation.Derive(seed, SeedDerivation.Terrain_Ridge), spec.MountainRidgeWavelengthKm,
+			NoiseSampling.ClampRidgedOctaves(spec.MountainRidgeOctaves, spec.MountainRidgeWavelengthKm,
+				SpatialScale.Of(ball).NeighborCenterKm));
+		var branch = new SphericalFbmNoise(
+			SeedDerivation.Derive(seed, SeedDerivation.Terrain_RidgeBranch), BranchWavelengthKm,
+			NoiseSampling.ClampRidgedOctaves(BranchOctaves, BranchWavelengthKm,
+				SpatialScale.Of(ball).NeighborCenterKm));
 		var oldRange = new SphericalFbmNoise(
 			SeedDerivation.Derive(seed, SeedDerivation.Terrain_OldRange), OldWavelengthKm, OldOctaves);
 		var hills = new SphericalFbmNoise(
@@ -126,14 +121,20 @@ public static class HighlandOps
 			SeedDerivation.Derive(seed, SeedDerivation.Terrain_Along), AlongWavelengthKm, AlongOctaves);
 		var shield = new SphericalFbmNoise(
 			SeedDerivation.Derive(seed, SeedDerivation.Terrain_Shield), ShieldWavelengthKm, ShieldOctaves);
+		var beltWarp = new SphericalFbmNoise(
+			SeedDerivation.Derive(seed, SeedDerivation.Terrain_BeltWarp), BeltWarpWavelengthKm,
+			NoiseSampling.ClampOctaves(BeltWarpOctaves, BeltWarpWavelengthKm,
+				3.0 * SpatialScale.Of(ball).NeighborCenterKm));
 
-		// ── ④ 取原始噪声（冒头门要按各自的分布定阈值，故先存后门）──
-		var tectonic = new float[n];   // 山带抬升（相对值，归一前）
-		var oldRaw = new float[n];     // 老山脊（ridged，∈ [0,1]）
-		var hillsRaw = new float[n];   // 丘陵场
+		// ── ④ 取原始噪声（冒头门要按各自的分布定阈值，故先存原始值、再折权重）──
+		var tectonic = new float[n];   // 山带抬升（相对值，⑦ 才归一）
+		var oldRaw = new float[n];     // 老山脊（ridged）
+		var hillsRaw = new float[n];
 		var alongRaw = new float[n];   // 高原沿走向
 		var inlandRaw = new float[n];  // 大陆内部程度
 		var shieldRaw = new float[n];  // 盾状台地
+		var beltOffset = new float[n]; // 横向偏移（km）
+		float beltWarpKm = Math.Clamp(spec.MountainBeltWarpKm, 0f, 15f);
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
@@ -141,8 +142,9 @@ public static class HighlandOps
 			oldRaw[i] = oldRange.SampleRidged(dir);
 			hillsRaw[i] = hills.Sample(dir);
 			alongRaw[i] = along.Sample(dir);
-			inlandRaw[i] = large.Sample(dir);
+			inlandRaw[i] = large.Sample(landDir[i]);
 			shieldRaw[i] = shield.Sample(dir);
+			beltOffset[i] = beltWarpKm * beltWarp.Sample(dir);
 		});
 
 		float[] oldQ = Quantiles(n, oldRaw, i => continental[i], OldQtyLow, OldQtyHigh);
@@ -151,33 +153,35 @@ public static class HighlandOps
 		float[] inlandQ = Quantiles(n, inlandRaw, i => continental[i], InlandQtyLow, InlandQtyHigh);
 		float[] shieldQ = Quantiles(n, shieldRaw, i => continental[i], ShieldQtyLow, ShieldQtyHigh);
 
-		// 就地把"原始噪声"折成"权重场"（本节之后这些数组一律按权重读）
-		var oldWeight = oldRaw;        // 老山门 × 丘陵门（"这一带本来就有起伏"）
-		var hillsWeight = hillsRaw;    // 丘陵区门
+		// 就地把原始噪声折成权重场：本节之后这些数组（含 oldRaw / hillsRaw 别名）一律按权重读。
+		var oldWeight = oldRaw;        // 老山门 × 丘陵门：这一带本来就有起伏
+		var hillsWeight = hillsRaw;
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
-			float oldGate = Smoothstep(oldQ[0], oldQ[1], oldRaw[i]);
+			float oldGate = MathOps.Smoothstep(oldQ[0], oldQ[1], oldRaw[i]);
 			float hillsValue = hillsRaw[i];
-			oldWeight[i] = oldGate * Smoothstep(hillsQ[0], hillsQ[1], hillsValue + 0.3f);
-			hillsWeight[i] = Smoothstep(hillsQ[0], hillsQ[1], hillsValue);
-			alongRaw[i] = Smoothstep(alongQ[0], alongQ[1], alongRaw[i]);
-			inlandRaw[i] = Smoothstep(inlandQ[0], inlandQ[1], inlandRaw[i]);
-			shieldRaw[i] = Smoothstep(shieldQ[0], shieldQ[1], shieldRaw[i]);
+			oldWeight[i] = oldGate * MathOps.Smoothstep(hillsQ[0], hillsQ[1], hillsValue + 0.3f);
+			hillsWeight[i] = MathOps.Smoothstep(hillsQ[0], hillsQ[1], hillsValue);
+			alongRaw[i] = MathOps.Smoothstep(alongQ[0], alongQ[1], alongRaw[i]);
+			inlandRaw[i] = MathOps.Smoothstep(inlandQ[0], inlandQ[1], inlandRaw[i]);
+			shieldRaw[i] = MathOps.Smoothstep(shieldQ[0], shieldQ[1], shieldRaw[i]);
 		});
 
-		// ── ⑤ 山带（相对值；归一留给下一步）──
+		// ── ⑤ 山带（相对值；⑦ 才归一）──
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
 			BoundaryRole r = role[i];
 			if (r == BoundaryRole.None) return;
-			int h = hops[i];
-			if (h < 0) return;
+			float cdRaw = convKm[i];
+			if (cdRaw < 0f) return;
 			float cs = MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale);
 			if (!(cs > 0f)) return;
 
-			float cd = h * hopKm;
+			float asymmetry = Math.Clamp(spec.MountainAsymmetry, 0f, 0.45f);
+			float skewPower = 1.6f - 0.4f * (asymmetry / 0.45f);
+
 			float coef, bandKm, centerKm;
 			switch (r)
 			{
@@ -203,9 +207,20 @@ public static class HighlandOps
 					break;
 			}
 
-			float mod = spec.MountainRidgeFloor
-				+ (1f - spec.MountainRidgeFloor) * (ridge.Sample(dirs[i]) * 0.5f + 0.5f);
-			tectonic[i] = coef * spec.MountainPeakM * cs * Band(cd, centerKm, bandKm) * mod;
+			// 山带走向弯曲：只偏移 Upper / Lower / Arc 的距离；Slab 仍用原距离。
+			float cd = r == BoundaryRole.Slab ? cdRaw : MathF.Max(0f, cdRaw + beltOffset[i]);
+
+			// 山脊骨架：ridged 的零等值面成脊，脊距 ≥3 格（再细就混叠）；次级脊（45 km / 2 层）
+			// 把主脊打散成有分支的山系，并让带宽有鼓包 / 收窄。
+			float ridgeFloor = Math.Clamp(spec.MountainRidgeFloor, 0f, 1f);
+			float sharpness = Math.Clamp(spec.MountainRidgeSharpness, 1f, 3f);
+			float skeleton = ridge.SampleRidged(dirs[i]);
+			float branchSkel = branch.SampleRidged(dirs[i]);
+			bandKm *= 0.85f + 0.30f * branchSkel;
+			float mod = ridgeFloor
+				+ (1f - ridgeFloor) * MathF.Pow(skeleton, sharpness) * (0.60f + 0.40f * branchSkel);
+			tectonic[i] = coef * spec.MountainPeakM * cs
+				* BandProfile(cd, centerKm, bandKm, asymmetry, skewPower) * mod;
 		});
 
 		// ── ⑥ 平滑（归一之前 ⇒ 削毛刺不改峰高目标）──
@@ -226,7 +241,9 @@ public static class HighlandOps
 			BoundaryRole r = role[i];
 			float cs = MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale);
 			if (!(cs > 0f)) cs = 0f;
-			float cd = hops[i] >= 0 ? hops[i] * hopKm : float.MaxValue;
+			float cd = convKm[i] < 0f
+				? float.MaxValue
+				: (r == BoundaryRole.Slab ? convKm[i] : MathF.Max(0f, convKm[i] + beltOffset[i]));
 
 			float u = tectonic[i] * gain;
 			if (u > knee) u = knee + (u - knee) * spec.MountainKneeCompress;
@@ -234,23 +251,23 @@ public static class HighlandOps
 				+ spec.HillsHeightM * hillsWeight[i];
 
 			float suppress = 1f - spec.RiftSuppressStrength * rift.Strength[i]
-				* Band(rift.DistKm[i], 0f, spec.RiftBandKm);
+				* MathOps.GaussianBand(rift.DistKm[i], 0f, spec.RiftBandKm);
 			mountain[i] = u * suppress;
 
-			// 高原底座：碰撞带 / 强俯冲带上盘背后的一大片平坦高地
+			// 高原底座：上盘（Upper / Arc）在汇聚够强时背后的一大片平坦高地
 			float pb = 0f;
 			if ((r == BoundaryRole.Upper || r == BoundaryRole.Arc) && cs > spec.PlateauConvMin)
 			{
 				float reachKm = (r == BoundaryRole.Upper ? spec.PlateauUpperReachKm : spec.PlateauArcReachKm)
 					+ spec.PlateauReachSpreadKm * (0.5f + 0.5f * reach.Sample(dir));
-				float inBand = Smoothstep(0f, spec.PlateauInnerRampKm, cd)
-					* (1f - Smoothstep(reachKm, reachKm + spec.PlateauOuterRampKm, cd));
+				float inBand = MathOps.Smoothstep(0f, spec.PlateauInnerRampKm, cd)
+					* (1f - MathOps.Smoothstep(reachKm, reachKm + spec.PlateauOuterRampKm, cd));
 				pb = (r == BoundaryRole.Upper ? spec.PlateauUpperHeightM : spec.PlateauArcHeightM)
-					* Smoothstep(spec.PlateauConvMin, spec.PlateauConvFull, cs)
+					* MathOps.Smoothstep(spec.PlateauConvMin, spec.PlateauConvFull, cs)
 					* inBand * alongRaw[i];
 			}
 			pb += spec.PlateauShieldHeightM * shieldRaw[i] * inlandRaw[i];
-			plateau[i] = pb * Smoothstep(0f, spec.PlateauCoastFadeM, landHeight[i] - seaM);
+			plateau[i] = pb * MathOps.Smoothstep(0f, spec.PlateauCoastFadeM, landHeight[i] - seaM);
 		});
 
 		// ── ⑨ 山体细化 + 虚拟侵蚀：光滑的一堵墙 → 脊谷相间的山系 ──
@@ -261,47 +278,38 @@ public static class HighlandOps
 		return new Field(mountain, plateau);
 	}
 
-	/// <summary>顶到最近**汇聚**边界格的跳数：源 = 有汇聚角色的边界格（<paramref name="boundaryHops"/> 为 0）；
-	/// 只在同板块内扩散（俯冲侧 / 跨板块都不会长山）；够不到 = −1。</summary>
-	static int[] ConvergenceHops(Ball ball, int[] plateOfCell, BoundaryRole[] role, int[] boundaryHops)
+	/// <summary>到最近汇聚边界的真实距离（km）：源 = 有汇聚角色且 <paramref name="boundaryHops"/> 为 0 的边界格，
+	/// 只在同板块内扩散——山带不会跨板块铺到对侧；够不到 = −1。
+	/// 搜索半径按本阶段最大的带宽 / 高原进深给，超出即视为够不到。</summary>
+	static float[] ConvergenceDistanceKm(Ball ball, TerrainSpec spec, int[] plateOfCell,
+		BoundaryRole[] role, int[] boundaryHops)
 	{
 		int n = ball.CellDirs.Length;
-		var neighbors = ball.CellNeighbors;
-		var hops = new int[n];
-		var queue = new Queue<int>(n);
-
+		var sources = new List<int>();
 		for (int i = 0; i < n; i++)
-		{
-			hops[i] = -1;
-			if (role[i] == BoundaryRole.None) continue;
-			if (boundaryHops[i] != 0) continue;
-			hops[i] = 0;
-			queue.Enqueue(i);
-		}
+			if (role[i] != BoundaryRole.None && boundaryHops[i] == 0) sources.Add(i);
 
-		while (queue.Count > 0)                                   // 多源 BFS，先到者胜 ⇒ 确定性
-		{
-			int i = queue.Dequeue();
-			foreach (int j in neighbors[i])
-			{
-				if (hops[j] >= 0) continue;
-				if (role[j] == BoundaryRole.None) continue;
-				if (plateOfCell[j] != plateOfCell[i]) continue;    // 不跨板块
-				hops[j] = hops[i] + 1;
-				queue.Enqueue(j);
-			}
-		}
-		return hops;
+		var result = new float[n];
+		Array.Fill(result, -1f);
+		if (sources.Count == 0) return result;
+
+		// 搜索半径：山带 4 倍带宽（高斯带在 4 倍处截断）与高原最大进深取大者。
+		double outerBand = 4.0 * (spec.MountainUpperBandKm + spec.MountainBandConvSpreadKm);
+		outerBand = Math.Max(outerBand, spec.MountainArcInlandKm + 4.0 * spec.MountainArcBandKm);
+		outerBand = Math.Max(outerBand, 4.0 * spec.MountainSlabBandKm);
+		double reach = Math.Max(spec.PlateauUpperReachKm, spec.PlateauArcReachKm)
+			+ spec.PlateauReachSpreadKm + spec.PlateauOuterRampKm;
+		double capKm = Math.Max(outerBand, reach) + 1.0;
+
+		var field = DistanceFieldOps.Build(ball, sources, _ => 1f, capKm,
+			(i, j) => plateOfCell[j] == plateOfCell[i]);
+		for (int i = 0; i < n; i++)
+			if (field.Src[i] >= 0) result[i] = field.DistKm[i];
+		return result;
 	}
 
-	/// <summary>
-	/// 逐格场在**指定格集**上的分位阈值。格数超过 <see cref="QuantileSampleCap"/> 时隔格取样
-	/// （只用来定阈值，不必全量排序）；排序在副本上做 ⇒ 与线程调度无关。
-	/// </summary>
-	/// <param name="n">格数。</param>
-	/// <param name="field">逐格场。</param>
-	/// <param name="keep">格集谓词（非该集的格不参与统计）。</param>
-	/// <param name="quantiles">要取的分位（0~1），返回顺序一致。</param>
+	/// <summary>逐格场在指定格集上的分位阈值。格集超过 <see cref="QuantileSampleCap"/> 时按
+	/// <c>步长 = ceil(格集大小 / 上限)</c> 在全集上抽样（样本数 ≤ 上限），不做全量排序。</summary>
 	static float[] Quantiles(int n, float[] field, Func<int, bool> keep, params double[] quantiles)
 	{
 		var result = new float[quantiles.Length];
@@ -309,7 +317,7 @@ public static class HighlandOps
 		for (int i = 0; i < n; i++) if (keep(i)) count++;
 		if (count == 0) return result;
 
-		int stride = Math.Max(1, count / QuantileSampleCap);
+		int stride = Math.Max(1, (count + QuantileSampleCap - 1) / QuantileSampleCap);
 		var samples = new List<float>(Math.Min(count, QuantileSampleCap) + 1);
 		int seen = 0;
 		for (int i = 0; i < n && samples.Count < QuantileSampleCap; i++)
@@ -319,33 +327,27 @@ public static class HighlandOps
 			samples.Add(field[i]);
 		}
 		samples.Sort();
-		int m = samples.Count;
 		for (int k = 0; k < quantiles.Length; k++)
-		{
-			int idx = (int)Math.Floor(quantiles[k] * m);
-			if (idx < 0) idx = 0;
-			if (idx >= m) idx = m - 1;
-			result[k] = samples[idx];
-		}
+			result[k] = MathOps.QuantileSorted(samples, quantiles[k]);
 		return result;
 	}
 
-	/// <summary>高斯带：<c>exp(−((d−center)/w)²)</c>；<c>|t| &gt; 4</c> ⇒ 0（远场截断）。<c>w ≤ 0</c> ⇒ 0（关断）。</summary>
-	static float Band(float d, float center, float w)
+	/// <summary>山带剖面。<paramref name="center"/> &gt; 0（陆×洋山链）⇒ 双侧不同宽：海侧 <c>w(1−a)</c> 陡、
+	/// 陆侧 <c>w(1+a)</c> 缓；<paramref name="center"/> = 0（陆×陆 / 增生楔，d 只有正值）⇒ 单侧偏斜
+	/// <c>exp(−(d/w')^p)</c>，<paramref name="skewPower"/> ∈ [1.2,1.6] ⇒ 边界侧陡、向内陆拖长。</summary>
+	static float BandProfile(float d, float center, float w, float asymmetry, float skewPower)
 	{
 		if (!(w > 0f)) return 0f;
-		float t = (d - center) / w;
-		if (t > 4f || t < -4f) return 0f;
-		return MathF.Exp(-t * t);
+		if (center > 0f)
+		{
+			float sideWidth = d < center ? w * (1f - asymmetry) : w * (1f + asymmetry);
+			return MathOps.GaussianBand(d, center, sideWidth);
+		}
+		float width = w * (1f + asymmetry);
+		if (!(width > 0f)) return 0f;
+		float t = d / width;
+		if (t > 4f) return 0f;
+		return MathF.Exp(-MathF.Pow(t, skewPower));
 	}
 
-	/// <summary>平滑阶跃：<c>x ≤ a</c> ⇒ 0、<c>x ≥ b</c> ⇒ 1，中间二阶连续。<c>b ≤ a</c> ⇒ 硬阶跃。</summary>
-	static float Smoothstep(float a, float b, float x)
-	{
-		if (!(b > a)) return x >= b ? 1f : 0f;
-		float t = (x - a) / (b - a);
-		if (t <= 0f) return 0f;
-		if (t >= 1f) return 1f;
-		return t * t * (3f - 2f * t);
-	}
 }

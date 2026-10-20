@@ -30,7 +30,7 @@ public sealed class PlateMode : MapMode
 		return PlateColor(p);
 	}
 
-	// ── 色相散开（模式专属派生表内聚本文件；与 `ElevationMode.BandColor` 同归属规则）──
+	// ── 色相散开（模式专属派生表内聚本文件；与 `ElevationMode.ElevationColor` 同归属规则）──
 	/// <summary>黄金角共轭（frac(1/φ)）：色相步进 137.5°。</summary>
 	const float GoldenAngleHue = 0.6180339887f;
 	/// <summary>饱和度：偏低些（0.55）以免整屏刺眼，同时保住块与块的分界。</summary>

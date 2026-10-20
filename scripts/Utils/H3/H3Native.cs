@@ -1,20 +1,13 @@
 // H3Native.cs —— Uber H3（v4.5.0，原生 C 库）的 P/Invoke 声明层。
 //
-// 职责：只做"函数签名 ↔ 原生符号"的最小映射 + 原生库加载解析，不夹带任何逻辑。
-// 托管门面（对用户友好的 API、参数校验、错误转异常）在 H3.cs。
+// 只做「函数签名 ↔ 原生符号」的最小映射 + 原生库加载解析，不夹带逻辑；托管门面（参数校验、错误转异常）在 H3.cs。
+// 原生库：native/h3/h3.dll（MinGW 编译的 Release 版，运行期只依赖 KERNEL32 + UCRT，Win10+ 直接可加载；
+// 重编译步骤见 native/h3/rebuild.sh）。调用约定 cdecl（C 库默认）。
+// 数据结构与 h3api.h 逐字节一致：H3Index = uint64 格索引（含五边形，0 = 无效）；
+// LatLng = { double lat; double lng; }，单位是【弧度】——字段名没有单位后缀，h3api.h 定义为 radians；
+// CellBoundary 内联 verts[10]（五边形 5 + 5 边穿越），v4 起不是指针。
 //
-// 原生库位置： native/h3/h3.dll（MinGW 编译的 Release 版，运行时仅依赖 KERNEL32 + UCRT，
-// 无 libgcc/winpthread 依赖，Win10+ 直接可加载）。重编译步骤见 native/h3/rebuild.sh。
-//
-// 数据结构（与 h3api.h 完全一致）：
-//   H3Index   —— uint64，六边形格子全局索引（含五边形）。H3.Null = 0 表示无效。
-//   LatLng    —— { double lat; double lng; }，单位是【弧度】（h3api.h 定义为 radians）。
-//   CellBoundary —— 格子边界，固定内联数组（v4 起 verts[10]，非指针），数组元素在
-//               h3api.h 里定义了 `verts[MAX_CELL_BNDRY_VERTS]`（10 = 五边形 5 + 5 边穿越）。
-//
-// 调用约定 cdecl（H3 是 C 库默认）。
-//
-// 原文注释头（Apache-2.0，Uber）写在 native/h3/h3api.h，这里中文注释只补"我们怎么接的"。
+// 原文注释头（Apache-2.0，Uber）在 native/h3/h3api.h，这里的中文注释只补「我们怎么接的」。
 
 using System;
 using System.IO;
@@ -29,21 +22,18 @@ namespace World.Utils.H3
         /// <summary>DllImport 用的库名（.NET 在 Windows 上会自动补 .dll）。</summary>
         private const string Lib = "h3";
 
-        /// <summary>
-        /// 静态构造：在程序集上注册自定义解析器，处理 Godot/单测两种宿主下原生库的查找。
-        /// static 构造先于任何 P/Invoke 调用执行，保证首次调用前解析器已就位。
-        /// </summary>
+        /// <summary>在程序集上注册原生库解析器。静态构造先于任何 P/Invoke 执行，保证首次调用前解析器已就位。</summary>
         static H3Native()
         {
             NativeLibrary.SetDllImportResolver(typeof(H3Native).Assembly, Resolve);
         }
 
         /// <summary>
-        /// h3.dll 查找顺序（返回找到的库句柄，找不到返回 Zero 让运行时走默认探测）：
-        ///   1) 调用方程序集输出目录（Godot 运行 = .godot/mono/temp/bin/Debug；单测 = scripts/Test/World.Tests/bin）。
-        ///      —— world.csproj 的 None+CopyToOutputDirectory 已把 native/h3/h3.dll 拷贝过去。
-        ///   2) Godot res:// 根目录的 absolute 路径（编辑器直跑且输出未及拷贝时的兜底）。
-        ///   3) 环境变量 H3_NATIVE_PATH 显式指定的完整路径（测试/特殊部署的逃生门）。
+        /// h3.dll 查找顺序（找到即返回句柄，全落空返回 Zero 让运行时走默认探测）：
+        ///   1) 程序集输出目录（Godot 运行 = .godot/mono/temp/bin/Debug；测试宿主 = 测试工程输出目录），
+        ///      world.csproj 的 None+CopyToOutputDirectory 已把 native/h3/h3.dll 拷过去；
+        ///   2) Godot res:// 根目录（编辑器直跑、输出未及拷贝时的兜底）；
+        ///   3) 环境变量 H3_NATIVE_PATH 指定的完整路径（测试 / 特殊部署的逃生门）。
         /// </summary>
         private static IntPtr Resolve(string libraryName, System.Reflection.Assembly assembly,
                                       DllImportSearchPath? searchPath)
@@ -51,7 +41,6 @@ namespace World.Utils.H3
             if (!string.Equals(libraryName, Lib, StringComparison.Ordinal))
                 return IntPtr.Zero;
 
-            // 1) 程序集输出目录（Godot 运行 = .godot/mono/temp/bin/Debug；单测 = scripts/Test/World.Tests/bin）
             string baseDir = AppContext.BaseDirectory;
             if (!string.IsNullOrEmpty(baseDir))
             {
@@ -74,7 +63,6 @@ namespace World.Utils.H3
                 // 非 Godot 宿主（单测控制台）：忽略 res:// 分支
             }
 
-            // 3) 环境变量显式指定（逃生门）
             string env = Environment.GetEnvironmentVariable("H3_NATIVE_PATH");
             if (!string.IsNullOrEmpty(env))
             {
@@ -93,16 +81,14 @@ namespace World.Utils.H3
         /// <summary>仅在 Godot 宿主下可用；取 res:// 在磁盘上的绝对路径。</summary>
         private static string godotProjectRoot()
         {
-            // 用到 Godot API —— 惰性引用，确保只有真的在 Godot 里跑才触发
+            // 唯一碰 Godot API 的地方（非 Godot 宿主上调用会抛）
             return Godot.ProjectSettings.GlobalizePath("res://");
         }
 
-        // ============ 数据类型（与 h3api.h 对齐） ============
+        // ── 数据类型（与 h3api.h 对齐） ──
 
-        /// <summary>
-        /// 单个格子边界：顶点数 + 固定 10 个顶点（LatLng 8 字节对齐，首字段 int 后有 4 字节填充，
-        /// 整体 168 字节，与 C 端 CellBoundary 布局逐字节一致——blittable，按值传引用零拷贝）。
-        /// </summary>
+        /// <summary>单个格子边界：顶点数 + 固定 10 个顶点。blittable，与 C 端 <c>CellBoundary</c> 逐字节一致
+        /// （int 后有 4 字节填充，整体 168 字节），按值传引用零拷贝。</summary>
         [StructLayout(LayoutKind.Sequential)]
         internal struct CellBoundary
         {
@@ -129,12 +115,11 @@ namespace World.Utils.H3
             }
         }
 
-        // ============ 错误码（h3api.h H3ErrorCodes） ============
+        // ── 错误码（h3api.h H3ErrorCodes） ──
 
-        /// <summary>操作成功。</summary>
         internal const uint ESuccess = 0;
 
-        // ============ 原始函数声明（只做签名映射） ============
+        // ── 原始函数声明（只做签名映射） ──
 
         // 经纬度 → 所在格子；坐标单位弧度，res 0–15
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
@@ -196,7 +181,6 @@ namespace World.Utils.H3
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint compactCells([In] ulong[] h3Set, [In, Out] ulong[] compactedSet, long numHexes);
 
-        // 解压数量 / 解压数组
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint uncompactCellsSize([In] ulong[] compactedSet, long numCompacted, int res, out long outSize);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
@@ -219,13 +203,11 @@ namespace World.Utils.H3
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint areNeighborCells(ulong origin, ulong destination, out int outIsNeighbor);
 
-        // 字符串 ↔ 索引
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         internal static extern uint stringToH3([MarshalAs(UnmanagedType.LPStr)] string str, out ulong h3);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]  // char* 缓冲区，传入 StringBuilder
         internal static extern uint h3ToString(ulong h3, StringBuilder str, nuint size);
 
-        // 全局统计与枚举
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint getNumCells(int res, out long outCount);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
@@ -257,7 +239,6 @@ namespace World.Utils.H3
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern uint vertexToLatLng(ulong vertex, out LatLng point);
 
-        // 错误描述
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         internal static extern IntPtr describeH3Error(uint err);
     }
