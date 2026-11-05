@@ -16,8 +16,8 @@ namespace World.Logic;
 /// 山脊骨架只改形状，不改峰高目标。
 /// 幅度走归一制：相对抬升的 P99.7 映射到 <see cref="TerrainSpec.MountainPeakM"/>、折点以上压峰；
 /// 归一在平滑之后做，故削毛刺不改峰高目标。高原底座是独立一层且沿海岸收掉，末步交
-/// <see cref="ErosionOps"/> 细化 + 虚拟侵蚀；本类只产构造高度，陆面噪声基底由
-/// <see cref="TerrainManager.SampleLand"/> 给。
+/// <see cref="ErosionOps"/> 细化 + 虚拟侵蚀；本类只产构造高度，陆面噪声基底与“多深入大陆”的
+/// 大尺度值由 <see cref="LandFieldOps"/> 给。
 /// </summary>
 public static class HighlandOps
 {
@@ -69,21 +69,18 @@ public static class HighlandOps
 
 	/// <summary>构建陆壳高地场；洋壳格不参与。</summary>
 	/// <param name="landHeight">逐格陆面基底（常量基线 + 三档变化场；非陆壳格不用）。</param>
+	/// <param name="inland">大尺度场在陆面采样方向上的值（盾状台地判“多深入大陆”用）。</param>
 	/// <param name="boundary">板块边界场（逐格运动 / 角色 / 跳数；只读）。</param>
-	/// <param name="large">大尺度陆海场——兼作「有多深入大陆」的判据（盾状台地用）。</param>
-	/// <param name="landDir">逐格陆面采样方向（已过域扭曲，含近岸细节；与陆面基底同一坐标）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell,
-		bool[] continental, float[] landHeight, PlateBoundaryFields boundary,
-		SphericalFbmNoise large, Vector3[] landDir)
+		bool[] continental, float[] landHeight, float[] inland, PlateBoundaryFields boundary)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
 		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (continental == null) throw new ArgumentNullException(nameof(continental));
 		if (landHeight == null) throw new ArgumentNullException(nameof(landHeight));
+		if (inland == null) throw new ArgumentNullException(nameof(inland));
 		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
-		if (large == null) throw new ArgumentNullException(nameof(large));
-		if (landDir == null) throw new ArgumentNullException(nameof(landDir));
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
@@ -143,7 +140,7 @@ public static class HighlandOps
 			oldRaw[i] = oldRange.SampleRidged(dir);
 			hillsRaw[i] = hills.Sample(dir);
 			alongRaw[i] = along.Sample(dir);
-			inlandRaw[i] = large.Sample(landDir[i]);
+			inlandRaw[i] = inland[i];
 			shieldRaw[i] = shield.Sample(dir);
 			beltOffset[i] = beltWarpKm * beltWarp.Sample(dir);
 		});

@@ -7,13 +7,13 @@ namespace World.Logic;
 public static class SeedDerivation
 {
 	// PlatePipeline（板块：均匀随机种子 + 球面 Voronoi）
-	/// <summary>板块种子点撒布流（`PlateManager.BuildSeeds`；每点消费 3 次抽样：θ / φ / 随机速率）。</summary>
+	/// <summary>板块种子点撒布流（`PlateSeedOps.Build`；每点消费 3 次抽样：θ / φ / 随机速率）。</summary>
 	public const int Plate_Seeds = 0x914E;
-	/// <summary>板块边界扰动噪声母流（`PlateManager.GrowWithResistance` 的 fBm 阻力场）。</summary>
+	/// <summary>板块边界扰动噪声母流（`PlateFloodOps.Grow` 的 fBm 阻力场）。</summary>
 	public const int Plate_Distort = 0x914F;
-	/// <summary>板块壳型判定流（`PlateManager.AssignCrustTypes` 的陆壳挑选抖动）。</summary>
+	/// <summary>板块壳型判定流（`PlateCrustOps.Assign` 的陆壳挑选抖动）。</summary>
 	public const int Plate_Crust = 0x9150;
-	/// <summary>板块密度流（`PlateManager.BuildSeeds`；每块消费 1 次抽样）。</summary>
+	/// <summary>板块密度流（`PlateSeedOps.Build`；每块消费 1 次抽样）。</summary>
 	public const int Plate_Density = 0x9151;
 
 	// ContinentLayouts（陆块布局档的抽取）

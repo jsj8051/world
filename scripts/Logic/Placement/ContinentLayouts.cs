@@ -6,7 +6,7 @@ namespace World.Logic;
 
 /// <summary>
 /// 陆块布局档：把 <see cref="WorldSpec"/> 的四档权重按种子抽成一档，并给出
-/// <see cref="PlateManager.AssignCrustTypes"/> 用的陆壳块数增量。
+/// <see cref="PlateCrustOps.Assign"/> 用的陆壳块数增量。
 /// 判"隔开"用 <see cref="PlateManager.PlateAdjacency"/> 而非角度阈值：
 /// 8 块时每块近半球，种子点隔 70° 照样接壤。
 /// 定档走独立 rng 流，不消耗其他序列。
