@@ -1,0 +1,13 @@
+{
+  "size": [
+    4096,
+    2048
+  ],
+  "min_m": -10475.8818359375,
+  "max_m": 6426.38720703125,
+  "tile_zoom": 5,
+  "failed_tiles": 0,
+  "source": "terrarium RGB elevation tiles (SRTM/ASTER/ETOPO derived)",
+  "land_fraction": 0.30643343925476074,
+  "land_mean_m": 546.4234008789062
+}

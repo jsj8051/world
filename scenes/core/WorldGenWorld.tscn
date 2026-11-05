@@ -48,3 +48,4 @@ offset_bottom = 12.0
 ; 若成立 ⇒ `MapDockController` 可删（它存在的唯一理由是"坞与渲染互不认识，需人手工订阅"）。
 [connection signal="ModeSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockModeSelected"]
 [connection signal="ParameterSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockParameterSelected"]
+[connection signal="VariantSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockVariantSelected"]

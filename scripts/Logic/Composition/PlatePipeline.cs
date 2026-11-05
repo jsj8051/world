@@ -5,8 +5,10 @@ using World.H3Grid;
 namespace World.Logic;
 
 /// <summary>
-/// 板块阶段组装：定布局档 → 撒种子点 → 阻力场洪泛划分 → 派定壳型；算法全在 <see cref="PlateManager"/>。
-/// 产物 = 板块划分（<see cref="PlateOfCell"/> / <see cref="Plates"/>，含壳型）+ 陆面基线偏移
+/// 板块阶段组装：定布局档 → 撒种子点 → 阻力场洪泛划分 → 派定壳型 → 建边界集 → 算边界场；
+/// 算法全在 <see cref="PlateManager"/> / <see cref="PlateBoundaryFields"/>。
+/// 产物 = 板块划分（<see cref="PlateOfCell"/> / <see cref="Plates"/>，含壳型）+ 边界
+/// （<see cref="Boundaries"/> 几何 / <see cref="Boundary"/> 运动学）+ 陆面基线偏移
 /// （<see cref="LandBaseDropM"/>，① 只收这一个数）。
 /// 壳型只决定 ① 铺陆面还是海底，海陆由 ① 的最终高度定。
 /// </summary>
@@ -19,6 +21,12 @@ public sealed class PlatePipeline
 	public int[] PlateOfCell => _impl.PlateOfCell;
 	/// <summary>板块表（含每块壳型 <see cref="World.Data.Plate.Crust"/>）。</summary>
 	public Plate[] Plates => _impl.Plates;
+
+	/// <summary>板块边界集（共享边 + 板块对 + 逐格关联）。</summary>
+	public PlateBoundarySet Boundaries => _impl.Boundaries;
+
+	/// <summary>板块边界场（逐格运动 / 角色 / 跳数 + 逐边类型）。</summary>
+	public PlateBoundaryFields Boundary { get; private set; } = PlateBoundaryFields.Empty;
 
 	/// <summary>陆面基线偏移（米；群岛档 = <c>ArchipelagoBaseDropM</c>，其余 0）。
 	/// ① 只收这个数，不认识布局枚举。</summary>
@@ -36,6 +44,8 @@ public sealed class PlatePipeline
 			spec.Seed, spec.Plate.BoundaryAmplitude, spec.Plate.BoundaryWavelengthKm,
 			spec.Plate.BoundaryOctaves);
 		_impl.AssignCrustTypes(spec.Seed, spec.Plate, layout);
+		_impl.BuildBoundaries(ball);
+		Boundary = PlateBoundaryFields.Build(ball, _impl.Boundaries, _impl.PlateOfCell, _impl.Plates);
 
 		LandBaseDropM = layout == ContinentLayout.Archipelago ? spec.Terrain.ArchipelagoBaseDropM : 0f;
 	}

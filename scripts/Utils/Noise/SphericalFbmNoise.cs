@@ -20,9 +20,9 @@ namespace World.Utils
 	public sealed class SphericalFbmNoise
 	{
 		/// <summary>世界半径（km）——球面上「多少 km」的唯一换算口（噪声波长、<c>SpatialScale</c> 的面积 / 距离都经它）。
-		/// 由「res4 每格 5 km² × 288,122 格 = 1,440,610 km²」推出 R = √(A/4π) ≈ 338.586 km。
+		/// 地球尺度：R = 6,371 km，res4 共 288,122 格 ⇒ 每格 1,770 km²、邻格中心距 46.5 km。
 		/// 本类零引擎 / 零业务依赖，故自带这份常量；改「每格多大」就改这里。</summary>
-		public const float WorldRadiusKm = 338.586f;
+		public const float WorldRadiusKm = 6371f;
 
 		readonly int _seed;
 		readonly int _octaves;

@@ -23,6 +23,13 @@ public partial class RenderManager : Node3D, ITickable
 {
 	[Export] public NodePath WorldViewPath { get; set; }
 
+	[ExportGroup("2D 出图")]
+	/// <summary>2D 地形图导出宽（像素；默认见 <see cref="MapExporter.DefaultWidth"/>）。</summary>
+	[Export] public int MapExportWidth { get; set; } = MapExporter.DefaultWidth;
+
+	/// <summary>2D 地形图导出高（像素；默认见 <see cref="MapExporter.DefaultHeight"/>）。</summary>
+	[Export] public int MapExportHeight { get; set; } = MapExporter.DefaultHeight;
+
 	/// <summary>世界视图（本管理器内部持有：供拾取、取色、剔除与重烘；不外借）。</summary>
 	WorldView View { get; set; }
 
@@ -80,6 +87,7 @@ public partial class RenderManager : Node3D, ITickable
 		// + 初始模式 = 注册序首项（CreateAll 注册序[0] = 地形）。
 		ApplyModeNames();
 		ApplyMode(0);
+		GD.Print($"[MAP] F12 / Ctrl+E 导出 2D 地形图（{MapExportWidth}×{MapExportHeight}，游戏目录/map_exports）");
 	}
 
 	/// <summary>
@@ -147,6 +155,16 @@ public partial class RenderManager : Node3D, ITickable
 		_dock?.Call("SetLegend", mode.ScaleCaption);
 	}
 
+	/// <summary>坞点了变体按钮（<c>MapDock.VariantSelected</c>）⇒ 换"取哪一套"（与参数轴正交）+ 重烘 + 刷新图例。</summary>
+	public void OnDockVariantSelected(int index)
+	{
+		if (_modes == null || _currentMode < 0) return;
+		var mode = _modes[_currentMode];
+		mode.SetVariant(index);
+		View?.RefreshColors();
+		_dock?.Call("SetLegend", mode.ScaleCaption);
+	}
+
 	/// <summary>唯一的模式切换路径：视图取色 + 坞高亮 + 参数行 + 图例（四处单点同步，杜绝各自为政）。</summary>
 	void ApplyMode(int id)
 	{
@@ -154,6 +172,7 @@ public partial class RenderManager : Node3D, ITickable
 		var mode = _modes[id];
 		View?.SetMode(mode);               // 换取色函数重烘颜色纹理（几何/UV 不动）
 		_dock?.Call("SetMode", id);        // 按钮高亮同步
+		_dock?.Call("SetVariantOptions", AsArray(mode.VariantOptions), mode.VariantIndex);
 		_dock?.Call("SetParameterOptions", AsArray(mode.ParameterOptions), mode.ParameterIndex);
 		_dock?.Call("SetLegend", mode.ScaleCaption);
 	}
@@ -183,8 +202,33 @@ public partial class RenderManager : Node3D, ITickable
 	// 拖拽留给相机去转球（Godot 把同一批事件投递给每个覆写者，各人读各人的意图）。
 	public override void _UnhandledInput(InputEvent @event)
 	{
+		if (@event is InputEventKey key && key.Pressed && !key.Echo
+			&& (key.Keycode == Key.F12 || (key.CtrlPressed && key.Keycode == Key.E)))
+		{
+			ExportTerrainMap();
+			return;
+		}
 		if (_gesture.Feed(@event, out var at) == PointerIntent.Click)
 			PickAt(at);
+	}
+
+	void ExportTerrainMap()
+	{
+		if (_sim?.Facts == null || _modes == null || _modes.Count == 0) return;
+		int terrain = _modes.FindIndex(m => m is TerrainMode);
+		var mode = terrain >= 0 ? _modes[terrain] : _modes[System.Math.Max(0, _currentMode)];
+
+		GD.Print($"[MAP] 开始导出 2D 地形图（{mode.Name}，{MapExportWidth}×{MapExportHeight}）...");
+		var watch = System.Diagnostics.Stopwatch.StartNew();
+		try
+		{
+			string path = MapExporter.ExportTerrain(_sim, mode, MapExportWidth, MapExportHeight);
+			GD.Print($"[MAP] 导出完成（{watch.ElapsedMilliseconds} ms）：{path}");
+		}
+		catch (System.Exception e)
+		{
+			GD.PushError($"[MAP] 导出失败：{e.Message}");
+		}
 	}
 
 	void PickAt(Vector2 screenPos)

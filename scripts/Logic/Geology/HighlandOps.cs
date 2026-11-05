@@ -22,19 +22,19 @@ namespace World.Logic;
 public static class HighlandOps
 {
 	// 噪声尺度（形状常量）：物理旋钮进 TerrainSpec，纹理尺度留在这里（与 OceanDepthOps 同分工）。
-	const float OldWavelengthKm = 430f;
+	const float OldWavelengthKm = 8091f;
 	const int OldOctaves = 5;
-	const float HillsWavelengthKm = 370f;
+	const float HillsWavelengthKm = 6962f;
 	const int HillsOctaves = 4;
-	const float ReachWavelengthKm = 743f;
+	const float ReachWavelengthKm = 13981f;
 	const int ReachOctaves = 4;
-	const float AlongWavelengthKm = 356f;
+	const float AlongWavelengthKm = 6699f;
 	const int AlongOctaves = 4;
-	const float ShieldWavelengthKm = 679f;
+	const float ShieldWavelengthKm = 12776f;
 	const int ShieldOctaves = 4;
-	const float BeltWarpWavelengthKm = 110f;
+	const float BeltWarpWavelengthKm = 2070f;
 	const int BeltWarpOctaves = 2;
-	const float BranchWavelengthKm = 45f;
+	const float BranchWavelengthKm = 847f;
 	const int BranchOctaves = 2;
 
 	// 「冒头门」的分位（只在陆壳格上取）：低分位开始出现、高分位完全出现。
@@ -69,11 +69,11 @@ public static class HighlandOps
 
 	/// <summary>构建陆壳高地场；洋壳格不参与。</summary>
 	/// <param name="landHeight">逐格陆面基底（常量基线 + 三档变化场；非陆壳格不用）。</param>
-	/// <param name="motion">逐格边界法向相对速率（&lt; 0 汇聚 / &gt; 0 张裂）。</param>
+	/// <param name="boundary">板块边界场（逐格运动 / 角色 / 跳数；只读）。</param>
 	/// <param name="large">大尺度陆海场——兼作「有多深入大陆」的判据（盾状台地用）。</param>
 	/// <param name="landDir">逐格陆面采样方向（已过域扭曲，含近岸细节；与陆面基底同一坐标）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell,
-		bool[] continental, float[] landHeight, float[] motion, BoundaryRole[] role,
+		bool[] continental, float[] landHeight, PlateBoundaryFields boundary,
 		SphericalFbmNoise large, Vector3[] landDir)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
@@ -81,18 +81,19 @@ public static class HighlandOps
 		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (continental == null) throw new ArgumentNullException(nameof(continental));
 		if (landHeight == null) throw new ArgumentNullException(nameof(landHeight));
-		if (motion == null) throw new ArgumentNullException(nameof(motion));
-		if (role == null) throw new ArgumentNullException(nameof(role));
+		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
 		if (large == null) throw new ArgumentNullException(nameof(large));
 		if (landDir == null) throw new ArgumentNullException(nameof(landDir));
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 		float seaM = spec.SeaLevelM;
+		int[] boundaryHops = boundary.CellHops;
+		float[] motion = boundary.CellMotion;
+		BoundaryRole[] role = boundary.CellRole;
 
 		// ── ① 边界格 + 到最近汇聚边界的真实距离 ──
 		// 山带坐标必须是 km 连续量：跳数 × 常数只有整数档 ⇒ 高斯带被量化成等跳数的平行长条（山带成阶梯）。
-		int[] boundaryHops = PlateBoundaryOps.BoundaryHops(ball, plateOfCell);
 		float[] convKm = ConvergenceDistanceKm(ball, spec, plateOfCell, role, boundaryHops);
 
 		// ── ② 张裂带：到最近活动张裂边界的真实距离 + 强度（⑧ 用来压低抬升）──
@@ -134,7 +135,7 @@ public static class HighlandOps
 		var inlandRaw = new float[n];  // 大陆内部程度
 		var shieldRaw = new float[n];  // 盾状台地
 		var beltOffset = new float[n]; // 横向偏移（km）
-		float beltWarpKm = Math.Clamp(spec.MountainBeltWarpKm, 0f, 15f);
+		float beltWarpKm = Math.Clamp(spec.MountainBeltWarpKm, 0f, 282f);
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
@@ -210,7 +211,7 @@ public static class HighlandOps
 			// 山带走向弯曲：只偏移 Upper / Lower / Arc 的距离；Slab 仍用原距离。
 			float cd = r == BoundaryRole.Slab ? cdRaw : MathF.Max(0f, cdRaw + beltOffset[i]);
 
-			// 山脊骨架：ridged 的零等值面成脊，脊距 ≥3 格（再细就混叠）；次级脊（45 km / 2 层）
+			// 山脊骨架：ridged 的零等值面成脊，脊距 ≥3 格（再细就混叠）；次级脊（847 km / 2 层）
 			// 把主脊打散成有分支的山系，并让带宽有鼓包 / 收窄。
 			float ridgeFloor = Math.Clamp(spec.MountainRidgeFloor, 0f, 1f);
 			float sharpness = Math.Clamp(spec.MountainRidgeSharpness, 1f, 3f);

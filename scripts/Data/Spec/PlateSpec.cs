@@ -21,8 +21,8 @@ public sealed class PlateSpec
 	/// <summary>边界扰动幅度（无量纲）。0 = 均匀阻力 ⇒ 纯测地 Voronoi。出厂值 5。</summary>
 	public float BoundaryAmplitude { get; set; } = 5f;
 
-	/// <summary>扰动基波长（km）。出厂值 64。</summary>
-	public float BoundaryWavelengthKm { get; set; } = 64f;
+	/// <summary>扰动基波长（km）。出厂值 1,204。</summary>
+	public float BoundaryWavelengthKm { get; set; } = 1204f;
 
 	/// <summary>扰动倍频层数。出厂值 4。</summary>
 	public int BoundaryOctaves { get; set; } = 4;

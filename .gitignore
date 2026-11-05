@@ -38,6 +38,9 @@ obj/
 # 诊断截图输出（NoiseShotDiag 等默认落 maps/xxx.png，与 logs/runs 同为运行产物，不入库）
 /maps/
 
+# 2D 地图导出（游戏目录/map_exports；运行产物，不入库）
+/map_exports/
+
 # 本地排查草稿（日志、截图等临时产物）
 /scratch/
 

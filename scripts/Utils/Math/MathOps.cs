@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>
-/// 世界生成共用的纯数值助手：平滑阶跃、高斯带、已排序样本的分位。
-/// 只收跨算子重复的口径；分位抽样 / 场平滑等有各自语义的步骤留在原算子。
+/// 通用数值核：平滑阶跃、高斯带、已排序样本的分位。
+/// 只收「没有世界语义、且至少两处共用」的口径；单处使用的公式留在它的语义拥有者旁边。
 /// </summary>
 public static class MathOps
 {

@@ -7,21 +7,21 @@ namespace World.Data;
 public static class ElevationBands
 {
 	/// <summary>档位（9 档，与 <see cref="UpperBoundsM"/> 同序）。</summary>
-	public enum Band { DeepSea, Ocean, ShallowSea, Shelf, Lowland, Plain, Highland, Mountain, Snowline }
+	public enum Band { DeepSea, Ocean, ShallowSea, Shelf, Lowland, Plain, Highland, Mountain, Summit }
 
 	/// <summary>
 	/// 第 i 档的上界（米，不含；末档 +∞）：海拔 &lt; 本值即归本档。
-	/// 地球尺度固定档界（−3000 / −1000 / −200 / 0 / 300 / 900 / 1800 / 2800），
+	/// 地球尺度固定档界（−6000 / −3000 / −200 / 0 / 300 / 900 / 1800 / 3500），
 	/// 不随世界 / seed 自适应 ⇒ 跨世界可比。
 	/// </summary>
 	public static readonly float[] UpperBoundsM =
 	{
-		-3000f, -1000f, -200f, 0f, 300f, 900f, 1800f, 2800f, float.PositiveInfinity,
+		-6000f, -3000f, -200f, 0f, 300f, 900f, 1800f, 3500f, float.PositiveInfinity,
 	};
 
 	static readonly string[] Names =
 	{
-		"深海", "大洋", "浅海", "岸棚", "低地", "平原", "高地", "山地", "雪线",
+		"深海", "大洋", "浅海", "岸棚", "低地", "平原", "高地", "山地", "极高山",
 	};
 
 	/// <summary>海拔（米）→ 档位；判读的唯一入口。</summary>
@@ -29,7 +29,7 @@ public static class ElevationBands
 	{
 		for (int i = 0; i < UpperBoundsM.Length; i++)
 			if (elevationM < UpperBoundsM[i]) return (Band)i;
-		return Band.Snowline;
+		return Band.Summit;
 	}
 
 	/// <summary>档位中文名（信息卡等文案用），与 <see cref="Of"/> 同表。</summary>

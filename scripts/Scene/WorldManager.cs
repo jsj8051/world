@@ -14,7 +14,7 @@ public partial class WorldManager : Node3D
 {
 	/// <summary>
 	/// 世界生产分辨率 = res4（冻结）：res4 是世界本身的空间离散尺度
-	/// （288,122 格、每格 5 km²、格边长 ≈1.39 km），各模拟系统都应适配这个尺度。
+	/// （288,122 格、每格 1,770 km²、格边长 ≈26.1 km），各模拟系统都应适配这个尺度。
 	/// 不得靠降低生产分辨率规避子系统的尺度适配缺陷——正确处置是让子系统适配 res4，
 	/// 否则滑向"不工作就换档"的架构倒退。res1~res4 同时用作诊断实验档，不是从中挑生产档。
 	/// </summary>
@@ -48,7 +48,50 @@ public partial class WorldManager : Node3D
 		_spec = spec;
 		Sim = new WorldGenSimulation(ProductionRes, PlanetGeometry.ProductionRadius);
 		Regenerate();                // 世界生成（重活在这一步）
+		LogGenerationSummary();      // 尺度 / 高程 / 气温的一行体检
 		IsInitialized = true;
+	}
+
+	/// <summary>
+	/// 生成后的一行体检：尺度、陆比与陆地均高（地球 30.6% / 546 m）、气温（全球 / 陆地 / 极区）。
+	/// 判读口径，不参与生成；数值偏离量级即参数或尺度失配。
+	/// </summary>
+	void LogGenerationSummary()
+	{
+		var facts = Sim.Facts;
+		var scale = SpatialScale.Of(Sim.Ball);
+		var height = facts.HeightM;
+		var land = facts.FinalLand;
+		var temperature = facts.TemperatureC;
+		var latitude = Sim.Ball.Geo.LatRad;
+		int n = height.Length;
+
+		double landHeightSum = 0.0, temperatureSum = 0.0, landTemperatureSum = 0.0, polarTemperatureSum = 0.0;
+		int landCount = 0, polarCount = 0;
+		float low = height[0], high = height[0], cold = temperature[0], warm = temperature[0];
+		for (int i = 0; i < n; i++)
+		{
+			if (height[i] < low) low = height[i];
+			if (height[i] > high) high = height[i];
+			if (land[i])
+			{
+				landCount++;
+				landHeightSum += height[i];
+				landTemperatureSum += temperature[i];
+			}
+
+			temperatureSum += temperature[i];
+			if (temperature[i] < cold) cold = temperature[i];
+			if (temperature[i] > warm) warm = temperature[i];
+			if (System.MathF.Abs(latitude[i]) > 1.309f) { polarCount++; polarTemperatureSum += temperature[i]; }
+		}
+
+		GD.Print($"[WORLD] R={SphericalFbmNoise.WorldRadiusKm:F0} km  cells={n}  " +
+			$"cell={scale.CellAreaKm2:F0} km²  spacing={scale.NeighborCenterKm:F1} km");
+		GD.Print($"[TERRAIN] height={low:F0}…{high:F0} m  land={100.0 * landCount / n:F1}%  " +
+			$"landMean={landHeightSum / System.Math.Max(1, landCount):F0} m（地球 30.6% / 546 m）");
+		GD.Print($"[CLIMATE] temp={temperatureSum / n:F1} °C  land={landTemperatureSum / System.Math.Max(1, landCount):F1}  " +
+			$"polar={polarTemperatureSum / System.Math.Max(1, polarCount):F1}  range={cold:F0}…{warm:F0}");
 	}
 
 	/// <summary>按当前世界定义重跑全链生成。只算数据；算完须由装配层调 <c>RenderManager.RebakeView()</c> 重烘表现。</summary>

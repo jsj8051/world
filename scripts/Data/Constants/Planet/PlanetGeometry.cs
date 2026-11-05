@@ -12,6 +12,6 @@ public static class PlanetGeometry
 	/// </summary>
 	public const float ProductionRadius = 2.0f;
 
-	// 物理半径（km）不在这里：由"res4 每格 5 km²"推出，唯一家是 SphericalFbmNoise.WorldRadiusKm
-	// （噪声波长与 SpatialScale 的面积 / 距离都经它换算）；本类的半径只决定画多大。
+	// 物理半径（km）不在这里：唯一家是 SphericalFbmNoise.WorldRadiusKm（地球尺度 6,371 km，
+	// res4 每格 1,770 km²）；噪声波长与 SpatialScale 的面积 / 距离都经它换算。本类的半径只决定画多大。
 }

@@ -42,14 +42,16 @@ public sealed class TerrainManager
 	/// </summary>
 	/// <param name="plateOfCell">上游板块阶段的逐格板块号。</param>
 	/// <param name="plates">上游板块阶段的板块表（壳型 / 欧拉矢量 / 密度）。</param>
+	/// <param name="boundary">上游 ⓪ 的边界场（逐格运动 / 角色 / 跳数；本阶段只读）。</param>
 	/// <param name="landBaseDropM">上游 ⓪ 给出的陆面基线偏移（米；群岛档压基线，其余 0）。</param>
 	public void Run(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell, Plate[] plates,
-		float landBaseDropM)
+		PlateBoundaryFields boundary, float landBaseDropM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
 		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (plates == null) throw new ArgumentNullException(nameof(plates));
+		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
 		int n = ball.CellDirs.Length;
 		if (plateOfCell.Length != n)
 			throw new ArgumentException($"板块号长度 {plateOfCell.Length} ≠ 格数 {n}", nameof(plateOfCell));
@@ -75,9 +77,6 @@ public sealed class TerrainManager
 			SeedDerivation.Terrain_CoastWarpX, SeedDerivation.Terrain_CoastWarpY, SeedDerivation.Terrain_CoastWarpZ,
 			spec.CoastWarpKm, spec.CoastWarpWavelengthKm,
 			NoiseSampling.ClampOctaves(2, spec.CoastWarpWavelengthKm, minWavelengthKm));
-
-		var role = PlateBoundaryOps.BoundaryRoles(ball, plateOfCell, plates);
-		var motion = PlateBoundaryOps.BoundaryMotion(ball, plateOfCell, plates);
 
 		// 陆壳掩码：决定基底铺陆面还是海底，不决定海陆——海陆由最终高度定。
 		var continental = new bool[n];
@@ -114,7 +113,7 @@ public sealed class TerrainManager
 			landHeight[i] = h;
 		});
 
-		var highland = HighlandOps.Build(ball, seed, spec, plateOfCell, continental, landHeight, motion, role,
+		var highland = HighlandOps.Build(ball, seed, spec, plateOfCell, continental, landHeight, boundary,
 			large, landDir);
 
 		// 陆面合成 + 分布重映射：重映射只作用于海面以上、保号单调 ⇒ 海岸线不动。
@@ -129,7 +128,7 @@ public sealed class TerrainManager
 		var aboveSea = new bool[n];
 		Parallel.For(0, n, i => aboveSea[i] = continental[i] && landComposite[i] > seaM);
 
-		var ocean = OceanDepthOps.Build(ball, seed, spec, plateOfCell, continental, aboveSea, motion, role);
+		var ocean = OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary);
 
 		// 加性抬升恒 ≥ 0 ⇒ 不会把格压到海面之下；海岸线由合成高度穿过海面自然形成，
 		// 海陆此后一律由高度定（<c>FinalLand = 高度 &gt; SeaLevelM</c>）。

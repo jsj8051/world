@@ -52,6 +52,16 @@ public abstract class MapMode
 	/// <summary>设置参数（坞参数按钮 → 控制器调；随后控制器负责触发重烘）。</summary>
 	public virtual void SetParameter(int index) { }
 
+	/// <summary>变体轴（null = 无变体行）：与 <see cref="ParameterOptions"/> 正交。
+	/// 例：风场 = 地面 / 低空 / 自由；参数行仍是"年均 + 1–12 月"。无变体模式零改动。</summary>
+	public virtual IReadOnlyList<string> VariantOptions => null;
+
+	/// <summary>当前变体下标（对应 <see cref="VariantOptions"/>；无变体模式恒 0）。</summary>
+	public virtual int VariantIndex => 0;
+
+	/// <summary>设置变体（坞变体按钮 → 控制器调；随后控制器触发重烘）。</summary>
+	public virtual void SetVariant(int index) { }
+
 	/// <summary>色标说明（坞图例行文案；null = 不显示）。固定物理域模式在此声明域与单位。</summary>
 	public virtual string ScaleCaption => null;
 

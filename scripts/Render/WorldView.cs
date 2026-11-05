@@ -16,6 +16,9 @@ public partial class WorldView : Node3D
 	WorldGenSimulation _sim;                              // 世界事实来源；Run() 会换快照 ⇒ 每次现取 _sim.Facts
 	BallView _ballView;                                   // 球面网格（LOD / 剔除 / 拾取 / 高亮）
 	RiverLineOverlay _riverLines;                         // 连续河线叠加（只读 RiverGeometry，不改水文）
+	CurrentFlowOverlay _currentFlow;                      // 洋流流线粒子（只在"洋流 · 粒子"档显示）
+	WindFlowOverlay _windFlow;                            // 风场粒子（只在"风场"模式显示）
+	MapMode _mode;                                        // 当前取色策略（叠加层可见性跟着它）
 
 	/// <summary>LOD 近距比例：距离 &lt; 球半径 × 此值即用高档。出厂值 6。</summary>
 	[ExportGroup("LOD 与剔除")]
@@ -53,9 +56,18 @@ public partial class WorldView : Node3D
 		if (initialMode == null) throw new System.ArgumentNullException(nameof(initialMode));
 
 		var facts = sim.Facts ?? throw new System.InvalidOperationException("世界尚未生成（先 Run）");
+		_mode = initialMode;
 		_ballView = new BallView(facts.Ball, facts.HeightM, initialMode, LodNearRatio, BackfaceCullRatio);
 		AddChild(_ballView);
 		_ballView.BuildChunks();
+
+		_currentFlow = new CurrentFlowOverlay { Name = "CurrentFlow", Visible = false };
+		_ballView.AddChild(_currentFlow);
+		_currentFlow.Build(facts);
+
+		_windFlow = new WindFlowOverlay { Name = "WindFlow", Visible = false };
+		_ballView.AddChild(_windFlow);
+		_windFlow.Build(facts, 0, WindKind.Surface);
 
 		if (!ShowRiverLines) return;
 
@@ -80,13 +92,39 @@ public partial class WorldView : Node3D
 		_ballView.SetElevationSource(facts.HeightM);
 		_ballView.RefreshColors();
 		_riverLines?.Build(facts.Ball, facts.RiverLines, facts.RiverTopology);
+		_currentFlow?.Build(facts);
+		if (_mode is WindMode wind) _windFlow?.Build(facts, wind.SelectedMonth, wind.SelectedKind);
+		SyncOverlays();
 	}
 
-	/// <summary>取色函数换了（地图模式 / 参数行）⇒ 只重烘颜色纹理，不动几何、不动海拔源。</summary>
-	public void RefreshColors() => _ballView?.RefreshColors();
+	/// <summary>取色函数换了（地图模式 / 参数行）⇒ 只重烘颜色纹理，不动几何、不动海拔源。
+	/// 风场参数是月份：换月时风丝几何在后台按新月份重积，主线程只做网格组装。</summary>
+	public void RefreshColors()
+	{
+		_ballView?.RefreshColors();
+		if (_mode is WindMode wind && _sim?.Facts != null)
+			_windFlow?.Build(_sim.Facts, wind.SelectedMonth, wind.SelectedKind);
+		SyncOverlays();
+	}
 
 	/// <summary>切换地图模式（取色策略）。</summary>
-	public void SetMode(MapMode mode) => _ballView?.SetMode(mode);
+	public void SetMode(MapMode mode)
+	{
+		_mode = mode;
+		_ballView?.SetMode(mode);
+		if (mode is WindMode wind && _sim?.Facts != null)
+			_windFlow?.Build(_sim.Facts, wind.SelectedMonth, wind.SelectedKind);
+		SyncOverlays();
+	}
+
+	/// <summary>按当前模式决定叠加层可见性（洋流粒子只在"洋流 · 粒子"档，风丝只在风场模式）。</summary>
+	void SyncOverlays()
+	{
+		if (_currentFlow != null)
+			_currentFlow.Visible = _mode is OceanCurrentMode ocean && ocean.ShowParticles;
+		if (_windFlow != null)
+			_windFlow.Visible = _mode is WindMode;
+	}
 
 	/// <summary>每帧剔除 + LOD + 高亮环带屏幕宽度（相机由管理器注入）。</summary>
 	public void UpdateVisibility(Camera3D camera)
@@ -94,5 +132,7 @@ public partial class WorldView : Node3D
 		_ballView?.UpdateVisibility(camera);
 		// 相机只影响表现宽度（单向：Camera → 表现层），不改任何水文事实
 		_riverLines?.UpdateCameraScale(camera);
+		_currentFlow?.UpdateCamera(camera);
+		_windFlow?.UpdateCamera(camera);
 	}
 }

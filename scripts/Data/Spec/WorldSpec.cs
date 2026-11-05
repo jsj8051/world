@@ -4,7 +4,7 @@ namespace World.Data;
 
 /// <summary>
 /// 世界定义（身份 + 分阶段配置）：可变参数实例，由 <c>World.Params.WorldParams</c> 持有唯一一份。
-/// 不变量：<c>Plate</c> / <c>Terrain</c> 恒非空，且不整体替换（要改走 <see cref="CopyTo"/> 逐字段写进去）。
+/// 不变量：<c>Plate</c> / <c>Terrain</c> / <c>Climate</c> 恒非空，且不整体替换（要改走 <see cref="CopyTo"/> 逐字段写进去）。
 /// </summary>
 public sealed class WorldSpec
 {
@@ -33,6 +33,9 @@ public sealed class WorldSpec
 	/// <summary>地形阶段配置。恒非空；生效期要改就 <see cref="CopyTo"/> 逐字段写进去。</summary>
 	public TerrainSpec Terrain { get; init; } = new();
 
+	/// <summary>气候阶段配置。恒非空；生效期要改就 <see cref="CopyTo"/> 逐字段写进去。</summary>
+	public ClimateSpec Climate { get; init; } = new();
+
 	/// <summary>
 	/// 逐字段复制到 <paramref name="target"/>（不动实例身份）。
 	/// 失败项（段缺失 / 目标段为 null）不写并记入 <paramref name="problems"/>。
@@ -52,5 +55,9 @@ public sealed class WorldSpec
 		if (Terrain == null) problems?.Add("世界定义缺 Terrain 段 ⇒ 该段保持目标现值（不覆盖）。");
 		else if (target.Terrain == null) problems?.Add("目标世界定义的 Terrain 段为 null ⇒ 跳过（不变量破坏）。");
 		else Terrain.CopyTo(target.Terrain);
+
+		if (Climate == null) problems?.Add("世界定义缺 Climate 段 ⇒ 该段保持目标现值（不覆盖）。");
+		else if (target.Climate == null) problems?.Add("目标世界定义的 Climate 段为 null ⇒ 跳过（不变量破坏）。");
+		else Climate.CopyTo(target.Climate);
 	}
 }

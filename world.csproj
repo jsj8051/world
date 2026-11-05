@@ -10,10 +10,14 @@
     <!-- CivSim 整棵闭包移入 scripts/_removed/ 并排除编译（移出而非删除，回归时移回并删掉这两行）。 -->
     <Compile Remove="scripts/_removed/**/*.cs" />
     <None Remove="scripts/_removed/**" />
+    <!-- scratch/ 是参考文献与旧实现存档（含同名类型），不得进游戏程序集。 -->
+    <Compile Remove="scratch/**/*.cs" />
+    <None Remove="scratch/**" />
   </ItemGroup>
   <ItemGroup>
-    <!-- 单测直测 internal 纯函数与测试钩子（如 TechTable.LoadForTest）。 -->
+    <!-- 测试工程直测 internal 纯函数；名字与 tests/World.Tests.Local 的程序集名一致。 -->
     <InternalsVisibleTo Include="World.Tests" />
+    <InternalsVisibleTo Include="World.Tests.Local" />
   </ItemGroup>
   <ItemGroup>
     <!-- H3 原生库（native/h3/h3.dll，Uber h3 v4.5.0 MinGW 编译）：经 Link 扁平拷到输出根目录，

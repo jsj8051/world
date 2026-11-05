@@ -11,7 +11,7 @@ namespace World.Logic;
 /// 山体的分形细化 + 虚拟侵蚀算子：把 <see cref="HighlandOps"/> 合成的构造抬升刻成脊谷相间的山系。
 /// 两步顺序不能反：必须先细化再排水，光滑面上先排水只会退化成规则径向纹，出不来树枝状沟谷。
 /// 细化取中心化普通 fBm（按均值归位 ⇒ 只改形状不改平均幅度），陡坡按坡度分位抑制幅度；不可换
-/// ridged：其脊落在 Perlin 零等值面上、每隔半个基波长一条长棱，一格 1.4 km 时落到采样极限以下，
+/// ridged：其脊落在 Perlin 零等值面上、每隔半个基波长一条长棱，一格 26.1 km 时落到采样极限以下，
 /// 沿六边形格轴混叠成条纹。
 /// 虚拟侵蚀不做物理量纲：不做 dt / K / m 迭代几十步的隐式解，每步按当前汇水量与坡度直接切一刀，
 /// 只要形状，不求量级可比；坡度取逐跳落差并按自身分位归一，故不必换算物理坡度。
@@ -21,9 +21,9 @@ namespace World.Logic;
 /// </summary>
 public static class ErosionOps
 {
-	// 分形细化的纹理尺度（形状常量，不进 TerrainSpec）：27 km ≈ 11 倍邻格中心距（2.47 km）。
+	// 分形细化的纹理尺度（形状常量，不进 TerrainSpec）：508 km ≈ 11 倍邻格中心距（46.5 km）。
 	// 细化只负责把山带打散成几个山块，一格一格的脊谷交给侵蚀去刻。
-	const float DetailWavelengthKm = 27f;
+	const float DetailWavelengthKm = 508f;
 
 	/// <summary>最多叠几层。实际层数还要被采样极限截断（见 <see cref="MinDetailCellRatio"/>）。</summary>
 	const int DetailOctaves = 4;

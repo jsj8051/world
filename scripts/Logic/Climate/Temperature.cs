@@ -1,60 +1,51 @@
 using System;
-using World.H3Grid;       // Ball
-using World.Data;          // Thermal（热常数集中管理）
 
 namespace World.Logic;
 
 /// <summary>
-/// 温度场：逐格温度事实（℃；与 <c>ball.CellIds</c> 逐位对齐）。
+/// 温度事实：逐格年均温 + 逐月温度 + 月极值（柯本分类与物候的下游输入）。
 ///
-/// 模型（v1：**逐格能量收支**，输入与输出平衡得温度）：
-///   Q_in(φ) = 输入系数 · cos φ         ← 每格从照射获取的能量（纬度决定入射角）
-///   T_eq    = (Q_in · 输出系数)^(1/4)   ← 输出到外太空 = 输入时的平衡解
-///   T       = T_eq − Γ·h               ← 大气温度递减（h 为海拔 km）
+/// 事实来源是月循环：年均温 = mean(12 月)，不是另一套年均公式算出来的——
+/// 这样"年均"和"季节"永远是同一个场，不会出现两套模型只靠一个补热项粘在一起。
 ///
-/// ★语义：**每格输入多少能量、输出多少能量，收支平衡即得温度**。
-///   常数已归一（见 <see cref="Thermal"/>）：输入侧 Q₀(1−α)、输出侧 1/(εσ) 各合并为一个系数。
-///   输入按纬度变化（cos φ：赤道最大、极地趋 0）⇒ 温度随纬度自然衰减。
-///
-/// ⚠️**已知模型边界（不加护栏，如实暴露）**：
-///   `cos φ → 极地 = 0` ⇒ **T_eq → 0 K（−273 °C 奇异）**。真实地球极地靠**热输送**
-///   维持——本模型无热输送，故极地必然奇冷。**这是模型缺失而非数值问题**，故意不加
-///   下限：加了会把"缺热输送"伪装成正常结果，将来重做热输送时无从判断改善。
+/// @example
+/// <code>
+/// temperature.Adopt(monthly);
+/// float annual = temperature.AnnualC[i];
+/// float jan    = temperature.MonthlyC[0][i];
+/// </code>
 /// </summary>
 public sealed class Temperature
 {
-    /// <summary>逐格温度（℃；与 <c>ball.CellIds</c> 逐位对齐）。</summary>
-    public float[] CellTemperatureC { get; private set; } = Array.Empty<float>();
+	/// <summary>逐格年均温（°C）。</summary>
+	public float[] AnnualC { get; private set; } = Array.Empty<float>();
 
-    /// <summary>全球平均温度（℃；等积格 ⇒ 算术平均）。判读/量级锚用，非生产输入。</summary>
-    public float MeanC { get; private set; }
+	/// <summary>逐月温度（°C）：<c>[month][cell]</c>。</summary>
+	public float[][] MonthlyC { get; private set; } = Array.Empty<float[]>();
 
-    // ── 系数：集中于 Constants.Thermal（已归一，不在此硬编码）──────────────
-    const float InputFlux = Thermal.AbsorbedSolarFluxWm2;        // 输入侧（含 α）
-    const float CoolingInv = Thermal.RadiativeCoolingInverseWm2; // 输出侧（含 εσ）
-    const float LapseRateCPerKm = Thermal.LapseRateCPerKm;
-    const float KelvinToCelsius = Thermal.KelvinToCelsius;
+	/// <summary>月数。</summary>
+	public int MonthCount => MonthlyC.Length;
 
-    public void Generate(Ball ball, float[] heightM)
-    {
-        if (ball == null) throw new ArgumentNullException(nameof(ball));
-        if (heightM == null) throw new ArgumentNullException(nameof(heightM));
-        var geo = ball.Geo;                   // 经纬度索引随 Ball 组合而来
-        int n = ball.CellIds.Length;
-        CellTemperatureC = new float[n];
+	/// <summary>最热月均温（°C）。</summary>
+	public float[] HotMonthC { get; private set; } = Array.Empty<float>();
 
-        float sum = 0f;
-        for (int i = 0; i < n; i++)
-        {
-            float elevKm = heightM[i] * 1e-3f;                   // 海拔 → km
-            // 纬度弧度直接取自 BallGeoIndex（Cos 为偶函数 ⇒ 无需取 |纬度|）
-            float qIn = InputFlux * MathF.Cos(geo.LatRad[i]);     // 纬度输入
-            // ⚠️ 极地 qIn→0 ⇒ tEqC→−273.15（奇异，见类注释）；不夹不护，如实暴露。
-            float tEqC = MathF.Pow(qIn * CoolingInv, 0.25f) - KelvinToCelsius;
-            float t = tEqC - LapseRateCPerKm * elevKm;           // 海拔递减
-            CellTemperatureC[i] = t;
-            sum += t;
-        }
-        MeanC = sum / n;
-    }
+	/// <summary>最冷月均温（°C）。</summary>
+	public float[] ColdMonthC { get; private set; } = Array.Empty<float>();
+
+	/// <summary>全球年均温（°C；等积格算术平均）。</summary>
+	public float MeanC { get; private set; }
+
+	/// <summary>采纳月循环的产物作为温度事实。</summary>
+	public void Adopt(MonthlyClimate climate)
+	{
+		if (climate == null) throw new ArgumentNullException(nameof(climate));
+		AnnualC = climate.AnnualTempC;
+		MonthlyC = climate.MonthTempC;
+		HotMonthC = climate.HotMonthC;
+		ColdMonthC = climate.ColdMonthC;
+
+		float sum = 0f;
+		foreach (float t in AnnualC) sum += t;
+		MeanC = AnnualC.Length > 0 ? sum / AnnualC.Length : 0f;
+	}
 }

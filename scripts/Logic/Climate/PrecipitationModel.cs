@@ -1,30 +1,52 @@
 using System;
-using Godot;
 using World.H3Grid;
 
 namespace World.Logic;
 
 /// <summary>
-/// 降水事实：逐格年降水（mm/年，绝对量纲）= 纬向基准 ZonalMm(|lat|) × 海洋性系数
-/// （<see cref="InteriorRatio"/> 为渐近下限，再按 exp(−内陆 km / <see cref="CoastDecayKm"/>) 衰减）。
-/// 只消费 ① 的世界事实（FinalLand / FinalDistToCoast），不读 CivSim / .mpa，逐格与 ball.CellIds 对齐；
-/// 海格取海面降水真值、不参与大陆性，每格都有值，没有 0/null 缺失语义。
-/// 副热带深内陆可达真实干旱量级，勿回退到相对量纲。不表达地形雨、季风、洋流、季节循环。
+/// 降水事实：逐格年降水（mm/年，绝对量纲）与逐月降水（mm/月）。
+///
+/// 年降水 = **Σ 12 个月**（月值由 <see cref="MonthlyClimate"/> 产出，年值涌现，不做"年值分配"）。
+/// 另有一条**纬向估算**（纬向带 × 海洋性衰减），只用于温度闭环的湿润降温——
+/// 因为那个闭环需要"温度之前就有降水"，不能用降水自己的下游产物。
+///
+/// 口径：海格也有降水（真实海面降水不为零），所以 <see cref="MeanMm"/> 是全格均值，
+/// <c>RiverNetwork.RunoffThreshold</c> 直接用它是同一把尺子。
+///
+/// @example
+/// <code>
+/// precipitation.Adopt(monthly);
+/// float annual = precipitation.AnnualMm[i];
+/// float july   = precipitation.MonthlyMm[6][i];
+/// </code>
 /// </summary>
 public sealed class PrecipitationModel
 {
-	/// <summary>逐格年降水（mm/年，绝对量纲；与 <c>ball.CellIds</c> 逐位对齐 ⇒ 生产档 = H3 res4 CellId）。</summary>
+	/// <summary>逐格年降水（mm/年；与 <c>grid.Dirs</c> 逐位对齐）。</summary>
 	public float[] AnnualMm { get; private set; } = Array.Empty<float>();
 
-	/// <summary>全球均值（mm/年）。H3 等积格 ⇒ 全球 cell 均值 = 算术平均（再乘 cos(lat) 是二次面积加权，会虚高）。
-	/// 用途：<c>RiverNetwork</c> 的径流阈值自锚定（<c>RunoffThreshold = meanPrecip × 阈值格数</c>）与
-	/// ③ 对照的量级锚，不是新的生产输入。与 <c>TemperatureModel.MeanC</c> 同性质。</summary>
+	/// <summary>逐月降水（mm/月）：<c>[month][cell]</c>。</summary>
+	public float[][] MonthlyMm { get; private set; } = Array.Empty<float[]>();
+
+	/// <summary>全球均值（mm/年）。H3 等积格 ⇒ 算术平均即全球均值。</summary>
 	public float MeanMm { get; private set; }
 
+	/// <summary>采纳月循环的产物作为降水事实（年 = Σ 月）。</summary>
+	public void Adopt(MonthlyClimate climate)
+	{
+		if (climate == null) throw new ArgumentNullException(nameof(climate));
+		MonthlyMm = climate.MonthPrecipMm;
+		AnnualMm = climate.AnnualPrecipMm;
+
+		float sum = 0f;
+		foreach (float v in AnnualMm) sum += v;
+		MeanMm = AnnualMm.Length > 0 ? sum / AnnualMm.Length : 0f;
+	}
+
 	/// <summary>大陆性 e 折长度（km；几何尺度 B，不随 res 变）：离岸每增加此长度，
-	/// 「海洋性 − <see cref="InteriorRatio"/>」衰减到 1/e。出厂值 24 = 450 km × 338.586 / 6371；
+	/// 「海洋性 − <see cref="InteriorRatio"/>」衰减到 1/e。出厂值 452 km（地球量级的大陆性 e 折长度）；
 	/// 改世界半径须按比例重算，否则大陆性分布走样。</summary>
-	public const float CoastDecayKm = 24f;
+	public const float CoastDecayKm = 452f;
 
 	// 纬向年平均降水 LUT（|纬度|度 → mm/年；地球海陆合计量级）：ITCZ 峰（0~10°）→ 副热带干槽
 	// （20~25°）→ 温带次峰（45~55°）→ 极地低值；面积加权全球均值 ≈ 1,200 mm/年（未计大陆性衰减）。
@@ -43,34 +65,31 @@ public sealed class PrecipitationModel
 		(50f, 0.45f), (65f, 0.55f), (90f, 0.65f),
 	};
 
-	/// <summary>生成逐格年降水（只消费 ① 的世界事实：<c>FinalLand</c> / <c>FinalDistToCoast</c>）。
-	/// 绝不读取 CivSim / <c>.mpa</c> 文件。</summary>
-	public void Generate(Ball ball, TerrainPipeline terrain)
+	/// <summary>
+	/// 年降水的**纬向估算**（湿润降温闭环的输入）：纬向带基准 × 海洋性衰减 × 沿岸洋流修正。
+	/// 不含季节、季风、地形雨影——那些只能在月循环里算，而闭环必须早于月循环。
+	/// </summary>
+	public static float[] EstimateAnnualMm(ClimateGrid grid, float[] coastalWarmth)
 	{
-		if (ball == null) throw new ArgumentNullException(nameof(ball));
-		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
-		int n = ball.CellDirs.Length;
-		var dirs = ball.CellDirs;
-		AnnualMm = new float[n];
+		if (grid == null) throw new ArgumentNullException(nameof(grid));
 
-		// hop → km：正六边形蜂窝的几何关系（相邻格中心距 = √3 × 等积格边长），随 res 变。
-		// 这是尺度换算，不是 hop × 固定常数。BFS 不沿大圆、逐跳离散 ±25%，24 km 级（约 10 跳）
-		// 误差约 ±8%，对平滑权重可接受；要精确离岸距离应在 ① 的事实派生里加真实距离场，不在这里提精度。
-		double kmPerHop = Math.Sqrt(3.0) * SpatialScale.Of(ball).CellEdgeKm;
+		int n = grid.Count;
+		var estimate = new float[n];
+		double kmPerHop = grid.NeighborKm;
 
-		float sum = 0f;
 		for (int i = 0; i < n; i++)
 		{
-			float latDeg = MathF.Abs(MathF.Asin(Math.Clamp(dirs[i].Y, -1f, 1f)) * 180f / MathF.PI);
-			float zonalMm = ZonalMm(latDeg);
-			bool land = terrain.FinalLand[i];
-			// 读离岸距离 FinalDistToCoast（陆格改用 FinalDistToLand 会恒 0）
-			float maritime = land ? CoastFactor(terrain.FinalDistToCoast[i], kmPerHop, latDeg) : 1f;
-			float v = zonalMm * maritime;
-			AnnualMm[i] = v;
-			sum += v;
+			float latAbsDeg = MathF.Abs(grid.LatDeg(i));
+			float zonal = ZonalMm(latAbsDeg);
+			float maritime = grid.Land[i] ? CoastFactor(grid.DistToCoast[i], kmPerHop, latAbsDeg) : 1f;
+			float value = zonal * maritime;
+
+			// 暖流沿岸蒸发强 → 增湿；寒流沿岸 → 减湿。用整条洋流场的冷暖，不做额外放大。
+			if (coastalWarmth != null) value *= 1f + coastalWarmth[i] * 0.25f;
+
+			estimate[i] = MathF.Max(0f, value);
 		}
-		MeanMm = sum / n;
+		return estimate;
 	}
 
 	/// <summary>纬向年平均降水（mm/年；分段线性插值，南北对称）。对海格即海面降水量，
@@ -83,7 +102,7 @@ public sealed class PrecipitationModel
 
 	/// <summary>陆格的海洋性 / 大陆性加权系数 ∈ [<see cref="InteriorRatio"/>, 1]：临海 1.0 →
 	/// 内陆按 e 折长度 <see cref="CoastDecayKm"/> 衰减 → 趋 <see cref="InteriorRatio"/>。</summary>
-	/// <param name="distToCoastHops"><c>FinalDistToCoast</c>（自海格 BFS；陆格 ≥ 1）。</param>
+	/// <param name="distToCoastHops"><c>DistToCoast</c>（自海格 BFS；陆格 ≥ 1）。</param>
 	/// <param name="kmPerHop">本 res 的相邻格中心距（km；随 res 变）。</param>
 	/// <param name="latAbsDeg">|纬度|（度）——决定渐近下限（副热带内陆最干）。</param>
 	/// <remarks>退化解：全陆临海时 <c>distToCoastHops ≡ 1</c> ⇒ 内陆深度 0 ⇒ 系数 ≡ 1.0，
@@ -97,12 +116,12 @@ public sealed class PrecipitationModel
 
 	/// <summary>海洋性渗透系数 ∈ (0, 1]：海岸格 1.0，内陆按 e 折长度 <see cref="CoastDecayKm"/> 单调衰减。
 	/// 与纬度无关（纬度只通过 <see cref="InteriorRatio"/> 决定渐近下限）⇒ 可独立钉住"衰减长度是 km 不是 hop"。</summary>
-	/// <param name="distToCoastHops"><c>FinalDistToCoast</c>（自海格 BFS；陆格 ≥ 1，海格 = 0）。</param>
+	/// <param name="distToCoastHops"><c>DistToCoast</c>（自海格 BFS；陆格 ≥ 1，海格 = 0）。</param>
 	/// <param name="kmPerHop">本 res 的相邻格中心距（km；随 res 变）。</param>
 	public static float CoastalPenetration(int distToCoastHops, double kmPerHop)
 	{
 		if (kmPerHop <= 0) throw new ArgumentOutOfRangeException(nameof(kmPerHop), kmPerHop, "相邻格中心距须为正");
-		// 海岸格 FinalDistToCoast = 1 ⇒ −1 归一化成"内陆深度从 0 起算"
+		// 海岸格 DistToCoast = 1 ⇒ −1 归一化成"内陆深度从 0 起算"
 		double inlandKm = Math.Max(0, distToCoastHops - 1) * kmPerHop;
 		return (float)Math.Exp(-inlandKm / CoastDecayKm);
 	}

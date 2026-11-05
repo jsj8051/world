@@ -37,13 +37,13 @@ public sealed class RiverNetwork
 	public HydrologyRoutingSurface Routing { get; private set; } = new();
 
 	/// <summary>河流判定阈值（拓扑量：汇流累积格数）。只在固定 res 下有意义：40 格在 res1
-	/// （842 格，每格 1,711 km²）是大陆级流域，在 res4（每格 5 km²）= 200 km²，差 342 倍。
+	/// （每格 ≈ 607,110 km²）是大陆级流域，在 res4（每格 1,770 km²）= 70,800 km²。
 	/// 新代码请用 <c>riverThresholdAreaKm2</c>（km²）。</summary>
 	public const int RiverThresholdCells = 40;
 
-	/// <summary>河流判定阈值的物理口径（km²）：200 km² = 40 格 × 5 km²/格
+	/// <summary>河流判定阈值的物理口径（km²）：70,800 km² = 40 格 × 1,770 km²/格
 	/// （res4 下与拓扑口径等价；res1 下 1 格即达标）。</summary>
-	public const double RiverThresholdAreaKm2 = 200.0;
+	public const double RiverThresholdAreaKm2 = 70800.0;
 
 	/// <summary>生成河网。<paramref name="riverThresholdCells"/> 是拓扑口径（格数），
 	/// <paramref name="riverThresholdAreaKm2"/> 是物理口径（km²），后者优先。

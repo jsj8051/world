@@ -22,14 +22,14 @@ namespace World.Logic;
 public static class OceanDepthOps
 {
 	// 海底噪声的波长 / 层数是纹理尺度（形状常量），不进 TerrainSpec——那里放能改画面的物理旋钮。
-	const float SeaLargeWavelengthKm = 407f;
+	const float SeaLargeWavelengthKm = 7658f;
 	const int SeaLargeOctaves = 5;
-	const float SeaFineWavelengthKm = 91f;
-	const int SeaFineOctaves = 4;      // 最细层 11.4 km ≈ 4.6 格（再细就压到采样极限，混叠成条纹）
-	const float ShelfNoiseWavelengthKm = 509f;
+	const float SeaFineWavelengthKm = 1712f;
+	const int SeaFineOctaves = 4;      // 最细层 214 km ≈ 4.6 格（再细就压到采样极限，混叠成条纹）
+	const float ShelfNoiseWavelengthKm = 9578f;
 	const int ShelfNoiseOctaves = 3;
-	const float ArcBeadWavelengthKm = 40f;
-	const float ArcIsleWavelengthKm = 104f;
+	const float ArcBeadWavelengthKm = 753f;
+	const float ArcIsleWavelengthKm = 1957f;
 	const int ArcIsleOctaves = 4;
 
 	/// <summary>结果。<c>DepthM</c>：洋壳格的海底深度（恒 ≤ <see cref="TerrainSpec.OceanShallowestM"/>；陆壳格不用）；
@@ -48,36 +48,26 @@ public static class OceanDepthOps
 
 	/// <summary>构建海底场：只算洋壳格，陆壳格留 0。</summary>
 	/// <param name="land">逐格是否露出水面（陆壳且合成高度 &gt; 海面）——离岸距离的源。</param>
-	/// <param name="motion">逐格边界法向相对速率（&lt; 0 汇聚 / &gt; 0 张裂）。</param>
-	/// <param name="role">逐格汇聚角色（见 <see cref="BoundaryRole"/>）。</param>
-	public static Field Build(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell,
-		bool[] continental, bool[] land, float[] motion, BoundaryRole[] role)
+	/// <param name="boundary">板块边界场（逐格运动 / 角色 / 跳数；只读）。</param>
+	public static Field Build(Ball ball, int seed, TerrainSpec spec,
+		bool[] continental, bool[] land, PlateBoundaryFields boundary)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
-		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (continental == null) throw new ArgumentNullException(nameof(continental));
 		if (land == null) throw new ArgumentNullException(nameof(land));
-		if (motion == null) throw new ArgumentNullException(nameof(motion));
-		if (role == null) throw new ArgumentNullException(nameof(role));
+		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
-		var neighbors = ball.CellNeighbors;
 
 		// ── 源集：活动边界格（|motion| 超过 ActiveMotion；阈值与山带共用）──
 		var convSources = new List<int>();
 		var divSources = new List<int>();
 		for (int i = 0; i < n; i++)
 		{
-			int p = plateOfCell[i];
-			int[] nb = neighbors[i];
-			bool boundary = false;
-			for (int k = 0; k < nb.Length; k++)
-				if (plateOfCell[nb[k]] != p) { boundary = true; break; }
-			if (!boundary) continue;
-
-			float m = motion[i];
+			if (boundary.CellHops[i] != 0) continue;   // 边界格 = 到边界 0 跳
+			float m = boundary.CellMotion[i];
 			if (m < -PlateBoundaryOps.ActiveMotion) convSources.Add(i);
 			else if (m > PlateBoundaryOps.ActiveMotion) divSources.Add(i);
 		}
@@ -85,7 +75,7 @@ public static class OceanDepthOps
 		// ── 三个真实距离场（km）：到汇聚边界 / 到大洋张裂边界 / 到陆地 ──
 		// 截断半径取该场最远的有效尺度（带外 / 年龄满值后不再改变结果），越远越省。
 		var conv = DistanceFieldOps.Build(ball, convSources,
-			i => MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale),
+			i => MathF.Min(1f, -boundary.CellMotion[i] / PlateBoundaryOps.MotionScale),
 			4f * spec.ActiveMarginBandKm);
 
 		// 洋中脊只在大洋里：大陆里的张裂是裂谷，不算洋中脊。
@@ -93,7 +83,7 @@ public static class OceanDepthOps
 		foreach (int i in divSources)
 			if (!continental[i]) ridgeSources.Add(i);
 		var ridge = DistanceFieldOps.Build(ball, ridgeSources,
-			i => MathF.Min(1f, motion[i] / PlateBoundaryOps.MotionScale),
+			i => MathF.Min(1f, boundary.CellMotion[i] / PlateBoundaryOps.MotionScale),
 			MathF.Max(spec.RidgeAgeSpanKm, 4f * spec.RidgeBandKm));
 
 		var coastSources = new List<int>();
@@ -149,7 +139,7 @@ public static class OceanDepthOps
 			float cs = conv.Strength[i];
 			float cd = conv.DistKm[i];
 			float arcBand = MathOps.GaussianBand(cd - spec.ArcOffsetKm, spec.ArcBandKm);
-			bool overriding = role[i] == BoundaryRole.Arc;
+			bool overriding = boundary.CellRole[i] == BoundaryRole.Arc;
 			if (overriding)
 				d = MathF.Max(d, spec.ArcCrestDepthM - spec.ArcRiseM * (1f - cs * arcBand));
 
@@ -171,7 +161,7 @@ public static class OceanDepthOps
 		Parallel.For(0, n, i =>
 		{
 			if (continental[i]) return;
-			if (role[i] != BoundaryRole.Slab) return;
+			if (boundary.CellRole[i] != BoundaryRole.Slab) return;
 			trench[i] = (spec.TrenchDepthM + spec.TrenchConvDepthM * conv.Strength[i])
 				* conv.Strength[i]
 				* MathOps.GaussianBand(conv.DistKm[i], spec.TrenchBandKm)

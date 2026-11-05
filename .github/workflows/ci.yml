@@ -21,7 +21,8 @@ jobs:
       - name: Unit tests（tests/ 有工程才跑）
         run: |
           if [ -f tests/World.Tests.Local/World.Tests.Local.csproj ]; then
-            dotnet test tests/World.Tests.Local/World.Tests.Local.csproj --configuration Debug --no-build
+            # 测试工程是纯 C# 控制台跑器（不是 test SDK）；入口与 pre-commit 相同：dotnet run。
+            dotnet run --project tests/World.Tests.Local/World.Tests.Local.csproj --configuration Debug
           else
             echo "tests/ 暂无测试工程，跳过（见 tests/README.md）"
           fi

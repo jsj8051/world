@@ -3,9 +3,9 @@ using System.Collections.Generic;
 
 namespace World.Logic;
 
-// 河流符号宽度（表现层纯函数）：只做符号粗细分级，不表达物理河宽——res4 格边长 ≈1.39 km，
-// 真实 10 m / 200 m / 800 m = 格边长的 0.7% / 14% / 58%；全球远景（球直径 1000 px）下
-// 800 m 巨河 ≈ 1 px，本表档位 0.9~3.8 px ⇒ 符号与米数没有换算关系，WidthM / DepthM /
+// 河流符号宽度（表现层纯函数）：只做符号粗细分级，不表达物理河宽——res4 格边长 ≈26.1 km，
+// 真实 10 m / 200 m / 800 m = 格边长的 0.04% / 0.8% / 3%；全球远景（球直径 1000 px，约 40 km/px）
+// 下 800 m 巨河 ≈ 0.02 px，本表档位 0.9~3.8 px ⇒ 符号是制图夸张，与米数没有换算关系，WidthM / DepthM /
 // BankGeometry / Floodplain / 分汊一律不建。
 // 纯函数、零副作用：只读河段径流累积，不写 RiverNetwork / RiverGraph / RiverGeometry 任何字段。
 // 宽度属河段而不属节点（NodeKind 只管颜色与连接样式），否则单调性不成立（小干流河源 vs 大支流河口反转）；

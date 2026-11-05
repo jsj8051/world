@@ -29,6 +29,9 @@ public sealed class PlateManager
 	/// 由洪泛后的逐格归属统计得到——「陆壳连成一片」靠它判定。</summary>
 	public bool[,] PlateAdjacency { get; private set; } = new bool[0, 0];
 
+	/// <summary>板块边界集（划分的派生索引；共享边 + 板块对 + 逐格关联）。</summary>
+	public PlateBoundarySet Boundaries { get; private set; } = PlateBoundarySet.Empty;
+
 	/// <summary>撒种子点：球面均匀随机撒 <c>plateCount</c> 个点，每点附随机速度与密度。
 	/// 速度 = 种子点处切向速率 V ∈ [minSpeed, maxSpeed) + 切平面内随机方位 ψ；
 	/// 由它反解欧拉矢量 ω（ω ⊥ 种子点方向 ⇒ 种子点速度恒等于该切向速度，其余格按刚体转动）。</summary>
@@ -214,6 +217,13 @@ public sealed class PlateManager
 
 		for (int k = 0; k < p; k++) Plates[k].Crust = CrustType.Oceanic;
 		foreach (int k in picked) Plates[k].Crust = CrustType.Continental;
+	}
+
+	/// <summary>建板块边界集。须在 <see cref="AssignCrustTypes"/> 之后调——板块对的两侧角色依赖壳型与密度。</summary>
+	public void BuildBoundaries(Ball ball)
+	{
+		if (Plates.Length < 1) throw new InvalidOperationException("先 BuildSeeds 再 BuildBoundaries（板块表为空）");
+		Boundaries = PlateBoundaryBuilder.Build(ball, PlateOfCell, Plates);
 	}
 
 	/// <summary>连片挑选：第一块取分最高者，之后每轮只从与已选板块相邻的候选里取分最高者

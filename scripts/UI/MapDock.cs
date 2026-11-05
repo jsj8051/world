@@ -26,10 +26,15 @@ namespace World.UI
 		// 参数选择信号（上行：参数化模式的参数按钮 → 控制器调 mode.SetParameter + 重烘）。
 		[Signal] public delegate void ParameterSelectedEventHandler(int paramIndex);
 
+		// 变体选择信号（上行：与参数轴正交；控制器调 mode.SetVariant + 重烘）。
+		[Signal] public delegate void VariantSelectedEventHandler(int variantIndex);
+
 		Button[] _modeButtons;      // 模式按钮（%ModeRow 预置；下标 = 注册序 = 模式身份，0 起）
 		int _currentMode;           // 当前模式镜像（SetMode 下行同步）
 
-		// ── 参数行 + 图例行（代码构建；随模式切换由 SetParameterOptions/SetLegend 下行）──
+		// ── 变体行 + 参数行 + 图例行（代码构建；随模式切换由 SetVariantOptions/SetParameterOptions/SetLegend 下行）──
+		HBoxContainer _variantRow;  // 变体按钮行（无变体模式隐藏）
+		Button[] _variantButtons;
 		HBoxContainer _paramRow;    // 参数按钮行（无参数模式隐藏）
 		Button[] _paramButtons;
 		Label _legendLabel;         // 色标说明（模式无 ScaleCaption 时隐藏）
@@ -60,9 +65,20 @@ namespace World.UI
 			MoveDockTo(CollapsedPos(), instant: true);
 		}
 
-		// 参数行 + 图例行构建（DockBox 内 ModeRow 之后；样式取模式按钮的场景 StyleBox 实例复用）。
+		// 变体行 + 参数行 + 图例行构建（DockBox 内 ModeRow 之后；样式取模式按钮的场景 StyleBox 实例复用）。
 		void BuildAuxRows()
 		{
+			_variantRow = new HBoxContainer { UniqueNameInOwner = true };
+			_variantRow.AddThemeConstantOverride("separation", 4);
+			_variantRow.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
+			_variantRow.Visible = false;
+
+			var variantLabel = new Label { Text = "变体" };
+			variantLabel.AddThemeColorOverride("font_color", new Color(0.227f, 0.173f, 0.102f));
+			variantLabel.AddThemeFontSizeOverride("font_size", 13);
+			_variantRow.AddChild(variantLabel);
+			_variantButtons = Array.Empty<Button>();
+
 			_paramRow = new HBoxContainer { UniqueNameInOwner = true };
 			_paramRow.AddThemeConstantOverride("separation", 4);
 			_paramRow.SizeFlagsHorizontal = Control.SizeFlags.ShrinkCenter;
@@ -82,17 +98,20 @@ namespace World.UI
 			_legendLabel = legend;
 
 			var box = GetNode<VBoxContainer>("DockBox");
+			box.AddChild(_variantRow);
 			box.AddChild(_paramRow);
 			box.AddChild(_legendLabel);
-			box.MoveChild(_paramRow, 2);   // HeadRow(0) → ModeRow(1) → 参数行(2) → 图例(3)
+			// HeadRow(0) → ModeRow(1) → 变体行(2) → 参数行(3) → 图例(4)
+			box.MoveChild(_variantRow, 2);
+			box.MoveChild(_paramRow, 3);
 		}
 
-		// 参数按钮样式：直接复用模式按钮的场景 StyleBox/色（实例共享，不复制定义）。
-		void ApplyParamStyle(Button b)
+		// 选项按钮样式：直接复用模式按钮的场景 StyleBox/色（实例共享，不复制定义）。
+		void ApplyOptionStyle(Button b, ButtonGroup group)
 		{
 			var mode0 = _modeButtons[0];
 			b.ToggleMode = true;
-			b.ButtonGroup = _paramGroup ??= new ButtonGroup();
+			b.ButtonGroup = group;
 			b.AddThemeStyleboxOverride("normal", mode0.GetThemeStylebox("normal"));
 			b.AddThemeStyleboxOverride("pressed", mode0.GetThemeStylebox("pressed"));
 			b.AddThemeStyleboxOverride("hover", mode0.GetThemeStylebox("hover"));
@@ -101,7 +120,40 @@ namespace World.UI
 			b.AddThemeColorOverride("font_hover_color", mode0.GetThemeColor("font_hover_color"));
 			b.AddThemeFontSizeOverride("font_size", 13);
 		}
-		ButtonGroup _paramGroup;   // 参数按钮互斥组（整坞一份）
+		ButtonGroup _paramGroup;     // 参数按钮互斥组（整坞一份）
+		ButtonGroup _variantGroup;   // 变体按钮互斥组（整坞一份）
+
+		// 下行：变体行（options = null → 隐藏行）。与参数轴正交，两个行各自重建。
+		public void SetVariantOptions(string[] options, int currentIndex)
+		{
+			if (_variantRow == null) throw new InvalidOperationException("变体行未构建（_Ready 未跑）");
+
+			foreach (var b in _variantButtons) b.QueueFree();
+			_variantButtons = Array.Empty<Button>();
+
+			if (options == null || options.Length == 0) { _variantRow.Visible = false; return; }
+			_variantRow.Visible = true;
+
+			_variantButtons = new Button[options.Length];
+			for (int i = 0; i < options.Length; i++)
+			{
+				int idx = i;
+				var b = new Button { Text = options[i] };
+				ApplyOptionStyle(b, _variantGroup ??= new ButtonGroup());
+				b.Pressed += () => EmitSignal(SignalName.VariantSelected, idx);
+				_variantRow.AddChild(b);
+				_variantButtons[i] = b;
+			}
+			SetVariant(currentIndex);
+		}
+
+		// 下行：变体按钮高亮同步（不发信号防回环）。
+		public void SetVariant(int index)
+		{
+			if (_variantButtons == null) return;
+			for (int i = 0; i < _variantButtons.Length; i++)
+				_variantButtons[i].ButtonPressed = i == index;
+		}
 
 		// 下行：参数化模式的参数按钮行（options = null → 隐藏行）。每次重建（选项随模式变）。
 		// ★形参用 `string[]` 而非 `IReadOnlyList<string>`（2026-10-11 实测）：调用方经 `Node.Call`
@@ -122,7 +174,7 @@ namespace World.UI
 			{
 				int idx = i;   // 闭包捕获
 				var b = new Button { Text = options[i] };
-				ApplyParamStyle(b);
+				ApplyOptionStyle(b, _paramGroup ??= new ButtonGroup());
 				b.Pressed += () => EmitSignal(SignalName.ParameterSelected, idx);
 				_paramRow.AddChild(b);
 				_paramButtons[i] = b;

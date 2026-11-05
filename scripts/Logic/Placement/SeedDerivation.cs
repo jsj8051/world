@@ -21,11 +21,11 @@ public static class SeedDerivation
 	public const int World_Layout = 0x9152;
 
 	// TerrainManager（陆面：高度合成的三档变化场）
-	/// <summary>大尺度基线噪声（550 km；海陆分异的主导项）。</summary>
+	/// <summary>大尺度基线噪声（10,349 km；海陆分异的主导项）。</summary>
 	public const int Terrain_Large = 0x1A6E;
-	/// <summary>中尺度噪声（32 km）。</summary>
+	/// <summary>中尺度噪声（602 km）。</summary>
 	public const int Terrain_Medium = 0x4E02;
-	/// <summary>细节噪声（17 km）。</summary>
+	/// <summary>细节噪声（320 km）。</summary>
 	public const int Terrain_Detail = 0x4E01;
 
 	// HighlandOps（高地：山脊调制 / 老山 / 丘陵 / 高原 / 盾状台地）

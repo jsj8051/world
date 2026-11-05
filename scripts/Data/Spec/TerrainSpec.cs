@@ -6,6 +6,8 @@ namespace World.Data;
 /// 高度 = 陆面（基线 + 三档变化场 + 构造项，再经分形细化与虚拟侵蚀）或海底；陆壳的格铺陆面、
 /// 洋壳的格铺海底 ⇒ 海面切过陆面，海岸线就是高度场的结果。
 /// 最终海拔 = 生成基准 × <see cref="VerticalScale"/>（水平几何不随之改变）。
+/// 本表以 <c>M</c> 结尾的高度一律是**生成基准米**（写入 HeightM 前乘 VerticalScale），
+/// 以 <c>Km</c> 结尾的是物理 km；两者不同量纲，勿混用。
 /// 噪声基波长与层数、分位阈值、域扭曲层数、大陆架宽度系数、山带截断范围
 /// 等纹理尺度 / 数值手段的实现常量不进本表。
 /// </summary>
@@ -18,9 +20,9 @@ public sealed class TerrainSpec
 	public float SeaLevelM { get; set; } = 0f;
 
 	/// <summary>垂直倍率：生成基准高度写入 <c>HeightM</c> 前统一乘它。
-	/// 出厂 7：把低平台基准抬到地球尺度（峰顶约 3.9 km、海沟约 −3.9 km）；
+	/// 出厂 20：把低平台基准抬到地球尺度（峰顶约 10 km、海沟约 −11 km）；
 	/// 只放大垂直方向，水平波长与海岸线不变。</summary>
-	public float VerticalScale { get; set; } = 7f;
+	public float VerticalScale { get; set; } = 20f;
 
 	// ── 陆面幅度 ──
 
@@ -34,12 +36,12 @@ public sealed class TerrainSpec
 	/// 出厂值 38：基线 9.6 − 38 = −28.4，按合成 σ ≈ 14.9 m ⇒ 约 3% 陆壳露出水面（按 4 seed 的陆地占比定）。</summary>
 	public float ArchipelagoBaseDropM { get; set; } = 38f;
 
-	/// <summary>大尺度起伏幅值（米），海陆分异的主导项：σ 占合成 σ 的 86%，配合 550 km 基波长
+	/// <summary>大尺度起伏幅值（米），海陆分异的主导项：σ 占合成 σ 的 86%，配合 10,349 km 基波长
 	/// ⇒ 全球约 2~4 块大陆，海岸线由它定、平滑成片。出厂值 47.8。</summary>
 	public float LargeVariationM { get; set; } = 47.8f;
 
-	/// <summary>中尺度起伏幅值（米；丘陵 / 山谷，基波长 32 km）——打破大色块的那层：
-	/// 大尺度项与大陆同量级，单靠它档界切不出层次；本档给出几十公里一级的丘谷。出厂值 15.9。</summary>
+	/// <summary>中尺度起伏幅值（米；丘陵 / 山谷，基波长 602 km）——打破大色块的那层：
+	/// 大尺度项与大陆同量级，单靠它档界切不出层次；本档给出几百公里一级的丘谷。出厂值 15.9。</summary>
 	public float MediumVariationM { get; set; } = 15.9f;
 
 	/// <summary>细节起伏幅值（米，基波长 <see cref="RegionalWavelengthKm"/>）——丘间碎起伏。出厂值 10.6。</summary>
@@ -47,21 +49,21 @@ public sealed class TerrainSpec
 
 	// ── 三档变化场：基波长（km；相隔这么久一个特征）+ 倍频层数（越细）──
 
-	/// <summary>大尺度基波长（km）——大地形起伏（大陆尺度）。出厂值 550。</summary>
-	public float LargeWavelengthKm { get; set; } = 550f;
+	/// <summary>大尺度基波长（km）——大地形起伏（大陆尺度）。出厂值 10,349。</summary>
+	public float LargeWavelengthKm { get; set; } = 10349f;
 
-	/// <summary>大尺度层数。出厂值 3（最细层 137 km，远高于采样下限）。</summary>
+	/// <summary>大尺度层数。出厂值 3（最细层 2,587 km，远高于采样下限）。</summary>
 	public int LargeOctaves { get; set; } = 3;
 
-	/// <summary>中尺度基波长（km）——丘陵 / 山谷。出厂值 32。</summary>
-	public float MediumWavelengthKm { get; set; } = 32f;
+	/// <summary>中尺度基波长（km）——丘陵 / 山谷。出厂值 602。</summary>
+	public float MediumWavelengthKm { get; set; } = 602f;
 
 	/// <summary>中尺度层数。出厂值 3。</summary>
 	public int MediumOctaves { get; set; } = 3;
 
-	/// <summary>细节基波长（km）：最细的倍频层必须 ≥ 3 倍邻格中心距（邻格 ≈ 2.47 km ⇒ ≥ 7.4 km），
-	/// 更细的层采不到、只会沿六边形格轴混叠成条纹。出厂值 17（两层 ⇒ 最细 8.5 km ≈ 3.4 格）。</summary>
-	public float RegionalWavelengthKm { get; set; } = 17f;
+	/// <summary>细节基波长（km）：最细的倍频层必须 ≥ 3 倍邻格中心距（邻格 ≈ 46.5 km ⇒ ≥ 139 km），
+	/// 更细的层采不到、只会沿六边形格轴混叠成条纹。出厂值 320（两层 ⇒ 最细 160 km ≈ 3.4 格）。</summary>
+	public float RegionalWavelengthKm { get; set; } = 320f;
 
 	/// <summary>细节层数。出厂值 2。</summary>
 	public int RegionalOctaves { get; set; } = 2;
@@ -69,18 +71,18 @@ public sealed class TerrainSpec
 	// ── 陆面域扭曲（采样方向先被低频噪声推开，再取三档变化场）──
 
 	/// <summary>陆面 / 海岸的大尺度域扭曲幅度（km；0 = 关断）：采样方向沿切向推开再取值
-	/// ⇒ 大陆轮廓与海岸线出现弯曲的湾岬，而不是沿 Voronoi 边界的直尺状。出厂值 32。</summary>
-	public float LandWarpKm { get; set; } = 32f;
+	/// ⇒ 大陆轮廓与海岸线出现弯曲的湾岬，而不是沿 Voronoi 边界的直尺状。出厂值 602。</summary>
+	public float LandWarpKm { get; set; } = 602f;
 
-	/// <summary>大尺度域扭曲的特征波长（km）——位移场本身的尺度。出厂值 220。</summary>
-	public float LandWarpWavelengthKm { get; set; } = 220f;
+	/// <summary>大尺度域扭曲的特征波长（km）——位移场本身的尺度。出厂值 4,140。</summary>
+	public float LandWarpWavelengthKm { get; set; } = 4140f;
 
 	/// <summary>近岸域扭曲幅度（km；0 = 关断）：只在 |高度−海面| 小的格上加权，
-	/// 给海岸线加 10–30 km 级的湾、岬、小岛。出厂值 9。</summary>
-	public float CoastWarpKm { get; set; } = 9f;
+	/// 给海岸线加 190–560 km 级的湾、岬、小岛。出厂值 169。</summary>
+	public float CoastWarpKm { get; set; } = 169f;
 
-	/// <summary>近岸域扭曲的特征波长（km）。出厂值 55。</summary>
-	public float CoastWarpWavelengthKm { get; set; } = 55f;
+	/// <summary>近岸域扭曲的特征波长（km）。出厂值 1,035。</summary>
+	public float CoastWarpWavelengthKm { get; set; } = 1035f;
 
 	/// <summary>近岸域扭曲生效带的下界（米，|高度−海面|）：低于它全量扭曲。出厂值 8。</summary>
 	public float CoastWarpBandLowM { get; set; } = 8f;
@@ -114,24 +116,24 @@ public sealed class TerrainSpec
 	/// <summary>俯冲侧山带强度（低矮的增生楔）。出厂值 0.35。</summary>
 	public float MountainSlabCoef { get; set; } = 0.35f;
 
-	/// <summary>陆×陆山带的基础带宽（km）：自边界向陆内的衰减尺度（弱汇聚段取它）。出厂值 10。</summary>
-	public float MountainUpperBandKm { get; set; } = 10f;
+	/// <summary>陆×陆山带的基础带宽（km）：自边界向陆内的衰减尺度（弱汇聚段取它）。出厂值 188。</summary>
+	public float MountainUpperBandKm { get; set; } = 188f;
 
 	/// <summary>山带随汇聚强度加宽的量（km）：带宽 = 基础带宽 + 本值 × 汇聚强度
-	/// ⇒ 撞得越狠，山系铺得越开（满强度 16 km）。出厂值 6。</summary>
-	public float MountainBandConvSpreadKm { get; set; } = 6f;
+	/// ⇒ 撞得越狠，山系铺得越开（满强度 301 km）。出厂值 113。</summary>
+	public float MountainBandConvSpreadKm { get; set; } = 113f;
 
-	/// <summary>陆×洋陆侧山带的内移距离（km）：山链不贴海岸，退到内陆这一段（海岸留给大陆架）。出厂值 14。</summary>
-	public float MountainArcInlandKm { get; set; } = 14f;
+	/// <summary>陆×洋陆侧山带的内移距离（km）：山链不贴海岸，退到内陆这一段（海岸留给大陆架）。出厂值 263。</summary>
+	public float MountainArcInlandKm { get; set; } = 263f;
 
-	/// <summary>陆×洋陆侧山带的带宽（km）。出厂值 9。</summary>
-	public float MountainArcBandKm { get; set; } = 9f;
+	/// <summary>陆×洋陆侧山带的带宽（km）。出厂值 169。</summary>
+	public float MountainArcBandKm { get; set; } = 169f;
 
-	/// <summary>俯冲侧增生楔的带宽（km）。出厂值 7。</summary>
-	public float MountainSlabBandKm { get; set; } = 7f;
+	/// <summary>俯冲侧增生楔的带宽（km）。出厂值 132。</summary>
+	public float MountainSlabBandKm { get; set; } = 132f;
 
-	/// <summary>山脊噪声基波长（km）——沿带调制，造出山口与高峰（否则是一堵等高墙）。出厂值 70。</summary>
-	public float MountainRidgeWavelengthKm { get; set; } = 70f;
+	/// <summary>山脊噪声基波长（km）——沿带调制，造出山口与高峰（否则是一堵等高墙）。出厂值 1,317。</summary>
+	public float MountainRidgeWavelengthKm { get; set; } = 1317f;
 
 	/// <summary>山脊噪声层数。出厂值 3。</summary>
 	public int MountainRidgeOctaves { get; set; } = 3;
@@ -145,8 +147,8 @@ public sealed class TerrainSpec
 	public float MountainRidgeSharpness { get; set; } = 2.2f;
 
 	/// <summary>山带距离场的横向弯曲幅度（km；0 = 沿板块边界直线走）。
-	/// 只偏移距离值、不改板块归属 ⇒ 山带走向弯曲但不会产生飞地。有效范围 0–15（超出按端点截断）。出厂值 9。</summary>
-	public float MountainBeltWarpKm { get; set; } = 9f;
+	/// 只偏移距离值、不改板块归属 ⇒ 山带走向弯曲但不会产生飞地。有效范围 0–282（超出按端点截断）。出厂值 169。</summary>
+	public float MountainBeltWarpKm { get; set; } = 169f;
 
 	/// <summary>山带剖面的不对称度 ∈ [0,0.45]：陆×洋山链海侧陡、陆侧缓；
 	/// 陆×陆山带边界侧陡、向内陆拖长。0 = 对称高斯。出厂值 0.32。</summary>
@@ -170,25 +172,25 @@ public sealed class TerrainSpec
 	/// <summary>张裂带把抬升压低的强度 ∈ [0,1]（1 = 压成零）——张裂处不该跟着旁边的山一起被抬高。出厂值 0.75。</summary>
 	public float RiftSuppressStrength { get; set; } = 0.75f;
 
-	/// <summary>张裂带压低的带宽（km，高斯）。出厂值 38。</summary>
-	public float RiftBandKm { get; set; } = 38f;
+	/// <summary>张裂带压低的带宽（km，高斯）。出厂值 715。</summary>
+	public float RiftBandKm { get; set; } = 715f;
 
 	// ── 构造项：高原底座（山带背后的一大片平坦高地）──
 
-	/// <summary>陆×陆碰撞带背后高原的内伸距离（km）：自边界向陆内铺多远。出厂值 40。</summary>
-	public float PlateauUpperReachKm { get; set; } = 40f;
+	/// <summary>陆×陆碰撞带背后高原的内伸距离（km）：自边界向陆内铺多远。出厂值 753。</summary>
+	public float PlateauUpperReachKm { get; set; } = 753f;
 
-	/// <summary>陆×洋俯冲带上盘高原的内伸距离（km）。出厂值 22。</summary>
-	public float PlateauArcReachKm { get; set; } = 22f;
+	/// <summary>陆×洋俯冲带上盘高原的内伸距离（km）。出厂值 414。</summary>
+	public float PlateauArcReachKm { get; set; } = 414f;
 
-	/// <summary>内伸距离沿走向的抖动幅度（km）——高原"时有时无"、不成一条等宽的带。出厂值 42。</summary>
-	public float PlateauReachSpreadKm { get; set; } = 42f;
+	/// <summary>内伸距离沿走向的抖动幅度（km）——高原"时有时无"、不成一条等宽的带。出厂值 790。</summary>
+	public float PlateauReachSpreadKm { get; set; } = 790f;
 
-	/// <summary>高原内缘的上升距离（km）——太贴边界不起（那一圈留给山带本身）。出厂值 14。</summary>
-	public float PlateauInnerRampKm { get; set; } = 14f;
+	/// <summary>高原内缘的上升距离（km）——太贴边界不起（那一圈留给山带本身）。出厂值 263。</summary>
+	public float PlateauInnerRampKm { get; set; } = 263f;
 
-	/// <summary>高原外缘的收束跨度（km）。出厂值 22。</summary>
-	public float PlateauOuterRampKm { get; set; } = 22f;
+	/// <summary>高原外缘的收束跨度（km）。出厂值 414。</summary>
+	public float PlateauOuterRampKm { get; set; } = 414f;
 
 	/// <summary>陆×陆碰撞带高原的高度（米）。出厂值 130。</summary>
 	public float PlateauUpperHeightM { get; set; } = 130f;
@@ -215,7 +217,7 @@ public sealed class TerrainSpec
 	// ── 构造项：山体细化与虚拟侵蚀 ──
 
 	/// <summary>山体的分形细化幅度 ∈ [0,1)：把构造抬升乘上 <c>1 + 本值 × fBm 噪声</c>
-	/// （噪声 ≈ [−1,1]、基波长 27 km），再按其均值归位 ⇒ 只改形状、不改平均幅度，把山带打散成几个山块。
+	/// （噪声 ≈ [−1,1]、基波长 508 km），再按其均值归位 ⇒ 只改形状、不改平均幅度，把山带打散成几个山块。
 	/// 0 = 关断（山体保持光滑）。出厂值 0.65。</summary>
 	public float MountainDetailAmount { get; set; } = 0.65f;
 
@@ -252,8 +254,8 @@ public sealed class TerrainSpec
 	public float HypsometricGamma { get; set; } = 1.2f;
 
 	/// <summary>hypsometric 曲线尾部压缩系数（x &gt; 1 时 <c>y = 1 + (x−1)·本值</c>；1 = 不压）。
-	/// 越小峰顶越平；有效范围 0–1。出厂值 0.8。</summary>
-	public float HypsometricTailCompress { get; set; } = 0.8f;
+	/// 越小峰顶越平；有效范围 0–1。出厂值 0.40。</summary>
+	public float HypsometricTailCompress { get; set; } = 0.40f;
 
 	// ── 海底：深度范围 ──
 
@@ -272,14 +274,14 @@ public sealed class TerrainSpec
 	/// 故最老洋底 = <see cref="RidgeCrestDepthM"/> − 本值（出厂 −287）。出厂值 143.5。</summary>
 	public float RidgeAgeDepthM { get; set; } = 143.5f;
 
-	/// <summary>洋壳"年龄满值"对应的离洋中脊距离（km）：超过它就按最老洋底算。出厂值 165。</summary>
-	public float RidgeAgeSpanKm { get; set; } = 165f;
+	/// <summary>洋壳"年龄满值"对应的离洋中脊距离（km）：超过它就按最老洋底算。出厂值 3,105。</summary>
+	public float RidgeAgeSpanKm { get; set; } = 3105f;
 
 	/// <summary>脊顶额外隆起（米，× 该处张裂强度）。出厂值 26.6。</summary>
 	public float RidgeCrestRiseM { get; set; } = 26.6f;
 
-	/// <summary>脊顶隆起的带宽（km，高斯）。出厂值 30。</summary>
-	public float RidgeBandKm { get; set; } = 30f;
+	/// <summary>脊顶隆起的带宽（km，高斯）。出厂值 564。</summary>
+	public float RidgeBandKm { get; set; } = 564f;
 
 	// ── 海底：深海丘陵 ──
 
@@ -297,23 +299,23 @@ public sealed class TerrainSpec
 	/// <summary>大陆架外缘深度（米）——到此外缘为止线性变深。出厂值 −9.6。</summary>
 	public float ShelfDeepestM { get; set; } = -9.6f;
 
-	/// <summary>大陆架最小宽度（km；俯冲带一侧）。出厂值 7。</summary>
-	public float ShelfMinWidthKm { get; set; } = 7f;
+	/// <summary>大陆架最小宽度（km；俯冲带一侧）。出厂值 132。</summary>
+	public float ShelfMinWidthKm { get; set; } = 132f;
 
-	/// <summary>大陆架最大宽度（km；被动边缘）。出厂值 42。</summary>
-	public float ShelfMaxWidthKm { get; set; } = 42f;
+	/// <summary>大陆架最大宽度（km；被动边缘）。出厂值 790。</summary>
+	public float ShelfMaxWidthKm { get; set; } = 790f;
 
-	/// <summary>大陆坡底部深度（米）——大陆架外缘再往下接到这里。出厂值 −355。</summary>
-	public float SlopeBottomM { get; set; } = -355f;
+	/// <summary>大陆坡底部深度（米）——大陆架外缘再往下接到这里。出厂值 −200（最终约 −4,000 m）。</summary>
+	public float SlopeBottomM { get; set; } = -200f;
 
-	/// <summary>大陆坡的水平跨度（km）。出厂值 44。</summary>
-	public float SlopeSpanKm { get; set; } = 44f;
+	/// <summary>大陆坡的水平跨度（km）。出厂值 828。</summary>
+	public float SlopeSpanKm { get; set; } = 828f;
 
-	/// <summary>「离岸近 ⇒ 大陆架放宽」的判定距离（km）——离岸小于它就取宽档。出厂值 35。</summary>
-	public float MarginWidenKm { get; set; } = 35f;
+	/// <summary>「离岸近 ⇒ 大陆架放宽」的判定距离（km）——离岸小于它就取宽档。出厂值 659。</summary>
+	public float MarginWidenKm { get; set; } = 659f;
 
-	/// <summary>汇聚（主动边缘）调制大陆架宽度的带宽（km，高斯）——此处大陆架被压窄。出厂值 49。</summary>
-	public float ActiveMarginBandKm { get; set; } = 49f;
+	/// <summary>汇聚（主动边缘）调制大陆架宽度的带宽（km，高斯）——此处大陆架被压窄。出厂值 922。</summary>
+	public float ActiveMarginBandKm { get; set; } = 922f;
 
 	// ── 海底：岛弧（汇聚上盘的洋壳）──
 
@@ -323,14 +325,14 @@ public sealed class TerrainSpec
 	/// <summary>岛弧隆起量（米，从脊顶往下算）。出厂值 117。</summary>
 	public float ArcRiseM { get; set; } = 117f;
 
-	/// <summary>岛弧带相对边界的内移距离（km）——岛弧不贴在海沟上。出厂值 20。</summary>
-	public float ArcOffsetKm { get; set; } = 20f;
+	/// <summary>岛弧带相对边界的内移距离（km）——岛弧不贴在海沟上。出厂值 376。</summary>
+	public float ArcOffsetKm { get; set; } = 376f;
 
-	/// <summary>岛弧带宽（km，高斯）。出厂值 17。</summary>
-	public float ArcBandKm { get; set; } = 17f;
+	/// <summary>岛弧带宽（km，高斯）。出厂值 320。</summary>
+	public float ArcBandKm { get; set; } = 320f;
 
 	/// <summary>岛弧成岛峰值（米）——沿带噪声 bead 峰处叠这一高度，抬过海面即成串岛。
-	/// 须 &gt; −<see cref="ArcCrestDepthM"/> 才会露出水面（出厂 128 ⇒ 峰顶约 +43 m）。出厂值 128。</summary>
+	/// 须 &gt; −<see cref="ArcCrestDepthM"/> 才会露出水面（出厂 128 ⇒ 基准峰顶 +43 m，乘 <see cref="VerticalScale"/> 后约 +860 m）。出厂值 128。</summary>
 	public float ArcIslandPeakM { get; set; } = 128f;
 
 	// ── 海底：海沟（汇聚下盘的洋壳）──
@@ -341,14 +343,14 @@ public sealed class TerrainSpec
 	/// <summary>海沟随汇聚强度额外加深（米）。出厂值 175。</summary>
 	public float TrenchConvDepthM { get; set; } = 175f;
 
-	/// <summary>海沟带宽（km，高斯）。出厂值 17。</summary>
-	public float TrenchBandKm { get; set; } = 17f;
+	/// <summary>海沟带宽（km，高斯）。出厂值 320。</summary>
+	public float TrenchBandKm { get; set; } = 320f;
 
-	/// <summary>离岸小于此距离（km）不挖海沟（太浅的近岸挖了不成样子）。出厂值 7。</summary>
-	public float TrenchMinCoastKm { get; set; } = 7f;
+	/// <summary>离岸小于此距离（km）不挖海沟（太浅的近岸挖了不成样子）。出厂值 132。</summary>
+	public float TrenchMinCoastKm { get; set; } = 132f;
 
-	/// <summary>离岸大于此距离（km）海沟达满深。出厂值 22。</summary>
-	public float TrenchFullCoastKm { get; set; } = 22f;
+	/// <summary>离岸大于此距离（km）海沟达满深。出厂值 414。</summary>
+	public float TrenchFullCoastKm { get; set; } = 414f;
 
 	// ── 海底：平滑 ──
 

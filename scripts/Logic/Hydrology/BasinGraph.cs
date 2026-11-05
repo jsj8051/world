@@ -31,7 +31,7 @@ public sealed class BasinGraph
 	public int[] Area { get; private set; } = Array.Empty<int>();
 	/// <summary>
 	/// 每流域的物理面积（几何量，km²）= <see cref="Area"/> × 格面积。
-	/// <see cref="Area"/> 是格数，res 一变物理含义就变（res1 一格 ≈ 1,711 km²，res4 ≈ 5 km²）；
+	/// <see cref="Area"/> 是格数，res 一变物理含义就变（res1 一格 ≈ 607,110 km²，res4 ≈ 1,770 km²）；
 	/// 比较流域大小必须用本字段，不得直接用 <see cref="Area"/>。
 	/// </summary>
 	public double[] AreaKm2 { get; private set; } = Array.Empty<double>();
