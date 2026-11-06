@@ -76,6 +76,7 @@ static class WorldSmoke
 		PrintWind(sim);
 		CheckWindModeVariants(sim);
 		CheckParentSpeedRoughness(sim);
+		CheckTectonicInfluence(sim);
 		if (printCsv) PrintCsv(sim);
 
 		Number("temp", tSum / n);
@@ -401,6 +402,108 @@ static class WorldSmoke
 		}
 		Console.WriteLine($"wind parent-boundary speed ratio={(across / nA) / (within / nW):F3}"
 			+ $"  (across={across / nA:F5} within={within / nW:F5})");
+	}
+
+	/// <summary>生成一次世界并导出「地壳」地图（判读构造通道用）；不写默认测试表。</summary>
+	public static void ExportCrust(int res)
+	{
+		var sim = new WorldGenSimulation(res, 1f);
+		sim.Run(new WorldSpec());
+		var mode = new CrustMode(sim);
+		mode.BeginBake();
+
+		var counts = new int[Enum.GetValues<TectonicChannel>().Length];
+		foreach (TectonicChannel channel in Enum.GetValues<TectonicChannel>())
+			if (mode.Influence.Has(channel)) counts[(int)channel] = mode.Influence.Get(channel).Sources.Length;
+
+		int continental = 0;
+		foreach (CrustType type in sim.Facts.Crust.Type)
+			if (type == CrustType.Continental) continental++;
+
+		Console.WriteLine($"crust cells={sim.Facts.PlateOfCell.Length} continental={continental}"
+			+ $" oceanic={sim.Facts.PlateOfCell.Length - continental}"
+			+ $" provinces={sim.Facts.Crust.Provinces.Length}");
+		foreach (CrustProvince province in sim.Facts.Crust.Provinces)
+			Console.WriteLine($"  province {province.Id} plate={province.SeedPlateId}"
+				+ $" cells={province.CellCount} seed={province.SeedCell}");
+		foreach (TectonicChannel channel in Enum.GetValues<TectonicChannel>())
+			Console.WriteLine($"  {channel} sources={counts[(int)channel]}");
+
+		int width = res >= 4 ? 4096 : 2048;
+		int height = width / 2;
+		mode.SetVariant(1);
+		Console.WriteLine($"crust types ppm={WritePpm(sim, mode, width, height, $"crust_res{res}_types.ppm")}");
+		mode.SetVariant(0);
+		Console.WriteLine($"crust ppm={WritePpm(sim, mode, width, height, $"crust_res{res}.ppm")}");
+	}
+
+	/// <summary>导出地形图（验证地形是否跟着构造通道走）。</summary>
+	public static void ExportTerrainMap(int res)
+	{
+		var sim = new WorldGenSimulation(res, 1f);
+		sim.Run(new WorldSpec());
+		int width = res >= 4 ? 4096 : 2048;
+		Console.WriteLine($"terrain ppm={WritePpm(sim, new TerrainMode(sim), width, width / 2, $"terrain_res{res}.ppm")}");
+	}
+
+	static string WritePpm(WorldGenSimulation sim, MapMode mode, int width, int height, string name)
+	{
+		mode.BeginBake();
+		byte[] rgba = MapExporter.RenderPixels(sim, mode, width, height);
+		string dir = System.IO.Path.Combine(System.IO.Directory.GetCurrentDirectory(), "map_exports");
+		System.IO.Directory.CreateDirectory(dir);
+		string ppm = System.IO.Path.Combine(dir, name);
+		using (var file = System.IO.File.Create(ppm))
+		{
+			file.Write(System.Text.Encoding.ASCII.GetBytes($"P6\n{width} {height}\n255\n"));
+			var rgb = new byte[width * height * 3];
+			for (int i = 0, o = 0; i < rgba.Length; i += 4, o += 3)
+			{
+				rgb[o] = rgba[i];
+				rgb[o + 1] = rgba[i + 1];
+				rgb[o + 2] = rgba[i + 2];
+			}
+			file.Write(rgb);
+		}
+		return ppm;
+	}
+
+	/// <summary>构造影响场一致性：每个来源格自身可达，来源编号指回同通道来源，距离有限且非负。</summary>
+	static void CheckTectonicInfluence(WorldGenSimulation sim)
+	{
+		const double capKm = 3000.0;
+		TectonicInfluenceSet set = TectonicInfluenceOps.Build(sim.Ball, sim.Plate.Boundaries,
+			sim.Plate.Plates, sim.Plate.Crust, sim.Plate.PlateOfCell,
+			sim.Plate.Boundary.EdgeMotion, capKm);
+		int n = sim.Ball.CellDirs.Length;
+		int sourceCount = 0;
+		var channels = 0;
+		foreach (TectonicChannel channel in Enum.GetValues<TectonicChannel>())
+		{
+			TectonicInfluenceField field = set.Get(channel);
+			if (!set.Has(channel)) continue;
+			channels++;
+			sourceCount += field.Sources.Length;
+			if (field.DistanceKm.Length != n || field.SourceIndex.Length != n)
+				throw new Exception($"构造通道 {channel} 的场长度 ≠ 格数");
+			for (int i = 0; i < n; i++)
+			{
+				if (field.SourceIndex[i] < 0) continue;
+				if (field.SourceIndex[i] >= field.Sources.Length)
+					throw new Exception($"构造通道 {channel} 的来源下标越界");
+				if (field.Sources[field.SourceIndex[i]].Channel != channel)
+					throw new Exception($"构造通道 {channel} 的来源通道不符");
+				if (!float.IsFinite(field.DistanceKm[i]) || field.DistanceKm[i] < 0f)
+					throw new Exception($"构造通道 {channel} 的距离非法");
+			}
+			for (int k = 0; k < field.Sources.Length; k++)
+			{
+				int cell = field.Sources[k].SideCell;
+				if (field.SourceIndex[cell] < 0)
+					throw new Exception($"构造通道 {channel} 的来源格 {cell} 自身不可达");
+			}
+		}
+		Console.WriteLine($"tectonic sources={sourceCount} channels={channels}");
 	}
 
 	/// <summary>某一档风的全球平均年均风速（0–1 代理量）。</summary>

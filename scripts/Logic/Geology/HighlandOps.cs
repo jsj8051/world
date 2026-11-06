@@ -14,7 +14,7 @@ namespace World.Logic;
 /// 山带按 <see cref="BoundaryRole"/> 分档（陆×陆两侧宽带高山、陆×洋陆侧退后窄链、俯冲侧低矮增生楔），
 /// 陆×陆带宽随汇聚强度加宽、张裂带压低抬升；走向弯曲与 <see cref="SphericalFbmNoise.SampleRidged"/>
 /// 山脊骨架只改形状，不改峰高目标。
-/// 幅度走归一制：相对抬升的 P99.7 映射到 <see cref="TerrainSpec.MountainPeakM"/>、折点以上压峰；
+/// 幅度走归一制：相对抬升的 P99.7 映射到 <see cref="TerrainSpec.MountainPeakM"/>；
 /// 归一在平滑之后做，故削毛刺不改峰高目标。高原底座是独立一层且沿海岸收掉，末步交
 /// <see cref="ErosionOps"/> 细化 + 虚拟侵蚀；本类只产构造高度，陆面噪声基底与“多深入大陆”的
 /// 大尺度值由 <see cref="LandFieldOps"/> 给。
@@ -53,52 +53,51 @@ public static class HighlandOps
 	/// <summary>分位抽样的样本上限（格集超过它就按步长抽样；只用于定阈值，不必全量排序）。</summary>
 	const int QuantileSampleCap = 262144;
 
-	/// <summary>结果。<c>MountainM</c>：山带 + 老山 + 丘陵（≥ 0）；<c>PlateauM</c>：高原底座（≥ 0）。
-	/// 两场只在陆壳格上有意义；<c>MountainM</c> 经 <see cref="ErosionOps"/> 沉积后可能被相邻格搬入物质 ⇒ 只读陆壳格。</summary>
+	/// <summary>结果。<c>MountainM</c>：山带 + 老山 + 丘陵 + 裂谷肩（≥ 0）；<c>PlateauM</c>：高原底座（≥ 0）；
+	/// <c>SubsidenceM</c>：裂谷轴部沉降（≥ 0，侵蚀后单独扣除）。三场只在陆壳格上有意义。</summary>
 	public readonly struct Field
 	{
 		public readonly float[] MountainM;
 		public readonly float[] PlateauM;
+		public readonly float[] SubsidenceM;
 
-		internal Field(float[] mountainM, float[] plateauM)
+		internal Field(float[] mountainM, float[] plateauM, float[] subsidenceM)
 		{
 			MountainM = mountainM;
 			PlateauM = plateauM;
+			SubsidenceM = subsidenceM;
 		}
 	}
 
 	/// <summary>构建陆壳高地场；洋壳格不参与。</summary>
 	/// <param name="landHeight">逐格陆面基底（常量基线 + 三档变化场；非陆壳格不用）。</param>
 	/// <param name="inland">大尺度场在陆面采样方向上的值（盾状台地判“多深入大陆”用）。</param>
-	/// <param name="boundary">板块边界场（逐格运动 / 角色 / 跳数；只读）。</param>
-	public static Field Build(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell,
-		bool[] continental, float[] landHeight, float[] inland, PlateBoundaryFields boundary)
+	/// <param name="boundaries">板块边界集（逐边两侧角色）。</param>
+	/// <param name="boundary">板块边界场（逐边运动 / 逐边角色；只读）。</param>
+	/// <param name="tectonic">逐通道构造影响场（与地图同一份）。</param>
+	public static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental,
+		float[] landHeight, float[] inland, PlateBoundarySet boundaries,
+		PlateBoundaryFields boundary, TectonicInfluenceSet tectonic)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
-		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (continental == null) throw new ArgumentNullException(nameof(continental));
 		if (landHeight == null) throw new ArgumentNullException(nameof(landHeight));
 		if (inland == null) throw new ArgumentNullException(nameof(inland));
+		if (boundaries == null) throw new ArgumentNullException(nameof(boundaries));
 		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
+		if (tectonic == null) throw new ArgumentNullException(nameof(tectonic));
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 		float seaM = spec.SeaLevelM;
-		int[] boundaryHops = boundary.CellHops;
-		float[] motion = boundary.CellMotion;
-		BoundaryRole[] role = boundary.CellRole;
 
-		// ── ① 边界格 + 到最近汇聚边界的真实距离 ──
-		// 山带坐标必须是 km 连续量：跳数 × 常数只有整数档 ⇒ 高斯带被量化成等跳数的平行长条（山带成阶梯）。
-		float[] convKm = ConvergenceDistanceKm(ball, spec, plateOfCell, role, boundaryHops);
+		// ── ① 汇聚距离 / 强度 / 角色：全部由通道影响场现算，不再用 CellRole ──
+		(float[] convKm, float[] convStrength, BoundaryRole[] role) =
+			ConvergenceFields(n, boundaries, boundary, tectonic);
 
-		// ── ② 张裂带：到最近活动张裂边界的真实距离 + 强度（⑧ 用来压低抬升）──
-		var riftSources = new List<int>();
-		for (int i = 0; i < n; i++)
-			if (boundaryHops[i] == 0 && motion[i] > PlateBoundaryOps.ActiveMotion) riftSources.Add(i);
-		var rift = DistanceFieldOps.Build(ball, riftSources,
-			i => MathF.Min(1f, motion[i] / PlateBoundaryOps.MotionScale), 4f * spec.RiftBandKm);
+		// ── ② 张裂带：ContinentalRift 通道（⑧ 用来压低抬升）──
+		TectonicInfluenceField rift = tectonic.Get(TectonicChannel.ContinentalRift);
 
 		// ── ③ 噪声场 ──
 		var ridge = new SphericalFbmNoise(
@@ -125,7 +124,7 @@ public static class HighlandOps
 				3.0 * SpatialScale.Of(ball).NeighborCenterKm));
 
 		// ── ④ 取原始噪声（冒头门要按各自的分布定阈值，故先存原始值、再折权重）──
-		var tectonic = new float[n];   // 山带抬升（相对值，⑦ 才归一）
+		var uplift = new float[n];   // 山带抬升（相对值，⑦ 才归一）
 		var oldRaw = new float[n];     // 老山脊（ridged）
 		var hillsRaw = new float[n];
 		var alongRaw = new float[n];   // 高原沿走向
@@ -174,7 +173,7 @@ public static class HighlandOps
 			if (r == BoundaryRole.None) return;
 			float cdRaw = convKm[i];
 			if (cdRaw < 0f) return;
-			float cs = MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale);
+			float cs = convStrength[i];
 			if (!(cs > 0f)) return;
 
 			float asymmetry = Math.Clamp(spec.MountainAsymmetry, 0f, 0.45f);
@@ -217,40 +216,48 @@ public static class HighlandOps
 			bandKm *= 0.85f + 0.30f * branchSkel;
 			float mod = ridgeFloor
 				+ (1f - ridgeFloor) * MathF.Pow(skeleton, sharpness) * (0.60f + 0.40f * branchSkel);
-			tectonic[i] = coef * spec.MountainPeakM * cs
+			uplift[i] = coef * spec.MountainPeakM * cs
 				* BandProfile(cd, centerKm, bandKm, asymmetry, skewPower) * mod;
 		});
 
 		// ── ⑥ 平滑（归一之前 ⇒ 削毛刺不改峰高目标）──
-		FieldBlurOps.Blur(ball, tectonic, spec.MountainSmoothWeight, 1);
+		FieldBlurOps.Blur(ball, uplift, spec.MountainSmoothWeight, 1);
 
-		// ── ⑦ 归一 + 压峰：第 99.7 百分位 → MountainPeakM，折点以上只留一小截 ──
-		float[] refQ = Quantiles(n, tectonic, i => continental[i] && tectonic[i] > 0f, 0.997);
+		// ── ⑦ 归一：第 99.7 百分位 → MountainPeakM ──
+		float[] refQ = Quantiles(n, uplift, i => continental[i] && uplift[i] > 0f, 0.997);
 		float gain = refQ[0] > 0f ? spec.MountainPeakM / refQ[0] : 0f;
-		float knee = spec.MountainKnee * spec.MountainPeakM;
 
-		// ── ⑧ 合成：山带（压峰）+ 老山 + 丘陵，再被张裂带压低；高原底座另走一条 ──
+		// ── ⑧ 合成：山带（已归一）+ 老山 + 丘陵，再被张裂带压低；高原底座另走一条 ──
 		var mountain = new float[n];
 		var plateau = new float[n];
+		var subsidence = new float[n];
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
 			Vector3 dir = dirs[i];
 			BoundaryRole r = role[i];
-			float cs = MathF.Min(1f, -motion[i] / PlateBoundaryOps.MotionScale);
-			if (!(cs > 0f)) cs = 0f;
+			float cs = convStrength[i];
 			float cd = convKm[i] < 0f
 				? float.MaxValue
 				: (r == BoundaryRole.Slab ? convKm[i] : MathF.Max(0f, convKm[i] + beltOffset[i]));
 
-			float u = tectonic[i] * gain;
-			if (u > knee) u = knee + (u - knee) * spec.MountainKneeCompress;
+			float u = uplift[i] * gain;
 			u += spec.OldMountainHeightM * oldWeight[i]
 				+ spec.HillsHeightM * hillsWeight[i];
 
-			float suppress = 1f - spec.RiftSuppressStrength * rift.Strength[i]
-				* MathOps.GaussianBand(rift.DistKm[i], 0f, spec.RiftBandKm);
-			mountain[i] = u * suppress;
+			bool hasRift = rift.SourceIndex.Length == n && rift.SourceIndex[i] >= 0;
+			float riftDist = hasRift ? rift.DistanceKm[i] : float.MaxValue;
+			float riftStrength = hasRift
+				? TectonicSourceOps.StrengthAt(rift, i, boundary.EdgeMotion)
+				: 0f;
+			float riftBand = hasRift ? MathOps.GaussianBand(riftDist, 0f, spec.RiftBandKm) : 0f;
+			float riftCore = hasRift
+				? MathOps.GaussianBand(riftDist, 0f, spec.RiftBandKm * 0.55f) : 0f;
+			float riftShoulder = hasRift
+				? MathOps.GaussianBand(riftDist, spec.RiftBandKm, spec.RiftBandKm * 0.6f) : 0f;
+			float suppress = 1f - spec.RiftSuppressStrength * riftStrength * riftBand;
+			mountain[i] = u * suppress + spec.RiftShoulderHeightM * riftStrength * riftShoulder;
+			subsidence[i] = spec.RiftDepthM * riftStrength * riftCore;
 
 			// 高原底座：上盘（Upper / Arc）在汇聚够强时背后的一大片平坦高地
 			float pb = 0f;
@@ -273,37 +280,58 @@ public static class HighlandOps
 
 		FieldBlurOps.Blur(ball, plateau, FieldBlurOps.NeighborMeanWeight, spec.PlateauSmoothPasses);
 
-		return new Field(mountain, plateau);
+		return new Field(mountain, plateau, subsidence);
 	}
 
-	/// <summary>到最近汇聚边界的真实距离（km）：源 = 有汇聚角色且 <paramref name="boundaryHops"/> 为 0 的边界格，
-	/// 只在同板块内扩散——山带不会跨板块铺到对侧；够不到 = −1。
-	/// 搜索半径按本阶段最大的带宽 / 高原进深给，超出即视为够不到。</summary>
-	static float[] ConvergenceDistanceKm(Ball ball, TerrainSpec spec, int[] plateOfCell,
-		BoundaryRole[] role, int[] boundaryHops)
+	/// <summary>从三个汇聚通道里取最近的一个，并由通道 + 逐边侧角色定角色；无通道 = None / −1 / 0。</summary>
+	static (float[] km, float[] strength, BoundaryRole[] role) ConvergenceFields(int n,
+		PlateBoundarySet boundaries, PlateBoundaryFields boundary, TectonicInfluenceSet tectonic)
 	{
-		int n = ball.CellDirs.Length;
-		var sources = new List<int>();
+		var km = new float[n];
+		Array.Fill(km, -1f);
+		var strength = new float[n];
+		var role = new BoundaryRole[n];
+		TectonicChannel[] channels =
+		{
+			TectonicChannel.ContinentalCollision,
+			TectonicChannel.ContinentalArc,
+			TectonicChannel.Subduction,
+		};
+
 		for (int i = 0; i < n; i++)
-			if (role[i] != BoundaryRole.None && boundaryHops[i] == 0) sources.Add(i);
+		{
+			float bestKm = float.MaxValue;
+			float bestStrength = 0f;
+			BoundaryRole bestRole = BoundaryRole.None;
+			foreach (TectonicChannel channel in channels)
+			{
+				TectonicInfluenceField field = tectonic.Get(channel);
+				if (field.SourceIndex.Length != n) continue;
+				int s = field.SourceIndex[i];
+				if (s < 0 || field.DistanceKm[i] >= bestKm) continue;
 
-		var result = new float[n];
-		Array.Fill(result, -1f);
-		if (sources.Count == 0) return result;
-
-		// 搜索半径：山带 4 倍带宽（高斯带在 4 倍处截断）与高原最大进深取大者。
-		double outerBand = 4.0 * (spec.MountainUpperBandKm + spec.MountainBandConvSpreadKm);
-		outerBand = Math.Max(outerBand, spec.MountainArcInlandKm + 4.0 * spec.MountainArcBandKm);
-		outerBand = Math.Max(outerBand, 4.0 * spec.MountainSlabBandKm);
-		double reach = Math.Max(spec.PlateauUpperReachKm, spec.PlateauArcReachKm)
-			+ spec.PlateauReachSpreadKm + spec.PlateauOuterRampKm;
-		double capKm = Math.Max(outerBand, reach) + 1.0;
-
-		var field = DistanceFieldOps.Build(ball, sources, _ => 1f, capKm,
-			(i, j) => plateOfCell[j] == plateOfCell[i]);
-		for (int i = 0; i < n; i++)
-			if (field.Src[i] >= 0) result[i] = field.DistKm[i];
-		return result;
+				TectonicSource source = field.Sources[s];
+				PlateBoundaryEdge edge = boundaries.Edges[source.EdgeIndex];
+				BoundarySideRole side = source.SideCell == edge.CellA
+					? boundary.EdgeRoleA[source.EdgeIndex]
+					: boundary.EdgeRoleB[source.EdgeIndex];
+				bestRole = channel switch
+				{
+					TectonicChannel.ContinentalCollision =>
+						side == BoundarySideRole.Underthrusting ? BoundaryRole.Lower : BoundaryRole.Upper,
+					TectonicChannel.ContinentalArc => BoundaryRole.Arc,
+					TectonicChannel.Subduction => BoundaryRole.Slab,
+					_ => BoundaryRole.None,
+				};
+				bestKm = field.DistanceKm[i];
+				bestStrength = TectonicSourceOps.StrengthAt(field, i, boundary.EdgeMotion);
+			}
+			role[i] = bestRole;
+			if (bestRole == BoundaryRole.None) continue;
+			km[i] = bestKm;
+			strength[i] = bestStrength;
+		}
+		return (km, strength, role);
 	}
 
 	/// <summary>逐格场在指定格集上的分位阈值。格集超过 <see cref="QuantileSampleCap"/> 时按

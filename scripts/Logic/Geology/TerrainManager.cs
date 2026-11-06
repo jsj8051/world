@@ -31,41 +31,55 @@ public sealed class TerrainManager
 	/// <summary>海格离岸跳数（陆格 = 0）。</summary>
 	public int[] FinalDistToLand { get; private set; } = Array.Empty<int>();
 
+	/// <summary>本阶段的构造影响场（地形与地壳图共用同一份）。</summary>
+	public TectonicInfluenceSet Tectonic { get; private set; } = null;
+
 	/// <summary>逐格合成最终海拔：陆壳取陆面基底 + 高地，洋壳取海底 + 岛弧成岛。</summary>
 	/// <param name="plateOfCell">上游板块阶段的逐格板块号。</param>
-	/// <param name="plates">上游板块阶段的板块表（壳型 / 欧拉矢量 / 密度）。</param>
-	/// <param name="boundary">上游 ⓪ 的边界场（逐格运动 / 角色 / 跳数；本阶段只读）。</param>
+	/// <param name="plates">上游板块阶段的板块表（欧拉矢量 / 密度）。</param>
+	/// <param name="crust">上游逐格壳型（陆壳铺陆面、洋壳铺海底）。</param>
+	/// <param name="boundaries">上游 ⓪ 的边界集（构造影响场的距离源）。</param>
+	/// <param name="boundary">上游 ⓪ 的边界场（逐边运动 / 类型 / 两侧角色；本阶段只读）。</param>
 	/// <param name="landBaseDropM">上游 ⓪ 给出的陆面基线偏移（米；群岛档压基线，其余 0）。</param>
 	public void Run(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell, Plate[] plates,
-		PlateBoundaryFields boundary, float landBaseDropM)
+		CrustField crust, PlateBoundarySet boundaries, PlateBoundaryFields boundary, float landBaseDropM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
 		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (plates == null) throw new ArgumentNullException(nameof(plates));
+		if (crust == null) throw new ArgumentNullException(nameof(crust));
+		if (boundaries == null) throw new ArgumentNullException(nameof(boundaries));
 		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
 		int n = ball.CellDirs.Length;
 		if (plateOfCell.Length != n)
 			throw new ArgumentException($"板块号长度 {plateOfCell.Length} ≠ 格数 {n}", nameof(plateOfCell));
 
+		if (crust.Type.Length != n)
+			throw new ArgumentException($"壳型长度 {crust.Type.Length} ≠ 格数 {n}", nameof(crust));
+
 		// 陆壳掩码：决定基底铺陆面还是海底，不决定海陆——海陆由最终高度定。
 		var continental = new bool[n];
 		for (int i = 0; i < n; i++)
-			continental[i] = plates[plateOfCell[i]].Crust == CrustType.Continental;
+			continental[i] = crust.Type[i] == CrustType.Continental;
 
 		float seaM = spec.SeaLevelM;
 		float baseM = spec.LandBaseM - landBaseDropM;   // 群岛档压低陆面基线
 
+		Tectonic = TectonicInfluenceOps.Build(ball, boundaries, plates, crust, plateOfCell,
+			boundary.EdgeMotion, 4000.0);
+
 		var land = LandFieldOps.Build(ball, seed, spec, continental, baseM);
-		var highland = HighlandOps.Build(ball, seed, spec, plateOfCell, continental,
-			land.HeightM, land.Inland, boundary);
+		var highland = HighlandOps.Build(ball, seed, spec, continental,
+			land.HeightM, land.Inland, boundaries, boundary, Tectonic);
 
 		// 陆面合成 + 分布重映射：重映射只作用于海面以上、保号单调 ⇒ 海岸线不动。
 		var landComposite = new float[n];
 		Parallel.For(0, n, i =>
 		{
 			if (continental[i])
-				landComposite[i] = land.HeightM[i] + highland.MountainM[i] + highland.PlateauM[i];
+				landComposite[i] = land.HeightM[i] + highland.MountainM[i]
+					+ highland.PlateauM[i] - highland.SubsidenceM[i];
 		});
 		RemapOps.ApplyLand(ball, spec, landComposite, continental);
 
@@ -73,7 +87,7 @@ public sealed class TerrainManager
 		var aboveSea = new bool[n];
 		Parallel.For(0, n, i => aboveSea[i] = continental[i] && landComposite[i] > seaM);
 
-		var ocean = OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary);
+		var ocean = OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary, Tectonic);
 
 		// 加性抬升恒 ≥ 0 ⇒ 不会把格压到海面之下；海岸线由合成高度穿过海面自然形成。
 		var h = new float[n];

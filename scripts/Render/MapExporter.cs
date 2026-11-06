@@ -39,6 +39,27 @@ public static class MapExporter
 		if (width <= 0 || height <= 0)
 			throw new ArgumentOutOfRangeException(nameof(width), "出图尺寸须为正");
 
+		byte[] pixels = RenderPixels(sim, mode, width, height);
+		var image = Image.CreateFromData(width, height, false, Image.Format.Rgba8, pixels);
+		string dir = EnsureDirectory();
+		string file = System.IO.Path.Combine(dir, $"terrain_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
+		Error err = image.SavePng(file);
+		if (err != Error.Ok)
+			throw new InvalidOperationException($"PNG 写入失败：{err}（{file}）");
+		return file;
+	}
+
+	/// <summary>
+	/// 只做光栅化：等距圆柱投影下逐格多边形填充，返回 RGBA8 像素。
+	/// 不触碰 Godot 引擎资源（<see cref="Image"/>），供无引擎宿主（测试 / 批处理）复用。
+	/// </summary>
+	public static byte[] RenderPixels(WorldGenSimulation sim, MapMode mode, int width, int height)
+	{
+		if (sim == null) throw new ArgumentNullException(nameof(sim));
+		if (mode == null) throw new ArgumentNullException(nameof(mode));
+		if (width <= 0 || height <= 0)
+			throw new ArgumentOutOfRangeException(nameof(width), "出图尺寸须为正");
+
 		var facts = sim.Facts ?? throw new InvalidOperationException("世界尚未生成");
 		var ball = facts.Ball;
 		int n = ball.CellIds.Length;
@@ -56,14 +77,7 @@ public static class MapExporter
 			if (boundary.Length < 3) continue;
 			DrawCell(pixels, width, height, boundary, colors[i]);
 		}
-
-		var image = Image.CreateFromData(width, height, false, Image.Format.Rgba8, pixels);
-		string dir = EnsureDirectory();
-		string file = System.IO.Path.Combine(dir, $"terrain_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
-		Error err = image.SavePng(file);
-		if (err != Error.Ok)
-			throw new InvalidOperationException($"PNG 写入失败：{err}（{file}）");
-		return file;
+		return pixels;
 	}
 
 	static void DrawCell(byte[] pixels, int width, int height, LatLng[] boundary, Color color)

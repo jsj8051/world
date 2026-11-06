@@ -43,8 +43,8 @@ public sealed class WorldGenSimulation
 	{
 		Plate.Run(Ball, spec);
 		float seaM = spec.Terrain.SeaLevelM;                                        // 海陆基准（① / ③ 共用）
-		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlateOfCell, Plate.Plates, Plate.Boundary,
-			Plate.LandBaseDropM);
+		Terrain.Run(Ball, spec.Seed, spec.Terrain, Plate.PlateOfCell, Plate.Plates, Plate.Crust,
+			Plate.Boundaries, Plate.Boundary, Plate.LandBaseDropM);
 		Climate.Run(Ball, Terrain, seaM, spec.Climate, spec.Seed);
 		Hydrology.Run(Ball, Terrain, seaM, Climate.Precipitation);
 		Index.Run(Ball, Terrain, Hydrology.Rivers);

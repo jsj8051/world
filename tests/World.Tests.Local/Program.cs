@@ -13,6 +13,18 @@ static class Program
 
 	static int Main(string[] args)
 	{
+		if (args.Length > 0 && args[0] == "--terrain")
+		{
+			WorldSmoke.ExportTerrainMap(args.Length > 1 ? int.Parse(args[1]) : 3);
+			return 0;
+		}
+
+		if (args.Length > 0 && args[0] == "--crust")
+		{
+			WorldSmoke.ExportCrust(args.Length > 1 ? int.Parse(args[1]) : 3);
+			return 0;
+		}
+
 		if (args.Length > 0 && args[0] == "--world")
 		{
 			WorldSmoke.Run(args.Length > 1 ? int.Parse(args[1]) : 3,
@@ -46,6 +58,20 @@ static class Program
 		Run("洋流只在海上且切向", ClimateTests.OceanCurrentsStayInTheOcean);
 		Run("湿润降温", ClimateTests.WetCoolingLowersTemperature);
 		Run("降水估计向内陆衰减", ClimateTests.CoastFactorDecaysInland);
+		Run("陆陆汇聚两侧成源", TectonicTests.ContinentalCollisionHasBothSides);
+		Run("陆洋汇聚陆侧恒上盘", TectonicTests.MixedCrustPutsArcOnContinentalSide);
+		Run("重洋壳俯冲", TectonicTests.DenseOceanPlateSubducts);
+		Run("等密度按板块号定上盘", TectonicTests.EqualDensityTieBreakFavorsLowerPlateId);
+		Run("同一板块对逐边壳型", TectonicTests.SamePlatePairUsesPerEdgeCrust);
+		Run("壳型省格数校验", TectonicTests.CrustFieldRejectsWrongProvinceCount);
+		Run("陆壳张裂两侧成裂谷", TectonicTests.ContinentalRiftUsesLocalCrust);
+		Run("陆洋张裂只在洋侧成脊", TectonicTests.MixedDivergenceOnlyRidgesOceanSide);
+		Run("走滑不产构造来源", TectonicTests.TransformYieldsNoSources);
+		Run("非法逐边运动被拒", TectonicTests.BadMotionIsRejected);
+		Run("最近来源胜出", TectonicTests.NearestSeedWins);
+		Run("通行谓词阻断传播", TectonicTests.PassableBlocksPropagation);
+		Run("截断半径停止传播", TectonicTests.CapStopsPropagation);
+		Run("同格多源取更短起始距离", TectonicTests.SameCellSeedKeepsSmallerDistanceAndId);
 
 		Console.WriteLine($"\n{_passed} passed, {_failed} failed");
 		return _failed == 0 ? 0 : 1;

@@ -34,6 +34,34 @@ public static class DistanceFieldOps
 		}
 	}
 
+	/// <summary>带编号的距离场源：同一格可以由不同来源播种，编号用于回查边界侧 / 通道。</summary>
+	public readonly struct Seed
+	{
+		public readonly int Cell;
+		public readonly int Id;
+		public readonly double DistKm;
+
+		public Seed(int cell, int id, double distKm = 0.0)
+		{
+			Cell = cell;
+			Id = id;
+			DistKm = distKm;
+		}
+	}
+
+	/// <summary>带编号距离场：逐格最近源的编号（−1 = 够不到）与距离（km；够不到 = <c>capKm</c>）。</summary>
+	public readonly struct SeedField
+	{
+		public readonly float[] DistKm;
+		public readonly int[] SeedId;
+
+		internal SeedField(float[] distKm, int[] seedId)
+		{
+			DistKm = distKm;
+			SeedId = seedId;
+		}
+	}
+
 	/// <summary>多源 Dijkstra 距离场。<paramref name="strengthOf"/> 只对源格调用一次，
 	/// 强度沿最近源的路径逐格继承。</summary>
 	/// <param name="sources">源格（重复无所谓；越界项忽略）。</param>
@@ -52,24 +80,69 @@ public static class DistanceFieldOps
 		int n = ball.CellDirs.Length;
 		if (!(capKm > 0)) return Empty(n);
 
-		var dirs = ball.CellDirs;
-		var neighbors = ball.CellNeighbors;
+		// 源就是格：编号 = 格号，强度按格预取一次（重复源只取首个）。
+		var seeds = new List<Seed>(sources.Count);
+		var strengthByCell = new float[n];
+		var seen = new bool[n];
+		foreach (int s in sources)
+		{
+			if ((uint)s >= (uint)n || seen[s]) continue;
+			seen[s] = true;
+			seeds.Add(new Seed(s, s));
+			strengthByCell[s] = strengthOf(s);
+		}
+
+		SeedField field = BuildSeeds(ball.CellDirs, ball.CellNeighbors, seeds, capKm, passable);
+		var strength = new float[n];
+		for (int i = 0; i < n; i++)
+		{
+			int id = field.SeedId[i];
+			if (id >= 0) strength[i] = strengthByCell[id];
+		}
+		return new Field(field.DistKm, strength, field.SeedId);
+	}
+
+	/// <summary>带编号的多源 Dijkstra（球壳入口）。同格多源取更短起始距离，等距取更小编号。</summary>
+	public static SeedField BuildSeeds(Ball ball, IReadOnlyList<Seed> seeds, double capKm,
+		Func<int, int, bool> passable = null)
+	{
+		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		return BuildSeeds(ball.CellDirs, ball.CellNeighbors, seeds, capKm, passable);
+	}
+
+	/// <summary>
+	/// 带编号的多源 Dijkstra 内核：只依赖格心方向与邻接表（不依赖 H3，可单测）。
+	/// 超出 <c>capKm</c> 或与所有源不连通的格：<c>DistKm = capKm</c>、<c>SeedId = −1</c>。
+	/// 同距离保持先到者（扫描顺序确定）；同格多源按起始距离、再按编号取小。
+	/// </summary>
+	public static SeedField BuildSeeds(Vector3[] dirs, int[][] neighbors, IReadOnlyList<Seed> seeds,
+		double capKm, Func<int, int, bool> passable = null)
+	{
+		if (dirs == null) throw new ArgumentNullException(nameof(dirs));
+		if (neighbors == null) throw new ArgumentNullException(nameof(neighbors));
+		if (seeds == null) throw new ArgumentNullException(nameof(seeds));
+		if (neighbors.Length != dirs.Length)
+			throw new ArgumentException($"邻接表长度 {neighbors.Length} ≠ 格数 {dirs.Length}", nameof(neighbors));
+
+		int n = dirs.Length;
+		if (!(capKm > 0)) return EmptySeeds(n);
 
 		var dist = new double[n];
 		Array.Fill(dist, double.PositiveInfinity);
-		var strength = new float[n];
-		var src = new int[n];
-		Array.Fill(src, -1);
+		var seedId = new int[n];
+		Array.Fill(seedId, -1);
 
-		var heap = new PriorityQueue<int, double>(Math.Max(4, sources.Count));
-		foreach (int s in sources)
+		var heap = new PriorityQueue<int, double>(Math.Max(4, seeds.Count));
+		foreach (Seed seed in seeds)
 		{
-			if (s < 0 || s >= n) continue;
-			if (dist[s] == 0.0) continue;               // 重复源
-			dist[s] = 0.0;
-			strength[s] = strengthOf(s);
-			src[s] = s;
-			heap.Enqueue(s, 0.0);
+			if ((uint)seed.Cell >= (uint)n) continue;
+			double d = seed.DistKm;
+			if (double.IsNaN(d) || d < 0.0 || double.IsPositiveInfinity(d) || d > capKm) continue;
+			if (d > dist[seed.Cell]) continue;                         // 已有更近的源
+			if (d == dist[seed.Cell] && seedId[seed.Cell] >= 0 && seedId[seed.Cell] <= seed.Id) continue;
+			dist[seed.Cell] = d;
+			seedId[seed.Cell] = seed.Id;
+			heap.Enqueue(seed.Cell, d);
 		}
 
 		while (heap.TryDequeue(out int i, out double priority))
@@ -83,8 +156,7 @@ public static class DistanceFieldOps
 				double nd = priority + EdgeKm(dirs[i], dirs[j]);
 				if (nd >= dist[j] || nd > capKm) continue;
 				dist[j] = nd;
-				strength[j] = strength[i];
-				src[j] = src[i];
+				seedId[j] = seedId[i];
 				heap.Enqueue(j, nd);
 			}
 		}
@@ -92,7 +164,16 @@ public static class DistanceFieldOps
 		var distKm = new float[n];
 		for (int i = 0; i < n; i++)
 			distKm[i] = double.IsPositiveInfinity(dist[i]) ? (float)capKm : (float)dist[i];
-		return new Field(distKm, strength, src);
+		return new SeedField(distKm, seedId);
+	}
+
+	static SeedField EmptySeeds(int n)
+	{
+		var distKm = new float[n];
+		Array.Fill(distKm, float.PositiveInfinity);
+		var seedId = new int[n];
+		Array.Fill(seedId, -1);
+		return new SeedField(distKm, seedId);
 	}
 
 	static Field Empty(int n)

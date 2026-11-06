@@ -8,7 +8,7 @@ namespace World.Logic;
 /// <summary>
 /// 板块边界建表：从逐格板块号物化共享边（相邻异板块格对），按板块对分组并建逐格关联。
 /// 三趟 O(格数 + 边数)：计数 → 定边 → 填索引；排列只依赖网格扫描序，与线程 / 调用次序无关。
-/// 须在壳型派定之后调（<see cref="PlateBoundaryPair"/> 的两侧角色依赖壳型 / 密度）。
+/// 边界表只含几何索引；角色与运动在后续阶段按板块属性派生。
 /// </summary>
 public static class PlateBoundaryBuilder
 {
@@ -81,8 +81,7 @@ public static class PlateBoundaryBuilder
 			{
 				int key = PairKey(a, b, p);
 				if (edgesPerPair[key] == 0) continue;
-				var (roleA, roleB) = PlateBoundaryOps.PairRoles(plates[a], plates[b]);
-				pairs[key] = new PlateBoundaryPair(a, b, roleA, roleB, pairOffset[key], edgesPerPair[key]);
+				pairs[key] = new PlateBoundaryPair(a, b, pairOffset[key], edgesPerPair[key]);
 			}
 		}
 

@@ -5,7 +5,7 @@ using World.H3Grid;
 namespace World.Logic;
 
 /// <summary>
-/// 板块阶段装配：布局定档 → 撒种子点 → 阻力场洪泛 → 派壳型 → 建边界集。
+/// 板块阶段装配：布局定档 → 撒种子点 → 阻力场洪泛 → 逐格壳型 → 建边界集。
 /// 算法在 <see cref="PlateSeedOps"/> / <see cref="PlateFloodOps"/> / <see cref="PlateCrustOps"/> /
 /// <see cref="PlateBoundaryBuilder"/>；本类只按序调用并持有产物。
 /// 壳型是本阶段唯一的陆海产物：陆壳格由 ① 阶段铺陆面高度、洋壳铺海底；
@@ -15,8 +15,10 @@ public sealed class PlateManager
 {
 	/// <summary>逐格板块号（长度 = 格数；每格恒有归属，取值 ∈ [0, 板块数)）。</summary>
 	public int[] PlateOfCell { get; private set; } = Array.Empty<int>();
-	/// <summary>板块表（号即下标；含每块壳型 <see cref="Plate.Crust"/>）。</summary>
+	/// <summary>板块表（号即下标；欧拉矢量 / 密度）。</summary>
 	public Plate[] Plates { get; private set; } = Array.Empty<Plate>();
+	/// <summary>逐格壳型与陆壳省（壳型的唯一真源）。</summary>
+	public CrustField Crust { get; private set; } = CrustField.Empty;
 	/// <summary>逐块格数（长度 = 板块数；Σ = 格数）。</summary>
 	public int[] SizeOfPlate { get; private set; } = Array.Empty<int>();
 
@@ -48,7 +50,8 @@ public sealed class PlateManager
 		SizeOfPlate = flood.Size;
 		PlateAdjacency = flood.Adjacency;
 
-		PlateCrustOps.Assign(spec.Seed, spec.Plate, Layout, Plates, SizeOfPlate, PlateAdjacency);
+		Crust = PlateCrustOps.Build(ball, spec.Seed, spec.Plate, Layout, PlateOfCell, Plates.Length,
+			SizeOfPlate, PlateAdjacency);
 		Boundaries = PlateBoundaryBuilder.Build(ball, PlateOfCell, Plates);
 
 		LandBaseDropM = Layout == ContinentLayout.Archipelago ? spec.Terrain.ArchipelagoBaseDropM : 0f;

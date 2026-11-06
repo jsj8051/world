@@ -27,14 +27,20 @@ public sealed class WorldFacts
 	/// <summary>逐格板块号（全球覆盖，格恒有归属）。</summary>
 	public int[] PlateOfCell { get; }
 
-	/// <summary>板块表（壳型 / 欧拉矢量 / 密度）。</summary>
+	/// <summary>板块表（欧拉矢量 / 密度）。</summary>
 	public Plate[] Plates { get; }
+
+	/// <summary>逐格壳型与陆壳省（壳型唯一真源）。</summary>
+	public CrustField Crust { get; }
 
 	/// <summary>板块边界集（共享边 + 板块对 + 逐格关联）。</summary>
 	public PlateBoundarySet PlateBoundaries { get; }
 
-	/// <summary>板块边界场（逐格运动 / 角色 / 跳数 + 逐边类型）。</summary>
+	/// <summary>板块边界场（逐边运动 / 类型 / 两侧角色）。</summary>
 	public PlateBoundaryFields BoundaryFields { get; }
+
+	/// <summary>逐通道构造影响场（地形与地图共用）。</summary>
+	public TectonicInfluenceSet Tectonic { get; }
 
 	// ── ① 地形 ──
 
@@ -139,14 +145,18 @@ public sealed class WorldFacts
 
 		PlateOfCell = Aligned(plate.PlateOfCell, n, nameof(PlateOfCell));
 		Plates = Present(plate.Plates, nameof(Plates));
+		Crust = Present(plate.Crust, "壳型场");
+		if (Crust.Type.Length != n)
+			throw new InvalidOperationException($"世界事实 壳型场 格数 {Crust.Type.Length} ≠ {n}");
 		PlateBoundaries = Present(plate.Boundaries, "板块边界集");
 		BoundaryFields = Present(plate.Boundary, "板块边界场");
+		Tectonic = Present(terrain.Tectonic, "构造影响场");
 		if (PlateBoundaries.CellEdgeStart.Length != n + 1)
 			throw new InvalidOperationException(
 				$"世界事实 板块边界集 关联表长度 {PlateBoundaries.CellEdgeStart.Length} ≠ 格数+1 {n + 1}");
-		if (BoundaryFields.CellMotion.Length != n)
+		if (BoundaryFields.EdgeMotion.Length != PlateBoundaries.Edges.Length)
 			throw new InvalidOperationException(
-				$"世界事实 板块边界场 格数 {BoundaryFields.CellMotion.Length} ≠ {n}");
+				$"世界事实 板块边界场 边数 {BoundaryFields.EdgeMotion.Length} ≠ {PlateBoundaries.Edges.Length}");
 
 		HeightM = Aligned(terrain.HeightM, n, nameof(HeightM));
 		FinalLand = Aligned(terrain.FinalLand, n, nameof(FinalLand));

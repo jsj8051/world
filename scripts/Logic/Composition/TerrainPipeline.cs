@@ -27,14 +27,18 @@ public sealed class TerrainPipeline
 	public int[] FinalDistToCoast => _impl.FinalDistToCoast;
 	/// <summary>海格离岸跳数（陆格 = 0）。</summary>
 	public int[] FinalDistToLand => _impl.FinalDistToLand;
+	/// <summary>本阶段的构造影响场（地形与地图共用）。</summary>
+	public TectonicInfluenceSet Tectonic => _impl.Tectonic;
 
 	/// <param name="seed">世界种子（全局层：按值展开成 <c>int</c>，本阶段收不到 <c>WorldSpec</c>）。</param>
 	/// <param name="spec">本阶段配置实例（阶段层）。</param>
 	/// <param name="plateOfCell">上游板块阶段的逐格板块号。</param>
-	/// <param name="plates">上游板块阶段的板块表（壳型 / 欧拉矢量 / 密度）。</param>
+	/// <param name="plates">上游板块阶段的板块表（欧拉矢量 / 密度）。</param>
+	/// <param name="crust">上游逐格壳型（陆壳 / 洋壳）。</param>
+	/// <param name="boundaries">上游边界集（构造影响场的源）。</param>
 	/// <param name="boundary">上游 ⓪ 的边界场（逐格运动 / 角色 / 跳数）。</param>
 	/// <param name="landBaseDropM">上游 ⓪ 给出的陆面基线偏移（米；群岛档压基线，其余 0）。</param>
 	public void Run(Ball ball, int seed, TerrainSpec spec, int[] plateOfCell, Plate[] plates,
-		PlateBoundaryFields boundary, float landBaseDropM)
-		=> _impl.Run(ball, seed, spec, plateOfCell, plates, boundary, landBaseDropM);
+		CrustField crust, PlateBoundarySet boundaries, PlateBoundaryFields boundary, float landBaseDropM)
+		=> _impl.Run(ball, seed, spec, plateOfCell, plates, crust, boundaries, boundary, landBaseDropM);
 }

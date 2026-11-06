@@ -94,15 +94,8 @@ public sealed class TerrainSpec
 	// ── 构造项：山带（汇聚挤压 ⇒ 按角色分档隆起）──
 
 	/// <summary>山带高度的归一目标（米）：陆壳格上构造抬升的第 99.7 百分位映射到它，
-	/// 于是最高的山恒有这一档，不随板块速度整体大小漂移（不同 seed / 板块数之间可比）。出厂值 480。</summary>
+	/// 于是山带主峰恒有这一档，不随板块速度整体大小漂移（不同 seed / 板块数之间可比）。出厂值 480。</summary>
 	public float MountainPeakM { get; set; } = 480f;
-
-	/// <summary>压峰折点（× <see cref="MountainPeakM"/>）：超过它的抬升按
-	/// <see cref="MountainKneeCompress"/> 压缩 ⇒ 不出现离谱的尖峰。出厂值 0.85。</summary>
-	public float MountainKnee { get; set; } = 0.85f;
-
-	/// <summary>折点以上的压缩系数（0.50 ⇒ 超出部分只留 50%）。出厂值 0.50。</summary>
-	public float MountainKneeCompress { get; set; } = 0.50f;
 
 	/// <summary>陆×陆上盘山带强度（× <see cref="MountainPeakM"/>）。出厂值 1.65。</summary>
 	public float MountainUpperCoef { get; set; } = 1.65f;
@@ -161,7 +154,7 @@ public sealed class TerrainSpec
 	// ── 构造项：古老山系与丘陵（远离当代边界的残丘）──
 
 	/// <summary>古老山系的高度（米）：已停止抬升、只剩脊状残丘的老山带（比当代造山带矮一截）；
-	/// 加性叠在构造抬升上，不参与压峰 ⇒ 老山 + 主峰可以超过 <see cref="MountainPeakM"/>。出厂值 70。</summary>
+	/// 加性叠在构造抬升上，不参与归一 ⇒ 老山 + 主峰可以超过 <see cref="MountainPeakM"/>。出厂值 70。</summary>
 	public float OldMountainHeightM { get; set; } = 70f;
 
 	/// <summary>丘陵区的高度（米）——成片的缓丘，把大陆内部从"一大块平原"里救出来。出厂值 30。</summary>
@@ -174,6 +167,12 @@ public sealed class TerrainSpec
 
 	/// <summary>张裂带压低的带宽（km，高斯）。出厂值 715。</summary>
 	public float RiftBandKm { get; set; } = 715f;
+
+	/// <summary>裂谷轴部沉降（米；生成基准，侵蚀后单独扣除）。出厂值 55。</summary>
+	public float RiftDepthM { get; set; } = 55f;
+
+	/// <summary>裂谷肩部抬升（米；生成基准，随山体一起侵蚀）。出厂值 35。</summary>
+	public float RiftShoulderHeightM { get; set; } = 35f;
 
 	// ── 构造项：高原底座（山带背后的一大片平坦高地）──
 

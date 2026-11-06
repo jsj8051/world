@@ -11,7 +11,7 @@ public static class SeedDerivation
 	public const int Plate_Seeds = 0x914E;
 	/// <summary>板块边界扰动噪声母流（`PlateFloodOps.Grow` 的 fBm 阻力场）。</summary>
 	public const int Plate_Distort = 0x914F;
-	/// <summary>板块壳型判定流（`PlateCrustOps.Assign` 的陆壳挑选抖动）。</summary>
+	/// <summary>逐格壳型流（`PlateCrustOps.Build` 的宿主板块挑选抖动）。</summary>
 	public const int Plate_Crust = 0x9150;
 	/// <summary>板块密度流（`PlateSeedOps.Build`；每块消费 1 次抽样）。</summary>
 	public const int Plate_Density = 0x9151;

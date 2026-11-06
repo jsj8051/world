@@ -61,8 +61,6 @@
     "CoastWarpBandHighM": 30,
 
     "MountainPeakM": 480,
-    "MountainKnee": 0.85,
-    "MountainKneeCompress": 0.50,
     "MountainUpperCoef": 1.65,
     "MountainLowerCoef": 1.65,
     "MountainArcCoef": 1.45,
@@ -85,6 +83,8 @@
 
     "RiftSuppressStrength": 0.75,
     "RiftBandKm": 715,
+    "RiftDepthM": 55,
+    "RiftShoulderHeightM": 35,
 
     "PlateauUpperReachKm": 753,
     "PlateauArcReachKm": 414,

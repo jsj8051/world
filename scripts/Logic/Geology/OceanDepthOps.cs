@@ -11,7 +11,8 @@ namespace World.Logic;
 /// <summary>
 /// 海底深度算子：给洋壳格算海底深度（负值），另给岛弧成岛的附加高度；陆壳格不参与
 /// （陆面由 <see cref="TerrainManager"/> 装配）。
-/// 三条互补来源：洋中脊与岛弧吃 <see cref="PlateBoundaryOps"/> 的边界场，大陆架 / 大陆坡吃离岸距离。
+/// 三条互补来源：洋中脊 / 海沟 / 岛弧吃 <see cref="TectonicInfluenceSet"/> 的通道场，
+/// 大陆架 / 大陆坡吃离岸距离。
 /// 洋中脊按到大洋张裂边界的距离当年龄（深度 ∝ √年龄，脊顶约 −143 m、最老洋底约 −287 m，
 /// 脊顶再按张裂强度隆起）；大陆架 / 大陆坡近岸 −1.6 → −9.6 m，出架后下到深海
 /// （被动边缘宽、俯冲侧窄）；岛弧（<see cref="BoundaryRole.Arc"/>）在上盘洋壳的海沟后方窄带隆起，
@@ -48,43 +49,54 @@ public static class OceanDepthOps
 
 	/// <summary>构建海底场：只算洋壳格，陆壳格留 0。</summary>
 	/// <param name="land">逐格是否露出水面（陆壳且合成高度 &gt; 海面）——离岸距离的源。</param>
-	/// <param name="boundary">板块边界场（逐格运动 / 角色 / 跳数；只读）。</param>
+	/// <param name="boundary">板块边界场（逐边运动；只读）。</param>
+	/// <param name="tectonic">逐通道构造影响场（与地图 / 陆地地形同一份）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec,
-		bool[] continental, bool[] land, PlateBoundaryFields boundary)
+		bool[] continental, bool[] land, PlateBoundaryFields boundary, TectonicInfluenceSet tectonic)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
 		if (continental == null) throw new ArgumentNullException(nameof(continental));
 		if (land == null) throw new ArgumentNullException(nameof(land));
 		if (boundary == null) throw new ArgumentNullException(nameof(boundary));
+		if (tectonic == null) throw new ArgumentNullException(nameof(tectonic));
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
 
-		// ── 源集：活动边界格（|motion| 超过 ActiveMotion；阈值与山带共用）──
-		var convSources = new List<int>();
-		var divSources = new List<int>();
+		// ── 汇聚 / 洋中脊：直接取通道影响场（与地图、陆地地形同源）──
+		TectonicInfluenceField subduction = tectonic.Get(TectonicChannel.Subduction);
+		TectonicInfluenceField oceanArc = tectonic.Get(TectonicChannel.OceanicArc);
+		TectonicInfluenceField ridgeField = tectonic.Get(TectonicChannel.OceanicRidge);
+		var convDist = new float[n];
+		var convStrength = new float[n];
+		var convRole = new BoundaryRole[n];
+		var ridgeDist = new float[n];
+		var ridgeStrength = new float[n];
+		Array.Fill(convDist, 4f * spec.ActiveMarginBandKm);
+		Array.Fill(ridgeDist, spec.RidgeAgeSpanKm);
 		for (int i = 0; i < n; i++)
 		{
-			if (boundary.CellHops[i] != 0) continue;   // 边界格 = 到边界 0 跳
-			float m = boundary.CellMotion[i];
-			if (m < -PlateBoundaryOps.ActiveMotion) convSources.Add(i);
-			else if (m > PlateBoundaryOps.ActiveMotion) divSources.Add(i);
+			if (subduction.SourceIndex.Length == n && subduction.SourceIndex[i] >= 0
+				&& subduction.DistanceKm[i] < convDist[i])
+			{
+				convDist[i] = subduction.DistanceKm[i];
+				convStrength[i] = TectonicSourceOps.StrengthAt(subduction, i, boundary.EdgeMotion);
+				convRole[i] = BoundaryRole.Slab;
+			}
+			if (oceanArc.SourceIndex.Length == n && oceanArc.SourceIndex[i] >= 0
+				&& oceanArc.DistanceKm[i] < convDist[i])
+			{
+				convDist[i] = oceanArc.DistanceKm[i];
+				convStrength[i] = TectonicSourceOps.StrengthAt(oceanArc, i, boundary.EdgeMotion);
+				convRole[i] = BoundaryRole.Arc;
+			}
+			if (ridgeField.SourceIndex.Length == n && ridgeField.SourceIndex[i] >= 0)
+			{
+				ridgeDist[i] = ridgeField.DistanceKm[i];
+				ridgeStrength[i] = TectonicSourceOps.StrengthAt(ridgeField, i, boundary.EdgeMotion);
+			}
 		}
-
-		// ── 三个真实距离场（km）：到汇聚边界 / 到大洋张裂边界 / 到陆地 ──
-		// 截断半径取该场最远的有效尺度（带外 / 年龄满值后不再改变结果），越远越省。
-		var conv = DistanceFieldOps.Build(ball, convSources,
-			i => MathF.Min(1f, -boundary.CellMotion[i] / PlateBoundaryOps.MotionScale),
-			4f * spec.ActiveMarginBandKm);
-
-		// 洋中脊只在大洋里：大陆里的张裂是裂谷，不算洋中脊。
-		var ridgeSources = new List<int>();
-		foreach (int i in divSources)
-			if (!continental[i]) ridgeSources.Add(i);
-		var ridge = DistanceFieldOps.Build(ball, ridgeSources,
-			i => MathF.Min(1f, boundary.CellMotion[i] / PlateBoundaryOps.MotionScale),
-			MathF.Max(spec.RidgeAgeSpanKm, 4f * spec.RidgeBandKm));
 
 		var coastSources = new List<int>();
 		for (int i = 0; i < n; i++)
@@ -113,15 +125,15 @@ public static class OceanDepthOps
 			Vector3 dir = dirs[i];
 
 			// ① 洋壳年龄 → 深度剖面（∝ √年龄）＋ 脊顶隆起 ＋ 深海丘陵
-			float rs = ridge.Strength[i];
-			float age = MathF.Min(1f, ridge.DistKm[i] / spec.RidgeAgeSpanKm);
+			float rs = ridgeStrength[i];
+			float age = MathF.Min(1f, ridgeDist[i] / spec.RidgeAgeSpanKm);
 			float d = spec.RidgeCrestDepthM - spec.RidgeAgeDepthM * MathF.Sqrt(age)
-				+ spec.RidgeCrestRiseM * rs * MathOps.GaussianBand(ridge.DistKm[i], spec.RidgeBandKm);
+				+ spec.RidgeCrestRiseM * rs * MathOps.GaussianBand(ridgeDist[i], spec.RidgeBandKm);
 			d += spec.AbyssHillLargeM * seaLarge.Sample(dir)
 				+ spec.AbyssHillFineM * seaFine.Sample(dir);
 
 			// ② 大陆架 / 大陆坡：离岸一段浅，出架后顺着坡下到深海
-			float active = conv.Strength[i] * MathOps.GaussianBand(conv.DistKm[i], spec.ActiveMarginBandKm);
+			float active = convStrength[i] * MathOps.GaussianBand(convDist[i], spec.ActiveMarginBandKm);
 			float shelfWidth = (spec.ShelfMinWidthKm
 					+ (spec.ShelfMaxWidthKm - spec.ShelfMinWidthKm) * (1f - active)
 						* (0.35f + 0.65f * MathOps.Smoothstep(-0.4f, 0.5f, shelfNoise.Sample(dir))))
@@ -136,10 +148,10 @@ public static class OceanDepthOps
 			d = MathF.Max(d, shelf);
 
 			// ③ 岛弧：上盘的洋壳在海沟后方一条窄带上隆起成海底脊
-			float cs = conv.Strength[i];
-			float cd = conv.DistKm[i];
+			float cs = convStrength[i];
+			float cd = convDist[i];
 			float arcBand = MathOps.GaussianBand(cd - spec.ArcOffsetKm, spec.ArcBandKm);
-			bool overriding = boundary.CellRole[i] == BoundaryRole.Arc;
+			bool overriding = convRole[i] == BoundaryRole.Arc;
 			if (overriding)
 				d = MathF.Max(d, spec.ArcCrestDepthM - spec.ArcRiseM * (1f - cs * arcBand));
 
@@ -161,10 +173,10 @@ public static class OceanDepthOps
 		Parallel.For(0, n, i =>
 		{
 			if (continental[i]) return;
-			if (boundary.CellRole[i] != BoundaryRole.Slab) return;
-			trench[i] = (spec.TrenchDepthM + spec.TrenchConvDepthM * conv.Strength[i])
-				* conv.Strength[i]
-				* MathOps.GaussianBand(conv.DistKm[i], spec.TrenchBandKm)
+			if (convRole[i] != BoundaryRole.Slab) return;
+			trench[i] = (spec.TrenchDepthM + spec.TrenchConvDepthM * convStrength[i])
+				* convStrength[i]
+				* MathOps.GaussianBand(convDist[i], spec.TrenchBandKm)
 				* MathOps.Smoothstep(spec.TrenchMinCoastKm, spec.TrenchFullCoastKm, coast.DistKm[i]);
 		});
 		FieldBlurOps.Blur(ball, trench, FieldBlurOps.NeighborMeanWeight, spec.TrenchSmoothPasses);

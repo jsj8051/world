@@ -1,143 +1,240 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
+using Godot;
 using World.Data;
+using World.H3Grid;
 using World.Utils;
 
 namespace World.Logic;
 
 /// <summary>
-/// 派定壳型：每块按「格数 × 随机抖动」打分，按布局档挑出陆壳板块，其余洋壳。
-/// 陆壳块数 = clamp(round(板块数 × <c>ContinentalRatio</c>), 1, 板块数)，至少一块，否则全球是海。
-/// 抖动 ∈ [0.5,1.5) ⇒ 大板块更易当陆壳，但不是必然（面积重尾，实际接近按面积取前几大）。
-/// 各档只改排列（多大陆 / 群岛档额外多选几块），判据一律是板块邻接：Earthlike / ManyContinents
-/// 优先取不与已选相邻的板块（之间必夹洋壳 ⇒ 大陆被大洋隔开；容不下时按分补齐）；
-/// Pangea 只取与已选相邻者（陆壳连成一片）；Archipelago 块数最多、不做邻接约束
-/// （"碎"由 ⓪ 的基线压低、① 应用负责）。
+/// 逐格壳型：按布局选宿主板块放陆壳核，从核在全球格网生长陆壳省，剩余格为洋壳。
+/// 生长用低频噪声塑形 + 白噪声粗糙化；陆壳省可以跨板块（板块只决定核的位置）。
 /// </summary>
 public static class PlateCrustOps
 {
-	/// <summary>按布局档给 <paramref name="plates"/> 写壳型（就地改 <see cref="Plate.Crust"/>）。</summary>
-	/// <param name="seed">世界种子（走 <c>Plate_Crust</c> 流）。</param>
-	/// <param name="spec">板块配置（陆壳占比）。</param>
-	/// <param name="layout">陆块布局档（<see cref="ContinentLayout.Auto"/> 须由调用方先定档）。</param>
-	/// <param name="plates">板块表（长度 = 板块数；本方法只改壳型）。</param>
-	/// <param name="sizeOfPlate">逐块格数（打分用）。</param>
-	/// <param name="adjacency">板块邻接矩阵（判"陆壳是否挨着"用）。</param>
-	public static void Assign(int seed, PlateSpec spec, ContinentLayout layout,
-		Plate[] plates, int[] sizeOfPlate, bool[,] adjacency)
-	{
-		if (spec == null) throw new ArgumentNullException(nameof(spec));
-		if (plates == null) throw new ArgumentNullException(nameof(plates));
-		if (sizeOfPlate == null) throw new ArgumentNullException(nameof(sizeOfPlate));
-		if (adjacency == null) throw new ArgumentNullException(nameof(adjacency));
-		int p = plates.Length;
-		if (p < 1) throw new InvalidOperationException("板块表为空：先 PlateSeedOps.Build");
-		if (sizeOfPlate.Length != p)
-			throw new InvalidOperationException("缺各板块格数：先 PlateFloodOps.Grow");
-		if (adjacency.GetLength(0) != p)
-			throw new InvalidOperationException("缺板块邻接：先 PlateFloodOps.Grow");
+    /// <summary>单个宿主板块的陆壳覆盖率上限；越低则板内洋壳边缘越宽、海岸越不贴板块边界。</summary>
+    const float HostCoverage = 0.55f;
 
-		var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Plate_Crust));
-		int baseWant = Math.Clamp((int)MathF.Round(p * spec.ContinentalRatio), 1, p);
+    public static CrustField Build(Ball ball, int seed, PlateSpec spec, ContinentLayout layout,
+        int[] plateOfCell, int plateCount, int[] sizeOfPlate, bool[,] adjacency)
+    {
+        if (ball == null) throw new ArgumentNullException(nameof(ball));
+        if (spec == null) throw new ArgumentNullException(nameof(spec));
+        if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
+        if (sizeOfPlate == null) throw new ArgumentNullException(nameof(sizeOfPlate));
+        if (adjacency == null) throw new ArgumentNullException(nameof(adjacency));
+        if (plateCount < 1 || sizeOfPlate.Length != plateCount)
+            throw new ArgumentException("板块数与格数表不一致", nameof(sizeOfPlate));
+        if (plateOfCell.Length != ball.CellDirs.Length)
+            throw new ArgumentException("板块号长度与格数不一致", nameof(plateOfCell));
 
-		int want;
-		switch (layout)
-		{
-			case ContinentLayout.ManyContinents:
-				want = Math.Min(p, baseWant + ContinentLayouts.ManyExtraPlates);
-				break;
-			case ContinentLayout.Archipelago:
-				want = Math.Min(p, baseWant + ContinentLayouts.ArchipelagoExtraPlates);
-				break;
-			default:                                   // Earthlike / Pangea（Auto 已在外层定档）
-				want = baseWant;
-				break;
-		}
+        int n = plateOfCell.Length;
+        int target = Math.Clamp((int)MathF.Round(n * spec.ContinentalRatio), 1, n);
+        List<int> hosts = SelectHosts(seed, spec, layout, plateCount, sizeOfPlate, adjacency);
 
-		var score = new float[p];
-		for (int k = 0; k < p; k++)
-			score[k] = sizeOfPlate[k] * (0.5f + (float)rnd.NextDouble());
+        var type = new CrustType[n];
+        Array.Fill(type, CrustType.Oceanic);
+        var provinceId = new int[n];
+        Array.Fill(provinceId, -1);
+        var provinces = new List<CrustProvince>();
 
-		// 候选顺序：分高者在前；同分按板块号 ⇒ 与线程 / 调用次序无关的全序
-		var order = new int[p];
-		for (int k = 0; k < p; k++) order[k] = k;
-		Array.Sort(order, (a, b) => score[a] != score[b] ? score[b].CompareTo(score[a]) : a.CompareTo(b));
+        var host = new bool[plateCount];
+        int hostArea = 0;
+        foreach (int p in hosts) { host[p] = true; hostArea += sizeOfPlate[p]; }
 
-		var chosen = new bool[p];
-		var picked = new List<int>(want);
-		switch (layout)
-		{
-			case ContinentLayout.Pangea:      PickContiguous(order, chosen, picked, want, adjacency); break;
-			case ContinentLayout.Archipelago: PickByScore(order, chosen, picked, want); break;
-			default:                          PickSplit(order, chosen, picked, want, adjacency); break;
-		}
+        // 低频噪声塑形（海湾 / 半岛），逐格白噪声只做边缘粗糙度。
+        var shape = new SphericalFbmNoise(
+            SeedDerivation.Derive(seed, SeedDerivation.Plate_Crust), 2600f, 4);
+        var wobble = new float[n];
+        Parallel.For(0, n, i => wobble[i] = shape.Sample(ball.CellDirs[i]));
 
-		for (int k = 0; k < p; k++) plates[k].Crust = CrustType.Oceanic;
-		foreach (int k in picked) plates[k].Crust = CrustType.Continental;
-	}
+        if (layout == ContinentLayout.Pangea)
+        {
+            int seedCell = Nucleus(ball, plateOfCell, host, -1, type);
+            int pangeaTarget = Math.Min(target, (int)(hostArea * 0.9f));
+            int count = Grow(ball, seedCell, pangeaTarget, type, provinceId, 0, seed, wobble);
+            if (count > 0)
+                provinces.Add(new CrustProvince(0, CrustType.Continental, seedCell, plateOfCell[seedCell], count));
+        }
+        else
+        {
+            float coverage = MathF.Min(1f, (float)target / Math.Max(1, hostArea));
+            foreach (int p in hosts)
+            {
+                int want = Math.Min(sizeOfPlate[p], Math.Max(1, (int)MathF.Round(sizeOfPlate[p] * coverage)));
+                int seedCell = Nucleus(ball, plateOfCell, host, p, type);
+                int count = Grow(ball, seedCell, want, type, provinceId,
+                    provinces.Count, seed + p * 7919, wobble);
+                if (count > 0)
+                    provinces.Add(new CrustProvince(provinces.Count, CrustType.Continental,
+                        seedCell, p, count));
+            }
+        }
+        return new CrustField(type, provinceId, provinces.ToArray());
+    }
 
-	/// <summary>连片挑选：第一块取分最高者，之后每轮只从与已选板块相邻的候选里取分最高者
-	/// ⇒ 选出的陆壳板块彼此连通。邻接图不连通时兜底取分最高者（否则块数不达标）。</summary>
-	static void PickContiguous(int[] order, bool[] chosen, List<int> picked, int want, bool[,] adjacency)
-	{
-		while (picked.Count < want)
-		{
-			int best = -1;
-			foreach (int c in order)              // order 已按分降序 ⇒ 第一个命中即最高
-			{
-				if (chosen[c]) continue;
-				if (picked.Count > 0 && !TouchesChosen(c, picked, adjacency)) continue;
-				best = c;
-				break;
-			}
-			if (best < 0)                          // 兜底：邻接图上够不到那么远
-			{
-				foreach (int c in order)
-					if (!chosen[c]) { best = c; break; }
-			}
-			if (best < 0) break;
-			chosen[best] = true;
-			picked.Add(best);
-		}
-	}
+    static List<int> SelectHosts(int seed, PlateSpec spec, ContinentLayout layout, int p,
+        int[] sizeOfPlate, bool[,] adjacency)
+    {
+        var rnd = new DeterministicRandom(SeedDerivation.Derive(seed, SeedDerivation.Plate_Crust));
+        int want = Math.Clamp((int)MathF.Round(p * spec.ContinentalRatio), 1, p);
+        want = layout switch
+        {
+            ContinentLayout.ManyContinents => Math.Min(p, want + ContinentLayouts.ManyExtraPlates),
+            ContinentLayout.Archipelago => Math.Min(p, want + ContinentLayouts.ArchipelagoExtraPlates),
+            _ => want,
+        };
+        // 目标覆盖率 0.55 ⇒ 宿主块数按面积比例补足（大小板块近似等大时成立）。
+        want = Math.Min(p, Math.Max(want,
+            (int)MathF.Ceiling(p * spec.ContinentalRatio / HostCoverage)));
 
-	/// <summary>分开挑选：先按分降序取不与已选陆壳相邻的板块；邻接图容不下时再按分补齐
-	/// ⇒ 少数几块会连在一起，像欧亚与非洲。块数一定达标，优先保分散。</summary>
-	static void PickSplit(int[] order, bool[] chosen, List<int> picked, int want, bool[,] adjacency)
-	{
-		foreach (int c in order)
-		{
-			if (picked.Count >= want) break;
-			if (chosen[c] || TouchesChosen(c, picked, adjacency)) continue;
-			chosen[c] = true;
-			picked.Add(c);
-		}
-		foreach (int c in order)
-		{
-			if (picked.Count >= want) break;
-			if (chosen[c]) continue;
-			chosen[c] = true;
-			picked.Add(c);
-		}
-	}
+        var score = new float[p];
+        for (int k = 0; k < p; k++)
+            score[k] = sizeOfPlate[k] * (0.5f + (float)rnd.NextDouble());
 
-	/// <summary>只看分数：按分降序取满（不做邻接约束）。</summary>
-	static void PickByScore(int[] order, bool[] chosen, List<int> picked, int want)
-	{
-		foreach (int c in order)
-		{
-			if (picked.Count >= want) break;
-			if (chosen[c]) continue;
-			chosen[c] = true;
-			picked.Add(c);
-		}
-	}
+        var order = new int[p];
+        for (int k = 0; k < p; k++) order[k] = k;
+        Array.Sort(order, (a, b) => score[a] != score[b] ? score[b].CompareTo(score[a]) : a.CompareTo(b));
 
-	/// <summary>该板块是否与任一块已选陆壳相邻。</summary>
-	static bool TouchesChosen(int candidate, List<int> picked, bool[,] adjacency)
-	{
-		foreach (int q in picked)
-			if (adjacency[candidate, q]) return true;
-		return false;
-	}
+        var chosen = new bool[p];
+        var picked = new List<int>(want);
+        switch (layout)
+        {
+            case ContinentLayout.Pangea: PickContiguous(order, chosen, picked, want, adjacency); break;
+            case ContinentLayout.Archipelago: PickByScore(order, chosen, picked, want); break;
+            default: PickSplit(order, chosen, picked, want, adjacency); break;
+        }
+
+        return picked;
+    }
+
+    /// <summary>区域内离质心最近的格；<paramref name="plate"/> = −1 表示用 <paramref name="host"/> 并集。</summary>
+    static int Nucleus(Ball ball, int[] plateOfCell, bool[] host, int plate, CrustType[] type)
+    {
+        var dirs = ball.CellDirs;
+        Vector3 sum = default;
+        int count = 0;
+        for (int i = 0; i < plateOfCell.Length; i++)
+        {
+            if (type[i] == CrustType.Continental) continue;
+            if (plate >= 0 ? plateOfCell[i] != plate : !host[plateOfCell[i]]) continue;
+            sum += dirs[i];
+            count++;
+        }
+        if (count == 0) return -1;
+
+        Vector3 center = sum.Normalized();
+        int best = -1;
+        float bestDot = -1f;
+        for (int i = 0; i < plateOfCell.Length; i++)
+        {
+            if (type[i] == CrustType.Continental) continue;
+            if (plate >= 0 ? plateOfCell[i] != plate : !host[plateOfCell[i]]) continue;
+            float dot = dirs[i].Dot(center);
+            if (dot > bestDot) { bestDot = dot; best = i; }
+        }
+        return best;
+    }
+
+    static int Grow(Ball ball, int seedCell, int target, CrustType[] type, int[] provinceId,
+        int province, int noiseSeed, float[] wobble)
+    {
+        if (seedCell < 0 || target <= 0) return 0;
+        var dist = new double[type.Length];
+        Array.Fill(dist, double.PositiveInfinity);
+        var heap = new PriorityQueue<int, double>();
+        dist[seedCell] = 0;
+        heap.Enqueue(seedCell, 0);
+
+        int count = 0;
+        while (count < target && heap.TryDequeue(out int cell, out double d))
+        {
+            if (d > dist[cell]) continue;   // 过期条目
+            if (type[cell] == CrustType.Continental) continue;
+            type[cell] = CrustType.Continental;
+            provinceId[cell] = province;
+            count++;
+
+            foreach (int nb in ball.CellNeighbors[cell])
+            {
+                if (type[nb] == CrustType.Continental) continue;
+                // 代价 ∈ [1, 3.8]：低频噪声决定扩张快慢 ⇒ 海岸是平滑等值线，不是折线。
+                double cost = 1.0 + 2.5 * (0.5 + 0.5 * wobble[nb]) + 0.3 * Hash01(nb, noiseSeed);
+                double nd = d + cost;
+                if (nd >= dist[nb]) continue;
+                dist[nb] = nd;
+                heap.Enqueue(nb, nd);
+            }
+        }
+        return count;
+    }
+
+    /// <summary>逐格确定性噪声 [0,1)；只扰动生长前沿，不参与任何物理量。</summary>
+    static float Hash01(int cell, int seed)
+    {
+        uint h = unchecked((uint)cell * 747796405u + (uint)seed * 2891336453u);
+        h = unchecked((h ^ (h >> 16)) * 2246822519u);
+        h = unchecked((h ^ (h >> 13)) * 3266489917u);
+        h ^= h >> 16;
+        return (h & 0xFFFFFF) / 16777216f;
+    }
+
+    static void PickContiguous(int[] order, bool[] chosen, List<int> picked, int want, bool[,] adjacency)
+    {
+        while (picked.Count < want)
+        {
+            int best = -1;
+            foreach (int c in order)
+            {
+                if (chosen[c]) continue;
+                if (picked.Count > 0 && !TouchesChosen(c, picked, adjacency)) continue;
+                best = c;
+                break;
+            }
+            if (best < 0)
+                foreach (int c in order)
+                    if (!chosen[c]) { best = c; break; }
+            if (best < 0) break;
+            chosen[best] = true;
+            picked.Add(best);
+        }
+    }
+
+    static void PickSplit(int[] order, bool[] chosen, List<int> picked, int want, bool[,] adjacency)
+    {
+        foreach (int c in order)
+        {
+            if (picked.Count >= want) break;
+            if (chosen[c] || TouchesChosen(c, picked, adjacency)) continue;
+            chosen[c] = true;
+            picked.Add(c);
+        }
+        foreach (int c in order)
+        {
+            if (picked.Count >= want) break;
+            if (chosen[c]) continue;
+            chosen[c] = true;
+            picked.Add(c);
+        }
+    }
+
+    static void PickByScore(int[] order, bool[] chosen, List<int> picked, int want)
+    {
+        foreach (int c in order)
+        {
+            if (picked.Count >= want) break;
+            if (chosen[c]) continue;
+            chosen[c] = true;
+            picked.Add(c);
+        }
+    }
+
+    static bool TouchesChosen(int candidate, List<int> picked, bool[,] adjacency)
+    {
+        foreach (int q in picked)
+            if (adjacency[candidate, q]) return true;
+        return false;
+    }
 }

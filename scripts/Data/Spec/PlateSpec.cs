@@ -27,8 +27,8 @@ public sealed class PlateSpec
 	/// <summary>扰动倍频层数。出厂值 4。</summary>
 	public int BoundaryOctaves { get; set; } = 4;
 
-	/// <summary>陆壳板块占板块数的比例 ∈ (0,1]：按「格数 × 随机抖动」打分取前 N 块，
-	/// N = clamp(round(板块数 × 它), 1, 板块数)（布局档可在此基础上另加块数）。
+	/// <summary>目标陆壳**面积**占比 ∈ (0,1]：宿主板块按格数加权生长到该面积；
+	/// 宿主板块的起始块数仍按 <c>round(板块数 × 它)</c> 取（布局档另加）。
 	/// 陆壳的格由 ① 阶段铺陆面高度 ⇒ 陆地长在陆壳上。出厂值 0.38。</summary>
 	public float ContinentalRatio { get; set; } = 0.38f;
 

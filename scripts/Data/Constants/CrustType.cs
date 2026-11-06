@@ -6,10 +6,10 @@ namespace World.Data;
 /// · <see cref="Continental"/> 陆壳：格由 ① 阶段铺**陆面**高度 ⇒ 陆地长在陆壳上。
 /// （海岸线不由壳型直接决定——陆面基线穿过海面处才是岸。）
 ///
-/// 顺序即默认值：0 = Oceanic ⇒ 漏调 `PlateCrustOps.Assign` 时全为洋壳；
-/// `PlateCrustOps.Assign` 自身保证至少一块陆壳（不会静默生成一个全是海的世界）。
+/// 顺序即默认值：0 = Oceanic ⇒ 漏建 `CrustField` 时全为洋壳；
+/// `PlateCrustOps.Build` 自身保证至少一个陆壳省（不会静默生成一个全是海的世界）。
 /// </summary>
-public enum CrustType
+public enum CrustType : byte
 {
     Oceanic,
     Continental,

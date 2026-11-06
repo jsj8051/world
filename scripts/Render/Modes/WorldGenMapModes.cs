@@ -23,6 +23,7 @@ public static class WorldGenMapModes
 		new TerrainMode(sim),          // 自然地理（初始画面：500 m 等高带高度图）
 		new ElevationMode(sim),        // 自然地理（纯海拔判读）
 		new PlateMode(sim),            // 成因层（⓪ 板块划分）
+		new CrustMode(sim),            // 成因层（壳型 + 碰撞 / 张裂通道）
 		new CoastDistanceMode(sim),    // 自然地理
 		new PrecipitationMode(sim),    // 气候
 		new TemperatureMode(sim),      // 气候

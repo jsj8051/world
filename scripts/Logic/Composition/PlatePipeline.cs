@@ -5,7 +5,7 @@ namespace World.Logic;
 
 /// <summary>
 /// 板块阶段：把世界定义交给 <see cref="PlateManager"/> 跑完 ⓪ 的全部步骤，
-/// 再把边界集派生为边界场（逐格运动 / 角色 / 跳数 + 逐边类型）。
+/// 再把边界集派生为逐边场（运动 / 类型 / 两侧角色）。
 /// 本类不持算法；逐格数组都在 <see cref="PlateManager"/> 与 <see cref="PlateBoundaryFields"/> 里。
 /// </summary>
 public sealed class PlatePipeline
@@ -15,13 +15,16 @@ public sealed class PlatePipeline
 
 	/// <summary>逐格板块号。</summary>
 	public int[] PlateOfCell => _impl.PlateOfCell;
-	/// <summary>板块表（含每块壳型 <see cref="World.Data.Plate.Crust"/>）。</summary>
+	/// <summary>板块表（欧拉矢量 / 密度）。</summary>
 	public Plate[] Plates => _impl.Plates;
+
+	/// <summary>逐格壳型与陆壳省。</summary>
+	public CrustField Crust => _impl.Crust;
 
 	/// <summary>板块边界集（共享边 + 板块对 + 逐格关联）。</summary>
 	public PlateBoundarySet Boundaries => _impl.Boundaries;
 
-	/// <summary>板块边界场（逐格运动 / 角色 / 跳数 + 逐边类型）。</summary>
+	/// <summary>板块边界场（逐边运动 / 类型 / 两侧角色）。</summary>
 	public PlateBoundaryFields Boundary { get; private set; } = PlateBoundaryFields.Empty;
 
 	/// <summary>本次世界的陆块布局档（Auto 已抽定）。</summary>
@@ -35,6 +38,6 @@ public sealed class PlatePipeline
 	public void Run(Ball ball, WorldSpec spec)
 	{
 		_impl.Run(ball, spec);
-		Boundary = PlateBoundaryFields.Build(ball, _impl.Boundaries, _impl.PlateOfCell, _impl.Plates);
+		Boundary = PlateBoundaryFields.Build(ball, _impl.Boundaries, _impl.Crust, _impl.Plates);
 	}
 }
