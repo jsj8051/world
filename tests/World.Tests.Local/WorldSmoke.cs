@@ -431,9 +431,9 @@ static class WorldSmoke
 
 		int width = res >= 4 ? 4096 : 2048;
 		int height = width / 2;
-		mode.SetVariant(1);
+		mode.SetVariant(CrustMode.CrustOnlyVariant);
 		Console.WriteLine($"crust types ppm={WritePpm(sim, mode, width, height, $"crust_res{res}_types.ppm")}");
-		mode.SetVariant(0);
+		mode.SetVariant(CrustMode.ConstructionVariant);
 		Console.WriteLine($"crust ppm={WritePpm(sim, mode, width, height, $"crust_res{res}.ppm")}");
 	}
 

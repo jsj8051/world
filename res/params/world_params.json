@@ -46,6 +46,9 @@
     "MediumVariationM": 15.9,
     "RegionalNoiseM": 10.6,
 
+    "FreeboardLiftM": 12,
+    "FreeboardSpanKm": 1200,
+
     "LargeWavelengthKm": 10349,
     "LargeOctaves": 3,
     "MediumWavelengthKm": 602,
@@ -145,6 +148,44 @@
 
     "OceanSmoothPasses": 6,
     "TrenchSmoothPasses": 1
+  },
+
+  "Evolution": {
+    "StepYears": 100000,
+    "InitialMantleVolumeKm3": 10000000000,
+    "LegacyOmegaScaleRadPerMa": 0.01,
+    "MaxDisplacementFraction": 0.25,
+
+    "InitialContinentalThicknessKm": 35,
+    "InitialOceanicThicknessKm": 7,
+    "NewOceanicThicknessKm": 7,
+    "InitialOceanAgeMa": 80,
+    "NewOceanElevationM": -2500,
+
+    "ActiveSpeedKmPerMa": 1,
+    "RiftBreakupStrain": 1,
+
+    "ContinentalDensityKgM3": 2800,
+    "OceanicDensityKgM3": 2900,
+    "MantleDensityKgM3": 3300,
+    "CoolingDepthMPerSqrtMa": 350,
+    "MaxCoolingAgeMa": 150,
+
+    "RidgeVolcanicRateKmPerMa": 0.02,
+    "OceanRidgeReachKm": 180,
+    "ArcVolcanicRateKmPerMa": 0.01,
+    "VolcanicReliefFraction": 0.2,
+    "ArcReachKm": 200,
+
+    "TrenchReliefScaleM": 3000,
+    "TrenchReachKm": 100,
+    "RiftReliefScaleM": 1000,
+    "TectonicRelaxationMa": 1,
+
+    "VolumeAbsoluteToleranceKm3": 0.001,
+    "VolumeRelativeTolerance": 1e-8,
+    "CoverageRelativeTolerance": 1e-8,
+    "GeometryAngularToleranceRad": 1e-10
   },
 
   "Climate": {

@@ -35,23 +35,28 @@ public sealed class WorldPicker
 		if (_view == null || _camera == null || _sim == null) return false;
 
 		ulong? id = _view.PickCell(screenPos, _camera);
-		if (id == null) return false;
-		int i = _view.PickCellIndex(id.Value);
+		return id.HasValue && TryReadCell(id.Value, out cell);
+	}
+
+	internal bool TryReadCell(ulong id, out PickedCell cell)
+	{
+		cell = default;
+		int i = _view.PickCellIndex(id);
 		if (i < 0) return false;
 
 		var facts = _sim.Facts;
 		if (facts == null) return false;
-		var ll = H3.CellToLatLng(id.Value);
+		var ll = H3.CellToLatLng(id);
 
 		cell = new PickedCell
 		{
-			CellId = id.Value,
+			CellId = id,
 			Index = i,
 			LatDeg = (float)(ll.Lat * 180 / System.Math.PI),
 			LngDeg = (float)(ll.Lng * 180 / System.Math.PI),
 			ElevM = facts.HeightM[i],
 			IsLand = facts.FinalLand[i],
-			LandFraction = facts.FinalLandFraction[i],
+			LandFraction = facts.Evolution?.Projection.SurfaceCells?[i].EmergentFraction ?? facts.FinalLandFraction[i],
 			LandmassId = facts.FinalLandmassId[i],
 			DistToCoast = facts.FinalDistToCoast[i],
 			DistToLand = facts.FinalDistToLand[i],

@@ -52,6 +52,8 @@ public partial class RenderManager : Node3D, ITickable
 	/// 高亮不在这里——它在 <see cref="PickAt"/> 里就地完成（本管理器就是发起方）。
 	/// </summary>
 	public event System.Action<PickedCell?> CellPicked;
+	internal bool ShowCrustDetails => _currentMode >= 0 && _modes[_currentMode] is CrustMode;
+	ulong? _selectedCellId;
 
 	// ── 地图模式（模式表 / 当前模式 / 坞同步）──
 	PanelContainer _dock;              // 坞（哑组件；本类只调它的下行口，不认识它的类型）
@@ -128,10 +130,16 @@ public partial class RenderManager : Node3D, ITickable
 	}
 
 	/// <summary>
-	/// 重算后的重烘口（世界侧 <c>WorldManager.Regenerate()</c> 之后由装配层调）：
+	/// 世界发布后由装配层调用：
 	/// 转发给 <c>WorldView.Rebake</c>——重新绑定海拔源 + 重烘颜色 + 重建河线。
 	/// </summary>
-	public void RebakeView() => View?.Rebake();
+	public void RebakeView()
+	{
+		long timing = WorldBuildProfile.Start();
+		View?.Rebake();
+		RefreshSelection();
+		WorldBuildProfile.Mark(ref timing, "map-rebake");
+	}
 
 	// ── 坞信号的处理口（连接写在 WorldGenWorld.tscn 的 [connection] 里）──
 	// 这两个方法必须是 public：Godot 的 C# 桥只把公开方法暴露给引擎（场景连接按名字解析）。
@@ -175,6 +183,7 @@ public partial class RenderManager : Node3D, ITickable
 		_dock?.Call("SetVariantOptions", AsArray(mode.VariantOptions), mode.VariantIndex);
 		_dock?.Call("SetParameterOptions", AsArray(mode.ParameterOptions), mode.ParameterIndex);
 		_dock?.Call("SetLegend", mode.ScaleCaption);
+		RefreshSelection();
 	}
 
 	/// <summary>
@@ -237,12 +246,27 @@ public partial class RenderManager : Node3D, ITickable
 
 		if (!Picker.TryPick(screenPos, out var cell))
 		{
+			_selectedCellId = null;
 			View?.SetHighlight(null);     // 表现：清高亮
 			CellPicked?.Invoke(null);     // 数据：取消选中
 			return;
 		}
+		_selectedCellId = cell.CellId;
 		View?.SetHighlight(cell.CellId);  // 表现：高亮该格（就地，不绕事件）
 		CellPicked?.Invoke(cell);         // 数据：格子事实交给订阅方自行显示
+	}
+
+	void RefreshSelection()
+	{
+		if (_selectedCellId is not ulong id) return;
+		if (Picker.TryReadCell(id, out var cell))
+		{
+			CellPicked?.Invoke(cell);
+			return;
+		}
+		_selectedCellId = null;
+		View?.SetHighlight(null);
+		CellPicked?.Invoke(null);
 	}
 
 	// ── 依赖解析 / 校验（判据收在 World.Utils.NodeDependency，四个管理器共用一份）──

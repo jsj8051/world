@@ -30,6 +30,9 @@ public sealed class TerrainPipeline
 	/// <summary>本阶段的构造影响场（地形与地图共用）。</summary>
 	public TectonicInfluenceSet Tectonic => _impl.Tectonic;
 
+	internal void SetSurface(Ball ball, float[] height, float seaLevelM, TectonicInfluenceSet tectonic)
+		=> _impl.SetSurface(ball, height, seaLevelM, tectonic);
+
 	/// <param name="seed">世界种子（全局层：按值展开成 <c>int</c>，本阶段收不到 <c>WorldSpec</c>）。</param>
 	/// <param name="spec">本阶段配置实例（阶段层）。</param>
 	/// <param name="plateOfCell">上游板块阶段的逐格板块号。</param>

@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Godot;
 using World.Data;
 using World.Utils;
@@ -25,6 +27,8 @@ namespace World.Logic;
 /// </summary>
 public sealed class MonthlyClimate
 {
+	readonly record struct RainBands(float Latitude, float PolarFront, float Subtropical);
+
 	/// <summary>月数（与 <see cref="ClimateSpec.Months"/> 一致；本模型按 12 标定）。</summary>
 	public int MonthCount { get; private set; } = 12;
 
@@ -70,6 +74,10 @@ public sealed class MonthlyClimate
 	/// <param name="coarse">粗层视图（长波平滑用；null = 恒等层，合成网格口径）。</param>
 	public void Compute(ClimateGrid grid, ClimateSpec spec, float[] baseTempC, float[] coastalWarmth, int seed,
 		CoarseLayer coarse = null)
+		=> Compute(grid, spec, baseTempC, coastalWarmth, seed, coarse, CancellationToken.None);
+
+	internal void Compute(ClimateGrid grid, ClimateSpec spec, float[] baseTempC, float[] coastalWarmth, int seed,
+		CoarseLayer coarse, CancellationToken cancellation)
 	{
 		if (grid == null) throw new ArgumentNullException(nameof(grid));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -87,43 +95,57 @@ public sealed class MonthlyClimate
 		var noise = new float[n];
 		for (int i = 0; i < n; i++) noise[i] = precipNoise.Sample(grid.Dirs[i]);
 
-		var radiation = new float[n];
 		var seaLevelTemp = new float[n];
 		var annualSeaLevel = new float[n];
+		var seasonalAmplitude = new float[n];
+		float seasonalScale = spec.ObliquityDeg / 23.4f * spec.SeasonalBaseC;
+		for (int i = 0; i < n; i++)
+			seasonalAmplitude[i] = seasonalScale * MathF.Pow(MathF.Abs(MathF.Sin(grid.LatRad(i))), 1.5f);
+		var rainBands = BuildRainBands(grid, spec);
 
 		// ① 12 个月温度一次算完（月温本来就要存档），同时攒年均 T_sl——
 		// 热力项的年均偏置只能从"真实的 12 个月平均"来；用年基温近似会留下高纬几 hPa 的常年偏差。
 		for (int m = 0; m < MonthCount; m++)
 		{
+			cancellation.ThrowIfCancellationRequested();
 			float deltaRad = DeclinationRad(spec, m);
 			float phase = MathF.Sin(2f * MathF.PI * (m - 3f) / 12f);
-			BuildMonthTemperature(grid, spec, baseTempC, continentality, m, deltaRad, phase, radiation, seaLevelTemp);
+			BuildMonthTemperature(grid, spec, baseTempC, continentality, seasonalAmplitude, m, deltaRad, phase, seaLevelTemp);
 			for (int i = 0; i < n; i++) annualSeaLevel[i] += seaLevelTemp[i] / MonthCount;
 		}
 
 		Wind = BuildWindField(n);
 		var pressure = PressureFieldModel.Create(grid, spec, coarse ?? CoarseLayer.Identity(grid), annualSeaLevel);
 		var windSolver = WindSolver.Create(grid, spec);
-		var pressureGradient = new Vector3[n];
-
-		// ② 月循环后半段：气压 → 三套风 → 水汽 → 降水。顺序不可换（后段吃前段产物）。
-		for (int m = 0; m < MonthCount; m++)
-		{
-			float deltaRad = DeclinationRad(spec, m);
-			BuildMonthRadiation(grid, deltaRad, radiation);
-			BuildMonthSeaLevelTemp(grid, spec, MonthTempC[m], seaLevelTemp);
-			pressure.BuildMonth(seaLevelTemp, deltaRad, MonthPressureHpa[m]);
-
-			TangentField.GradientField(grid, MonthPressureHpa[m], pressureGradient);
-			windSolver.SolveAll(pressureGradient,
-				Wind.Surface.Monthly[m], Wind.Low.Monthly[m], Wind.Free.Monthly[m]);
-
-			BuildMonthPrecip(grid, spec, m, deltaRad, radiation, noise, coastalWarmth, elevationGradient,
-				Wind.Low.Monthly[m]);
-		}
+		// 年基准已固定，各月独立。工人只写自己的月度数组，年平均仍按月份顺序汇总。
+		int workers = n >= 10_000 ? Math.Min(MonthCount, Math.Clamp(System.Environment.ProcessorCount - 1, 1, 6)) : 1;
+		if (workers == 1) BuildMonths(0);
+		else Parallel.For(0, workers, new ParallelOptions { CancellationToken = cancellation }, BuildMonths);
 
 		Finalize(grid);
 		MonsoonStrength = MonsoonIndex.Compute(grid, spec, MonthPressureHpa);
+
+		void BuildMonths(int worker)
+		{
+			var radiation = new float[n];
+			var seaLevel = worker == 0 ? seaLevelTemp : new float[n];
+			var pressureGradient = new Vector3[n];
+			var workspace = pressure.CreateWorkspace();
+			for (int m = worker; m < MonthCount; m += workers)
+			{
+				cancellation.ThrowIfCancellationRequested();
+				float deltaRad = DeclinationRad(spec, m);
+				BuildMonthRadiation(grid, deltaRad, radiation);
+				BuildMonthSeaLevelTemp(grid, spec, MonthTempC[m], seaLevel);
+				pressure.BuildMonth(seaLevel, deltaRad, MonthPressureHpa[m], workspace);
+
+				TangentField.GradientField(grid, MonthPressureHpa[m], pressureGradient);
+				windSolver.SolveAll(pressureGradient,
+					Wind.Surface.Monthly[m], Wind.Low.Monthly[m], Wind.Free.Monthly[m]);
+				BuildMonthPrecip(grid, spec, m, deltaRad, rainBands, radiation, noise, coastalWarmth, elevationGradient,
+					Wind.Low.Monthly[m]);
+			}
+		}
 	}
 
 	WindField BuildWindField(int n) =>
@@ -182,25 +204,19 @@ public sealed class MonthlyClimate
 		tempC + (grid.Land[i] && grid.HeightM[i] > 0f ? spec.LapseRateCPerKm / 1000f * grid.HeightM[i] : 0f);
 
 	void BuildMonthTemperature(ClimateGrid grid, ClimateSpec spec, float[] baseTempC,
-		float[] continentality, int month, float deltaRad, float phase, float[] radiation, float[] seaLevelTemp)
+		float[] continentality, float[] seasonalAmplitude, int month, float deltaRad, float phase, float[] seaLevelTemp)
 	{
 		int n = grid.Count;
-		float tiltScale = spec.ObliquityDeg / 23.4f;
-
 		for (int i = 0; i < n; i++)
 		{
 			float latRad = grid.LatRad(i);
-			float sinLatAbs = MathF.Abs(MathF.Sin(latRad));
-
-			float seasonalBase = tiltScale * spec.SeasonalBaseC * MathF.Pow(sinLatAbs, 1.5f);
 			float rad = MathF.Max(0f, MathF.Cos(latRad - deltaRad));
-			radiation[i] = rad;
 
 			// 大陆热力响应 ∝ 月辐射：夏季辐射强 → 内陆更热，冬季辐射弱 → 接近海洋。
 			float continentResponse = spec.ContinentalResponse * continentality[i] * rad;
 			// 季节相位南北半球相反（南半球 1 月是盛夏）：取纬度符号，否则南半球冬夏倒置。
 			float hemisphere = latRad >= 0f ? 1f : -1f;
-			float t = baseTempC[i] + seasonalBase * phase * hemisphere * (1f + continentResponse);
+			float t = baseTempC[i] + seasonalAmplitude[i] * phase * hemisphere * (1f + continentResponse);
 
 			// 地表反照率：只按"下垫面"分（海 / 陆 / 高山终年积雪），冰由温度单独决定。
 			float ground = grid.Land[i] ? spec.AlbedoLand : spec.AlbedoOcean;
@@ -220,15 +236,16 @@ public sealed class MonthlyClimate
 		}
 	}
 
-	void BuildMonthPrecip(ClimateGrid grid, ClimateSpec spec, int month, float deltaRad, float[] radiation,
+	void BuildMonthPrecip(ClimateGrid grid, ClimateSpec spec, int month, float deltaRad, RainBands[] rainBands, float[] radiation,
 		float[] noise, float[] coastalWarmth, Vector3[] elevationGradient, Vector3[] windMonth)
 	{
 		int n = grid.Count;
 		var moisture = BuildMoisture(grid, spec, windMonth);
+		float deltaDeg = deltaRad * 180f / MathF.PI;
 
 		for (int i = 0; i < n; i++)
 		{
-			float p = MonthPrecipBase(grid, spec, i, deltaRad, noise, coastalWarmth);
+			float p = MonthPrecipBase(grid, spec, i, rainBands[i], deltaDeg, noise, coastalWarmth);
 
 			float monsoonWeight = moisture[i] * radiation[i];
 			p *= 1f + spec.MonsoonPrecipBoost * monsoonWeight;
@@ -323,23 +340,32 @@ public sealed class MonthlyClimate
 		return x * x * (3f - 2f * x);
 	}
 
+	/// <summary>极锋和副高压制由纬度决定，所有月份共用。</summary>
+	static RainBands[] BuildRainBands(ClimateGrid grid, ClimateSpec spec)
+	{
+		float subCenter = 26f + (spec.ObliquityDeg - 23.4f) * 0.12f;
+		var bands = new RainBands[grid.Count];
+		for (int i = 0; i < bands.Length; i++)
+		{
+			float latitude = grid.LatDeg(i);
+			float latAbs = MathF.Abs(latitude);
+			float polarFront = spec.PrecipPolarFrontMmPerMonth * MathF.Exp(-(latAbs - 62f) * (latAbs - 62f) / (2f * 14f * 14f));
+			float subtropical = 1f - spec.PrecipSubtropicalSuppression
+				* MathF.Exp(-(latAbs - subCenter) * (latAbs - subCenter) / (2f * 9f * 9f));
+			bands[i] = new RainBands(latitude, polarFront, subtropical);
+		}
+		return bands;
+	}
+
 	/// <summary>月纬向降水骨架：月 ITCZ 摆动 + 极锋 + 副高压制 + 辐照 + 噪声 + 沿岸洋流 + 地形抬升。</summary>
-	static float MonthPrecipBase(ClimateGrid grid, ClimateSpec spec, int i, float deltaRad,
+	static float MonthPrecipBase(ClimateGrid grid, ClimateSpec spec, int i, RainBands bands, float deltaDeg,
 		float[] noise, float[] coastalWarmth)
 	{
-		float latSigned = grid.LatDeg(i);
-		float latAbs = MathF.Abs(latSigned);
-		float deltaDeg = deltaRad * 180f / MathF.PI;
-		float subCenter = 26f + (spec.ObliquityDeg - 23.4f) * 0.12f;
-
 		// ITCZ 必须用带符号纬度配带符号偏移：取绝对值会把摆动截断到正半轴，南半球雨季永久消失。
-		float itczOffset = latSigned - deltaDeg;
+		float itczOffset = bands.Latitude - deltaDeg;
 		float itcz = spec.PrecipItczMmPerMonth * MathF.Exp(-itczOffset * itczOffset / (2f * 12f * 12f));
-		float polarFront = spec.PrecipPolarFrontMmPerMonth * MathF.Exp(-(latAbs - 62f) * (latAbs - 62f) / (2f * 14f * 14f));
-		float subtropical = 1f - spec.PrecipSubtropicalSuppression
-			* MathF.Exp(-(latAbs - subCenter) * (latAbs - subCenter) / (2f * 9f * 9f));
 
-		float p = (spec.PrecipBaseMmPerMonth + itcz + polarFront) * subtropical;
+		float p = (spec.PrecipBaseMmPerMonth + itcz + bands.PolarFront) * bands.Subtropical;
 		p *= 1f + (spec.Insolation - 1f) * 0.30f;
 		p *= 1f + noise[i] * spec.PrecipNoiseAmount;
 

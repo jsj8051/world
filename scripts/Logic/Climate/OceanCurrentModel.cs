@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Godot;
 using World.Data;
 
@@ -23,6 +24,20 @@ namespace World.Logic;
 /// </summary>
 public sealed class OceanCurrentModel
 {
+	/// <summary>按原格序提取参与求解的海格，供同一次气候重建的两遍洋流共用。</summary>
+	internal static int[] BuildRelaxationCells(ClimateGrid grid)
+	{
+		int count = 0;
+		for (int i = 0; i < grid.Count; i++)
+			if (!grid.Land[i] && grid.Neighbors[i] is { Length: >= 3 }) count++;
+
+		var cells = new int[count];
+		int next = 0;
+		for (int i = 0; i < grid.Count; i++)
+			if (!grid.Land[i] && grid.Neighbors[i] is { Length: >= 3 }) cells[next++] = i;
+		return cells;
+	}
+
 	/// <summary>逐格洋流方向（单位切向量；陆地 / 涡旋中心为零）。</summary>
 	public Vector3[] Direction { get; private set; } = Array.Empty<Vector3>();
 
@@ -58,6 +73,10 @@ public sealed class OceanCurrentModel
 	/// 显式给值时以它为准：第一遍只喂沿岸冷暖（120 遍足够），第二遍是存档场（300 遍）。</param>
 	public void Compute(ClimateGrid grid, ClimateSpec spec, Vector3[] wind, float[] oceanTempC,
 		float[] initialPsi = null, int iterationCap = 0)
+		=> Compute(grid, spec, wind, oceanTempC, initialPsi, iterationCap, null, CancellationToken.None);
+
+	internal void Compute(ClimateGrid grid, ClimateSpec spec, Vector3[] wind, float[] oceanTempC,
+		float[] initialPsi, int iterationCap, int[] relaxationCells, CancellationToken cancellation)
 	{
 		if (grid == null) throw new ArgumentNullException(nameof(grid));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -117,22 +136,44 @@ public sealed class OceanCurrentModel
 		float omega = spec.OceanSorOmega;
 		float maxErr = 0f;
 		IterationsUsed = 0;
+		relaxationCells ??= BuildRelaxationCells(grid);
+		var psi = Psi;
+		bool needsInitialLandReset = false;
+		if (initialPsi != null)
+			for (int i = 0; i < n; i++)
+				if (land[i] && psi[i] != 0f) { needsInitialLandReset = true; break; }
+
 		for (int iter = 0; iter < targetIterations; iter++)
 		{
+			cancellation.ThrowIfCancellationRequested();
 			maxErr = 0f;
-			for (int i = 0; i < n; i++)
+			// 若热启动给了非零陆格，第一遍按原格序清零。其余遍只访问可求解的海格。
+			bool resetLand = iter == 0 && needsInitialLandReset;
+			int count = resetLand ? n : relaxationCells.Length;
+			for (int row = 0; row < count; row++)
 			{
-				if (land[i]) { Psi[i] = 0f; continue; }
-				var nbs = neighbors[i];
-				if (nbs == null || nbs.Length < 3) continue;
+				int i = resetLand ? row : relaxationCells[row];
+				if (resetLand && land[i]) { psi[i] = 0f; continue; }
+				int[] adjacent = neighbors[i];
+				if (resetLand && (adjacent == null || adjacent.Length < 3)) continue;
 
 				float sum = 0f;
-				foreach (int nb in nbs) sum += Psi[nb];
-				float gaussSeidel = (sum - curl[i]) / nbs.Length;
-				float next = Psi[i] + omega * (gaussSeidel - Psi[i]);
-				float err = MathF.Abs(next - Psi[i]);
+				if (adjacent.Length == 6)
+				{
+					sum += psi[adjacent[0]];
+					sum += psi[adjacent[1]];
+					sum += psi[adjacent[2]];
+					sum += psi[adjacent[3]];
+					sum += psi[adjacent[4]];
+					sum += psi[adjacent[5]];
+				}
+				else foreach (int nb in adjacent) sum += psi[nb];
+				float old = psi[i];
+				float gaussSeidel = (sum - curl[i]) / adjacent.Length;
+				float next = old + omega * (gaussSeidel - old);
+				float err = MathF.Abs(next - old);
 				if (err > maxErr) maxErr = err;
-				Psi[i] = next;
+				psi[i] = next;
 			}
 			IterationsUsed = iter + 1;
 			if (maxErr < 1e-5f) break;

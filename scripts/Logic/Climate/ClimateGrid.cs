@@ -21,6 +21,7 @@ namespace World.Logic;
 /// </summary>
 public sealed class ClimateGrid
 {
+	readonly float[] _latRad;
 	/// <summary>格心单位方向（纬度 / 风向 / 梯度全从它算）。</summary>
 	public Vector3[] Dirs { get; }
 
@@ -52,7 +53,7 @@ public sealed class ClimateGrid
 	public int Count => Dirs.Length;
 
 	ClimateGrid(Vector3[] dirs, int[][] neighbors, bool[] land, float[] heightM,
-		float radiusKm, double neighborKm)
+		float radiusKm, double neighborKm, float[] latRad = null, int[] distToCoast = null, int[] distToLand = null)
 	{
 		Dirs = dirs;
 		Neighbors = neighbors;
@@ -60,9 +61,10 @@ public sealed class ClimateGrid
 		HeightM = heightM;
 		RadiusKm = radiusKm;
 		NeighborKm = neighborKm;
+		_latRad = latRad;
 		ElevNorm = NormalizeHeights(heightM);
-		DistToCoast = BfsFrom(land, neighbors, sourceLand: false);
-		DistToLand = BfsFrom(land, neighbors, sourceLand: true);
+		DistToCoast = distToCoast == null ? BfsFrom(land, neighbors, sourceLand: false) : CopyDistances(distToCoast);
+		DistToLand = distToLand == null ? BfsFrom(land, neighbors, sourceLand: true) : CopyDistances(distToLand);
 	}
 
 	/// <summary>由球壳数据层 + ① 地形阶段建立气候视图。</summary>
@@ -76,7 +78,8 @@ public sealed class ClimateGrid
 		for (int i = 0; i < n; i++) heights[i] = terrain.HeightM[i] - seaLevelM;
 
 		return new ClimateGrid(ball.CellDirs, ball.CellNeighbors, terrain.FinalLand, heights,
-			SphericalFbmNoise.WorldRadiusKm, SpatialScale.Of(ball).NeighborCenterKm);
+			SphericalFbmNoise.WorldRadiusKm, SpatialScale.Of(ball).NeighborCenterKm,
+			ball.Geo.LatRad, terrain.FinalDistToCoast, terrain.FinalDistToLand);
 	}
 
 	/// <summary>由裸数组建立气候视图（测试 / 诊断用；不做任何校验以外的推断）。</summary>
@@ -97,13 +100,20 @@ public sealed class ClimateGrid
 	}
 
 	/// <summary>格心纬度（弧度；北正南负，±π/2）。</summary>
-	public float LatRad(int i) => MathF.Asin(Math.Clamp(Dirs[i].Y, -1f, 1f));
+	public float LatRad(int i) => _latRad != null ? _latRad[i] : MathF.Asin(Math.Clamp(Dirs[i].Y, -1f, 1f));
 
 	/// <summary>格心纬度（度）。</summary>
 	public float LatDeg(int i) => LatRad(i) * 180f / MathF.PI;
 
 	/// <summary>海格方向上的最近岸距衰减（0.08 rad ≈ 500 km）：陆地格借邻居海格的洋流冷暖。</summary>
 	public const float CoastalDecayRad = 0.08f;
+
+	static int[] CopyDistances(int[] source)
+	{
+		var distances = new int[source.Length];
+		for (int i = 0; i < source.Length; i++) distances[i] = Math.Max(0, source[i]);
+		return distances;
+	}
 
 	/// <summary>多源 BFS：<paramref name="sourceLand"/> = false 时从海格出发（得陆格离海跳数），反之亦然。</summary>
 	static int[] BfsFrom(bool[] land, int[][] neighbors, bool sourceLand)

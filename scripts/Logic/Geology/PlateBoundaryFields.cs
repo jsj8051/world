@@ -27,13 +27,58 @@ public sealed class PlateBoundaryFields
 	/// <summary>逐边 B 侧角色（CellB 所在侧）。</summary>
 	public BoundarySideRole[] EdgeRoleB { get; }
 
+	internal EvolutionBoundaryField Evolution { get; }
+
 	PlateBoundaryFields(float[] edgeMotion, BoundaryKind[] edgeKind, BoundarySideRole[] edgeRoleA,
-		BoundarySideRole[] edgeRoleB)
+		BoundarySideRole[] edgeRoleB, EvolutionBoundaryField evolution = null)
 	{
 		EdgeMotion = edgeMotion;
 		EdgeKind = edgeKind;
 		EdgeRoleA = edgeRoleA;
 		EdgeRoleB = edgeRoleB;
+		Evolution = evolution;
+	}
+
+	internal static PlateBoundaryFields FromEvolution(PlateBoundarySet boundaries,
+		EvolutionBoundaryField field, Plate[] plates, double activeSpeed)
+	{
+		int count = boundaries.Edges.Length;
+		var motion = new float[count];
+		var kinds = new BoundaryKind[count];
+		var rolesA = new BoundarySideRole[count];
+		var rolesB = new BoundarySideRole[count];
+		for (int i = 0; i < count; i++)
+		{
+			PlateBoundaryEdge edge = boundaries.Edges[i];
+			kinds[i] = field.MotionKinds[i] switch
+			{
+				EvolutionMotionKind.Convergent => BoundaryKind.Convergent,
+				EvolutionMotionKind.Divergent => BoundaryKind.Divergent,
+				EvolutionMotionKind.Transform => BoundaryKind.Transform,
+				_ => BoundaryKind.Inactive,
+			};
+			motion[i] = (float)(field.NormalSpeedKmPerMa[i] / activeSpeed * PlateBoundaryOps.ActiveMotion);
+			if (kinds[i] != BoundaryKind.Convergent) continue;
+			int under = field.UnderthrustingPlateIds[i];
+			bool aRides = under < 0 ? PlateBoundaryOps.Overrides(edge.PlateA, edge.PlateB, plates) : under != edge.PlateA;
+			rolesA[i] = aRides ? BoundarySideRole.Overriding : BoundarySideRole.Underthrusting;
+			rolesB[i] = aRides ? BoundarySideRole.Underthrusting : BoundarySideRole.Overriding;
+		}
+		return new PlateBoundaryFields(motion, kinds, rolesA, rolesB, field);
+	}
+
+	internal int DominantNormalEdge(PlateBoundarySet boundaries, int cell)
+	{
+		int dominant = -1;
+		double strength = 0;
+		foreach (int edge in boundaries.EdgesOfCell(cell))
+		{
+			if (EdgeKind[edge] is not (BoundaryKind.Convergent or BoundaryKind.Divergent)) continue;
+			double candidate = Math.Abs(Evolution?.NormalSpeedKmPerMa[edge] ?? EdgeMotion[edge]);
+			if (dominant < 0 || candidate > strength || (candidate == strength && edge < dominant))
+				(dominant, strength) = (edge, candidate);
+		}
+		return dominant;
 	}
 
 	/// <summary>由边界集、板块表与逐格壳型算逐边事实。入参须同属一次板块划分。</summary>

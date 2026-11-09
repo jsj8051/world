@@ -1,5 +1,6 @@
 using Godot;
 using System.Collections.Generic;
+using World.Logic;
 using World.Utils;                 // NodeDependency（Require / Check 扩展）
 using World.UI;             // MapDock / CellInfoCard（哑组件）
 using World.Data;                  // PickedCell / ElevationBands（载体与词表）
@@ -31,26 +32,76 @@ public partial class UIManager : Node3D, ITickable
 	/// <summary>格信息卡（哑组件；本管理器订阅渲染侧点选事件后写它）。</summary>
 	public CellInfoCard CellCard { get; private set; }
 
-	int _pickDiag;   // 点选判读打印限次
+	/// <summary>演化控制面板（仅演化场景创建；静态主场景为 null）。</summary>
+	public GeologyPanel Geology { get; private set; }
+
+	WorldManager _world;
 
 	/// <summary>
 	/// **初始化**（由根管理器按序调用，幂等）：
-	/// ① 解析自己持有的面板层与两个哑组件；② **订阅渲染侧的点选事件**——信息卡由界面自己写。
+	/// ① 解析自己持有的面板层与两个哑组件；② **订阅渲染侧的点选事件**——信息卡由界面自己写；
+	/// ③ 若世界启用了演化，创建控制面板并订阅提交事件。
 	/// ★必须在**渲染管理器初始化之后**调用（订阅的是它的事件）。
 	/// </summary>
-	public void Initialize(RenderManager render)
+	public void Initialize(RenderManager render, WorldManager world)
 	{
 		if (CellCard != null) return;   // 幂等
+		_world = world;
 
 		PanelLayer = this.Require<CanvasLayer>(PanelLayerPath, nameof(PanelLayerPath));
 		Dock = this.Require<MapDock>(DockPath, nameof(DockPath));
 		CellCard = this.Require<CellInfoCard>(CellCardPath, nameof(CellCardPath));
 
-		render.CellPicked += OnCellPicked;    // 上行：渲染侧点选 → 界面显示
+		render.CellPicked += picked => OnCellPicked(picked, render.ShowCrustDetails);
+
+		Geology = PanelLayer.GetNodeOrNull<GeologyPanel>("GeologyPanel");
+		if (world == null) return;
+		if (Geology != null) BindGeologyPanel();
+		world.WorldPublished += RefreshGeology;
+		RefreshGeology(world.Sim.Facts);
 	}
 
-	/// <summary>点选结果 → 信息卡（`null` = 取消选中）+ 控制台判读（限次）。</summary>
-	void OnCellPicked(PickedCell? picked)
+	void RefreshGeology(WorldFacts facts)
+	{
+		if (facts.Evolution == null)
+		{
+			Geology?.Hide();
+			return;
+		}
+		if (Geology == null)
+		{
+			Geology = new GeologyPanel { Name = "GeologyPanel" };
+			PanelLayer.AddChild(Geology);
+			BindGeologyPanel();
+		}
+		Geology.Show();
+		Geology.Refresh(facts);
+		RefreshEvolutionStatus();
+	}
+
+	void BindGeologyPanel()
+	{
+		Geology.PlayPressed += () => RunEvolutionCommand(_world.PlayEvolution);
+		Geology.PausePressed += () => RunEvolutionCommand(_world.PauseEvolution);
+		Geology.StepPressed += () => RunEvolutionCommand(_world.StepEvolutionOnce);
+		Geology.RecoverPressed += () => RunEvolutionCommand(_world.ConfirmEvolutionFault);
+		Geology.SeekRequested += target =>
+		{
+			Geology.SetFeedback(_world.SeekEvolutionToMa(target));
+			RefreshEvolutionStatus();
+		};
+		Geology.SpeedChanged += _world.SetEvolutionSpeed;
+	}
+
+	void RunEvolutionCommand(System.Action command)
+	{
+		Geology.SetFeedback(null);
+		command();
+		RefreshEvolutionStatus();
+	}
+
+	/// <summary>点选或刷新已选格。地壳模式额外读取当前已发布帧。</summary>
+	void OnCellPicked(PickedCell? picked, bool showCrust)
 	{
 		if (picked == null) { CellCard?.Clear(); return; }
 		var cell = picked.Value;
@@ -58,17 +109,17 @@ public partial class UIManager : Node3D, ITickable
 		// 名称类文案由界面侧取（**词表在世界侧**）：
 		//   档位名 ← `ElevationBands`（海拔分档；与海拔色带同一份档界）。
 		string band = ElevationBands.Name(ElevationBands.Of(cell.ElevM));
-		CellCard?.ShowCell(cell, band);
-
-		if (_pickDiag++ >= 20) return;   // 判读限次（信息卡常驻）
-		GD.Print($"[WORLDGEN-PICK] 格 {cell.Index} lat={cell.LatDeg:F1} lng={cell.LngDeg:F1} " +
-				 $"land={cell.IsLand}({cell.LandFraction:P0}) 陆块={cell.LandmassId} " +
-				 $"离海={cell.DistToCoast} 离岸={cell.DistToLand} elev={cell.ElevM:F0}m");
+		var facts = _world?.Sim?.Facts;
+		var crust = showCrust && facts != null ? CrustCellQuery.Read(facts, cell.Index) : null;
+		CellCard?.ShowCell(cell, band, crust);
 	}
 
-	/// <summary>每帧推进（`ITickable`）：界面目前无需逐帧更新（帧序仍由根管理器统一）。</summary>
-	public void Tick(double delta)
+	/// <summary>每帧推进（`ITickable`）：显示后台演化计算状态。</summary>
+	public void Tick(double delta) => RefreshEvolutionStatus();
+
+	void RefreshEvolutionStatus()
 	{
+		if (Geology != null && _world != null) Geology.SetStatus(_world.EvolutionStatus, _world.EvolutionBusy);
 	}
 
 	// ── 依赖解析 / 校验（判据收在 `World.Utils.NodeDependency`，四个管理器共用一份）────

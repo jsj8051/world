@@ -12,7 +12,7 @@ public static class TectonicSourceOps
 {
 	/// <summary>顺序 = 边扫描序 × (A 侧, B 侧)，确定性。</summary>
 	public static TectonicSource[] Build(PlateBoundarySet boundaries, Plate[] plates,
-		CrustField crust, float[] edgeMotion)
+		CrustField crust, float[] edgeMotion, PlateBoundaryFields classified = null)
 	{
 		if (boundaries == null) throw new ArgumentNullException(nameof(boundaries));
 		if (plates == null) throw new ArgumentNullException(nameof(plates));
@@ -30,8 +30,8 @@ public static class TectonicSourceOps
 			if (!float.IsFinite(motion))
 				throw new ArgumentException($"边 {k} 的运动不是有限值：{motion}", nameof(edgeMotion));
 
-			BoundaryKind kind = PlateBoundaryOps.KindOf(motion);
-			if (kind == BoundaryKind.Transform) continue;
+			BoundaryKind kind = classified?.EdgeKind[k] ?? PlateBoundaryOps.KindOf(motion);
+			if (kind == BoundaryKind.Transform || kind == BoundaryKind.Inactive) continue;
 
 			PlateBoundaryEdge edge = boundaries.Edges[k];
 			RequireCell(edge.CellA, crust.Type.Length);
@@ -39,11 +39,15 @@ public static class TectonicSourceOps
 			RequirePlate(edge.PlateA, plates.Length, k);
 			RequirePlate(edge.PlateB, plates.Length, k);
 
-			bool aRides = PlateBoundaryOps.Overrides(edge.PlateA, edge.PlateB, plates);
-			if (TryChannelOf(kind, crust.Type[edge.CellA], crust.Type[edge.CellB], aRides,
+			bool aRides = classified == null
+				? PlateBoundaryOps.Overrides(edge.PlateA, edge.PlateB, plates)
+				: classified.EdgeRoleA[k] == BoundarySideRole.Overriding;
+			var (typeA, typeB) = classified?.Evolution?.SideTypes(k, crust.Type[edge.CellA], crust.Type[edge.CellB])
+				?? (crust.Type[edge.CellA], crust.Type[edge.CellB]);
+			if (TryChannelOf(kind, typeA, typeB, aRides,
 				out TectonicChannel channelA))
 				sources.Add(new TectonicSource(k, edge.CellA, channelA));
-			if (TryChannelOf(kind, crust.Type[edge.CellB], crust.Type[edge.CellA], !aRides,
+			if (TryChannelOf(kind, typeB, typeA, !aRides,
 				out TectonicChannel channelB))
 				sources.Add(new TectonicSource(k, edge.CellB, channelB));
 		}

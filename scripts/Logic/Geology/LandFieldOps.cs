@@ -8,8 +8,8 @@ using World.Utils;
 namespace World.Logic;
 
 /// <summary>
-/// 陆面基底：常量基线 + 三档变化场。采样方向先被陆面域扭曲推开，近岸再按 |高度 − 海面|
-/// 叠一层细节扭曲（让海岸不再沿 Voronoi 边界走直线）。只对陆壳格计算。
+/// 陆面基底：常量基线 + 三档变化场 + 自由板偏置（<see cref="FreeboardOps"/>）。采样方向先被陆面域扭曲推开，
+/// 近岸再按 |高度 − 海面| 叠一层细节扭曲（让海岸不再沿 Voronoi 边界走直线）。只对陆壳格计算。
 /// 同时给出大尺度场在采样方向上的值——它是“有多深入大陆”的判据，盾状台地要用。
 /// </summary>
 public static class LandFieldOps
@@ -66,11 +66,12 @@ public static class LandFieldOps
 
 		var landHeight = new float[n];
 		var inland = new float[n];
+		float[] freeboard = FreeboardOps.Build(ball, spec, continental);
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
 			Vector3 q = landWarp.Apply(dirs[i]);
-			float h = SampleLand(spec, baseM, large, medium, detail, q);
+			float h = SampleLand(spec, baseM, large, medium, detail, q) + freeboard[i];
 			if (spec.CoastWarpKm > 0f)
 			{
 				float nearCoast = 1f - MathOps.Smoothstep(
@@ -78,7 +79,7 @@ public static class LandFieldOps
 				if (nearCoast > 0f)
 				{
 					q = q.Lerp(coastWarp.Apply(q), nearCoast).Normalized();
-					h = SampleLand(spec, baseM, large, medium, detail, q);
+					h = SampleLand(spec, baseM, large, medium, detail, q) + freeboard[i];
 				}
 			}
 			landHeight[i] = h;

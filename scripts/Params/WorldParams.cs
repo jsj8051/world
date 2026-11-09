@@ -57,7 +57,7 @@ public class WorldParams
 	};
 
 	static bool IsSection(Type t) =>
-		t == typeof(PlateSpec) || t == typeof(TerrainSpec);
+		t == typeof(PlateSpec) || t == typeof(TerrainSpec) || t == typeof(EvolutionSpec);
 
 	/// <summary>读成一份新实例：JSON 文本 → WorldSpec（直接反序列化，不做字段补齐）。
 	/// 解析失败 ⇒ 记问题并返回 null；段缺失记问题但实例照返（不变量由调用方检查）。</summary>
@@ -122,6 +122,17 @@ public class WorldParams
 			// 留着是防"有人把段改成可空 / 去掉初值"。
 			if (spec.Plate == null) list.Add($"世界定义缺 {nameof(WorldSpec.Plate)} 段（该段保持现值）。");
 			if (spec.Terrain == null) list.Add($"世界定义缺 {nameof(WorldSpec.Terrain)} 段（该段保持现值）。");
+			if (spec.Evolution == null) list.Add($"世界定义缺 {nameof(WorldSpec.Evolution)} 段（该段保持现值）。");
+			try
+			{
+				spec.Evolution?.Validate();
+			}
+			catch (ArgumentException e)
+			{
+				// 整层拒绝而不是半应用：非法值交给 Reload 保留上一层。
+				list.Add($"Evolution 段非法：{e.Message}");
+				return null;
+			}
 			return spec;
 		}
 		catch (JsonException e)
@@ -218,6 +229,19 @@ public class WorldParams
 			return list;
 		}
 
+		if (target is EvolutionSpec evolution)
+		{
+			var candidate = new EvolutionSpec();
+			evolution.CopyTo(candidate);
+			property.SetValue(candidate, parsed);
+			try { candidate.Validate(); }
+			catch (ArgumentException e)
+			{
+				list.Add($"演化参数未修改：{e.Message}");
+				LastProblems = list;
+				return list;
+			}
+		}
 		property.SetValue(target, parsed);   // ③ 就地改实例：持引用者立刻看到新值
 		SaveProblems = Save();
 		list.AddRange(SaveProblems);
@@ -306,6 +330,12 @@ public class WorldParams
 		{
 			if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int i)) { parsed = i; return true; }
 			problem = $"需要整数，实得 `{value}`。";
+			return false;
+		}
+		if (t == typeof(long))
+		{
+			if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l)) { parsed = l; return true; }
+			problem = $"需要长整数，实得 `{value}`。";
 			return false;
 		}
 		if (t == typeof(float))

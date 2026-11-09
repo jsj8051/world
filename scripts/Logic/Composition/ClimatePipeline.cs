@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.CompilerServices;
+using System.Threading;
 using World.Data;
 using World.H3Grid;
 
@@ -23,6 +25,7 @@ namespace World.Logic;
 /// </summary>
 public sealed class ClimatePipeline
 {
+	static readonly ConditionalWeakTable<Ball, CoarseLayer> PressureGrids = new();
 	/// <summary>降水事实（年 = Σ 月；水文阶段 ③ 的输入）。</summary>
 	public PrecipitationModel Precipitation { get; } = new();
 
@@ -49,15 +52,25 @@ public sealed class ClimatePipeline
 
 	/// <param name="seed">世界种子（温度/降水噪声按值展开，阶段不收 <see cref="WorldSpec"/>）。</param>
 	public void Run(Ball ball, TerrainPipeline terrain, float seaLevelM, ClimateSpec spec, int seed)
+		=> Run(ball, terrain, seaLevelM, spec, seed, CancellationToken.None);
+
+	internal void Run(Ball ball, TerrainPipeline terrain, float seaLevelM, ClimateSpec spec, int seed,
+		CancellationToken cancellation)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (terrain == null) throw new ArgumentNullException(nameof(terrain));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
 
+		long timing = WorldBuildProfile.Start();
 		var grid = ClimateGrid.From(ball, terrain, seaLevelM);
 
 		var prevailing = PrevailingWind.BuildAll(grid.Dirs, spec.RotationSpeed, spec.Prograde);
-		OceanCurrents.Compute(grid, spec, prevailing, oceanTempC: null, iterationCap: 120);
+		var relaxationCells = OceanCurrentModel.BuildRelaxationCells(grid);
+		WorldBuildProfile.Mark(ref timing, "climate-input");
+		OceanCurrents.Compute(grid, spec, prevailing, oceanTempC: null, initialPsi: null, iterationCap: 120,
+			relaxationCells, cancellation);
+		WorldBuildProfile.Mark(ref timing, "ocean-initial");
+		cancellation.ThrowIfCancellationRequested();
 		var coastalWarmth = OceanCurrents.BuildCoastalWarmth(grid);
 
 		var baseTemperature = new TemperatureModel();
@@ -68,8 +81,13 @@ public sealed class ClimatePipeline
 
 		var monthly = new MonthlyClimate();
 		// 长波平滑只在 res2 粗层做（res4 上 650 km 核要 27 跳，放不下）；小世界直接用细层。
-		var coarse = ball.Res > 2 ? CoarseLayer.Parent(ball, 2) : CoarseLayer.Identity(grid);
-		monthly.Compute(grid, spec, baseTemperature.AnnualC, coastalWarmth, seed, coarse);
+		var coarse = ball.Res > 2
+			? PressureGrids.GetValue(ball, static b => CoarseLayer.Parent(b, 2))
+			: CoarseLayer.Identity(grid);
+		WorldBuildProfile.Mark(ref timing, "monthly-input");
+		monthly.Compute(grid, spec, baseTemperature.AnnualC, coastalWarmth, seed, coarse, cancellation);
+		WorldBuildProfile.Mark(ref timing, "monthly-climate");
+		cancellation.ThrowIfCancellationRequested();
 
 		Temperature.Adopt(monthly);
 		Precipitation.Adopt(monthly);
@@ -82,6 +100,7 @@ public sealed class ClimatePipeline
 		// 第二遍：自由低层风年合成 + 年均温热成风，作为最终存档洋流。
 		// 热启动上一遍的 ψ，并把遍数压到 300：res4 下残差 ~1e-4（准静态近似，见模型注释）。
 		OceanCurrents.Compute(grid, spec, monthly.Wind.Free.Annual, monthly.AnnualTempC,
-			initialPsi: (float[])OceanCurrents.Psi.Clone(), iterationCap: 300);
+			initialPsi: OceanCurrents.Psi, iterationCap: 300, relaxationCells, cancellation);
+		WorldBuildProfile.Mark(ref timing, "ocean-final");
 	}
 }

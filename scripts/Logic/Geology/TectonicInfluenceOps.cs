@@ -12,12 +12,14 @@ namespace World.Logic;
 /// </summary>
 public static class TectonicInfluenceOps
 {
+	internal const double WorldSearchRadiusKm = 4000;
 	static readonly int ChannelCount = Enum.GetValues<TectonicChannel>().Length;
 
 	/// <param name="edgeMotion">逐边法向相对速率（与 <c>boundaries.Edges</c> 同序）。</param>
 	/// <param name="capKm">搜索截断半径（km）：超出即停，够不到的格 <c>SourceIndex = −1</c>、距离 = <paramref name="capKm"/>。</param>
 	public static TectonicInfluenceSet Build(Ball ball, PlateBoundarySet boundaries, Plate[] plates,
-		CrustField crust, int[] plateOfCell, float[] edgeMotion, double capKm)
+		CrustField crust, int[] plateOfCell, float[] edgeMotion, double capKm, PlateBoundaryFields classified = null,
+		IReadOnlyList<CrustType> surfaceTypes = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (crust == null) throw new ArgumentNullException(nameof(crust));
@@ -28,8 +30,11 @@ public static class TectonicInfluenceOps
 			throw new ArgumentException($"板块号长度 {plateOfCell.Length} ≠ 格数 {n}", nameof(plateOfCell));
 		if (crust.Type.Length != n)
 			throw new ArgumentException($"壳型长度 {crust.Type.Length} ≠ 格数 {n}", nameof(crust));
+		surfaceTypes ??= crust.Type;
+		if (surfaceTypes.Count != n)
+			throw new ArgumentException($"表层壳型长度 {surfaceTypes.Count} ≠ 格数 {n}", nameof(surfaceTypes));
 
-		TectonicSource[] sources = TectonicSourceOps.Build(boundaries, plates, crust, edgeMotion);
+		TectonicSource[] sources = TectonicSourceOps.Build(boundaries, plates, crust, edgeMotion, classified);
 
 		var perChannel = new List<TectonicSource>[ChannelCount];
 		foreach (TectonicSource source in sources)
@@ -54,7 +59,7 @@ public static class TectonicInfluenceOps
 				seeds[i] = new DistanceFieldOps.Seed(list[i].SideCell, i, 0.0);
 
 			DistanceFieldOps.SeedField field = DistanceFieldOps.BuildSeeds(ball, seeds, capKm,
-				(i, j) => plateOfCell[j] == plateOfCell[i] && crust.Type[j] == crust.Type[i]);
+				(i, j) => plateOfCell[j] == plateOfCell[i] && surfaceTypes[j] == surfaceTypes[i]);
 			fields[c] = new TectonicInfluenceField(channel, list.ToArray(), field.DistKm, field.SeedId);
 		}
 

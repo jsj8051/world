@@ -41,6 +41,9 @@ public sealed class CrustMode : MapMode
 
 	static readonly Color ContinentalColor = new(0.66f, 0.58f, 0.38f);
 	static readonly Color OceanicColor = new(0.09f, 0.22f, 0.38f);
+	static readonly string[] Variants = { "壳型+运动", "壳型+构造", "仅壳型" };
+	internal const int ConstructionVariant = 1;
+	internal const int CrustOnlyVariant = 2;
 
 	readonly WorldGenSimulation _p;
 	WorldFacts _facts;
@@ -52,16 +55,20 @@ public sealed class CrustMode : MapMode
 
 	public override string Name => "地壳";
 
-	public override string ScaleCaption => _variant == 0
-		? "土黄陆壳 蓝洋壳｜红碰撞 橙陆弧 黄洋弧 紫俯冲 绿裂谷 青洋脊"
-		: "土黄陆壳 蓝洋壳（仅壳型）";
+	public override string ScaleCaption => _variant switch
+	{
+		ConstructionVariant => "表层壳型 · 土黄 陆壳 · 蓝 洋壳 · 白箭头 运动方向\n红 碰撞 · 橙 陆弧 · 黄 洋弧 · 紫 俯冲 · 绿 裂谷 · 青 洋脊",
+		CrustOnlyVariant => "表层壳型 · 土黄 陆壳 · 蓝 洋壳",
+		_ => "表层壳型 · 土黄 陆壳 · 蓝 洋壳 · 深色边带 板块边界 · 白箭头 运动方向",
+	};
 
-	public override IReadOnlyList<string> VariantOptions => new[] { "壳型+构造", "仅壳型" };
+	public override IReadOnlyList<string> VariantOptions => Variants;
 	public override int VariantIndex => _variant;
+	public bool ShowMotion => _variant != CrustOnlyVariant;
 
 	public override void SetVariant(int index)
 	{
-		if (index < 0 || index > 1 || index == _variant) return;
+		if (index < 0 || index >= Variants.Length || index == _variant) return;
 		_variant = index;
 		_colors = null;   // 下次重烘换色
 	}
@@ -77,7 +84,7 @@ public sealed class CrustMode : MapMode
 
 		_facts = facts;
 		Influence = facts.Tectonic;
-		_colors = BuildColors(facts, Influence, _variant == 0);
+		_colors = BuildColors(facts, Influence, _variant);
 		_builtVariant = _variant;
 	}
 
@@ -87,17 +94,26 @@ public sealed class CrustMode : MapMode
 		return _colors[i];
 	}
 
-	static Color[] BuildColors(WorldFacts facts, TectonicInfluenceSet influence, bool showChannels)
+	static Color[] BuildColors(WorldFacts facts, TectonicInfluenceSet influence, int variant)
 	{
 		int n = facts.Ball.CellDirs.Length;
+		IReadOnlyList<CrustType> surface = facts.Evolution?.Projection.SurfaceCrustType ?? facts.Crust.Type;
 		var colors = new Color[n];
+		if (variant != ConstructionVariant)
+		{
+			int[] edgeStart = facts.PlateBoundaries.CellEdgeStart;
+			for (int i = 0; i < n; i++)
+			{
+				Color crust = CrustColor(surface[i]);
+				colors[i] = variant != CrustOnlyVariant && edgeStart[i] != edgeStart[i + 1]
+					? crust.Darkened(0.38f) : crust;
+			}
+			return colors;
+		}
+
 		var bestWeight = new float[n];
 		var bestColor = new Color[n];
-		TectonicChannel[] channels = showChannels
-			? Enum.GetValues<TectonicChannel>()
-			: Array.Empty<TectonicChannel>();
-
-		foreach (TectonicChannel channel in channels)
+		foreach (TectonicChannel channel in Enum.GetValues<TectonicChannel>())
 		{
 			if (!influence.Has(channel)) continue;
 			TectonicInfluenceField field = influence.Get(channel);
@@ -120,11 +136,27 @@ public sealed class CrustMode : MapMode
 
 		for (int i = 0; i < n; i++)
 		{
-			Color baseColor = facts.Crust.Type[i] == CrustType.Continental
-				? ContinentalColor
-				: OceanicColor;
-			colors[i] = baseColor.Lerp(bestColor[i], MathF.Min(0.9f, bestWeight[i]));
+			CrustType crust = surface[i];
+			Color baseColor = CrustColor(crust);
+			int dominant = facts.BoundaryFields.DominantNormalEdge(facts.PlateBoundaries, i);
+			if (dominant < 0)
+			{
+				colors[i] = baseColor.Lerp(bestColor[i], MathF.Min(0.9f, bestWeight[i]));
+				continue;
+			}
+
+			// 边界格先显示本格的主导运动，周围的影响带只给非活动边界格着色。
+			PlateBoundaryEdge edge = facts.PlateBoundaries.Edges[dominant];
+			bool isA = edge.CellA == i;
+			CrustType typeA = facts.Crust.Type[edge.CellA], typeB = facts.Crust.Type[edge.CellB];
+			(typeA, typeB) = facts.BoundaryFields.Evolution?.SideTypes(dominant, typeA, typeB) ?? (typeA, typeB);
+			BoundarySideRole role = isA ? facts.BoundaryFields.EdgeRoleA[dominant] : facts.BoundaryFields.EdgeRoleB[dominant];
+			colors[i] = TectonicSourceOps.TryChannelOf(facts.BoundaryFields.EdgeKind[dominant],
+				isA ? typeA : typeB, isA ? typeB : typeA, role == BoundarySideRole.Overriding, out TectonicChannel channel)
+				? baseColor.Lerp(ColorOf(channel), 0.9f) : baseColor;
 		}
 		return colors;
 	}
+
+	static Color CrustColor(CrustType type) => type == CrustType.Continental ? ContinentalColor : OceanicColor;
 }

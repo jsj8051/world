@@ -5,7 +5,7 @@
 | 内容 | 约定 |
 |---|---|
 | 单元测试工程 | `tests/<ProjectName>/`，`world.csproj` 已排除 `tests/**` ⇒ 不进游戏程序集 |
-| 回归 / 冒烟脚本 | `tests/verify.sh`（Rebuild + 主世界 headless 冒烟） |
+| 回归 / 冒烟脚本 | `tests/verify.sh`（Rebuild、会话失败恢复、主世界 headless res4 单步与跳转） |
 | 诊断场景 | `tests/scenes/`，不要放回 `scenes/`；脚本指 `res://tests/...` |
 
 `tests/verify.sh` 用法：
@@ -20,12 +20,14 @@ GODOT_EXE=/path/to/godot_console.exe bash tests/verify.sh
 dotnet run --project tests/World.Tests.Local
 ```
 
-- 12 条用例覆盖气候链内核（合成球面网格，纯托管）：年基温随纬度下降、零倾角无季节、
-  南北半球季节反相、零倾角无季风、年降水 = Σ 月、ITCZ 随太阳北移、内陆摆幅大于海岸、
-  纬度剖面没有台阶（防极圈硬边）、风场切向且有界、洋流只在海上且切向、湿润降温、
-  降水估计向内陆衰减。
+- 默认用例使用合成网格覆盖气候、构造边界、地形、演化材料守恒及候选帧确定性。
 - 全链冒烟（真 H3 网格，需原生库，不进默认表）：
   `dotnet run --project tests/World.Tests.Local -- --world 4`（打印各场读数与气候耗时）。
+- 演化会话回归（需 H3 原生库）：`dotnet run --project tests/World.Tests.Local -- --evolve-session`。
+  验证失败后保留快照、确认恢复、旧任务取消和播放提交。
+- 山带输运诊断（res4，需 H3 原生库）：`dotnet run -c Release --project tests/World.Tests.Local -- --ridge-transport map_exports/ridge_transport_res4_audit`。
+  导出单板刚体旋转 0、10、20 Ma 的测量数据与板块坐标高程栅格，附理想山带在同一网格上的采样对照。
+- 启用 `WORLD_BUILD_PROFILE=1` 后，`tests/verify.sh` 会显示主场景的分段耗时、峰值工作集和材料槽容量。
 - 测试工程带 `.gdignore`：Godot 不进这棵树，不生成 `.uid`。
 - 退出码 0 = 全绿；`.githooks/pre-commit` 与 `.github/workflows/ci.yml` 都调同一个入口。
 - 改 `tests/` 下的工程名时，同步改 `world.csproj` 的 `InternalsVisibleTo`（测试直测 internal 纯函数）。

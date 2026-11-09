@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using World.Data;
 using World.H3Grid;
@@ -29,6 +30,12 @@ public sealed class WorldFacts
 
 	/// <summary>板块表（欧拉矢量 / 密度）。</summary>
 	public Plate[] Plates { get; }
+
+	/// <summary>与地形同时发布的板块运动。静态世界用 <see cref="Plate.Omega"/> 读取方向。</summary>
+	public IReadOnlyList<PlateMotion> PlateMotions => Evolution?.Motions;
+
+	/// <summary>与世界地表一起发布的地质帧。静态世界为空。</summary>
+	public EvolutionFrame Evolution { get; }
 
 	/// <summary>逐格壳型与陆壳省（壳型唯一真源）。</summary>
 	public CrustField Crust { get; }
@@ -136,15 +143,16 @@ public sealed class WorldFacts
 	/// <summary>世界事实的 nearest / distance 查询基础设施。</summary>
 	public FinalSpatialIndex SpatialIndex { get; }
 
-	// 只由 WorldGenSimulation.Run 捕获：外部拿到的快照必然对应一次跑完的全链。
+	// 只由 WorldGenSimulation 捕获：外部快照对应一次跑完的全链。
 	internal WorldFacts(Ball ball, PlatePipeline plate, TerrainPipeline terrain, ClimatePipeline climate,
-		HydrologyPipeline hydrology, IndexPipeline index)
+		HydrologyPipeline hydrology, IndexPipeline index, EvolutionFrame evolution)
 	{
 		Ball = ball ?? throw new ArgumentNullException(nameof(ball));
 		int n = Ball.CellIds.Length;
 
 		PlateOfCell = Aligned(plate.PlateOfCell, n, nameof(PlateOfCell));
 		Plates = Present(plate.Plates, nameof(Plates));
+		Evolution = evolution;
 		Crust = Present(plate.Crust, "壳型场");
 		if (Crust.Type.Length != n)
 			throw new InvalidOperationException($"世界事实 壳型场 格数 {Crust.Type.Length} ≠ {n}");

@@ -114,17 +114,23 @@ public static class CellQuery
 	/// 数学同旧 <c>BallView.PickCell</c>：本视图无自身变换，直接世界系求交。</summary>
 	public static ulong? PickCell(Ball ball, Vector2 screenPos, Camera3D camera)
 	{
+		if (!TrySurfaceDirection(ball.Radius, screenPos, camera, out Vector3 dir)) return null;
+		return ball.CellIds[BallGeoIndex.CellAt(ball, dir)];
+	}
+
+	internal static bool TrySurfaceDirection(float radius, Vector2 screenPos, Camera3D camera, out Vector3 dir)
+	{
+		dir = default;
 		Vector3 o = camera.ProjectRayOrigin(screenPos);
 		Vector3 d = camera.ProjectRayNormal(screenPos);
 		float b = o.Dot(d);
-		float c = o.LengthSquared() - ball.Radius * ball.Radius;
+		float c = o.LengthSquared() - radius * radius;
 		float disc = b * b - c;
-		if (disc < 0f) return null;
+		if (disc < 0f) return false;
 		float t = -b - MathF.Sqrt(disc);          // 最近交点（正面）
-		if (t < 0f) return null;                  // 球在相机背后
-		Vector3 dir = (o + d * t) / ball.Radius;  // 单位球方向
-		// 公式收口在 BallGeoIndex.CellAt（原先与此处各一份相同实现）
-		return ball.CellIds[BallGeoIndex.CellAt(ball, dir)];
+		if (t < 0f) return false;                 // 球在相机背后
+		dir = (o + d * t) / radius;
+		return true;
 	}
 
 	/// <summary>格中心单位方向（剔除判据、高亮定位共用；绕开格表——基格必不在本档格表内）。</summary>

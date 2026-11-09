@@ -36,6 +36,9 @@ public sealed class WorldSpec
 	/// <summary>气候阶段配置。恒非空；生效期要改就 <see cref="CopyTo"/> 逐字段写进去。</summary>
 	public ClimateSpec Climate { get; init; } = new();
 
+	/// <summary>地壳演化配置。恒非空；参数档缺 <c>Evolution</c> 段时沿用出厂值。</summary>
+	public EvolutionSpec Evolution { get; init; } = new();
+
 	/// <summary>
 	/// 逐字段复制到 <paramref name="target"/>（不动实例身份）。
 	/// 失败项（段缺失 / 目标段为 null）不写并记入 <paramref name="problems"/>。
@@ -59,5 +62,9 @@ public sealed class WorldSpec
 		if (Climate == null) problems?.Add("世界定义缺 Climate 段 ⇒ 该段保持目标现值（不覆盖）。");
 		else if (target.Climate == null) problems?.Add("目标世界定义的 Climate 段为 null ⇒ 跳过（不变量破坏）。");
 		else Climate.CopyTo(target.Climate);
+
+		if (Evolution == null) problems?.Add("世界定义缺 Evolution 段 ⇒ 该段保持目标现值（不覆盖）。");
+		else if (target.Evolution == null) problems?.Add("目标世界定义的 Evolution 段为 null ⇒ 跳过（不变量破坏）。");
+		else Evolution.CopyTo(target.Evolution);
 	}
 }

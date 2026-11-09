@@ -12,17 +12,18 @@ public sealed class PlatePipeline
 {
 	/// <summary>板块实现（全部产物由它持有）。</summary>
 	readonly PlateManager _impl = new();
+	WorldSurfaceInput _evolved;
 
 	/// <summary>逐格板块号。</summary>
-	public int[] PlateOfCell => _impl.PlateOfCell;
+	public int[] PlateOfCell => _evolved?.PlateOfCell ?? _impl.PlateOfCell;
 	/// <summary>板块表（欧拉矢量 / 密度）。</summary>
-	public Plate[] Plates => _impl.Plates;
+	public Plate[] Plates => _evolved?.Plates ?? _impl.Plates;
 
 	/// <summary>逐格壳型与陆壳省。</summary>
-	public CrustField Crust => _impl.Crust;
+	public CrustField Crust => _evolved?.Crust ?? _impl.Crust;
 
 	/// <summary>板块边界集（共享边 + 板块对 + 逐格关联）。</summary>
-	public PlateBoundarySet Boundaries => _impl.Boundaries;
+	public PlateBoundarySet Boundaries => _evolved?.Boundaries ?? _impl.Boundaries;
 
 	/// <summary>板块边界场（逐边运动 / 类型 / 两侧角色）。</summary>
 	public PlateBoundaryFields Boundary { get; private set; } = PlateBoundaryFields.Empty;
@@ -37,7 +38,14 @@ public sealed class PlatePipeline
 	/// <param name="spec">世界定义（种子 + 布局档 / 四档权重 + 板块配置 + 地形配置的群岛压基线）。</param>
 	public void Run(Ball ball, WorldSpec spec)
 	{
+		_evolved = null;
 		_impl.Run(ball, spec);
 		Boundary = PlateBoundaryFields.Build(ball, _impl.Boundaries, _impl.Crust, _impl.Plates);
+	}
+
+	internal void SetSurface(WorldSurfaceInput surface)
+	{
+		_evolved = surface;
+		Boundary = surface.Boundary;
 	}
 }

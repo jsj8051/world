@@ -5,6 +5,9 @@ namespace World.Data;
 /// <summary>逐构造通道的影响场集合；缺失通道取 <see cref="TectonicInfluenceField.Empty"/>。</summary>
 public sealed class TectonicInfluenceSet
 {
+    internal static TectonicInfluenceSet Empty { get; } =
+        new(Array.ConvertAll(Enum.GetValues<TectonicChannel>(), TectonicInfluenceField.Empty));
+
     readonly TectonicInfluenceField[] _fields;
 
     public TectonicInfluenceSet(TectonicInfluenceField[] fields)

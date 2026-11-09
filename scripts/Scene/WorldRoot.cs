@@ -69,8 +69,9 @@ public partial class WorldRoot : Node3D
 		Params.Reload();
 		foreach (var p in Params.LoadProblems) GD.PushWarning($"[WORLDGEN-PARAMS] {p}");
 
-		// ② 世界（生成事实；表现与点选都不在这步）。世界侧不进 Tick 表：它没有逐帧工作。
+		// ② 世界（生成事实；表现与点选都不在这步）。演化启用时它每帧推进。
 		World.Initialize(Params.Active);
+		Ticks.Add(World);
 
 		// ③ 渲染（把事实装配成画面 + 建拾取器 + 驱动地图坞的模式侧）。
 		//   模式表由根管理器建一次并交给渲染侧 ⇒ 视图初始取色 = 坞首项高亮（同一份注册序）。
@@ -80,13 +81,14 @@ public partial class WorldRoot : Node3D
 		Render.SetDock(this.Require<PanelContainer>(DockPath, nameof(DockPath)));
 		var modes = WorldGenMapModes.CreateAll(World.Sim);
 		Render.Initialize(World.Sim, modes);
+		World.WorldPublished += _ => Render.RebakeView();
 		Ticks.Add(Render);
 
 		// 初始取景对准陆地质心（取景属表现侧，由渲染管理器读 FinalLand 后驱动相机）。
 		Render.FrameLand(Camera);
 
 		// ④ 界面（坞 + 信息卡）：只订阅渲染侧的点选事件，不碰地图模式（那是渲染侧的事）
-		UI.Initialize(Render);
+		UI.Initialize(Render, World);
 		Ticks.Add(UI);
 
 		GD.Print($"[WORLDROOT] 管理器树就绪：子系统 {Ticks.Count} 个" +

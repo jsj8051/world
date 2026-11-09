@@ -18,20 +18,23 @@ public static class PlateBoundaryBuilder
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (plateOfCell == null) throw new ArgumentNullException(nameof(plateOfCell));
 		if (plates == null) throw new ArgumentNullException(nameof(plates));
+		return Build(ball.CellNeighbors, plateOfCell, plates.Length);
+	}
 
-		int n = ball.CellDirs.Length;
+	internal static PlateBoundarySet Build(IReadOnlyList<int[]> neighbors, int[] plateOfCell, int p,
+		bool sortedNeighbors = false)
+	{
+		int n = neighbors.Count;
 		if (plateOfCell.Length != n)
 			throw new ArgumentException($"板块号长度 {plateOfCell.Length} ≠ 格数 {n}", nameof(plateOfCell));
-		int p = plates.Length;
 		if (p < 1) throw new InvalidOperationException("板块表为空：先 PlateSeedOps.Build");
 
-		var neighbors = ball.CellNeighbors;
 		int slots = p * p;
 
 		// ── ① 计数：逐格边数 + 逐板块对边数 ──
 		var edgesPerCell = new int[n];
 		var edgesPerPair = new int[slots];
-		int edgeCount = 0;
+		var candidates = new List<PlateBoundaryEdge>();
 		for (int i = 0; i < n; i++)
 		{
 			int a = plateOfCell[i];
@@ -46,31 +49,32 @@ public static class PlateBoundaryBuilder
 				edgesPerCell[i]++;
 				edgesPerCell[j]++;
 				edgesPerPair[PairKey(a, b, p)]++;
-				edgeCount++;
+				candidates.Add(new PlateBoundaryEdge(i, j, a, b));
 			}
 		}
 
 		int[] pairOffset = Prefix(edgesPerPair);
 		int[] cellOffset = Prefix(edgesPerCell);
+		int edgeCount = candidates.Count;
 
 		// ── ② 定边：写进各板块对的连续区间 ──
 		var edges = new PlateBoundaryEdge[edgeCount];
 		var pairCursor = new int[slots];
 		Array.Copy(pairOffset, pairCursor, slots);
-		var edgeIndex = new Dictionary<long, int>(edgeCount);
-		for (int i = 0; i < n; i++)
+		var cellEdgeIndex = new int[2 * edgeCount];
+		var cellCursor = (int[])cellOffset.Clone();
+		var edgeIndex = sortedNeighbors ? null : new Dictionary<long, int>(edgeCount);
+		foreach (PlateBoundaryEdge edge in candidates)
 		{
-			int a = plateOfCell[i];
-			foreach (int j in neighbors[i])
+			int at = pairCursor[PairKey(edge.PlateA, edge.PlateB, p)]++;
+			edges[at] = edge;
+			if (sortedNeighbors)
 			{
-				if (j < i) continue;
-				int b = plateOfCell[j];
-				if (a == b) continue;
-
-				int at = pairCursor[PairKey(a, b, p)]++;
-				edges[at] = new PlateBoundaryEdge(i, j, a, b);
-				edgeIndex[EdgeKey(i, j)] = at;
+				// 规范边按 (A, B) 升序扫描。对任一格，较小邻格先入表，较大邻格随后入表。
+				cellEdgeIndex[cellCursor[edge.CellA]++] = at;
+				cellEdgeIndex[cellCursor[edge.CellB]++] = at;
 			}
+			else edgeIndex[EdgeKey(edge.CellA, edge.CellB)] = at;
 		}
 
 		// ── ③ 板块对 + 逐格关联（按各格邻居原序，浮点求和顺序即语义）──
@@ -85,17 +89,17 @@ public static class PlateBoundaryBuilder
 			}
 		}
 
-		var cellEdgeIndex = new int[2 * edgeCount];
-		var cellCursor = new int[n];
-		Array.Copy(cellOffset, cellCursor, n);
-		for (int i = 0; i < n; i++)
+		if (!sortedNeighbors)
 		{
-			foreach (int j in neighbors[i])
+			for (int i = 0; i < n; i++)
 			{
-				if (plateOfCell[j] == plateOfCell[i]) continue;
-				if (!edgeIndex.TryGetValue(EdgeKey(i, j), out int at))
-					throw new InvalidOperationException($"边界边 ({i},{j}) 未建表（邻接表不一致？）");
-				cellEdgeIndex[cellCursor[i]++] = at;
+				foreach (int j in neighbors[i])
+				{
+					if (plateOfCell[j] == plateOfCell[i]) continue;
+					if (!edgeIndex.TryGetValue(EdgeKey(i, j), out int at))
+						throw new InvalidOperationException($"边界边 ({i},{j}) 未建表（邻接表不一致？）");
+					cellEdgeIndex[cellCursor[i]++] = at;
+				}
 			}
 		}
 

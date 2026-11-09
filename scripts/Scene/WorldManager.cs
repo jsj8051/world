@@ -1,4 +1,5 @@
 using Godot;
+using System;
 using World.Data;
 using World.Utils;
 using World.Render;
@@ -7,10 +8,9 @@ using World.Logic;
 namespace World.Scene;
 
 /// <summary>
-/// 世界管理器：世界事实的唯一入口。持有 <see cref="Sim"/> 与生产分辨率，不镜像任何数据。
-/// 不持相机、不接收输入、不发事件，也没有逐帧工作（剔除与点选归 <see cref="RenderManager"/>）。
+/// 场景的世界入口，持有生成实例和可选演化会话。渲染通过世界事实快照读数据。
 /// </summary>
-public partial class WorldManager : Node3D
+public partial class WorldManager : Node3D, ITickable
 {
 	/// <summary>
 	/// 世界生产分辨率 = res4（冻结）：res4 是世界本身的空间离散尺度
@@ -19,6 +19,21 @@ public partial class WorldManager : Node3D
 	/// 否则滑向"不工作就换档"的架构倒退。res1~res4 同时用作诊断实验档，不是从中挑生产档。
 	/// </summary>
 	public const int ProductionRes = 4;
+
+	/// <summary>生成和演化共用的 H3 分辨率。生产场景使用 res4。</summary>
+	[Export(PropertyHint.Range, "0,4,1")] public int WorldResolution { get; set; } = ProductionRes;
+
+	/// <summary>是否启用演化会话，主场景显式启用。</summary>
+	[Export] public bool EnableEvolution { get; set; }
+
+	/// <summary>生成后直接演化到指定步，再装配选定时代的完整世界。</summary>
+	[Export(PropertyHint.Range, "0,100000,1,or_greater")] public int InitialEvolutionSteps { get; set; }
+
+	WorldEvolutionSession _evolution;
+	public EvolutionFrame EvolutionFrame => Sim?.Facts?.Evolution;
+	public bool EvolutionBusy => _evolution?.Busy == true;
+	public EvolutionControlStatus EvolutionStatus => _evolution?.Status ?? EvolutionControlStatus.Uninitialized;
+	public event Action<WorldFacts> WorldPublished;
 
 	/// <summary>
 	/// 纯逻辑入口（引擎无关：球壳数据层 + 全部生成产物 + 管线序列）。全部世界事实都从
@@ -46,7 +61,7 @@ public partial class WorldManager : Node3D
 		if (IsInitialized) return;
 
 		_spec = spec;
-		Sim = new WorldGenSimulation(ProductionRes, PlanetGeometry.ProductionRadius);
+		Sim = new WorldGenSimulation(WorldResolution, PlanetGeometry.ProductionRadius);
 		Regenerate();                // 世界生成（重活在这一步）
 		LogGenerationSummary();      // 尺度 / 高程 / 气温的一行体检
 		IsInitialized = true;
@@ -94,11 +109,50 @@ public partial class WorldManager : Node3D
 			$"polar={polarTemperatureSum / System.Math.Max(1, polarCount):F1}  range={cold:F0}…{warm:F0}");
 	}
 
-	/// <summary>按当前世界定义重跑全链生成。只算数据；算完须由装配层调 <c>RenderManager.RebakeView()</c> 重烘表现。</summary>
+	/// <summary>按当前定义准备完整世界，成功后替换旧会话并发布快照。</summary>
 	public void Regenerate()
 	{
-		Sim.Run(_spec);
+		WorldGenSimulation.State candidate;
+		WorldEvolutionSession nextSession = null;
+		if (EnableEvolution)
+		{
+			var solver = Sim.CreateEvolutionSolver(_spec, out var initialFrame);
+			var frame = solver.CalculateToStep(initialFrame, InitialEvolutionSteps);
+			candidate = Sim.PrepareEvolution(solver, frame);
+			nextSession = new WorldEvolutionSession(Sim, solver);
+			GD.Print($"[EVOLVE] 已接入：res={frame.Definition.H3Resolution} " +
+				$"cells={frame.Material.CellCount} slots={frame.Material.OccupiedSlotCount} " +
+				$"stepYears={frame.Clock.StepYears} substeps={solver.TectonicSubstepCount}");
+		}
+		else candidate = Sim.PrepareStatic(_spec);
+
+		_evolution?.Stop();
+		Sim.Publish(candidate);
+		_evolution = nextSession;
+		if (IsInitialized) WorldPublished?.Invoke(Sim.Facts);
 	}
+
+	public void PlayEvolution() => _evolution?.Play();
+	public void PauseEvolution() => _evolution?.Pause();
+	public void StepEvolutionOnce() => _evolution?.Step();
+	public void ConfirmEvolutionFault() => _evolution?.ConfirmFault();
+
+	public string SeekEvolutionToMa(double targetMa) =>
+		_evolution == null ? "地质演化尚未初始化。" : _evolution.Seek(targetMa);
+
+	public void SetEvolutionSpeed(double yearsPerSecond)
+	{
+		try { _evolution?.SetSpeed(yearsPerSecond); }
+		catch (ArgumentOutOfRangeException e) { GD.PushWarning($"[EVOLVE] {e.Message}"); }
+	}
+
+	public void Tick(double delta)
+	{
+		var facts = _evolution?.Tick(delta, failure => GD.PushError($"[EVOLVE] 推进失败：{failure.Message}"));
+		if (facts != null) WorldPublished?.Invoke(facts);
+	}
+
+	public override void _ExitTree() => _evolution?.Stop();
 
 	// 本类没有依赖：世界本体就是它自己。但 _GetConfigurationWarnings 的汇总机制仍需存在
 	// （根管理器会遍历三个子管理器调用它）⇒ 保留空实现，写明"无依赖"是结论而不是忘了填。

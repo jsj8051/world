@@ -13,4 +13,6 @@ public enum BoundaryKind : byte
 	Convergent,
 	/// <summary>张裂：两侧背向（motion &gt; 0）。</summary>
 	Divergent,
+	/// <summary>不活动：演化物理场的法向与切向都低于阈值；与走滑分开，避免完全静止冒充断层。</summary>
+	Inactive,
 }

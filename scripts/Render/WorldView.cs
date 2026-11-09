@@ -17,7 +17,9 @@ public partial class WorldView : Node3D
 	BallView _ballView;                                   // 球面网格（LOD / 剔除 / 拾取 / 高亮）
 	RiverLineOverlay _riverLines;                         // 连续河线叠加（只读 RiverGeometry，不改水文）
 	CurrentFlowOverlay _currentFlow;                      // 洋流流线粒子（只在"洋流 · 粒子"档显示）
+	WorldFacts _currentFlowFacts;
 	WindFlowOverlay _windFlow;                            // 风场粒子（只在"风场"模式显示）
+	PlateMotionOverlay _plateMotion;
 	MapMode _mode;                                        // 当前取色策略（叠加层可见性跟着它）
 
 	/// <summary>LOD 近距比例：距离 &lt; 球半径 × 此值即用高档。出厂值 6。</summary>
@@ -63,11 +65,13 @@ public partial class WorldView : Node3D
 
 		_currentFlow = new CurrentFlowOverlay { Name = "CurrentFlow", Visible = false };
 		_ballView.AddChild(_currentFlow);
-		_currentFlow.Build(facts);
 
 		_windFlow = new WindFlowOverlay { Name = "WindFlow", Visible = false };
 		_ballView.AddChild(_windFlow);
-		_windFlow.Build(facts, 0, WindKind.Surface);
+
+		_plateMotion = new PlateMotionOverlay { Name = "PlateMotion", Visible = false };
+		AddChild(_plateMotion);
+		SyncOverlays();
 
 		if (!ShowRiverLines) return;
 
@@ -92,8 +96,6 @@ public partial class WorldView : Node3D
 		_ballView.SetElevationSource(facts.HeightM);
 		_ballView.RefreshColors();
 		_riverLines?.Build(facts.Ball, facts.RiverLines, facts.RiverTopology);
-		_currentFlow?.Build(facts);
-		if (_mode is WindMode wind) _windFlow?.Build(facts, wind.SelectedMonth, wind.SelectedKind);
 		SyncOverlays();
 	}
 
@@ -102,8 +104,6 @@ public partial class WorldView : Node3D
 	public void RefreshColors()
 	{
 		_ballView?.RefreshColors();
-		if (_mode is WindMode wind && _sim?.Facts != null)
-			_windFlow?.Build(_sim.Facts, wind.SelectedMonth, wind.SelectedKind);
 		SyncOverlays();
 	}
 
@@ -112,18 +112,38 @@ public partial class WorldView : Node3D
 	{
 		_mode = mode;
 		_ballView?.SetMode(mode);
-		if (mode is WindMode wind && _sim?.Facts != null)
-			_windFlow?.Build(_sim.Facts, wind.SelectedMonth, wind.SelectedKind);
 		SyncOverlays();
 	}
 
 	/// <summary>按当前模式决定叠加层可见性（洋流粒子只在"洋流 · 粒子"档，风丝只在风场模式）。</summary>
 	void SyncOverlays()
 	{
-		if (_currentFlow != null)
-			_currentFlow.Visible = _mode is OceanCurrentMode ocean && ocean.ShowParticles;
+		var facts = _sim?.Facts;
+		if (_currentFlow != null && facts != null)
+		{
+			bool showCurrent = _mode is OceanCurrentMode ocean && ocean.ShowParticles;
+			if (!ReferenceEquals(_currentFlowFacts, facts))
+			{
+				if (showCurrent)
+				{
+					_currentFlow.Build(facts);
+					_currentFlowFacts = facts;
+				}
+				else if (_currentFlowFacts != null)
+				{
+					_currentFlow.Mesh = null;
+					_currentFlowFacts = null;
+				}
+			}
+			_currentFlow.Visible = showCurrent && _currentFlow.Mesh != null;
+		}
 		if (_windFlow != null)
+		{
 			_windFlow.Visible = _mode is WindMode;
+			if (_mode is WindMode wind && facts != null)
+				_windFlow.Build(facts, wind.SelectedMonth, wind.SelectedKind);
+		}
+		_plateMotion?.SetFacts(_mode is CrustMode crust && crust.ShowMotion ? facts : null);
 	}
 
 	/// <summary>每帧剔除 + LOD + 高亮环带屏幕宽度（相机由管理器注入）。</summary>
@@ -134,5 +154,6 @@ public partial class WorldView : Node3D
 		_riverLines?.UpdateCameraScale(camera);
 		_currentFlow?.UpdateCamera(camera);
 		_windFlow?.UpdateCamera(camera);
+		_plateMotion?.UpdateCamera(camera);
 	}
 }

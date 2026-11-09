@@ -257,6 +257,27 @@ static class ClimateTests
 		Program.True(flowing > grid.Count / 4, $"只有 {flowing} 个海格有洋流，环流未成形");
 	}
 
+	public static void OceanWarmStartResetsLandInGridOrder()
+	{
+		var grid = Build().Grid;
+		var initial = new float[grid.Count];
+		for (int i = 0; i < grid.Count; i++)
+		{
+			if (grid.Land[i]) continue;
+			foreach (int neighbor in grid.Neighbors[i])
+				if (neighbor > i && grid.Land[neighbor]) initial[neighbor] = 1f;
+		}
+
+		var spec = CleanSpec();
+		spec.OceanIterations = 1;
+		var ocean = new OceanCurrentModel();
+		ocean.Compute(grid, spec, new Vector3[grid.Count], oceanTempC: null, initial, iterationCap: 1);
+		Program.True(ocean.IterationsUsed == 1 && ocean.Residual > 0f,
+			"较早海格的首轮更新仍应读取较晚陆格尚未清零的初值");
+		for (int i = 0; i < grid.Count; i++)
+			if (grid.Land[i]) Program.True(ocean.Psi[i] == 0f, "首轮结束后陆格应清零");
+	}
+
 	/// <summary>湿润降温：降水越多温度越低，且水量与降温严格成比例。</summary>
 	public static void WetCoolingLowersTemperature()
 	{

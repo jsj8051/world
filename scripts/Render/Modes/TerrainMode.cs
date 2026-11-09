@@ -23,23 +23,30 @@ public sealed class TerrainMode : MapMode
 
 	public override string Name => "地形";
 
-	public override string ScaleCaption => "500 m 等高带 · 高度图（无雪线）";
+	public override string ScaleCaption => "500 m 等高带 · 海岸混合格按露出面积着色";
 
 	public override Color CellColorAt(int i)
 	{
-		float h = _p.Facts.HeightM[i];
+		var facts = _p.Facts;
+		var cells = facts.Evolution?.Projection.SurfaceCells;
+		if (cells != null)
+		{
+			var cell = cells[i];
+			if (cell.EmergentFraction <= 0f) return ColorRamp.RampSampleSmooth(Stops, cell.WaterHeightM);
+			Color land = LandColor(cell.LandHeightM);
+			if (cell.EmergentFraction >= 1f) return land;
+			return ColorRamp.RampSampleSmooth(Stops, cell.WaterHeightM).Lerp(land, cell.EmergentFraction);
+		}
+		float h = facts.HeightM[i];
 
 		// 陆地：量化到 500 m 等高带；色带按高度单调加深，山脊 = 最深的一条带。
 		// 不要交替明暗：那会在一条脊的两侧各造出一条"假脊线"。
 		// 海陆判据读世界事实、不写死 0 m——海面标高变化时海岸线与事实保持一致。
-		if (_p.Facts.FinalLand[i])
-		{
-			float center = MathF.Floor(h / BandM) * BandM + BandM * 0.5f;
-			return ColorRamp.RampSampleSmooth(Stops, center);
-		}
-
-		return ColorRamp.RampSampleSmooth(Stops, h);
+		return facts.FinalLand[i] ? LandColor(h) : ColorRamp.RampSampleSmooth(Stops, h);
 	}
+
+	static Color LandColor(float height) =>
+		ColorRamp.RampSampleSmooth(Stops, MathF.Floor(height / BandM) * BandM + BandM * 0.5f);
 
 	/// <summary>连续海拔色带（表现层；与判读档解耦）。从深渊到最高峰共 16 个停点，位置覆盖 −11,200…8,500 m。</summary>
 	static readonly ColorRamp.ColorStop[] Stops =

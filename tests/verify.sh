@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 一键回归：Rebuild → 主世界 headless 冒烟（零 ERROR）。用法：bash tests/verify.sh。
+# 一键回归：Rebuild → 会话回归 → 主世界 headless 演化。用法：bash tests/verify.sh。
 # 前置：Godot mono 控制台 exe（GODOT_EXE 覆盖）；单测工程由 pre-commit / CI 跑，本脚本不代跑。
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -9,7 +9,7 @@ DLL=".godot/mono/temp/bin/Debug/world.dll"
 
 [ -x "$GODOT" ] || { echo "❌ Godot 不可执行: $GODOT（用 GODOT_EXE 指定）"; exit 2; }
 
-echo "═══ [1/2] dotnet build -t:Rebuild ═══"
+echo "═══ [1/3] dotnet build -t:Rebuild ═══"
 TS_BEFORE=$(stat -c '%Y' "$DLL" 2>/dev/null || echo 0)
 if ! dotnet build -t:Rebuild 2>&1 | tail -8 | grep -q "已成功生成\|Build succeeded\|0 个错误"; then
     echo "❌ 构建失败"; exit 1
@@ -19,15 +19,25 @@ TS_AFTER=$(stat -c '%Y' "$DLL" 2>/dev/null || echo 0)
 echo "✓ DLL 已更新"
 
 echo ""
-echo "═══ [2/2] headless 冒烟：主世界 ═══"
-OUT=$(timeout 300 "$GODOT" --headless --quit-after 600 --path . "res://scenes/core/WorldGenWorld.tscn" 2>&1)
+echo "═══ [2/3] 演化会话：失败恢复与取消 ═══"
+dotnet run --project tests/World.Tests.Local -- --evolve-session || exit 1
+
+echo ""
+echo "═══ [3/3] headless 冒烟：主世界 res4 单步与跳转 ═══"
+OUT=$(timeout 300 "$GODOT" --headless --path . "res://tests/scenes/WorldEvolutionCheck.tscn" -- --evo-check 2>&1)
 RC=$?
 if [ $RC -ne 0 ]; then
     echo "❌ 主世界：退出码 $RC"; echo "$OUT" | tail -20; exit 1
+fi
+if ! echo "$OUT" | grep -qF "[EVO-CHECK] res=4 cells=288122"; then
+    echo "❌ 主世界：缺少 res4 演化提交记录"; echo "$OUT" | tail -20; exit 1
 fi
 BAD=$(echo "$OUT" | grep -cE "Cannot load|SCRIPT ERROR|Invalid script|^  FAIL")
 if [ "$BAD" -gt 0 ]; then
     echo "❌ 主世界：$BAD 项错误"; echo "$OUT" | grep -E "Cannot load|SCRIPT ERROR|Invalid script|FAIL" | tail -8; exit 1
 fi
 echo "✓ 主世界冒烟通过"
+if [ "${WORLD_BUILD_PROFILE:-0}" = 1 ]; then
+    echo "$OUT" | grep -E '^\[(WORLD-PROFILE|EVO-CHECK)\]'
+fi
 exit 0

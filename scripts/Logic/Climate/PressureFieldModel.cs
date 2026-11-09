@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.CompilerServices;
 using World.Data;
 
 namespace World.Logic;
@@ -24,6 +25,44 @@ namespace World.Logic;
 /// </summary>
 public sealed class PressureFieldModel
 {
+	sealed record Upsampler(int[] Start, int[] Index, float[] Weight);
+	static readonly ConditionalWeakTable<CoarseLayer, ConditionalWeakTable<Godot.Vector3[], Upsampler>> Upsamplers = new();
+
+	// 同一球壳反复发布地表时，卷积只依赖粗网格和尺度。每份网格保留最近一组尺度。
+	static readonly ConditionalWeakTable<CoarseLayer, KernelCache> Kernels = new();
+
+	sealed class KernelCache
+	{
+		(float ThermalKm, float AsymmetryKm) _scale;
+		(CoarseKernel Thermal, CoarseKernel Asymmetry) _kernels;
+
+		public (CoarseKernel Thermal, CoarseKernel Asymmetry) Get(CoarseLayer coarse, float thermalKm, float asymmetryKm)
+		{
+			lock (this)
+			{
+				var scale = (thermalKm, asymmetryKm);
+				if (_kernels.Thermal == null || _scale != scale)
+				{
+					_kernels = (CoarseKernel.Build(coarse, thermalKm, KernelRadiusHops(thermalKm, coarse.NeighborKm)),
+						CoarseKernel.Build(coarse, asymmetryKm, KernelRadiusHops(asymmetryKm, coarse.NeighborKm)));
+					_scale = scale;
+				}
+				return _kernels;
+			}
+		}
+	}
+
+	internal sealed class Workspace(int cells, int coarseCells, int bands)
+	{
+		public readonly float[] CoarseSum = new float[coarseCells];
+		public readonly float[] CoarseAnomaly = new float[coarseCells];
+		public readonly float[] CoarseSmooth = new float[coarseCells];
+		public readonly float[] Anomaly = new float[cells];
+		public readonly float[] Buffer = new float[cells];
+		public readonly double[] BandSum = new double[bands];
+		public readonly float[] BandMean = new float[bands];
+	}
+
 	// p_z 的 13 个节点：赤道低 / 副高 / 副极低 / 极地高（hPa，年均纬向带）。
 	// 数值是标定锚点，不是旋钮——换行星要重标并登记（见方案 §十一）。
 	static readonly float[] ZonalLat = { -90f, -75f, -60f, -45f, -30f, -15f, 0f, 15f, 30f, 45f, 60f, 75f, 90f };
@@ -42,7 +81,6 @@ public sealed class PressureFieldModel
 	readonly ClimateGrid _grid;
 	readonly CoarseLayer _coarse;
 	readonly CoarseKernel _thermalKernel;
-	readonly CoarseKernel _asymmetryKernel;
 
 	readonly float[] _latDeg;
 	readonly int[] _bucket;
@@ -52,17 +90,11 @@ public sealed class PressureFieldModel
 	readonly float[] _biasC;            // 年均海陆热力偏置（先扣掉，避免年均常年一个符号）
 
 	readonly int[] _coarseCount;
-	readonly float[] _coarseSum;
-	readonly float[] _coarseAnomaly;
-	readonly float[] _coarseSmooth;
 	readonly int[] _interpStart;
 	readonly int[] _interpIndex;
 	readonly float[] _interpWeight;
-	readonly float[] _anomaly;
-	readonly float[] _buffer;
 	readonly int[] _bandCount;
-	readonly double[] _bandSum;
-	readonly float[] _bandMean;
+	Workspace _workspace;
 	readonly float _beltShiftFactor;
 
 	PressureFieldModel(ClimateGrid grid, ClimateSpec spec, CoarseLayer coarse, float[] annualSeaLevelC)
@@ -89,31 +121,23 @@ public sealed class PressureFieldModel
 
 		_biasC = BuildAnnualBias(grid, annualSeaLevelC, buckets, _latDeg);
 
-		int thermalHops = KernelRadiusHops(spec.PressureThermalSmoothKm, coarse.NeighborKm);
-		int asymmetryHops = KernelRadiusHops(spec.PressureAsymSmoothKm, coarse.NeighborKm);
-		_thermalKernel = CoarseKernel.Build(coarse, spec.PressureThermalSmoothKm, thermalHops);
-		_asymmetryKernel = CoarseKernel.Build(coarse, spec.PressureAsymSmoothKm, asymmetryHops);
+		var kernels = Kernels.GetOrCreateValue(coarse).Get(coarse,
+			spec.PressureThermalSmoothKm, spec.PressureAsymSmoothKm);
+		_thermalKernel = kernels.Thermal;
 
-		var upsampler = BuildUpsampler(grid, coarse);
+		var upsampler = coarse.Count == n ? BuildUpsampler(grid, coarse)
+			: Upsamplers.GetOrCreateValue(coarse).GetValue(grid.Dirs, _ => BuildUpsampler(grid, coarse));
 		_interpStart = upsampler.Start;
 		_interpIndex = upsampler.Index;
 		_interpWeight = upsampler.Weight;
 
-		_asymmetryHpa = BuildAsymmetry(grid, spec, coarse, _asymmetryKernel,
+		_asymmetryHpa = BuildAsymmetry(grid, spec, coarse, kernels.Asymmetry,
 			_interpStart, _interpIndex, _interpWeight);
 
 		_coarseCount = new int[coarse.Count];
 		for (int i = 0; i < n; i++) _coarseCount[coarse.CoarseOfCell[i]]++;
-		_coarseSum = new float[coarse.Count];
-		_coarseAnomaly = new float[coarse.Count];
-		_coarseSmooth = new float[coarse.Count];
-		_anomaly = new float[n];
-		_buffer = new float[n];
-
 		_bandCount = new int[buckets];
 		for (int i = 0; i < n; i++) _bandCount[_bucket[i]]++;
-		_bandSum = new double[buckets];
-		_bandMean = new float[buckets];
 		_beltShiftFactor = spec.PressureBeltShiftFactor;
 	}
 
@@ -134,6 +158,11 @@ public sealed class PressureFieldModel
 
 	/// <summary>算一个月的气压（hPa，绝对量）。<paramref name="declinationRad"/> = 该月太阳赤纬。</summary>
 	public void BuildMonth(float[] seaLevelC, float declinationRad, float[] destinationHpa)
+		=> LastBeltShiftDeg = BuildMonth(seaLevelC, declinationRad, destinationHpa, _workspace ??= CreateWorkspace());
+
+	internal Workspace CreateWorkspace() => new(_grid.Count, _coarse.Count, _bandCount.Length);
+
+	internal float BuildMonth(float[] seaLevelC, float declinationRad, float[] destinationHpa, Workspace work)
 	{
 		if (seaLevelC == null) throw new ArgumentNullException(nameof(seaLevelC));
 		if (destinationHpa == null) throw new ArgumentNullException(nameof(destinationHpa));
@@ -141,51 +170,49 @@ public sealed class PressureFieldModel
 		if (seaLevelC.Length != n) throw new ArgumentException("温度场与格数不一致", nameof(seaLevelC));
 		if (destinationHpa.Length != n) throw new ArgumentException("目标场与格数不一致", nameof(destinationHpa));
 
-		BuildBandMeans(seaLevelC);
-		var bandMean = SmoothBandMeans(_bandMean, passes: 2);
+		BuildBandMeans(seaLevelC, work);
+		var bandMean = SmoothBandMeans(work.BandMean, passes: 2);
 
 		// ① 热力异常：相对同纬带均值（纬度插值，不是阶梯），再扣掉年均偏置
-		Array.Clear(_coarseSum, 0, _coarseSum.Length);
+		Array.Clear(work.CoarseSum);
 		for (int i = 0; i < n; i++)
 		{
 			float mean = InterpolateBand(bandMean, _latDeg[i]);
 			float anomaly = seaLevelC[i] - mean - _biasC[i];
 			anomaly *= _thermalGain[i];
-			_anomaly[i] = anomaly;
-			_coarseSum[_coarse.CoarseOfCell[i]] += anomaly;
+			work.CoarseSum[_coarse.CoarseOfCell[i]] += anomaly;
 		}
 
 		for (int c = 0; c < _coarse.Count; c++)
-			_coarseAnomaly[c] = _coarseCount[c] > 0 ? _coarseSum[c] / _coarseCount[c] : 0f;
+			work.CoarseAnomaly[c] = _coarseCount[c] > 0 ? work.CoarseSum[c] / _coarseCount[c] : 0f;
 
 		// ② 粗层卷积（固定核、单遍）→ 距离加权上采样 → 细层收尾平滑
-		_thermalKernel.Convolve(_coarseAnomaly, _coarseSmooth);
+		_thermalKernel.Convolve(work.CoarseAnomaly, work.CoarseSmooth);
 		for (int i = 0; i < n; i++)
 		{
 			float value = 0f;
 			int end = _interpStart[i + 1];
 			for (int k = _interpStart[i]; k < end; k++)
-				value += _interpWeight[k] * _coarseSmooth[_interpIndex[k]];
-			_anomaly[i] = value;
+				value += _interpWeight[k] * work.CoarseSmooth[_interpIndex[k]];
+			work.Anomaly[i] = value;
 		}
-		SmoothFine(_anomaly, _buffer);
+		SmoothFine(work.Anomaly, work.Buffer);
 
 		// ③ 三项叠加：纬向带（随太阳季移）− 热力异常 + 副高东西不对称
 		float beltShift = declinationRad * (180f / MathF.PI) * _beltShiftFactor;
-		LastBeltShiftDeg = beltShift;
-
 		for (int i = 0; i < n; i++)
 		{
 			float zonal = MonotoneCubic.Evaluate(ZonalLat, ZonalHpa, _zonalSlopes, _latDeg[i] - beltShift);
-			destinationHpa[i] = zonal - _anomaly[i] + _asymmetryHpa[i];
+			destinationHpa[i] = zonal - work.Anomaly[i] + _asymmetryHpa[i];
 		}
+		return beltShift;
 	}
 
 	/// <summary>紧支撑加权上采样：候选集 = 父格的 2 环邻域，权重只看距离、在 R 处归零。
 	/// 之前用"父格 + 一邻域"的高斯/Shepard 权重：候选集会随父格切换而跳变，粗层边界上留下
 	/// 0.2 hPa 级的值跳变——风场把它放大成环状条纹。紧支撑核在 R 处权重与导数都为 0，
 	/// 候选集变化时权重连续，插值面连续。</summary>
-	static (int[] Start, int[] Index, float[] Weight) BuildUpsampler(ClimateGrid grid, CoarseLayer coarse)
+	static Upsampler BuildUpsampler(ClimateGrid grid, CoarseLayer coarse)
 	{
 		int n = grid.Count;
 		var start = new int[n + 1];
@@ -199,7 +226,7 @@ public sealed class PressureFieldModel
 			var w1 = new float[n];
 			for (int i = 0; i < n; i++) { start[i] = i; map[i] = i; w1[i] = 1f; }
 			start[n] = n;
-			return (start, map, w1);
+			return new Upsampler(start, map, w1);
 		}
 
 		var ring = BuildRing(coarse, maxHops: 3);
@@ -241,7 +268,7 @@ public sealed class PressureFieldModel
 			for (int k = start[i]; k < index.Count; k++) weight[k] /= norm;
 		}
 		start[n] = index.Count;
-		return (start, index.ToArray(), weight.ToArray());
+		return new Upsampler(start, index.ToArray(), weight.ToArray());
 	}
 
 	/// <summary>粗层每格的 maxHops 环邻域（含自身），构建期一次。</summary>
@@ -332,12 +359,12 @@ public sealed class PressureFieldModel
 	}
 
 	/// <summary>一次遍历得纬向带均值（热力异常以它为零点）。</summary>
-	void BuildBandMeans(float[] seaLevelC)
+	void BuildBandMeans(float[] seaLevelC, Workspace work)
 	{
-		Array.Clear(_bandSum, 0, _bandSum.Length);
-		for (int i = 0; i < seaLevelC.Length; i++) _bandSum[_bucket[i]] += seaLevelC[i];
+		Array.Clear(work.BandSum);
+		for (int i = 0; i < seaLevelC.Length; i++) work.BandSum[_bucket[i]] += seaLevelC[i];
 		for (int b = 0; b < _bandCount.Length; b++)
-			_bandMean[b] = _bandCount[b] > 0 ? (float)(_bandSum[b] / _bandCount[b]) : float.NaN;
+			work.BandMean[b] = _bandCount[b] > 0 ? (float)(work.BandSum[b] / _bandCount[b]) : float.NaN;
 	}
 
 	/// <summary>纬度闭合 eff(|φ|)：低纬被环流抹平、高纬冷气团浅薄，中纬最清楚（0.5 → 1 → 0.5）。</summary>
@@ -457,7 +484,7 @@ public sealed class PressureFieldModel
 			(source, destination) = (destination, source);
 		}
 
-		// 遍数为奇数时结果在 buffer 里；搬回 field，调用方（BuildMonth）永远读 _anomaly。
+		// 遍数为奇数时结果在 buffer 里，搬回调用方的 field。
 		if (!ReferenceEquals(source, field)) Array.Copy(source, field, field.Length);
 	}
 }

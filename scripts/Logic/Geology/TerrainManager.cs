@@ -59,19 +59,15 @@ public sealed class TerrainManager
 			throw new ArgumentException($"壳型长度 {crust.Type.Length} ≠ 格数 {n}", nameof(crust));
 
 		// 陆壳掩码：决定基底铺陆面还是海底，不决定海陆——海陆由最终高度定。
-		var continental = new bool[n];
-		for (int i = 0; i < n; i++)
-			continental[i] = crust.Type[i] == CrustType.Continental;
-
-		float seaM = spec.SeaLevelM;
+		var continental = ContinentalMask(crust);
 		float baseM = spec.LandBaseM - landBaseDropM;   // 群岛档压低陆面基线
 
-		Tectonic = TectonicInfluenceOps.Build(ball, boundaries, plates, crust, plateOfCell,
-			boundary.EdgeMotion, 4000.0);
+		TectonicInfluenceSet tectonic = TectonicInfluenceOps.Build(ball, boundaries, plates, crust, plateOfCell,
+			boundary.EdgeMotion, TectonicInfluenceOps.WorldSearchRadiusKm);
 
 		var land = LandFieldOps.Build(ball, seed, spec, continental, baseM);
 		var highland = HighlandOps.Build(ball, seed, spec, continental,
-			land.HeightM, land.Inland, boundaries, boundary, Tectonic);
+			land.HeightM, land.Inland, boundaries, boundary, tectonic);
 
 		// 陆面合成 + 分布重映射：重映射只作用于海面以上、保号单调 ⇒ 海岸线不动。
 		var landComposite = new float[n];
@@ -81,13 +77,48 @@ public sealed class TerrainManager
 				landComposite[i] = land.HeightM[i] + highland.MountainM[i]
 					+ highland.PlateauM[i] - highland.SubsidenceM[i];
 		});
+		float[] height = ComposeSurface(ball, seed, spec, continental, landComposite, boundary, tectonic);
+		SetSurface(ball, height, spec.SeaLevelM, tectonic);
+	}
+
+	/// <summary>零步只铺陆面基底、初始洋底和岸坡，构造增量由演化模型负责。</summary>
+	internal static float[] BuildInitialHeight(Ball ball, WorldSpec spec, CrustField crust, float landBaseDropM)
+	{
+		TerrainSpec terrain = spec.Terrain;
+		EvolutionSpec evolution = spec.Evolution;
+		evolution.Validate();
+		var continental = ContinentalMask(crust);
+		var land = LandFieldOps.Build(ball, spec.Seed, terrain, continental, terrain.LandBaseM - landBaseDropM);
+		// 演化的高程为最终米，海底算子在生成基准上计算。
+		double initialAge = Math.Min(evolution.InitialOceanAgeMa, evolution.MaxCoolingAgeMa);
+		float abyssDepth = (float)((evolution.NewOceanElevationM
+			- evolution.CoolingDepthMPerSqrtMa * Math.Sqrt(initialAge)) / HeightScale(terrain));
+		return ComposeSurface(ball, spec.Seed, terrain, continental, land.HeightM, PlateBoundaryFields.Empty,
+			TectonicInfluenceSet.Empty, abyssDepth);
+	}
+
+	static bool[] ContinentalMask(CrustField crust)
+	{
+		var continental = new bool[crust.Type.Length];
+		for (int i = 0; i < continental.Length; i++)
+			continental[i] = crust.Type[i] == CrustType.Continental;
+		return continental;
+	}
+
+	static float[] ComposeSurface(Ball ball, int seed, TerrainSpec spec, bool[] continental,
+		float[] landComposite, PlateBoundaryFields boundary, TectonicInfluenceSet tectonic, float? abyssDepth = null)
+	{
+		int n = continental.Length;
+		float seaM = spec.SeaLevelM;
 		RemapOps.ApplyLand(ball, spec, landComposite, continental);
 
 		// 露出水面的格 = 陆壳且合成高度 > 海面；它是海底「离岸距离」与大陆架的源。
 		var aboveSea = new bool[n];
 		Parallel.For(0, n, i => aboveSea[i] = continental[i] && landComposite[i] > seaM);
 
-		var ocean = OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary, Tectonic);
+		var ocean = abyssDepth is float depth
+			? OceanDepthOps.BuildBase(ball, seed, spec, continental, aboveSea, depth)
+			: OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary, tectonic);
 
 		// 加性抬升恒 ≥ 0 ⇒ 不会把格压到海面之下；海岸线由合成高度穿过海面自然形成。
 		var h = new float[n];
@@ -102,14 +133,20 @@ public sealed class TerrainManager
 		ErosionOps.IncisePlains(ball, spec, h, continental);
 
 		// 垂直倍率：只放大高度，不改水平几何；海陆符号（海岸线）逐格不变。
-		float verticalScale = spec.VerticalScale;
-		if (!(verticalScale > 0f)) verticalScale = 1f;
+		float verticalScale = HeightScale(spec);
 		if (verticalScale != 1f)
 			for (int i = 0; i < n; i++) h[i] *= verticalScale;
 
-		HeightM = h;
+		return h;
+	}
 
-		TerrainFactsOps.Field facts = TerrainFactsOps.Build(ball, h, seaM);
+	static float HeightScale(TerrainSpec spec) => spec.VerticalScale > 0f ? spec.VerticalScale : 1f;
+
+	internal void SetSurface(Ball ball, float[] height, float seaLevelM, TectonicInfluenceSet tectonic)
+	{
+		TerrainFactsOps.Field facts = TerrainFactsOps.Build(ball, height, seaLevelM);
+		HeightM = height;
+		Tectonic = tectonic;
 		FinalLand = facts.Land;
 		FinalLandFraction = facts.LandFraction;
 		FinalLandmassId = facts.LandmassId;

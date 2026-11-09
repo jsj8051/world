@@ -21,6 +21,7 @@ DockPath = NodePath("UIManager/PanelLayer/MapDock")
 
 [node name="WorldManager" type="Node3D" parent="."]
 script = ExtResource("2_world")
+EnableEvolution = true
 
 [node name="RenderManager" type="Node3D" parent="."]
 script = ExtResource("8_render")
