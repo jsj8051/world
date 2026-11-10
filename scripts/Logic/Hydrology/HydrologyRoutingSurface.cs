@@ -75,6 +75,33 @@ public sealed class HydrologyRoutingSurface
 	/// <summary>填洼时为保证**严格下降**注入的微小梯度（m）。</summary>
 	public const float DescentEpsilonM = 1e-3f;
 
+	/// <summary>从已保存的路由结果装配：逐字段原样赋值，不重跑 priority-flood、不重推诊断计数。</summary>
+	internal static HydrologyRoutingSurface FromSaved(bool usedFill, float[] routingHeightM, float[] fillDepthM,
+		int depressionCount, double maxFillDepthM, int filledCellCount)
+	{
+		int n = SavedCount(routingHeightM, nameof(routingHeightM));
+		return new HydrologyRoutingSurface
+		{
+			UsedFill = usedFill,
+			RoutingHeightM = SavedCopy(routingHeightM, n, nameof(routingHeightM)),
+			FillDepthM = SavedCopy(fillDepthM, n, nameof(fillDepthM)),
+			DepressionCount = depressionCount,
+			MaxFillDepthM = maxFillDepthM,
+			FilledCellCount = filledCellCount,
+		};
+	}
+
+	static int SavedCount(Array values, string name)
+		=> values?.Length ?? throw new ArgumentNullException(name);
+
+	static T[] SavedCopy<T>(T[] values, int length, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Length != length)
+			throw new ArgumentException($"{name} 长度 {values.Length} ≠ {length}", name);
+		return (T[])values.Clone();
+	}
+
 	public void Generate(Ball ball, float[] rawHeightM, float seaLevelM, bool? useFill = null)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));

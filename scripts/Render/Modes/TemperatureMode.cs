@@ -14,10 +14,10 @@ namespace World.Render;
 /// </summary>
 public sealed class TemperatureMode : MapMode
 {
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 	int _month;   // 0 = 年均；1..MonthCount = 月份
 
-	public TemperatureMode(WorldGenSimulation p) => _p = p;
+	public TemperatureMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "温度";
 

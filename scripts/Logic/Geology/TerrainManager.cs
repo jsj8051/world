@@ -142,6 +142,31 @@ public sealed class TerrainManager
 
 	static float HeightScale(TerrainSpec spec) => spec.VerticalScale > 0f ? spec.VerticalScale : 1f;
 
+	/// <summary>
+	/// 用已保存的最终事实装配地形（导入地图用）。只校验，不派生距离或陆块。
+	/// </summary>
+	internal void LoadSaved(float[] heightM, bool[] finalLand, float[] finalLandFraction,
+		int[] finalLandmassId, int finalLandmassCount, int[] finalDistToCoast, int[] finalDistToLand,
+		TectonicInfluenceSet tectonic)
+	{
+		if (heightM == null) throw new ArgumentNullException(nameof(heightM));
+		int n = heightM.Length;
+		if (finalLand == null || finalLand.Length != n
+			|| finalLandFraction == null || finalLandFraction.Length != n
+			|| finalLandmassId == null || finalLandmassId.Length != n
+			|| finalDistToCoast == null || finalDistToCoast.Length != n
+			|| finalDistToLand == null || finalDistToLand.Length != n)
+			throw new ArgumentException("导入地形的逐格数组长度不一致");
+		HeightM = heightM;
+		FinalLand = finalLand;
+		FinalLandFraction = finalLandFraction;
+		FinalLandmassId = finalLandmassId;
+		FinalLandmassCount = finalLandmassCount;
+		FinalDistToCoast = finalDistToCoast;
+		FinalDistToLand = finalDistToLand;
+		Tectonic = tectonic;
+	}
+
 	internal void SetSurface(Ball ball, float[] height, float seaLevelM, TectonicInfluenceSet tectonic)
 	{
 		TerrainFactsOps.Field facts = TerrainFactsOps.Build(ball, height, seaLevelM);

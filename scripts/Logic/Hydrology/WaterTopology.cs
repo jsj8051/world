@@ -46,6 +46,39 @@ public sealed class WaterTopology
 	public int LakeNodeCount { get; private set; }
 	public int SinkCount { get; private set; }
 
+	/// <summary>从已保存的水系节点表装配：逐字段原样赋值，不重连节点、不重建节点号。
+	/// 逐湖映射长度等于湖节点数（二者在生成时同源）。</summary>
+	internal static WaterTopology FromSaved(int nodeCount, int[] kindOf, int[] refOf, int[] next,
+		int[] viaCell, int[] nodeOfRiverCell, int[] nodeOfLake, int oceanNode, int riverCount,
+		int lakeNodeCount, int sinkCount)
+	{
+		return new WaterTopology
+		{
+			NodeCount = nodeCount,
+			KindOf = SavedCopy(kindOf, nodeCount, nameof(kindOf)),
+			RefOf = SavedCopy(refOf, nodeCount, nameof(refOf)),
+			Next = SavedCopy(next, nodeCount, nameof(next)),
+			ViaCell = SavedCopy(viaCell, nodeCount, nameof(viaCell)),
+			NodeOfRiverCell = SavedWhole(nodeOfRiverCell, nameof(nodeOfRiverCell)),
+			NodeOfLake = SavedCopy(nodeOfLake, lakeNodeCount, nameof(nodeOfLake)),
+			OceanNode = oceanNode,
+			RiverCount = riverCount,
+			LakeNodeCount = lakeNodeCount,
+			SinkCount = sinkCount,
+		};
+	}
+
+	static int[] SavedWhole(int[] values, string name)
+		=> values == null ? throw new ArgumentNullException(name) : (int[])values.Clone();
+
+	static T[] SavedCopy<T>(T[] values, int length, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Length != length)
+			throw new ArgumentException($"{name} 长度 {values.Length} ≠ {length}", name);
+		return (T[])values.Clone();
+	}
+
 	/// <summary>组合水体连接（只读全部输入层；lakes 可为 null = 无湖泊层）。</summary>
 	public void Generate(Ball ball, TerrainPipeline terrain, RiverNetwork rivers, RiverGraph graph,
 		BasinGraph basins, LakeState lakes)

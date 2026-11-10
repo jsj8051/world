@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "id": "c73a85cb-00d4-4e89-aaf3-5e3abfe1c406",
+    "name": "Verification Islands",
+    "createdUtc": "2026-11-10T13:00:00Z",
+    "updatedUtc": "2026-11-10T13:00:00Z",
+    "config": {
+      "seed": 20261110,
+      "layout": "Archipelago",
+      "seaLevel": "Standard",
+      "plateCount": 12,
+      "relief": "Standard",
+      "temperature": "Standard",
+      "seasonality": "Standard",
+      "rainfall": "Wet"
+    }
+  }
+}

@@ -67,6 +67,27 @@ public sealed class PlateBoundaryFields
 		return new PlateBoundaryFields(motion, kinds, rolesA, rolesB, field);
 	}
 
+	/// <summary>
+	/// 用已保存的逐边结果装配（导入地图用）：原序整表复制，不重算运动 / 分类 / 角色。
+	/// 不挂 <see cref="Evolution"/>：导入结果没有演化帧可供读取。
+	/// </summary>
+	internal static PlateBoundaryFields FromSaved(float[] edgeMotion, BoundaryKind[] edgeKind,
+		BoundarySideRole[] edgeRoleA, BoundarySideRole[] edgeRoleB)
+	{
+		if (edgeMotion == null) throw new ArgumentNullException(nameof(edgeMotion));
+		if (edgeKind == null) throw new ArgumentNullException(nameof(edgeKind));
+		if (edgeRoleA == null) throw new ArgumentNullException(nameof(edgeRoleA));
+		if (edgeRoleB == null) throw new ArgumentNullException(nameof(edgeRoleB));
+
+		int count = edgeMotion.Length;
+		if (edgeKind.Length != count || edgeRoleA.Length != count || edgeRoleB.Length != count)
+			throw new ArgumentException(
+				$"逐边长度不一致：运动 {count}、类型 {edgeKind.Length}、A 侧 {edgeRoleA.Length}、B 侧 {edgeRoleB.Length}");
+
+		return new PlateBoundaryFields((float[])edgeMotion.Clone(), (BoundaryKind[])edgeKind.Clone(),
+			(BoundarySideRole[])edgeRoleA.Clone(), (BoundarySideRole[])edgeRoleB.Clone());
+	}
+
 	internal int DominantNormalEdge(PlateBoundarySet boundaries, int cell)
 	{
 		int dominant = -1;

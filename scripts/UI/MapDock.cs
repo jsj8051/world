@@ -11,7 +11,7 @@ namespace World.UI
 	// 与旧坞的两点差异：① BindModes 收**模式名列表**（噪声世界无 MapMode 策略类型，文案由
 	// MapMode.Name 下行）；② 其余状态机逐行保留（显式 current/collapsed/expanded/_target、
 	// 折返不跳变、布局漂移 instant 补正——原实现已验证，不重写）。
-	// 模式按钮 = %ModeRow 场景预置按钮（代码自动收集）；按钮数量与模式数不符当场抛（启动首日暴露错位）。
+	// 模式按钮 = %ModeRow 由 BindModes 按模式表动态生成；坞不认识模式类型，只认注册序。
 	//
 	// ★2026-10-07 地图坞契约：参数化模式（温度=时间 / 季节气候=指标）+ 色标图例。
 	//   MapMode = 温度，Parameter = 年均/1月…12月——**不是**每月一个按钮；坞只管把
@@ -29,8 +29,9 @@ namespace World.UI
 		// 变体选择信号（上行：与参数轴正交；控制器调 mode.SetVariant + 重烘）。
 		[Signal] public delegate void VariantSelectedEventHandler(int variantIndex);
 
-		Button[] _modeButtons;      // 模式按钮（%ModeRow 预置；下标 = 注册序 = 模式身份，0 起）
+		Button[] _modeButtons = Array.Empty<Button>();   // 模式按钮（BindModes 动态生成；下标 = 注册序）
 		int _currentMode;           // 当前模式镜像（SetMode 下行同步）
+		ButtonGroup _modeGroup;     // 模式按钮互斥组
 
 		// ── 变体行 + 参数行 + 图例行（代码构建；随模式切换由 SetVariantOptions/SetParameterOptions/SetLegend 下行）──
 		HBoxContainer _variantRow;  // 变体按钮行（无变体模式隐藏）
@@ -47,19 +48,6 @@ namespace World.UI
 
 		public override void _Ready()
 		{
-			// 模式按钮收集：%ModeRow 下全部 Button，顺序即模式 id（场景预置，扩展 = 加按钮）
-			var row = GetNode<HBoxContainer>("%ModeRow");
-			_modeButtons = row.GetChildren().OfType<Button>().ToArray();
-			for (int i = 0; i < _modeButtons.Length; i++)
-			{
-				int mode = i;   // 闭包捕获
-				_modeButtons[i].Pressed += () =>
-				{
-					_currentMode = mode;
-					EmitSignal(SignalName.ModeSelected, mode);
-				};
-			}
-			SetMode(_currentMode);   // 初始高亮第一个（默认模式）
 			BuildAuxRows();          // 参数行 + 图例行（默认无参数/无图例 → 隐藏）
 			// 初始收起（只露标题条）：布局未稳先按最小高算，首次 _Process 布局稳定后补正
 			MoveDockTo(CollapsedPos(), instant: true);
@@ -106,18 +94,11 @@ namespace World.UI
 			box.MoveChild(_paramRow, 3);
 		}
 
-		// 选项按钮样式：直接复用模式按钮的场景 StyleBox/色（实例共享，不复制定义）。
-		void ApplyOptionStyle(Button b, ButtonGroup group)
+		// 选项按钮沿用坞主题（羊皮纸按钮），只补互斥与字号。
+		static void ApplyOptionStyle(Button b, ButtonGroup group)
 		{
-			var mode0 = _modeButtons[0];
 			b.ToggleMode = true;
 			b.ButtonGroup = group;
-			b.AddThemeStyleboxOverride("normal", mode0.GetThemeStylebox("normal"));
-			b.AddThemeStyleboxOverride("pressed", mode0.GetThemeStylebox("pressed"));
-			b.AddThemeStyleboxOverride("hover", mode0.GetThemeStylebox("hover"));
-			b.AddThemeStyleboxOverride("focus", mode0.GetThemeStylebox("focus"));
-			b.AddThemeColorOverride("font_color", mode0.GetThemeColor("font_color"));
-			b.AddThemeColorOverride("font_hover_color", mode0.GetThemeColor("font_hover_color"));
 			b.AddThemeFontSizeOverride("font_size", 13);
 		}
 		ButtonGroup _paramGroup;     // 参数按钮互斥组（整坞一份）
@@ -229,18 +210,41 @@ namespace World.UI
 				_modeButtons[i].ButtonPressed = i == modeId;
 		}
 
-		// 下行：模式名与坞按钮对账（模式表建好后调一次）。按钮文案取模式 Name（模式类
-		// 单一事实源，场景文案只是编辑器预览）；数量不符当场抛——场景 ModeRow 与模式表不同步
-		// 在启动首日暴露，而不是运行期静默错位高亮。
+		// 下行：按模式表重建模式按钮（模式表建好后调一次）。按钮文案取模式 Name（模式类
+		// 单一事实源）；按钮顺序 = 注册序 = 模式身份。
 		// ★形参用 `string[]`：调用方经 `Node.Call`（接口类型无 Variant 转换 ⇒ 方法不注册，见 SetParameterOptions）。
 		public void BindModes(string[] modeNames)
 		{
-			if (_modeButtons == null) throw new InvalidOperationException("坞按钮未收集（_Ready 未跑）");
-			if (modeNames.Length != _modeButtons.Length)
-				throw new InvalidOperationException(
-					$"坞按钮数 {_modeButtons.Length} 与模式数 {modeNames.Length} 不同步：场景 ModeRow 与 MapMode 注册表须一一对应（按钮顺序 = 注册序 = 模式身份·下标）");
-			for (int i = 0; i < _modeButtons.Length; i++)
-				_modeButtons[i].Text = modeNames[i];
+			if (modeNames == null) throw new ArgumentNullException(nameof(modeNames));
+			var row = GetNode<HBoxContainer>("%ModeRow");
+			foreach (Node child in row.GetChildren())
+			{
+				row.RemoveChild(child);
+				child.QueueFree();
+			}
+
+			_modeGroup ??= new ButtonGroup();
+			_modeButtons = new Button[modeNames.Length];
+			for (int i = 0; i < modeNames.Length; i++)
+			{
+				int mode = i;
+				var button = new Button
+				{
+					Text = modeNames[i],
+					ToggleMode = true,
+					ButtonGroup = _modeGroup,
+					CustomMinimumSize = new Vector2(84, 34),
+				};
+				button.AddThemeFontSizeOverride("font_size", 15);
+				button.Pressed += () =>
+				{
+					_currentMode = mode;
+					EmitSignal(SignalName.ModeSelected, mode);
+				};
+				row.AddChild(button);
+				_modeButtons[i] = button;
+			}
+			SetMode(0);
 		}
 
 		// ──────────────────────────────────────────────

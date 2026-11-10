@@ -43,6 +43,51 @@ public sealed class PrecipitationModel
 		MeanMm = AnnualMm.Length > 0 ? sum / AnnualMm.Length : 0f;
 	}
 
+	/// <summary>从已保存的降水列装配：月数由行数推断，各月行须与年值等长；年/月值逐位复制，不重算。
+	/// <see cref="MeanMm"/> 由已保存年值求平均（与 <see cref="Adopt"/> 同口径）。
+	/// 输入为 null、长度不一致或含非有限值时抛 <see cref="ArgumentException"/>。</summary>
+	internal static PrecipitationModel FromSaved(float[] annualMm, float[][] monthlyMm)
+	{
+		if (annualMm == null) throw new ArgumentNullException(nameof(annualMm));
+		if (monthlyMm == null) throw new ArgumentNullException(nameof(monthlyMm));
+		if (monthlyMm.Length == 0) throw new ArgumentException("逐月降水至少需要一个月", nameof(monthlyMm));
+
+		var model = new PrecipitationModel
+		{
+			AnnualMm = CopyFinite(annualMm, "年降水"),
+			MonthlyMm = CopyMonthly(monthlyMm, annualMm.Length, "逐月降水"),
+		};
+
+		float sum = 0f;
+		foreach (float value in model.AnnualMm) sum += value;
+		model.MeanMm = model.AnnualMm.Length > 0 ? sum / model.AnnualMm.Length : 0f;
+		return model;
+	}
+
+	static float[] CopyFinite(float[] source, string label)
+	{
+		var copy = new float[source.Length];
+		for (int i = 0; i < source.Length; i++)
+		{
+			if (!float.IsFinite(source[i])) throw new ArgumentException($"{label}[{i}] 不是有限数");
+			copy[i] = source[i];
+		}
+		return copy;
+	}
+
+	static float[][] CopyMonthly(float[][] source, int cells, string label)
+	{
+		var copy = new float[source.Length][];
+		for (int month = 0; month < source.Length; month++)
+		{
+			float[] row = source[month] ?? throw new ArgumentException($"{label}[{month}] 为 null");
+			if (row.Length != cells)
+				throw new ArgumentException($"{label}[{month}] 长度 {row.Length} ≠ 格数 {cells}");
+			copy[month] = CopyFinite(row, $"{label}[{month}]");
+		}
+		return copy;
+	}
+
 	/// <summary>大陆性 e 折长度（km；几何尺度 B，不随 res 变）：离岸每增加此长度，
 	/// 「海洋性 − <see cref="InteriorRatio"/>」衰减到 1/e。出厂值 452 km（地球量级的大陆性 e 折长度）；
 	/// 改世界半径须按比例重算，否则大陆性分布走样。</summary>

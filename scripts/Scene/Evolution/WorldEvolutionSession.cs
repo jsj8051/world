@@ -2,18 +2,22 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using World.Data;
+using World.Data.Work;
 using World.Logic;
 
 namespace World.Scene;
 
-/// <summary>独占播放与后台请求状态。计算线程只产出候选快照，由场景线程提交。</summary>
-internal sealed class WorldEvolutionSession(WorldGenSimulation world, EvolutionSimulation solver)
+/// <summary>独占播放与后台请求状态。计算线程只产出候选快照，由场景线程提交。
+/// 进度只通过 <see cref="Signal"/> 发出；不认识 LoadOperation/UI。</summary>
+internal sealed class WorldEvolutionSession(WorldGenSimulation world, EvolutionSimulation solver) : IWorkSignalSource
 {
 	readonly record struct Result(WorldFacts Source, WorldGenSimulation.State Candidate, Exception Failure);
 
 	readonly CancellationTokenSource _stop = new();
 	Task<Result> _work;
 	double _pendingYears, _yearsPerSecond = 100_000;
+
+	public event Action<WorkSignal> Signal;
 
 	EvolutionClock Clock => world.Facts.Evolution.Clock;
 	public bool Busy => _work != null;
@@ -104,12 +108,14 @@ internal sealed class WorldEvolutionSession(WorldGenSimulation world, EvolutionS
 			{
 				Pause();
 				Status = EvolutionControlStatus.Faulted;
+				Signal?.Invoke(WorkSignal.Failed(result.Failure.Message));
 				reportFailure(result.Failure);
 				return null;
 			}
 
 			if (Status == EvolutionControlStatus.Seeking) Status = EvolutionControlStatus.Paused;
 			world.Publish(result.Candidate);
+			Signal?.Invoke(WorkSignal.Finished());
 			return result.Candidate.Facts;
 		}
 
@@ -131,8 +137,14 @@ internal sealed class WorldEvolutionSession(WorldGenSimulation world, EvolutionS
 			try
 			{
 				long timing = WorldBuildProfile.Start();
-				var frame = solver.CalculateToStep(source.Evolution, targetStep, stop);
+				var frame = solver.CalculateToStep(source.Evolution, targetStep, stop,
+					(done, all) =>
+					{
+						if (all <= 1) Signal?.Invoke(WorkSignal.Started("step", $"构造步进 {done}/{all}"));
+						else Signal?.Invoke(WorkSignal.Unit("step", $"构造步进 {done}/{all}", done, all));
+					});
 				WorldBuildProfile.Mark(ref timing, "tectonic-steps");
+				Signal?.Invoke(WorkSignal.Started("rebuild", "世界重建"));
 				return new Result(source, world.PrepareEvolution(solver, frame, stop), null);
 			}
 			catch (OperationCanceledException) when (stop.IsCancellationRequested) { return default; }

@@ -45,13 +45,13 @@ public sealed class CrustMode : MapMode
 	internal const int ConstructionVariant = 1;
 	internal const int CrustOnlyVariant = 2;
 
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 	WorldFacts _facts;
 	Color[] _colors;
 	int _variant;
 	int _builtVariant = -1;
 
-	public CrustMode(WorldGenSimulation p) => _p = p;
+	public CrustMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "地壳";
 
@@ -97,7 +97,7 @@ public sealed class CrustMode : MapMode
 	static Color[] BuildColors(WorldFacts facts, TectonicInfluenceSet influence, int variant)
 	{
 		int n = facts.Ball.CellDirs.Length;
-		IReadOnlyList<CrustType> surface = facts.Evolution?.Projection.SurfaceCrustType ?? facts.Crust.Type;
+		IReadOnlyList<CrustType> surface = facts.Surface.SurfaceCrustType;
 		var colors = new Color[n];
 		if (variant != ConstructionVariant)
 		{
@@ -138,7 +138,7 @@ public sealed class CrustMode : MapMode
 		{
 			CrustType crust = surface[i];
 			Color baseColor = CrustColor(crust);
-			int dominant = facts.BoundaryFields.DominantNormalEdge(facts.PlateBoundaries, i);
+			int dominant = CrustCellQuery.DominantNormalEdge(facts, i);
 			if (dominant < 0)
 			{
 				colors[i] = baseColor.Lerp(bestColor[i], MathF.Min(0.9f, bestWeight[i]));
@@ -148,8 +148,7 @@ public sealed class CrustMode : MapMode
 			// 边界格先显示本格的主导运动，周围的影响带只给非活动边界格着色。
 			PlateBoundaryEdge edge = facts.PlateBoundaries.Edges[dominant];
 			bool isA = edge.CellA == i;
-			CrustType typeA = facts.Crust.Type[edge.CellA], typeB = facts.Crust.Type[edge.CellB];
-			(typeA, typeB) = facts.BoundaryFields.Evolution?.SideTypes(dominant, typeA, typeB) ?? (typeA, typeB);
+			(CrustType typeA, CrustType typeB) = facts.Surface.Boundaries.SideTypes(dominant);
 			BoundarySideRole role = isA ? facts.BoundaryFields.EdgeRoleA[dominant] : facts.BoundaryFields.EdgeRoleB[dominant];
 			colors[i] = TectonicSourceOps.TryChannelOf(facts.BoundaryFields.EdgeKind[dominant],
 				isA ? typeA : typeB, isA ? typeB : typeA, role == BoundarySideRole.Overriding, out TectonicChannel channel)

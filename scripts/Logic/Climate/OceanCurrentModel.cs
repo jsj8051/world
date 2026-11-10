@@ -57,6 +57,54 @@ public sealed class OceanCurrentModel
 	/// <summary>最后一次求解的残差上界（诊断用；&gt;1e-4 说明 ψ 尚未成形，洋流会偏弱）。</summary>
 	public float Residual { get; private set; }
 
+	/// <summary>从已保存的洋流列装配：方向（单位切向量或零）/ 冷暖 / 强度逐位复制，不重算，三列须等长。
+	/// <see cref="Psi"/>、<see cref="IterationsUsed"/>、<see cref="Residual"/> 是求解状态而非结果
+	///（只有生成路径的热启动读 ψ，显示/查询不读），故保持空白。
+	/// 输入为 null、长度不一致或含非有限值时抛 <see cref="ArgumentException"/>。</summary>
+	internal static OceanCurrentModel FromSaved(Vector3[] direction, float[] warmth, float[] strength)
+	{
+		if (direction == null) throw new ArgumentNullException(nameof(direction));
+		if (warmth == null) throw new ArgumentNullException(nameof(warmth));
+		if (strength == null) throw new ArgumentNullException(nameof(strength));
+
+		int cells = direction.Length;
+		if (warmth.Length != cells)
+			throw new ArgumentException($"洋流冷暖长度 {warmth.Length} ≠ 格数 {cells}", nameof(warmth));
+		if (strength.Length != cells)
+			throw new ArgumentException($"洋流强度长度 {strength.Length} ≠ 格数 {cells}", nameof(strength));
+
+		return new OceanCurrentModel
+		{
+			Direction = CopyDirections(direction),
+			Warmth = CopyFinite(warmth, "洋流冷暖"),
+			Strength = CopyFinite(strength, "洋流强度"),
+		};
+	}
+
+	static Vector3[] CopyDirections(Vector3[] source)
+	{
+		var copy = new Vector3[source.Length];
+		for (int i = 0; i < source.Length; i++)
+		{
+			Vector3 value = source[i];
+			if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z))
+				throw new ArgumentException($"洋流方向[{i}] 不是有限数");
+			copy[i] = value;
+		}
+		return copy;
+	}
+
+	static float[] CopyFinite(float[] source, string label)
+	{
+		var copy = new float[source.Length];
+		for (int i = 0; i < source.Length; i++)
+		{
+			if (!float.IsFinite(source[i])) throw new ArgumentException($"{label}[{i}] 不是有限数");
+			copy[i] = source[i];
+		}
+		return copy;
+	}
+
 	/// <summary>风应力旋度的降噪遍数（格尺度抖动不是洋流）。</summary>
 	const int CurlSmoothPasses = 8;
 

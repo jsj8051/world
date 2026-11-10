@@ -8,8 +8,8 @@ namespace World.Render;
 /// 读世界事实（<c>FinalDistToCoast</c> / <c>FinalDistToLand</c>，由 <c>FinalLand</c> 派生）。</summary>
 public sealed class CoastDistanceMode : MapMode
 {
-	readonly WorldGenSimulation _p;
-	public CoastDistanceMode(WorldGenSimulation p) => _p = p;
+	readonly IWorldFactsSource _p;
+	public CoastDistanceMode(IWorldFactsSource p) => _p = p;
 	public override string Name => "离岸距离";
 	public override string ScaleCaption => "距海渐变 · 12 跳满域（≈558 km）";
 	public override Color CellColorAt(int i)

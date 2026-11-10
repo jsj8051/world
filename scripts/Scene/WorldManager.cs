@@ -1,6 +1,9 @@
 using Godot;
 using System;
+using System.IO;
 using World.Data;
+using World.Data.Maps;
+using World.Data.Work;
 using World.Utils;
 using World.Render;
 using World.Logic;
@@ -33,6 +36,9 @@ public partial class WorldManager : Node3D, ITickable
 	public EvolutionFrame EvolutionFrame => Sim?.Facts?.Evolution;
 	public bool EvolutionBusy => _evolution?.Busy == true;
 	public EvolutionControlStatus EvolutionStatus => _evolution?.Status ?? EvolutionControlStatus.Uninitialized;
+
+	/// <summary>当前/最近一次演化计算的信号源；供演化面板的监控器订阅。</summary>
+	internal IWorkSignalSource EvolutionSource => _evolution;
 	public event Action<WorldFacts> WorldPublished;
 
 	/// <summary>
@@ -109,6 +115,23 @@ public partial class WorldManager : Node3D, ITickable
 			$"polar={polarTemperatureSum / System.Math.Max(1, polarCount):F1}  range={cold:F0}…{warm:F0}");
 	}
 
+	/// <summary>
+	/// 主线程接收工作线程产出的生成结果：替换 Sim、发布事实、建立演化会话。
+	/// 不做生成计算；调用点唯一（WorldRoot 的生成轮询）。
+	/// </summary>
+	internal void Adopt(WorldGenerationResult result)
+	{
+		if (result == null) throw new ArgumentNullException(nameof(result));
+		_evolution?.Stop();
+		_spec = result.Spec;
+		Sim = result.Simulation;
+		Sim.Publish(result.State);
+		_evolution = result.Solver != null ? new WorldEvolutionSession(Sim, result.Solver) : null;
+		LogGenerationSummary();
+		IsInitialized = true;
+		WorldPublished?.Invoke(Sim.Facts);
+	}
+
 	/// <summary>按当前定义准备完整世界，成功后替换旧会话并发布快照。</summary>
 	public void Regenerate()
 	{
@@ -136,6 +159,23 @@ public partial class WorldManager : Node3D, ITickable
 	public void PauseEvolution() => _evolution?.Pause();
 	public void StepEvolutionOnce() => _evolution?.Step();
 	public void ConfirmEvolutionFault() => _evolution?.ConfirmFault();
+
+	/// <summary>
+	/// 把当前已发布的世界事实导出为 <c>.wmap</c> 地图包，返回绝对路径。
+	/// 只读一份快照引用，导出期间演化继续推进也不会混入不同时刻的字段。
+	/// </summary>
+	public string ExportMapData()
+	{
+		WorldFacts facts = Sim?.Facts ?? throw new InvalidOperationException("世界尚未生成");
+		string directory = ProjectSettings.GlobalizePath("user://maps");
+		Directory.CreateDirectory(directory);
+		string file = Path.Combine(directory, $"map_{DateTime.Now:yyyyMMdd_HHmmss_fff}.wmap");
+		DateTimeOffset now = DateTimeOffset.UtcNow;
+		var snapshot = GeographySnapshotCapture.Capture(facts, Guid.NewGuid(),
+			$"世界 {DateTime.Now:yyyy-MM-dd HH:mm}", string.Empty, now, "0.5.0");
+		MapPackageWriter.Write(snapshot, file);
+		return file;
+	}
 
 	public string SeekEvolutionToMa(double targetMa) =>
 		_evolution == null ? "地质演化尚未初始化。" : _evolution.Seek(targetMa);

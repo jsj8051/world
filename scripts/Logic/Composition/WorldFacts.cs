@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Godot;
 using World.Data;
+using World.Data.Maps;
 using World.H3Grid;
 
 namespace World.Logic;
@@ -34,8 +35,14 @@ public sealed class WorldFacts
 	/// <summary>与地形同时发布的板块运动。静态世界用 <see cref="Plate.Omega"/> 读取方向。</summary>
 	public IReadOnlyList<PlateMotion> PlateMotions => Evolution?.Motions;
 
-	/// <summary>与世界地表一起发布的地质帧。静态世界为空。</summary>
+	/// <summary>与世界地表一起发布的地质帧。静态世界与导入地图为空。</summary>
 	public EvolutionFrame Evolution { get; }
+
+	/// <summary>显示所需的最终表层事实：生成与导入共用同一取数口。</summary>
+	internal SurfaceFacts Surface { get; }
+
+	/// <summary>结果时刻（Ma）：生成时来自演化钟，导入时来自地图清单；静态为 null。</summary>
+	public double? SourceTimeMa { get; }
 
 	/// <summary>逐格壳型与陆壳省（壳型唯一真源）。</summary>
 	public CrustField Crust { get; }
@@ -56,6 +63,9 @@ public sealed class WorldFacts
 
 	/// <summary>最终陆海掩码（<c>HeightM &gt; SeaLevelM</c>）。</summary>
 	public bool[] FinalLand { get; }
+
+	/// <summary>本世界使用的海平面（米）：陆海判据与导出清单的唯一来源。</summary>
+	public float SeaLevelM { get; }
 
 	/// <summary>陆占比 ∈[0,1]（格 + 6 邻居陆占比）。</summary>
 	public float[] FinalLandFraction { get; }
@@ -144,10 +154,13 @@ public sealed class WorldFacts
 	public FinalSpatialIndex SpatialIndex { get; }
 
 	// 只由 WorldGenSimulation 捕获：外部快照对应一次跑完的全链。
+	// imported 非空时，Surface 取自导入结果；管线必须已由导入工厂装配，不得现场生成。
 	internal WorldFacts(Ball ball, PlatePipeline plate, TerrainPipeline terrain, ClimatePipeline climate,
-		HydrologyPipeline hydrology, IndexPipeline index, EvolutionFrame evolution)
+		HydrologyPipeline hydrology, IndexPipeline index, EvolutionFrame evolution, float seaLevelM,
+		GeographySnapshot imported = null)
 	{
 		Ball = ball ?? throw new ArgumentNullException(nameof(ball));
+		SeaLevelM = seaLevelM;
 		int n = Ball.CellIds.Length;
 
 		PlateOfCell = Aligned(plate.PlateOfCell, n, nameof(PlateOfCell));
@@ -212,6 +225,16 @@ public sealed class WorldFacts
 		WaterSystem = Present(hydrology.WaterSystem, "水系拓扑");
 
 		SpatialIndex = Present(index.Index, "空间索引");
+
+		if (imported != null && (imported.Manifest.CellCount != n || evolution != null))
+			throw new InvalidOperationException("导入地图与世界网格不一致");
+		Surface = imported != null
+			? SurfaceFacts.FromSnapshot(imported)
+			: SurfaceFacts.FromEvolution(Ball, Crust, Plates, Evolution, BoundaryFields, PlateBoundaries);
+		SourceTimeMa = Surface.SourceTimeMa;
+		if (Surface.SurfaceCrustType.Length != n || Surface.MotionOmega.Length != Plates.Length)
+			throw new InvalidOperationException(
+				$"世界事实 表层 长度 {Surface.SurfaceCrustType.Length}/{Surface.MotionOmega.Length} 与格数 {n}/板块数 {Plates.Length} 不一致");
 	}
 
 	static T[] Aligned<T>(T[] field, int cellCount, string name)

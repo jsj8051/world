@@ -1,0 +1,42 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="1_cam"]
+[ext_resource type="Script" path="res://scripts/Scene/RenderManager.cs" id="2_render"]
+[ext_resource type="PackedScene" path="res://scenes/render/WorldView.tscn" id="3_view"]
+[ext_resource type="Script" path="res://scripts/Scene/UIManager.cs" id="4_ui"]
+[ext_resource type="PackedScene" path="res://scenes/render/CellInfoCard.tscn" id="5_card"]
+[ext_resource type="PackedScene" path="res://scenes/render/MapDock.tscn" id="6_dock"]
+
+[node name="WorldPresentation" type="Node3D"]
+
+[node name="OrbitalCamera" parent="." instance=ExtResource("1_cam")]
+
+[node name="RenderManager" type="Node3D" parent="."]
+script = ExtResource("2_render")
+WorldViewPath = NodePath("WorldView")
+
+[node name="WorldView" parent="RenderManager" instance=ExtResource("3_view")]
+
+[node name="UIManager" type="Node3D" parent="."]
+script = ExtResource("4_ui")
+PanelLayerPath = NodePath("PanelLayer")
+DockPath = NodePath("PanelLayer/MapDock")
+CellCardPath = NodePath("PanelLayer/CellInfoCard")
+
+[node name="PanelLayer" type="CanvasLayer" parent="UIManager"]
+
+[node name="CellInfoCard" parent="UIManager/PanelLayer" instance=ExtResource("5_card")]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -12.0
+offset_right = 12.0
+offset_bottom = -12.0
+grow_vertical = 0
+
+[node name="MapDock" parent="UIManager/PanelLayer" instance=ExtResource("6_dock")]
+
+[connection signal="ModeSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockModeSelected"]
+[connection signal="ParameterSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockParameterSelected"]
+[connection signal="VariantSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockVariantSelected"]

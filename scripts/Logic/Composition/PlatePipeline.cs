@@ -1,3 +1,4 @@
+using System;
 using World.Data;
 using World.H3Grid;
 
@@ -47,5 +48,14 @@ public sealed class PlatePipeline
 	{
 		_evolved = surface;
 		Boundary = surface.Boundary;
+	}
+
+	/// <summary>导入地图：直接装配已保存的板块结果（不跑板块划分）。</summary>
+	internal void LoadSaved(int[] plateOfCell, Plate[] plates, CrustField crust,
+		PlateBoundarySet boundaries, PlateBoundaryFields boundary, ContinentLayout layout, float landBaseDropM)
+	{
+		_evolved = null;
+		_impl.LoadSaved(plateOfCell, plates, crust, boundaries, layout, landBaseDropM);
+		Boundary = boundary ?? throw new ArgumentNullException(nameof(boundary));
 	}
 }

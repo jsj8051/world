@@ -44,6 +44,46 @@ public sealed class RiverGraph
 	/// <summary>出口格（终止于海或内流洼地）。</summary>
 	public List<int> Outlets { get; private set; } = new();
 
+	/// <summary>从已保存的河流拓扑装配：逐字段原样赋值，不重跑推导、不重排 Sources / Outlets。</summary>
+	internal static RiverGraph FromSaved(int[] downstreamRiver, int[] upstreamCount, int[] nodeKind,
+		float[] accumMm, int riverCellCount, int sourceCount, int confluenceCount, int outletCount,
+		IReadOnlyList<int> sources, IReadOnlyList<int> outlets)
+	{
+		int n = SavedCount(downstreamRiver, nameof(downstreamRiver));
+		return new RiverGraph
+		{
+			DownstreamRiver = SavedCopy(downstreamRiver, n, nameof(downstreamRiver)),
+			UpstreamCount = SavedCopy(upstreamCount, n, nameof(upstreamCount)),
+			NodeKind = SavedCopy(nodeKind, n, nameof(nodeKind)),
+			AccumMm = SavedCopy(accumMm, n, nameof(accumMm)),
+			RiverCellCount = riverCellCount,
+			SourceCount = sourceCount,
+			ConfluenceCount = confluenceCount,
+			OutletCount = outletCount,
+			Sources = SavedList(sources, sourceCount, nameof(sources)),
+			Outlets = SavedList(outlets, outletCount, nameof(outlets)),
+		};
+	}
+
+	static int SavedCount(Array values, string name)
+		=> values?.Length ?? throw new ArgumentNullException(name);
+
+	static T[] SavedCopy<T>(T[] values, int length, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Length != length)
+			throw new ArgumentException($"{name} 长度 {values.Length} ≠ {length}", name);
+		return (T[])values.Clone();
+	}
+
+	static List<int> SavedList(IReadOnlyList<int> values, int count, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Count != count)
+			throw new ArgumentException($"{name} 长度 {values.Count} ≠ {count}", name);
+		return new List<int>(values);
+	}
+
 	/// <summary>从水文 flow graph 派生河流拓扑（只读 RiverNetwork，不回写）。</summary>
 	public void Generate(Ball ball, TerrainPipeline terrain, RiverNetwork rivers)
 	{

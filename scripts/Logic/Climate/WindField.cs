@@ -92,6 +92,63 @@ public sealed class WindField
 		_sets[(int)WindKind.Free] = free;
 	}
 
+	/// <summary>从三份已保存的风列装配（参数顺序固定 Surface / Low / Free）：逐位复制，不重算。
+	/// 每份的逐月（月数 × 格数）、年合成（格数）、年均风速（格数）须同形。
+	/// 输入为 null、长度不一致或含非有限值时抛 <see cref="ArgumentException"/>。</summary>
+	internal static WindField FromSaved(
+		Vector3[][] surfaceMonthly, Vector3[] surfaceAnnual, float[] surfaceAnnualSpeed,
+		Vector3[][] lowMonthly, Vector3[] lowAnnual, float[] lowAnnualSpeed,
+		Vector3[][] freeMonthly, Vector3[] freeAnnual, float[] freeAnnualSpeed)
+		=> new(
+			SavedWindSet(WindKind.Surface, surfaceMonthly, surfaceAnnual, surfaceAnnualSpeed),
+			SavedWindSet(WindKind.Low, lowMonthly, lowAnnual, lowAnnualSpeed),
+			SavedWindSet(WindKind.Free, freeMonthly, freeAnnual, freeAnnualSpeed));
+
+	static WindSet SavedWindSet(WindKind kind, Vector3[][] monthly, Vector3[] annual, float[] annualSpeed)
+	{
+		if (monthly == null) throw new ArgumentNullException(nameof(monthly));
+		if (annual == null) throw new ArgumentNullException(nameof(annual));
+		if (annualSpeed == null) throw new ArgumentNullException(nameof(annualSpeed));
+
+		var monthlyCopy = new Vector3[monthly.Length][];
+		for (int month = 0; month < monthly.Length; month++)
+		{
+			Vector3[] row = monthly[month] ?? throw new ArgumentException($"{kind} 第 {month} 月为 null");
+			if (row.Length != annual.Length)
+				throw new ArgumentException($"{kind} 第 {month} 月长度 {row.Length} ≠ 格数 {annual.Length}");
+			monthlyCopy[month] = CopyFinite(row, $"{kind} 第 {month} 月");
+		}
+		if (annualSpeed.Length != annual.Length)
+			throw new ArgumentException($"{kind} 年均风速长度 {annualSpeed.Length} ≠ 格数 {annual.Length}");
+
+		return new WindSet(kind, monthlyCopy,
+			CopyFinite(annual, $"{kind} 年合成风"), CopyFinite(annualSpeed, $"{kind} 年均风速"));
+	}
+
+	static Vector3[] CopyFinite(Vector3[] source, string label)
+	{
+		var copy = new Vector3[source.Length];
+		for (int i = 0; i < source.Length; i++)
+		{
+			Vector3 value = source[i];
+			if (!float.IsFinite(value.X) || !float.IsFinite(value.Y) || !float.IsFinite(value.Z))
+				throw new ArgumentException($"{label}[{i}] 不是有限数");
+			copy[i] = value;
+		}
+		return copy;
+	}
+
+	static float[] CopyFinite(float[] source, string label)
+	{
+		var copy = new float[source.Length];
+		for (int i = 0; i < source.Length; i++)
+		{
+			if (!float.IsFinite(source[i])) throw new ArgumentException($"{label}[{i}] 不是有限数");
+			copy[i] = source[i];
+		}
+		return copy;
+	}
+
 	/// <summary>按身份取一份视图（地面 / 低空 / 自由）。</summary>
 	public WindSet Get(WindKind kind) => _sets[(int)kind];
 

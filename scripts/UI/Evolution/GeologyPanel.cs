@@ -1,22 +1,37 @@
 using Godot;
 using System;
 using System.Globalization;
+using System.Threading;
 using World.Data;
+using World.Data.Work;
 using World.Logic;
+using World.Scene;
+using World.Utils;
 
 namespace World.UI;
 
 /// <summary>
-/// 演化控制面板：显示地质时间与账本，提供播放、暂停、单步、跳转和倍率。
+/// 演化控制面板（独立场景）：显示地质时间与账本，提供播放、暂停、单步、跳转、倍率与计算进度。
 /// 只发意图，不持仿真；按钮回调由界面管理器转到世界侧。
 /// </summary>
-[Tool]
 public partial class GeologyPanel : PanelContainer
 {
 	static readonly Color Ink = new("#302217");
 	static readonly Color MutedInk = new("#5F5144");
 	static readonly Color Border = new("#90704A");
 	static readonly Color ErrorInk = new("#842D23");
+
+	[Export] public NodePath StatusPath { get; set; }
+	[Export] public NodePath TimePath { get; set; }
+	[Export] public NodePath ReadoutPath { get; set; }
+	[Export] public NodePath PlayPath { get; set; }
+	[Export] public NodePath PausePath { get; set; }
+	[Export] public NodePath StepPath { get; set; }
+	[Export] public NodePath SeekPath { get; set; }
+	[Export] public NodePath JumpPath { get; set; }
+	[Export] public NodePath SpeedPath { get; set; }
+	[Export] public NodePath ProgressPath { get; set; }
+	[Export] public NodePath FeedbackPath { get; set; }
 
 	Label _status;
 	Label _time;
@@ -27,8 +42,15 @@ public partial class GeologyPanel : PanelContainer
 	Button _pause;
 	Button _step;
 	Button _jump;
+	OptionButton _speed;
+	LoadProgressView _progress;
+
 	EvolutionControlStatus _lastStatus;
 	bool _wasBusy;
+	IWorkSignalSource _source;
+	LoadOperation _operation;
+	LoadProgressMonitor _monitor;
+	long _progressVersion = -1;
 
 	public void SetStatus(EvolutionControlStatus status, bool busy)
 	{
@@ -66,6 +88,43 @@ public partial class GeologyPanel : PanelContainer
 		_feedback.Visible = !string.IsNullOrEmpty(message);
 	}
 
+	/// <summary>订阅演化信号源；忙碌开始时创建独立监控器，结束后解除。</summary>
+	internal void SetEvolutionSignals(IWorkSignalSource source, bool busy)
+	{
+		if (busy && (source != _source || _monitor == null))
+		{
+			_monitor?.Dispose();
+			_operation = new LoadOperation(Guid.NewGuid(), LoadFlow.Evolution, "演化计算",
+				new CancellationTokenSource());
+			_monitor = new LoadProgressMonitor(_operation, plan: null, start: 0f, span: 1f,
+				completesOperation: true);
+			_source = source;
+			_progressVersion = -1;
+			_progress.Visible = true;
+			if (source != null) _monitor.Attach(source);
+			RefreshProgress();
+		}
+		else if (!busy && _monitor != null)
+		{
+			_monitor.Dispose();
+			_monitor = null;
+			_source = null;
+			_operation = null;
+			_progress.Visible = false;
+		}
+	}
+
+	public override void _Process(double delta) => RefreshProgress();
+
+	void RefreshProgress()
+	{
+		if (_operation == null) return;
+		LoadProgressSnapshot snapshot = _operation.Snapshot();
+		if (snapshot.Version == _progressVersion) return;
+		_progressVersion = snapshot.Version;
+		_progress.Refresh(snapshot);
+	}
+
 	/// <summary>播放请求。</summary>
 	public event Action PlayPressed;
 	/// <summary>暂停请求。</summary>
@@ -81,6 +140,18 @@ public partial class GeologyPanel : PanelContainer
 
 	public override void _Ready()
 	{
+		_status = this.Require<Label>(StatusPath, nameof(StatusPath));
+		_time = this.Require<Label>(TimePath, nameof(TimePath));
+		_readout = this.Require<Label>(ReadoutPath, nameof(ReadoutPath));
+		_feedback = this.Require<Label>(FeedbackPath, nameof(FeedbackPath));
+		_seek = this.Require<LineEdit>(SeekPath, nameof(SeekPath));
+		_play = this.Require<Button>(PlayPath, nameof(PlayPath));
+		_pause = this.Require<Button>(PausePath, nameof(PausePath));
+		_step = this.Require<Button>(StepPath, nameof(StepPath));
+		_jump = this.Require<Button>(JumpPath, nameof(JumpPath));
+		_speed = this.Require<OptionButton>(SpeedPath, nameof(SpeedPath));
+		_progress = this.Require<LoadProgressView>(ProgressPath, nameof(ProgressPath));
+
 		CustomMinimumSize = new Vector2(360, 0);
 		Theme = CreatePanelTheme();
 		MouseFilter = MouseFilterEnum.Stop;
@@ -95,69 +166,29 @@ public partial class GeologyPanel : PanelContainer
 		OffsetBottom = 16;
 		GrowHorizontal = GrowDirection.Begin;
 
-		var box = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-		box.AddThemeConstantOverride("separation", 8);
-		AddChild(box);
-
-		var title = new Label { Text = "地质演化" };
-		title.AddThemeFontSizeOverride("font_size", 20);
-		box.AddChild(title);
-
-		_status = new Label { Name = "Status", Text = "暂停" };
-		_time = new Label { Text = "0.0 Ma · 第 0 步" };
-		_readout = new Label { Text = "" };
-		_readout.AddThemeColorOverride("font_color", MutedInk);
-		box.AddChild(_status);
-		box.AddChild(_time);
-		box.AddChild(_readout);
-
-		var buttons = AddRow(box);
-		_play = AddButton(buttons, "播放", () => PlayPressed?.Invoke());
-		_pause = AddButton(buttons, "暂停", () => PausePressed?.Invoke());
-		_step = AddButton(buttons, "单步", () =>
+		_play.Pressed += () => PlayPressed?.Invoke();
+		_pause.Pressed += () => PausePressed?.Invoke();
+		_step.Pressed += () =>
 		{
 			if (_lastStatus == EvolutionControlStatus.Faulted) RecoverPressed?.Invoke();
 			else StepPressed?.Invoke();
-		});
-
-		var seekRow = AddRow(box);
-		_seek = new LineEdit
-		{
-			Name = "SeekTime",
-			PlaceholderText = "目标时间（Ma）",
-			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			CustomMinimumSize = new Vector2(0, 34),
-			MouseFilter = MouseFilterEnum.Stop,
 		};
 		_seek.TextSubmitted += _ => OnSeek();
-		seekRow.AddChild(_seek);
-		_jump = AddButton(seekRow, "跳转", OnSeek);
-		_jump.SizeFlagsHorizontal = SizeFlags.ShrinkEnd;
+		_jump.Pressed += OnSeek;
 
-		var speedRow = AddRow(box);
-		speedRow.AddChild(new Label { Text = "倍率" });
-		var speed = new OptionButton
-		{
-			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			CustomMinimumSize = new Vector2(0, 34),
-			MouseFilter = MouseFilterEnum.Stop,
-		};
-		speed.AddItem("0.1 Ma/s", 0);
-		speed.AddItem("1 Ma/s", 1);
-		speed.AddItem("10 Ma/s", 2);
-		speed.Selected = 0;
-		speed.ItemSelected += index => SpeedChanged?.Invoke(index switch
+		_speed.AddItem("0.1 Ma/s", 0);
+		_speed.AddItem("1 Ma/s", 1);
+		_speed.AddItem("10 Ma/s", 2);
+		_speed.Selected = 0;
+		_speed.ItemSelected += index => SpeedChanged?.Invoke(index switch
 		{
 			0 => 100_000d,
 			1 => 1_000_000d,
 			_ => 10_000_000d,
 		});
-		speedRow.AddChild(speed);
-		speed.GetPopup().Theme = Theme;
+		_speed.GetPopup().Theme = Theme;
 
-		_feedback = new Label { Name = "Feedback", Visible = false, AutowrapMode = TextServer.AutowrapMode.WordSmart };
-		_feedback.AddThemeColorOverride("font_color", ErrorInk);
-		box.AddChild(_feedback);
+		_progress.Visible = false;
 		SetStatus(EvolutionControlStatus.Paused, false);
 	}
 
@@ -168,28 +199,6 @@ public partial class GeologyPanel : PanelContainer
 			&& double.IsFinite(ma) && ma >= 0)
 			SeekRequested?.Invoke(ma);
 		else SetFeedback("请输入非负的目标时间，例如 10。");
-	}
-
-	static HBoxContainer AddRow(Container parent)
-	{
-		var row = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-		row.AddThemeConstantOverride("separation", 6);
-		parent.AddChild(row);
-		return row;
-	}
-
-	static Button AddButton(Container parent, string text, Action pressed)
-	{
-		var button = new Button
-		{
-			Text = text,
-			SizeFlagsHorizontal = SizeFlags.ExpandFill,
-			CustomMinimumSize = new Vector2(64, 34),
-			MouseFilter = MouseFilterEnum.Stop,
-		};
-		button.Pressed += pressed;
-		parent.AddChild(button);
-		return button;
 	}
 
 	static Theme CreatePanelTheme()

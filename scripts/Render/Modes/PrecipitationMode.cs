@@ -2,7 +2,7 @@ using Godot;
 using System;                      // MathF（对数式显示变换）
 using System.Collections.Generic;
 using static World.Utils.ColorRamp;        // ColorStop / RampSampleSmooth（取色方式，复用不复制）
-using World.Logic;                   // WorldGenSimulation（世界事实）
+using World.Logic;                   // IWorldFactsSource（世界事实）
 
 namespace World.Render;
 
@@ -14,10 +14,10 @@ namespace World.Render;
 /// </summary>
 public sealed class PrecipitationMode : MapMode
 {
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 	int _month;   // 0 = 年均；1..MonthCount = 月份
 
-	public PrecipitationMode(WorldGenSimulation p) => _p = p;
+	public PrecipitationMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "降水";
 

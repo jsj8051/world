@@ -121,7 +121,8 @@ public sealed class EvolutionSimulation
 	}
 
 	/// <summary>从已完成的帧向前计算。在中间步只生成下一步所需的构造数据。</summary>
-	public EvolutionFrame CalculateToStep(EvolutionFrame previous, long targetStep, CancellationToken cancellation = default)
+	public EvolutionFrame CalculateToStep(EvolutionFrame previous, long targetStep,
+		CancellationToken cancellation = default, Action<long, long> onStep = null)
 	{
 		if (previous == null) throw new ArgumentNullException(nameof(previous));
 		if (!ReferenceEquals(previous.Definition, Definition))
@@ -130,8 +131,13 @@ public sealed class EvolutionSimulation
 			throw new ArgumentOutOfRangeException(nameof(targetStep), "当前版本只支持向前跳转");
 
 		cancellation.ThrowIfCancellationRequested();
+		long start = previous.Clock.StepIndex;
+		long total = targetStep - start;
 		while (previous.Clock.StepIndex < targetStep)
+		{
 			previous = AdvanceOne(previous, previous.Clock.StepIndex == targetStep - 1, cancellation);
+			onStep?.Invoke(previous.Clock.StepIndex - start, total);
+		}
 		return previous;
 	}
 

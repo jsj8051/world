@@ -41,6 +41,39 @@ public sealed class BasinGraph
 	public int OceanBasinCount { get; private set; }
 	public int EndorheicBasinCount { get; private set; }
 
+	/// <summary>从已保存的流域表装配：逐字段原样赋值，不重走汇流链、不重算面积与分类计数。</summary>
+	internal static BasinGraph FromSaved(int[] basinId, int[] terminalCell, bool[] terminatesAtOcean,
+		int basinCount, int[] kind, int[] outlet, int[] area, double[] areaKm2, float[] accumMm,
+		int oceanBasinCount, int endorheicBasinCount)
+	{
+		int n = SavedCount(basinId, nameof(basinId));
+		return new BasinGraph
+		{
+			BasinId = SavedCopy(basinId, n, nameof(basinId)),
+			TerminalCell = SavedCopy(terminalCell, n, nameof(terminalCell)),
+			TerminatesAtOcean = SavedCopy(terminatesAtOcean, n, nameof(terminatesAtOcean)),
+			BasinCount = basinCount,
+			Kind = SavedCopy(kind, basinCount, nameof(kind)),
+			Outlet = SavedCopy(outlet, basinCount, nameof(outlet)),
+			Area = SavedCopy(area, basinCount, nameof(area)),
+			AreaKm2 = SavedCopy(areaKm2, basinCount, nameof(areaKm2)),
+			AccumMm = SavedCopy(accumMm, basinCount, nameof(accumMm)),
+			OceanBasinCount = oceanBasinCount,
+			EndorheicBasinCount = endorheicBasinCount,
+		};
+	}
+
+	static int SavedCount(Array values, string name)
+		=> values?.Length ?? throw new ArgumentNullException(name);
+
+	static T[] SavedCopy<T>(T[] values, int length, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Length != length)
+			throw new ArgumentException($"{name} 长度 {values.Length} ≠ {length}", name);
+		return (T[])values.Clone();
+	}
+
 	/// <summary>由 flow graph 派生流域拓扑（只读 RiverNetwork + FinalLand）。</summary>
 	public void Generate(Ball ball, TerrainPipeline terrain, RiverNetwork rivers)
 	{

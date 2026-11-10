@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "profile": {
+    "id": "b1dd1711-fc45-4143-9244-13e5aa1bfdbb",
+    "name": "Invalid Plates",
+    "createdUtc": "2026-11-10T13:00:00Z",
+    "updatedUtc": "2026-11-10T13:00:00Z",
+    "config": {
+      "seed": 42,
+      "layout": "Auto",
+      "seaLevel": "Standard",
+      "plateCount": 25,
+      "relief": "Standard",
+      "temperature": "Standard",
+      "seasonality": "Standard",
+      "rainfall": "Standard"
+    }
+  }
+}

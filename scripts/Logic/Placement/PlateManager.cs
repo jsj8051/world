@@ -14,6 +14,20 @@ namespace World.Logic;
 public sealed class PlateManager
 {
 	/// <summary>逐格板块号（长度 = 格数；每格恒有归属，取值 ∈ [0, 板块数)）。</summary>
+	/// <summary>
+	/// 用已保存的板块结果装配（导入地图用）：只赋值，不重新划分板块。
+	/// </summary>
+	internal void LoadSaved(int[] plateOfCell, Plate[] plates, CrustField crust,
+		PlateBoundarySet boundaries, ContinentLayout layout, float landBaseDropM)
+	{
+		PlateOfCell = plateOfCell ?? throw new ArgumentNullException(nameof(plateOfCell));
+		Plates = plates ?? throw new ArgumentNullException(nameof(plates));
+		Crust = crust ?? throw new ArgumentNullException(nameof(crust));
+		Boundaries = boundaries ?? throw new ArgumentNullException(nameof(boundaries));
+		Layout = layout;
+		LandBaseDropM = landBaseDropM;
+	}
+
 	public int[] PlateOfCell { get; private set; } = Array.Empty<int>();
 	/// <summary>板块表（号即下标；欧拉矢量 / 密度）。</summary>
 	public Plate[] Plates { get; private set; } = Array.Empty<Plate>();

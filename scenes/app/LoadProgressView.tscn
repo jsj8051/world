@@ -1,0 +1,31 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/Scene/Navigation/LoadProgressView.cs" id="1_view"]
+
+[node name="LoadProgressView" type="VBoxContainer"]
+theme_override_constants/separation = 10
+script = ExtResource("1_view")
+TitlePath = NodePath("Title")
+BarPath = NodePath("Bar")
+StagePath = NodePath("Meta/Stage")
+PercentPath = NodePath("Meta/Percent")
+
+[node name="Title" type="Label" parent="."]
+theme_override_font_sizes/font_size = 22
+text = "加载中"
+
+[node name="Bar" type="ProgressBar" parent="."]
+custom_minimum_size = Vector2(480, 24)
+max_value = 100.0
+show_percentage = false
+
+[node name="Meta" type="HBoxContainer" parent="."]
+
+[node name="Stage" type="Label" parent="Meta"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = ""
+
+[node name="Percent" type="Label" parent="Meta"]
+layout_mode = 2
+text = "0%"

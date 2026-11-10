@@ -33,8 +33,8 @@ public partial class RenderManager : Node3D, ITickable
 	/// <summary>世界视图（本管理器内部持有：供拾取、取色、剔除与重烘；不外借）。</summary>
 	WorldView View { get; set; }
 
-	/// <summary>世界事实来源（初始化时注入；初始取景要读 <c>Facts.FinalLand</c>）。</summary>
-	WorldGenSimulation _sim;
+	/// <summary>世界事实来源（初始化时注入；生成或已导入；初始取景要读 <c>Facts.FinalLand</c>）。</summary>
+	IWorldFactsSource _source;
 
 	/// <summary>
 	/// 接上地图坞（由根管理器在装配时调用；坞是界面子树里的节点，路径由根管理器解析）。
@@ -45,6 +45,15 @@ public partial class RenderManager : Node3D, ITickable
 
 	/// <summary>格拾取器（视图就绪后建；点选与将来"点哪儿看哪儿"的面板都用它）。</summary>
 	public WorldPicker Picker { get; private set; }
+
+	/// <summary>换帧期间禁用输入：发布新事实到重烘完成之间不接受点选/拖拽。</summary>
+	public bool SwapActive { get; private set; }
+
+	/// <summary>进入换帧：禁用输入，准备发布新事实。</summary>
+	public void BeginSwap() => SwapActive = true;
+
+	/// <summary>换帧结束：恢复输入。</summary>
+	public void EndSwap() => SwapActive = false;
 
 	/// <summary>
 	/// 点选结果出口（<c>null</c> = 点空 / 取消选中）：一份自足的 <c>PickedCell</c>（经纬 / 海拔 /
@@ -68,28 +77,67 @@ public partial class RenderManager : Node3D, ITickable
 	/// ③ 建拾取器；④ 绑定模式表并进入初始模式。
 	/// 必须在世界管理器初始化之后（世界事实要先跑出来），且在界面管理器初始化之前（坞要先就绪）。
 	/// </summary>
-	/// <param name="sim">世界事实来源（世界管理器已跑完生成的那一个实例）。</param>
+	/// <param name="source">世界事实来源（生成或已导入的实例；调用方持有其生命周期）。</param>
 	/// <param name="modes">模式表（根管理器建一次；本类持有并据此驱动坞）。</param>
-	public void Initialize(WorldGenSimulation sim, List<MapMode> modes)
+	public void Initialize(IWorldFactsSource source, List<MapMode> modes)
+	{
+		InitializeIncremental(source, modes);
+		while (!StepBuild(1000)) { }
+		GD.Print($"[MAP] F12 / Ctrl+E 导出 2D 地形图（{MapExportWidth}×{MapExportHeight}，游戏目录/map_exports）");
+	}
+
+	bool _appliedInitial;
+
+	/// <summary>
+	/// 分帧初始化（由页面/根管理器每帧调 <see cref="StepBuild"/>）：
+	/// 只建外壳、拾取器与坞模式名；网格/纹理/河线由 <see cref="StepBuild"/> 推进。
+	/// </summary>
+	public void InitializeIncremental(IWorldFactsSource source, List<MapMode> modes)
 	{
 		if (View != null) return;
-		if (sim == null) throw new System.ArgumentNullException(nameof(sim), "世界必须先初始化");
+		if (source == null) throw new System.ArgumentNullException(nameof(source), "世界必须先初始化");
 		if (modes == null || modes.Count == 0) throw new System.ArgumentNullException(nameof(modes), "模式表为空");
 		if (_dock == null) throw new System.InvalidOperationException("[RENDERMANAGER] 坞未接上（先调 SetDock）");
 
 		View = this.Require<WorldView>(WorldViewPath, nameof(WorldViewPath));
 		_modes = modes;
-		_sim = sim;
+		_source = source;
 
-		View.Build(sim, modes[0]);
-		// 拾取器由视图自造：球面渲染件是视图的内部件，不外借给装配层。
+		View.BeginBuild(source, modes[0]);
 		Picker = View.CreatePicker(GetViewport().GetCamera3D());
 
-		// 模式侧：按钮文案下行（Name 是单一事实源；数量不符时坞 BindModes 当场抛）
-		// + 初始模式 = 注册序首项（CreateAll 注册序[0] = 地形）。
 		ApplyModeNames();
-		ApplyMode(0);
-		GD.Print($"[MAP] F12 / Ctrl+E 导出 2D 地形图（{MapExportWidth}×{MapExportHeight}，游戏目录/map_exports）");
+		_appliedInitial = false;
+	}
+
+	/// <summary>在毫秒预算内推进装配；返回是否完成。首次完成时同步坞的初始模式。</summary>
+	public bool StepBuild(double budgetMs)
+	{
+		if (View == null) return true;
+		bool done = View.StepBuild(budgetMs);
+		if (done && !_appliedInitial)
+		{
+			ApplyInitialMode();
+			_appliedInitial = true;
+		}
+		return done;
+	}
+
+	/// <summary>分帧装配进度 0–1。</summary>
+	public float BuildProgress => View?.BuildProgress ?? 1f;
+
+	/// <summary>分帧装配当前阶段文字。</summary>
+	public string BuildStage => View?.BuildStage ?? "完成";
+
+	void ApplyInitialMode()
+	{
+		_currentMode = 0;
+		var mode = _modes[0];
+		_dock?.Call("SetMode", 0);
+		_dock?.Call("SetVariantOptions", AsArray(mode.VariantOptions), mode.VariantIndex);
+		_dock?.Call("SetParameterOptions", AsArray(mode.ParameterOptions), mode.ParameterIndex);
+		_dock?.Call("SetLegend", mode.ScaleCaption);
+		RefreshSelection();
 	}
 
 	/// <summary>
@@ -99,7 +147,7 @@ public partial class RenderManager : Node3D, ITickable
 	public void FrameLand(OrbitalCamera camera)
 	{
 		if (camera == null) return;
-		var facts = _sim?.Facts;
+		var facts = _source?.Facts;
 		if (facts == null) return;
 		var dirs = facts.Ball.CellDirs;
 		if (facts.FinalLand.Length != dirs.Length) return;
@@ -211,6 +259,7 @@ public partial class RenderManager : Node3D, ITickable
 	// 拖拽留给相机去转球（Godot 把同一批事件投递给每个覆写者，各人读各人的意图）。
 	public override void _UnhandledInput(InputEvent @event)
 	{
+		if (SwapActive) return;
 		if (@event is InputEventKey key && key.Pressed && !key.Echo
 			&& (key.Keycode == Key.F12 || (key.CtrlPressed && key.Keycode == Key.E)))
 		{
@@ -223,21 +272,23 @@ public partial class RenderManager : Node3D, ITickable
 
 	void ExportTerrainMap()
 	{
-		if (_sim?.Facts == null || _modes == null || _modes.Count == 0) return;
+		try { ExportTerrainMapNow(); }
+		catch (System.Exception e) { GD.PushError($"[MAP] 导出失败：{e.Message}"); }
+	}
+
+	/// <summary>导出当前地图模式的 2D 图片并返回绝对路径；世界未就绪或写入失败时抛。</summary>
+	public string ExportTerrainMapNow()
+	{
+		if (_source?.Facts == null || _modes == null || _modes.Count == 0)
+			throw new System.InvalidOperationException("世界尚未就绪");
 		int terrain = _modes.FindIndex(m => m is TerrainMode);
 		var mode = terrain >= 0 ? _modes[terrain] : _modes[System.Math.Max(0, _currentMode)];
 
 		GD.Print($"[MAP] 开始导出 2D 地形图（{mode.Name}，{MapExportWidth}×{MapExportHeight}）...");
 		var watch = System.Diagnostics.Stopwatch.StartNew();
-		try
-		{
-			string path = MapExporter.ExportTerrain(_sim, mode, MapExportWidth, MapExportHeight);
-			GD.Print($"[MAP] 导出完成（{watch.ElapsedMilliseconds} ms）：{path}");
-		}
-		catch (System.Exception e)
-		{
-			GD.PushError($"[MAP] 导出失败：{e.Message}");
-		}
+		string path = MapExporter.ExportTerrain(_source, mode, MapExportWidth, MapExportHeight);
+		GD.Print($"[MAP] 导出完成（{watch.ElapsedMilliseconds} ms）：{path}");
+		return path;
 	}
 
 	void PickAt(Vector2 screenPos)

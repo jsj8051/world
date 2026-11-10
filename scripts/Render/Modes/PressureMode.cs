@@ -16,10 +16,10 @@ namespace World.Render;
 /// </summary>
 public sealed class PressureMode : MapMode
 {
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 	int _month;   // 0 = 年均；1..MonthCount = 月份
 
-	public PressureMode(WorldGenSimulation p) => _p = p;
+	public PressureMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "气压";
 

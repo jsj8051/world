@@ -1,0 +1,90 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/Evolution/GeologyPanel.cs" id="1_panel"]
+[ext_resource type="PackedScene" path="res://scenes/app/LoadProgressView.tscn" id="2_progress"]
+
+[node name="EvolutionPanel" type="PanelContainer"]
+script = ExtResource("1_panel")
+StatusPath = NodePath("Box/Status")
+TimePath = NodePath("Box/Time")
+ReadoutPath = NodePath("Box/Readout")
+PlayPath = NodePath("Box/Buttons/Play")
+PausePath = NodePath("Box/Buttons/Pause")
+StepPath = NodePath("Box/Buttons/Step")
+SeekPath = NodePath("Box/SeekRow/SeekTime")
+JumpPath = NodePath("Box/SeekRow/Jump")
+SpeedPath = NodePath("Box/SpeedRow/Speed")
+ProgressPath = NodePath("Box/Progress")
+FeedbackPath = NodePath("Box/Feedback")
+
+[node name="Box" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="Box"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text = "地质演化"
+
+[node name="Status" type="Label" parent="Box"]
+layout_mode = 2
+text = "暂停"
+
+[node name="Time" type="Label" parent="Box"]
+layout_mode = 2
+text = "0.0 Ma · 第 0 步"
+
+[node name="Readout" type="Label" parent="Box"]
+layout_mode = 2
+text = ""
+
+[node name="Buttons" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Play" type="Button" parent="Box/Buttons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "播放"
+
+[node name="Pause" type="Button" parent="Box/Buttons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "暂停"
+
+[node name="Step" type="Button" parent="Box/Buttons"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "单步"
+
+[node name="SeekRow" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="SeekTime" type="LineEdit" parent="Box/SeekRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "目标时间（Ma）"
+
+[node name="Jump" type="Button" parent="Box/SeekRow"]
+layout_mode = 2
+text = "跳转"
+
+[node name="SpeedRow" type="HBoxContainer" parent="Box"]
+layout_mode = 2
+
+[node name="SpeedLabel" type="Label" parent="Box/SpeedRow"]
+layout_mode = 2
+text = "倍率"
+
+[node name="Speed" type="OptionButton" parent="Box/SpeedRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Progress" parent="Box" instance=ExtResource("2_progress")]
+layout_mode = 2
+visible = false
+
+[node name="Feedback" type="Label" parent="Box"]
+visible = false
+layout_mode = 2
+autowrap_mode = 2

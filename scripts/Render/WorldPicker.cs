@@ -1,28 +1,28 @@
 using Godot;
 using World.Data;                  // PickedCell（拾取结果载体；2026-10-11 由本文件迁入数据层）
 using World.Utils.H3;              // H3（格 id → 经纬）
-using World.Logic;              // WorldGenSimulation（世界事实来源）
+using World.Logic;              // IWorldFactsSource（世界事实来源）
 
 namespace World.Render;
 
 /// <summary>
 /// **格拾取**：屏幕坐标 → 一格的世界事实。只依赖"视图 + 相机 + 世界事实"；
 /// **不持有节点、不写界面、不打印** ⇒ 可脱离管理器单独用 / 单测。
-/// ★世界事实**每次现取**（`Sim.Run()` 会换快照，缓存引用会读到旧场）。
+/// ★世界事实**每次现取**（重新发布事实会换快照，缓存引用会读到旧场）。
 /// ★相机**可换**（<see cref="SetCamera"/>）：它由宿主在每次点选前现取活动相机后喂进来，
 ///   所以本类不会因为"相机被换掉"而拿着陈旧的一台。
 /// </summary>
 public sealed class WorldPicker
 {
 	readonly BallView _view;
-	readonly WorldGenSimulation _sim;
+	readonly IWorldFactsSource _source;
 	Camera3D _camera;                 // 可换：宿主每次点选前现取（不焊死构造时那一台）
 
-	public WorldPicker(BallView view, Camera3D camera, WorldGenSimulation sim)
+	public WorldPicker(BallView view, Camera3D camera, IWorldFactsSource source)
 	{
 		_view = view;
 		_camera = camera;
-		_sim = sim;
+		_source = source;
 	}
 
 	/// <summary>换一台相机（宿主现取活动相机后调；射线要用它）。</summary>
@@ -32,7 +32,7 @@ public sealed class WorldPicker
 	public bool TryPick(Vector2 screenPos, out PickedCell cell)
 	{
 		cell = default;
-		if (_view == null || _camera == null || _sim == null) return false;
+		if (_view == null || _camera == null || _source == null) return false;
 
 		ulong? id = _view.PickCell(screenPos, _camera);
 		return id.HasValue && TryReadCell(id.Value, out cell);
@@ -44,7 +44,7 @@ public sealed class WorldPicker
 		int i = _view.PickCellIndex(id);
 		if (i < 0) return false;
 
-		var facts = _sim.Facts;
+		var facts = _source.Facts;
 		if (facts == null) return false;
 		var ll = H3.CellToLatLng(id);
 
@@ -56,7 +56,7 @@ public sealed class WorldPicker
 			LngDeg = (float)(ll.Lng * 180 / System.Math.PI),
 			ElevM = facts.HeightM[i],
 			IsLand = facts.FinalLand[i],
-			LandFraction = facts.Evolution?.Projection.SurfaceCells?[i].EmergentFraction ?? facts.FinalLandFraction[i],
+			LandFraction = facts.Surface.Projected?.EmergentFraction[i] ?? facts.FinalLandFraction[i],
 			LandmassId = facts.FinalLandmassId[i],
 			DistToCoast = facts.FinalDistToCoast[i],
 			DistToLand = facts.FinalDistToLand[i],

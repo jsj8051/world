@@ -17,9 +17,9 @@ public sealed class TerrainMode : MapMode
 	/// <summary>等高带间隔（米）：高度图用 500 m 的色带把山脊 / 分支显出来（不做连续渐变）。</summary>
 	const float BandM = 500f;
 
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 
-	public TerrainMode(WorldGenSimulation p) => _p = p;
+	public TerrainMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "地形";
 
@@ -28,14 +28,14 @@ public sealed class TerrainMode : MapMode
 	public override Color CellColorAt(int i)
 	{
 		var facts = _p.Facts;
-		var cells = facts.Evolution?.Projection.SurfaceCells;
+		var cells = facts.Surface.Projected;
 		if (cells != null)
 		{
-			var cell = cells[i];
-			if (cell.EmergentFraction <= 0f) return ColorRamp.RampSampleSmooth(Stops, cell.WaterHeightM);
-			Color land = LandColor(cell.LandHeightM);
-			if (cell.EmergentFraction >= 1f) return land;
-			return ColorRamp.RampSampleSmooth(Stops, cell.WaterHeightM).Lerp(land, cell.EmergentFraction);
+			float emergent = cells.EmergentFraction[i];
+			if (emergent <= 0f) return ColorRamp.RampSampleSmooth(Stops, cells.WaterHeightM[i]);
+			Color land = LandColor(cells.LandHeightM[i]);
+			if (emergent >= 1f) return land;
+			return ColorRamp.RampSampleSmooth(Stops, cells.WaterHeightM[i]).Lerp(land, emergent);
 		}
 		float h = facts.HeightM[i];
 

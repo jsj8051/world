@@ -21,6 +21,24 @@ public sealed class HydrologyPipeline
 	public LakeState Lakes { get; private set; }          // 湖泊状态层（River 2C-B：水量平衡）
 	public WaterTopology WaterSystem { get; private set; } // 水系拓扑（River 2C-C：组合层）
 
+	/// <summary>导入地图：直接装配已保存的水文结果（不重跑汇流、填洼、判湖或连水系）。</summary>
+	internal static HydrologyPipeline FromSaved(RiverNetwork rivers, RiverGraph riverTopology,
+		RiverGeometry riverLines, BasinGraph basins, LakeState lakes, WaterTopology waterSystem)
+	{
+		return new HydrologyPipeline
+		{
+			Rivers = rivers ?? throw new System.ArgumentNullException(nameof(rivers)),
+			RiverTopology = riverTopology ?? throw new System.ArgumentNullException(nameof(riverTopology)),
+			RiverLines = riverLines ?? throw new System.ArgumentNullException(nameof(riverLines)),
+			Basins = basins ?? throw new System.ArgumentNullException(nameof(basins)),
+			Lakes = lakes ?? throw new System.ArgumentNullException(nameof(lakes)),
+			WaterSystem = waterSystem ?? throw new System.ArgumentNullException(nameof(waterSystem)),
+			// RawHydro / DepressionBasins are generation intermediates, not part of the saved map.
+			RawHydro = null,
+			DepressionBasins = null,
+		};
+	}
+
 	public void Run(Ball ball, TerrainPipeline terrain, float seaLevelM,
 		PrecipitationModel precipitation)
 	{

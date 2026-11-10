@@ -8,7 +8,7 @@
 [ext_resource type="PackedScene" path="res://scenes/render/MapDock.tscn" id="7_dock"]
 [ext_resource type="Script" uid="uid://ccqknbsnmfk14" path="res://scripts/Scene/RenderManager.cs" id="8_render"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldView.tscn" id="9_worldview"]
-[ext_resource type="Script" uid="uid://dl6k17bxsdqxs" path="res://scripts/UI/Evolution/GeologyPanel.cs" id="10_panel"]
+[ext_resource type="PackedScene" path="res://scenes/render/EvolutionPanel.tscn" id="10_panel"]
 [ext_resource type="Script" uid="uid://d3bhqmoudrppa" path="res://tests/scenes/EvolutionStepCheck.cs" id="11_check"]
 
 [node name="WorldRoot" type="Node3D" unique_id=1750820986]
@@ -47,17 +47,7 @@ offset_bottom = 12.0
 
 [node name="MapDock" parent="UIManager/PanelLayer" unique_id=651687137 instance=ExtResource("7_dock")]
 
-[node name="GeologyPanel" type="PanelContainer" parent="UIManager/PanelLayer" unique_id=1366761198]
-custom_minimum_size = Vector2(316, 0)
-anchors_preset = 1
-anchor_left = 1.0
-anchor_right = 1.0
-offset_left = -328.0
-offset_top = 12.0
-offset_right = -12.0
-offset_bottom = 12.0
-grow_horizontal = 0
-script = ExtResource("10_panel")
+[node name="GeologyPanel" parent="UIManager/PanelLayer" instance=ExtResource("10_panel")]
 
 [node name="EvolutionStepCheck" type="Node" parent="." unique_id=2014503896]
 script = ExtResource("11_check")

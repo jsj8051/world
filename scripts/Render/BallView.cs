@@ -1,6 +1,8 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using World.H3Grid;
 using World.Utils;
 using World.Utils.H3;
@@ -75,22 +77,94 @@ public sealed partial class BallView : Node3D   // partial 是 Godot 源生成�
 	/// <summary>建 122 块 + 两档网格（首帧全量）。</summary>
 	public void BuildChunks()
 	{
-		RebuildElevTex();    // 先有数据纹理：网格 UV 依赖 _texW/_texH
-		int res = _ball.Res;
-		foreach (ulong parent in Res0Cells())
+		BeginBuild();
+		while (!StepBuild(1000)) { }
+	}
+
+	// ── 分帧构建：颜色纹理分片 → 逐块网格；进度用于加载反馈 ──
+	byte[] _colorBytes;
+	int _colorCursor;
+	bool _colorsReady;
+	ulong[] _res0Order;
+	int _chunkCursor;
+
+	/// <summary>准备分帧构建：分配颜色缓冲、重置块游标；不创建任何网格。</summary>
+	public void BeginBuild()
+	{
+		_chunks.Clear();
+		_geomCache.Clear();
+		_mode.BeginBake();
+		int n = _ball.CellIds.Length;
+		_texW = (int)Math.Ceiling(Math.Sqrt(n));
+		_texH = (n + _texW - 1) / _texW;
+		_colorBytes = new byte[_texW * _texH * 4];
+		_colorCursor = 0;
+		_colorsReady = false;
+		_res0Order = Res0Cells().ToArray();
+		_chunkCursor = 0;
+	}
+
+	/// <summary>在给定毫秒预算内推进颜色/网格；返回是否全部完成。</summary>
+	public bool StepBuild(double budgetMs)
+	{
+		var watch = Stopwatch.StartNew();
+		int n = _ball.CellIds.Length;
+
+		if (!_colorsReady)
 		{
-			var c = new Chunk { Parent = parent, Dir = CellQuery.CellDir(parent) };
-			c.Hi = new MeshInstance3D { Name = $"c{parent:X}_hi", Mesh = MeshFor(parent, res) };
-			AddChild(c.Hi);
+			while (_colorCursor < n && watch.Elapsed.TotalMilliseconds < budgetMs)
+			{
+				int end = Math.Min(n, _colorCursor + 8192);
+				for (int i = _colorCursor; i < end; i++)
+				{
+					Color c = _mode.CellColorAt(i).SrgbToLinear();
+					int o = i * 4;
+					_colorBytes[o] = (byte)Math.Round(c.R * 255f);
+					_colorBytes[o + 1] = (byte)Math.Round(c.G * 255f);
+					_colorBytes[o + 2] = (byte)Math.Round(c.B * 255f);
+					_colorBytes[o + 3] = 255;
+				}
+				_colorCursor = end;
+			}
+			if (_colorCursor < n) return false;
+			_elevTex = ImageTexture.CreateFromImage(Image.CreateFromData(_texW, _texH, false, Image.Format.Rgba8, _colorBytes));
+			SharedMaterial().SetShaderParameter("elev_tex", _elevTex);
+			_colorBytes = null;
+			_colorsReady = true;
+		}
+
+		int res = _ball.Res;
+		while (_chunkCursor < _res0Order.Length && watch.Elapsed.TotalMilliseconds < budgetMs)
+		{
+			ulong parent = _res0Order[_chunkCursor++];
+			var chunk = new Chunk { Parent = parent, Dir = CellQuery.CellDir(parent) };
+			chunk.Hi = new MeshInstance3D { Name = $"c{parent:X}_hi", Mesh = MeshFor(parent, res) };
+			AddChild(chunk.Hi);
 			if (res >= 1)
 			{
-				c.Lo = new MeshInstance3D { Name = $"c{parent:X}_lo", Mesh = MeshFor(parent, res - 1) };
-				c.Lo.Visible = false;
-				AddChild(c.Lo);
+				chunk.Lo = new MeshInstance3D { Name = $"c{parent:X}_lo", Mesh = MeshFor(parent, res - 1) };
+				chunk.Lo.Visible = false;
+				AddChild(chunk.Lo);
 			}
-			_chunks.Add(c);
+			_chunks.Add(chunk);
+		}
+		return _chunkCursor >= _res0Order.Length;
+	}
+
+	/// <summary>分帧构建进度 0–1（颜色与网格各半）。</summary>
+	public float BuildProgress
+	{
+		get
+		{
+			if (_res0Order == null || _res0Order.Length == 0) return 0f;
+			float color = (float)_colorCursor / Math.Max(1, _ball.CellIds.Length);
+			float chunks = (float)_chunkCursor / _res0Order.Length;
+			return 0.5f * color + 0.5f * chunks;
 		}
 	}
+
+	/// <summary>分帧构建当前阶段文字。</summary>
+	public string BuildStage => _colorsReady ? "网格装配" : "颜色纹理";
 
 	// ── 每帧：剔除 + LOD（先判可见再定档；两档节点互斥显示）──
 	public void UpdateVisibility(Camera3D camera)

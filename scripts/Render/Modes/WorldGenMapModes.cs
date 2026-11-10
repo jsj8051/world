@@ -15,18 +15,18 @@ namespace World.Render;
 public static class WorldGenMapModes
 {
 	/// <summary>全部模式（注册序 = 坞按钮序 = 模式身份）。</summary>
-	public static List<MapMode> CreateAll(WorldGenSimulation sim) => new()
+	public static List<MapMode> CreateAll(IWorldFactsSource source) => new()
 	{
 		// 列表序 = 坞按钮序 = 模式身份（下标）。增删/换序只改这里，不必碰任何模式类。
-		// 模式持 sim 引用但每次现取 Facts：Run() 会换快照，存旧快照会读到旧场。
-		new TerrainMode(sim),          // 自然地理（初始画面：500 m 等高带高度图）
-		new ElevationMode(sim),        // 自然地理（纯海拔判读）
-		new CrustMode(sim),            // 成因层（壳型、板块运动与构造）
-		new CoastDistanceMode(sim),    // 自然地理
-		new PrecipitationMode(sim),    // 气候
-		new TemperatureMode(sim),      // 气候
-		new PressureMode(sim),         // 气候（气压场：季风重建的入口）
-		new WindMode(sim),             // 气候（色相=风向、明度=风速）
-		new OceanCurrentMode(sim),     // 气候（冷暖 / 强度 / 方向）
+		// 模式持事实源引用但每次现取 Facts：重新发布会换快照，存旧快照会读到旧场。
+		new TerrainMode(source),          // 自然地理（初始画面：500 m 等高带高度图）
+		new ElevationMode(source),        // 自然地理（纯海拔判读）
+		new CrustMode(source),            // 成因层（壳型、板块运动与构造）
+		new CoastDistanceMode(source),    // 自然地理
+		new PrecipitationMode(source),    // 气候
+		new TemperatureMode(source),      // 气候
+		new PressureMode(source),         // 气候（气压场：季风重建的入口）
+		new WindMode(source),             // 气候（色相=风向、明度=风速）
+		new OceanCurrentMode(source),     // 气候（冷暖 / 强度 / 方向）
 	};
 }

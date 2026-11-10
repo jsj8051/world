@@ -1,7 +1,8 @@
 using System;
 using System.Threading;
-using World.H3Grid;
 using World.Data;
+using World.Data.Work;
+using World.H3Grid;
 using World.Utils;
 
 namespace World.Logic;
@@ -11,7 +12,7 @@ namespace World.Logic;
 /// 引擎耦合必须为零——不得出现 <c>GD.*</c> / <c>Node*</c> / <c>Godot.Color</c> / <c>Mathf</c>。
 /// 全量重算复用同一实例再 <c>Run()</c>，不要 new；参数一律由 <c>Run()</c> 接收。
 /// </summary>
-public sealed class WorldGenSimulation
+public sealed class WorldGenSimulation : IWorldFactsSource
 {
 	/// <summary>球壳数据层（H3）。只读口，供表现层判读。</summary>
 	public Ball Ball { get; }
@@ -20,6 +21,9 @@ public sealed class WorldGenSimulation
 	/// 下游读它，不要顺着下面五个阶段句柄去翻各自的产物。</summary>
 	public WorldFacts Facts => _state?.Facts;
 	State _state;
+
+	/// <summary>领域工作信号：生成阶段完成时发出；不引用进度/UI。</summary>
+	public event Action<WorkSignal> Signal;
 
 	internal sealed record State(PlatePipeline Plate, TerrainPipeline Terrain, ClimatePipeline Climate,
 		HydrologyPipeline Hydrology, IndexPipeline Index, WorldFacts Facts);
@@ -52,9 +56,12 @@ public sealed class WorldGenSimulation
 	{
 		var plate = new PlatePipeline();
 		plate.Run(Ball, spec);
+		Signal?.Invoke(WorkSignal.Unit("plate", "板块", 1, 1));
+
 		var terrain = new TerrainPipeline();
 		terrain.Run(Ball, spec.Seed, spec.Terrain, plate.PlateOfCell, plate.Plates, plate.Crust,
 			plate.Boundaries, plate.Boundary, plate.LandBaseDropM);
+		Signal?.Invoke(WorkSignal.Unit("terrain", "地形", 1, 1));
 		return BuildState(spec, plate, terrain, null, CancellationToken.None);
 	}
 
@@ -66,7 +73,9 @@ public sealed class WorldGenSimulation
 		plate.Run(Ball, spec);
 		float[] baseHeight = TerrainManager.BuildInitialHeight(Ball, spec, plate.Crust, plate.LandBaseDropM);
 		var grid = EvolutionGrid.FromBall(Ball, SphericalFbmNoise.WorldRadiusKm, spec.Evolution.GeometryAngularToleranceRad);
-		return EvolutionSimulation.Create(spec, grid, plate.PlateOfCell, plate.Crust, baseHeight, plate.Plates, out initialFrame);
+		var solver = EvolutionSimulation.Create(spec, grid, plate.PlateOfCell, plate.Crust, baseHeight, plate.Plates, out initialFrame);
+		Signal?.Invoke(WorkSignal.Unit("plate", "板块", 1, 1));
+		return solver;
 	}
 
 	internal State PrepareEvolution(EvolutionSimulation solver, EvolutionFrame frame, CancellationToken cancellation = default)
@@ -87,6 +96,7 @@ public sealed class WorldGenSimulation
 			TectonicInfluenceOps.WorldSearchRadiusKm, surface.Boundary, frame.Projection.SurfaceCrustType);
 		terrain.SetSurface(Ball, surface.HeightM, spec.Terrain.SeaLevelM, tectonic);
 		WorldBuildProfile.Mark(ref timing, "terrain");
+		Signal?.Invoke(WorkSignal.Unit("terrain", "地形", 1, 1));
 		return BuildState(spec, plate, terrain, frame, cancellation);
 	}
 
@@ -101,15 +111,21 @@ public sealed class WorldGenSimulation
 		var index = new IndexPipeline();
 		long timing = WorldBuildProfile.Start();
 		cancellation.ThrowIfCancellationRequested();
+		Signal?.Invoke(WorkSignal.Started("climate", "气候"));
 		climate.Run(Ball, terrain, seaM, spec.Climate, spec.Seed, cancellation);
+		Signal?.Invoke(WorkSignal.Unit("climate", "气候", 1, 1));
 		WorldBuildProfile.Mark(ref timing, "climate-total");
 		cancellation.ThrowIfCancellationRequested();
+		Signal?.Invoke(WorkSignal.Started("hydrology", "水文"));
 		hydrology.Run(Ball, terrain, seaM, climate.Precipitation);
+		Signal?.Invoke(WorkSignal.Unit("hydrology", "水文", 1, 1));
 		WorldBuildProfile.Mark(ref timing, "hydrology");
+		Signal?.Invoke(WorkSignal.Started("index", "空间索引"));
 		index.Run(Ball, terrain, hydrology.Rivers);
+		Signal?.Invoke(WorkSignal.Unit("index", "空间索引", 1, 1));
 		WorldBuildProfile.Mark(ref timing, "spatial-index");
 		cancellation.ThrowIfCancellationRequested();
 		return new State(plate, terrain, climate, hydrology, index,
-			new WorldFacts(Ball, plate, terrain, climate, hydrology, index, evolution));
+			new WorldFacts(Ball, plate, terrain, climate, hydrology, index, evolution, seaM));
 	}
 }

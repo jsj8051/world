@@ -7,6 +7,10 @@
     <!-- 测试 / 诊断工程放 tests/，整体排除出游戏程序集（见 tests/README.md）。 -->
     <Compile Remove="tests/**/*.cs" />
     <Compile Include="tests/scenes/EvolutionStepCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
+    <Compile Include="tests/scenes/MapImportCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
+    <Compile Include="tests/scenes/MapBrowserLoadCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
+    <Compile Include="tests/scenes/WorldGenerationLoadCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
+    <Compile Include="tests/scenes/GenerationConfigCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
     <None Remove="tests/**" />
     <!-- CivSim 整棵闭包移入 scripts/_removed/ 并排除编译（移出而非删除，回归时移回并删掉这两行）。 -->
     <Compile Remove="scripts/_removed/**/*.cs" />

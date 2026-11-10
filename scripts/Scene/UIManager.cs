@@ -19,6 +19,8 @@ namespace World.Scene;
 /// </summary>
 public partial class UIManager : Node3D, ITickable
 {
+	const string EvolutionPanelScene = "res://scenes/render/EvolutionPanel.tscn";
+
 	[Export] public NodePath PanelLayerPath { get; set; }
 	[Export] public NodePath DockPath { get; set; }
 	[Export] public NodePath CellCardPath { get; set; }
@@ -36,6 +38,7 @@ public partial class UIManager : Node3D, ITickable
 	public GeologyPanel Geology { get; private set; }
 
 	WorldManager _world;
+	IWorldFactsSource _source;
 
 	/// <summary>
 	/// **初始化**（由根管理器按序调用，幂等）：
@@ -43,10 +46,11 @@ public partial class UIManager : Node3D, ITickable
 	/// ③ 若世界启用了演化，创建控制面板并订阅提交事件。
 	/// ★必须在**渲染管理器初始化之后**调用（订阅的是它的事件）。
 	/// </summary>
-	public void Initialize(RenderManager render, WorldManager world)
+	public void Initialize(RenderManager render, WorldManager world, IWorldFactsSource source = null)
 	{
 		if (CellCard != null) return;   // 幂等
 		_world = world;
+		_source = source ?? world?.Sim;
 
 		PanelLayer = this.Require<CanvasLayer>(PanelLayerPath, nameof(PanelLayerPath));
 		Dock = this.Require<MapDock>(DockPath, nameof(DockPath));
@@ -70,7 +74,14 @@ public partial class UIManager : Node3D, ITickable
 		}
 		if (Geology == null)
 		{
-			Geology = new GeologyPanel { Name = "GeologyPanel" };
+			var packed = ResourceLoader.Load<PackedScene>(EvolutionPanelScene);
+			if (packed == null)
+			{
+				GD.PushError($"[UI] 演化面板场景缺失：{EvolutionPanelScene}");
+				return;
+			}
+			Geology = packed.Instantiate<GeologyPanel>();
+			Geology.Name = "GeologyPanel";
 			PanelLayer.AddChild(Geology);
 			BindGeologyPanel();
 		}
@@ -109,13 +120,17 @@ public partial class UIManager : Node3D, ITickable
 		// 名称类文案由界面侧取（**词表在世界侧**）：
 		//   档位名 ← `ElevationBands`（海拔分档；与海拔色带同一份档界）。
 		string band = ElevationBands.Name(ElevationBands.Of(cell.ElevM));
-		var facts = _world?.Sim?.Facts;
+		var facts = _source?.Facts;
 		var crust = showCrust && facts != null ? CrustCellQuery.Read(facts, cell.Index) : null;
 		CellCard?.ShowCell(cell, band, crust);
 	}
 
-	/// <summary>每帧推进（`ITickable`）：显示后台演化计算状态。</summary>
-	public void Tick(double delta) => RefreshEvolutionStatus();
+	/// <summary>每帧推进（`ITickable`）：显示后台演化计算状态与进度。</summary>
+	public void Tick(double delta)
+	{
+		RefreshEvolutionStatus();
+		Geology?.SetEvolutionSignals(_world?.EvolutionSource, _world?.EvolutionBusy == true);
+	}
 
 	void RefreshEvolutionStatus()
 	{

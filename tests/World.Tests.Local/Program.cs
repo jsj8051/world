@@ -158,6 +158,84 @@ static class Program
 		Run("取消候选计算后可从原帧重试", EvolutionLogicTests.CandidateCancellationKeepsSourceFrame);
 		Run("大地质步自动拆成安全构造子步", EvolutionLogicTests.OversizedStepSplitsIntoTectonicSubsteps);
 
+		Run("地图清单接受头信息而不冒充完整校验", MapManifestTests.ManifestAcceptsHeaderWithoutDirectory);
+		Run("地图清单拒绝未知格式", MapManifestTests.ManifestRejectsUnknownFormat);
+		Run("地图清单拒绝不支持版本", MapManifestTests.ManifestRejectsUnsupportedVersion);
+		Run("数据块描述复制形状并校验字节数", MapManifestTests.DescriptorCopiesShapeAndChecksByteLength);
+		Run("完整布局拒绝缺少必要块", MapManifestTests.ManifestLayoutRejectsMissingRequiredBlocks);
+		Run("地图清单拒绝重复块", MapManifestTests.ManifestRejectsDuplicateDescriptors);
+		Run("不支持探测结果必须带问题", MapManifestTests.ProbeRequiresIssueForUnsupportedResults);
+
+		Run("气候结构拒绝错误长度", MapClimateTests.RejectsWrongLengths);
+		Run("气候结构拒绝越界数值", MapClimateTests.RejectsOutOfRangeValues);
+		Run("气候结构拒绝非法向量", MapClimateTests.RejectsInvalidVectors);
+		Run("气候结构冻结缓冲并保留浮点位", MapClimateTests.ClonesBuffersAndPreservesFloatBits);
+
+		Run("表层结构冻结输入与返回副本", MapGeologyTests.SurfaceFreezesInputAndReturnedCopies);
+		Run("投影表层保留全部事实与空年龄", MapGeologyTests.ProjectedSurfacePreservesAllFactsAndNullAge);
+		Run("表层拒绝缺组、错形状与未知壳型", MapGeologyTests.SurfaceRejectsMissingGroupMembersShapesAndUnknownCrust);
+		Run("表层拒绝越界事实与运动不一致", MapGeologyTests.SurfaceRejectsOutOfRangeFactsAndMotionMismatch);
+		Run("可空地质列校验掩码与有效值", MapGeologyTests.NullableGeologyColumnsValidateMasksAndActiveValues);
+		Run("构造结构保留顺序且允许省种子移动", MapGeologyTests.TectonicsPreservesOrderingAndAllowsMovedProvinceSeed);
+		Run("构造结构拒绝板块与省引用越界", MapGeologyTests.TectonicsRejectsPlateAndProvinceReferences);
+		Run("构造结构拒绝错配边界对与CSR", MapGeologyTests.TectonicsRejectsMalformedBoundaryPairsAndCsr);
+		Run("边界场保留分类与带符号物理速度", MapGeologyTests.BoundaryFieldsRetainClassificationsAndSignedPhysicalSpeeds);
+		Run("构造影响保留空通道与缺源语义", MapGeologyTests.InfluenceChannelsPreserveEmptyAndMissingSourceSemantics);
+		Run("构造影响拒绝不完整或非法结构", MapGeologyTests.InfluenceChannelsRejectIncompleteOrInvalidStructures);
+		Run("地质线码按语义映射并拒绝未知值", MapGeologyTests.GeologyWireMappingsUseSemanticCodesAndRejectUnknowns);
+
+		Run("快照缓冲拥有自身数据并保留浮点位", MapCoreStructureTests.BuffersOwnTheirValuesAndKeepFloatBits);
+		Run("结构错误保留位置与下标", MapCoreStructureTests.StructuralErrorsKeepTheirLocationAndIndex);
+		Run("网格拒绝重复ID且不重新枚举", MapCoreStructureTests.GridRejectsDuplicateIdentitiesWithoutEnumeration);
+		Run("地形校验掩码与海平面", MapCoreStructureTests.TerrainValidatesMasksAndSeaLevel);
+		Run("地形保留无来源距离哨兵", MapCoreStructureTests.TerrainKeepsAbsentDistanceSources);
+		Run("查询标签与距离必须一致", MapCoreStructureTests.QueryLabelsAndDistancesMustAgree);
+		Run("图结构拒绝环与非法链接", MapCoreStructureTests.GraphStructureRejectsCyclesAndInvalidLinks);
+		Run("场景契约不暴露未实现入口", MapCoreStructureTests.SceneContractsKeepUnsupportedScreensUnreachable);
+		Run("操作拒绝过期与已取消提交", MapCoreStructureTests.OperationsRejectStaleAndCancelledPublication);
+		Run("浏览请求不回退到生成", MapCoreStructureTests.BrowseRequestNeverFallsBackToGeneration);
+		Run("原生网格保持文件序并拒绝非法格", MapCoreStructureTests.NativeGridKeepsFileOrderAndRejectsInvalidCells);
+
+		Run("最小水文结构合法", MapHydrologyTests.MinimalHydrologyValidates);
+		Run("原始洼地与路由流域命名空间分离", MapHydrologyTests.RawDepressionsStaySeparateFromRoutedBasins);
+		Run("湖泊保留无溢口标记", MapHydrologyTests.LakeLayersPreserveNoRimMarker);
+		Run("水文拒绝错误长度", MapHydrologyTests.HydrologyRejectsWrongLengths);
+		Run("水文拒绝循环", MapHydrologyTests.HydrologyRejectsCycles);
+		Run("水文拒绝错配河线与引用", MapHydrologyTests.HydrologyRejectsMalformedLinesAndReferences);
+
+		Run("生成世界经快照往返保持一致", MapRoundTripTests.GeneratedWorldRoundTripsThroughSnapshot);
+		Run("地图包写入读出保持事实", MapRoundTripTests.PackageWriteReadPreservesFacts);
+		Run("地图包拒绝缺失与损坏文件", MapRoundTripTests.PackageRejectsMissingAndCorruptFiles);
+		Run("加载操作身份与初始状态", LoadStructureTests.OperationValidatesIdentityAndState);
+		Run("进度快照终态不变量", LoadStructureTests.SnapshotEnforcesTerminalInvariants);
+		Run("阶段计划权重与唯一性", LoadStructureTests.StagePlansAreWellFormed);
+		Run("演化进度与换帧边界", LoadStructureTests.EvolutionAndSwapBoundaries);
+		Run("进度单调与终态吸收", LoadStructureTests.OperationTransitionsAreMonotonic);
+		Run("取消触发令牌", LoadStructureTests.CancelCancelsToken);
+		Run("并行读取按块上报进度", MapRoundTripTests.ParallelReadReportsBlockProgress);
+		Run("浏览 Job 上报进度并装配事实", MapRoundTripTests.BrowseJobReportsProgressAndBuildsFacts);
+		Run("监控器按信号推进进度", LoadProgressMonitorTests.MonitorAdvancesFromSignals);
+		Run("监控器独立完成或失败", LoadProgressMonitorTests.MonitorCompletesOrFailsIndependently);
+		Run("生成 Job 不暴露进度类型", LoadProgressMonitorTests.GenerationJobDoesNotExposeProgress);
+
+		Run("Generation config defaults", GenerationConfigStructureTests.DefaultsAndEnumSelectionsAreValid);
+		Run("Generation config plate bounds", GenerationConfigStructureTests.PlateCountEnforcesApprovedBounds);
+		Run("Generation config unknown enums", GenerationConfigStructureTests.UnknownEnumValuesAreRejected);
+		Run("Generation profile metadata", GenerationConfigStructureTests.ProfileRequiresIdentityNameAndValidConfig);
+		Run("Generation catalog uniqueness", GenerationConfigStructureTests.CatalogEnforcesVersionAndUniqueProfiles);
+		Run("Generation profile file version", GenerationConfigStructureTests.SingleProfileFileValidatesVersionAndProfile);
+		Run("Generation JSON structure", GenerationConfigStructureTests.JsonRequiresCompleteKnownFields);
+		Run("Generation structure boundaries", GenerationConfigStructureTests.AdditionalStructureBoundariesAreEnforced);
+
+		Run("Config apply and generation gate", GenerationConfigLogicTests.ApplyIsMemoryOnlyAndGenerationRequiresCleanAppliedConfig);
+		Run("Config named profile lifecycle", GenerationConfigLogicTests.ProfileNamingSelectionAndDeletionRemainSeparateFromApply);
+		Run("Config strict import export", GenerationConfigLogicTests.ImportExportAreStrictAndDoNotApplyOrPersist);
+		Run("Config failed storage rollback", GenerationConfigLogicTests.StoreFailuresDoNotPartiallyCommitSession);
+		Run("Config damaged catalog protection", GenerationConfigLogicTests.InvalidCatalogIsProtectedButTemporaryGenerationWorks);
+		Run("Config copy isolation", GenerationConfigLogicTests.SessionClonesAllInboundAndOutboundData);
+		Run("Config parameter mapping", GenerationConfigLogicTests.MapperCopiesDefaultsAndMapsEveryPreset);
+		Run("Config atomic file persistence", GenerationConfigLogicTests.FileStoreRoundTripsAndFailedReplacePreservesOriginal);
+
 		Console.WriteLine($"\n{_passed} passed, {_failed} failed");
 		return _failed == 0 ? 0 : 1;
 	}
@@ -173,7 +251,7 @@ static class Program
 		catch (Exception e)
 		{
 			_failed++;
-			Console.WriteLine($"  FAIL {name}: {e.Message}");
+			Console.WriteLine($"  FAIL {name}: {e}");
 		}
 	}
 

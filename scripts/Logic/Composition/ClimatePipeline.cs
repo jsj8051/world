@@ -27,19 +27,19 @@ public sealed class ClimatePipeline
 {
 	static readonly ConditionalWeakTable<Ball, CoarseLayer> PressureGrids = new();
 	/// <summary>降水事实（年 = Σ 月；水文阶段 ③ 的输入）。</summary>
-	public PrecipitationModel Precipitation { get; } = new();
+	public PrecipitationModel Precipitation { get; private set; } = new();
 
 	/// <summary>温度事实（年均 + 逐月 + 月极值）。</summary>
-	public Temperature Temperature { get; } = new();
+	public Temperature Temperature { get; private set; } = new();
 
 	/// <summary>风事实（三套视图：地面 / 低空 / 自由，各含逐月 + 年合成）。</summary>
 	public WindField Wind { get; private set; }
 
 	/// <summary>气压事实（逐月 + 年均，hPa）。</summary>
-	public PressureField Pressure { get; } = new();
+	public PressureField Pressure { get; private set; } = new();
 
 	/// <summary>洋流事实（方向 / 冷暖 / 强度 / 流函数）。</summary>
-	public OceanCurrentModel OceanCurrents { get; } = new();
+	public OceanCurrentModel OceanCurrents { get; private set; } = new();
 
 	/// <summary>季风强度 ∈ [0,1]（逐格）。</summary>
 	public float[] MonsoonStrength { get; private set; } = Array.Empty<float>();
@@ -49,6 +49,21 @@ public sealed class ClimatePipeline
 
 	/// <summary>最干月月份（0–11）。</summary>
 	public int[] DryMonthIndex { get; private set; } = Array.Empty<int>();
+
+	/// <summary>导入地图：直接装配已保存的气候结果（不重算温度、降水、风或洋流）。</summary>
+	internal void LoadSaved(PrecipitationModel precipitation, Temperature temperature, PressureField pressure,
+		OceanCurrentModel oceanCurrents, WindField wind, float[] monsoonStrength, float[] dryMonthMm,
+		int[] dryMonthIndex)
+	{
+		Precipitation = precipitation ?? throw new ArgumentNullException(nameof(precipitation));
+		Temperature = temperature ?? throw new ArgumentNullException(nameof(temperature));
+		Pressure = pressure ?? throw new ArgumentNullException(nameof(pressure));
+		OceanCurrents = oceanCurrents ?? throw new ArgumentNullException(nameof(oceanCurrents));
+		Wind = wind ?? throw new ArgumentNullException(nameof(wind));
+		MonsoonStrength = monsoonStrength ?? throw new ArgumentNullException(nameof(monsoonStrength));
+		DryMonthMm = dryMonthMm ?? throw new ArgumentNullException(nameof(dryMonthMm));
+		DryMonthIndex = dryMonthIndex ?? throw new ArgumentNullException(nameof(dryMonthIndex));
+	}
 
 	/// <param name="seed">世界种子（温度/降水噪声按值展开，阶段不收 <see cref="WorldSpec"/>）。</param>
 	public void Run(Ball ball, TerrainPipeline terrain, float seaLevelM, ClimateSpec spec, int seed)

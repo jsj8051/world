@@ -45,6 +45,43 @@ public sealed class RiverNetwork
 	/// （res4 下与拓扑口径等价；res1 下 1 格即达标）。</summary>
 	public const double RiverThresholdAreaKm2 = 70800.0;
 
+	/// <summary>从已保存的汇流结果装配：逐字段原样赋值，不调用 <see cref="Generate"/>、不重算路由。
+	/// 仅校验非空与逐格数组等长；−1 哨兵、阈值原值均保留。</summary>
+	internal static RiverNetwork FromSaved(int[] downstream, int[] flowAccum, double[] flowAccumKm2,
+		bool[] isRiver, int sinkCount, float[] runoffAccum, double[] runoffAccumKm3,
+		float runoffThreshold, double riverThresholdKm2, HydrologyRoutingSurface routing)
+	{
+		if (routing == null) throw new ArgumentNullException(nameof(routing));
+		int n = SavedCount(downstream, nameof(downstream));
+		if (routing.RoutingHeightM.Length != n || routing.FillDepthM.Length != n)
+			throw new ArgumentException($"路由表面长度 ≠ 格数 {n}", nameof(routing));
+
+		return new RiverNetwork
+		{
+			Downstream = SavedCopy(downstream, n, nameof(downstream)),
+			FlowAccum = SavedCopy(flowAccum, n, nameof(flowAccum)),
+			FlowAccumKm2 = SavedCopy(flowAccumKm2, n, nameof(flowAccumKm2)),
+			IsRiver = SavedCopy(isRiver, n, nameof(isRiver)),
+			SinkCount = sinkCount,
+			RunoffAccum = SavedCopy(runoffAccum, n, nameof(runoffAccum)),
+			RunoffAccumKm3 = SavedCopy(runoffAccumKm3, n, nameof(runoffAccumKm3)),
+			RunoffThreshold = runoffThreshold,
+			RiverThresholdKm2 = riverThresholdKm2,
+			Routing = routing,
+		};
+	}
+
+	static int SavedCount(Array values, string name)
+		=> values?.Length ?? throw new ArgumentNullException(name);
+
+	static T[] SavedCopy<T>(T[] values, int length, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Length != length)
+			throw new ArgumentException($"{name} 长度 {values.Length} ≠ {length}", name);
+		return (T[])values.Clone();
+	}
+
 	/// <summary>生成河网。<paramref name="riverThresholdCells"/> 是拓扑口径（格数），
 	/// <paramref name="riverThresholdAreaKm2"/> 是物理口径（km²），后者优先。
 	/// 同 res 下两者完全等价（× 格面积是等价变换）；跨 res 才显出物理阈值尺度无关。</summary>

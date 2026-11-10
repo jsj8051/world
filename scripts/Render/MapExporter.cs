@@ -27,19 +27,19 @@ public static class MapExporter
 	const string OutputFolder = "map_exports";
 
 	/// <summary>导出当前世界的地形图，返回 PNG 的绝对路径。</summary>
-	/// <param name="sim">已生成的世界（读 <c>Facts.Ball</c> 与格数据）。</param>
+	/// <param name="source">世界事实来源（生成或已导入；读 <c>Facts.Ball</c> 与格数据）。</param>
 	/// <param name="mode">取色策略（地形模式传 <c>TerrainMode</c>）。</param>
 	/// <param name="width">输出宽（像素；建议 2:1）。</param>
 	/// <param name="height">输出高（像素）。</param>
-	public static string ExportTerrain(WorldGenSimulation sim, MapMode mode,
+	public static string ExportTerrain(IWorldFactsSource source, MapMode mode,
 		int width = DefaultWidth, int height = DefaultHeight)
 	{
-		if (sim == null) throw new ArgumentNullException(nameof(sim));
+		if (source == null) throw new ArgumentNullException(nameof(source));
 		if (mode == null) throw new ArgumentNullException(nameof(mode));
 		if (width <= 0 || height <= 0)
 			throw new ArgumentOutOfRangeException(nameof(width), "出图尺寸须为正");
 
-		byte[] pixels = RenderPixels(sim, mode, width, height);
+		byte[] pixels = RenderPixels(source, mode, width, height);
 		var image = Image.CreateFromData(width, height, false, Image.Format.Rgba8, pixels);
 		string dir = EnsureDirectory();
 		string file = System.IO.Path.Combine(dir, $"terrain_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
@@ -53,14 +53,14 @@ public static class MapExporter
 	/// 只做光栅化：等距圆柱投影下逐格多边形填充，返回 RGBA8 像素。
 	/// 不触碰 Godot 引擎资源（<see cref="Image"/>），供无引擎宿主（测试 / 批处理）复用。
 	/// </summary>
-	public static byte[] RenderPixels(WorldGenSimulation sim, MapMode mode, int width, int height)
+	public static byte[] RenderPixels(IWorldFactsSource source, MapMode mode, int width, int height)
 	{
-		if (sim == null) throw new ArgumentNullException(nameof(sim));
+		if (source == null) throw new ArgumentNullException(nameof(source));
 		if (mode == null) throw new ArgumentNullException(nameof(mode));
 		if (width <= 0 || height <= 0)
 			throw new ArgumentOutOfRangeException(nameof(width), "出图尺寸须为正");
 
-		var facts = sim.Facts ?? throw new InvalidOperationException("世界尚未生成");
+		var facts = source.Facts ?? throw new InvalidOperationException("世界尚未生成或导入");
 		var ball = facts.Ball;
 		int n = ball.CellIds.Length;
 

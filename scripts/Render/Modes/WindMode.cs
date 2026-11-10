@@ -27,11 +27,11 @@ public sealed class WindMode : MapMode
 	static readonly WindKind[] Kinds = { WindKind.Surface, WindKind.Low, WindKind.Free };
 	static readonly string[] KindNames = { "地面", "低空", "自由" };
 
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 	int _month;    // 0 = 年均；1..MonthCount = 月份
 	int _variant;  // 0 = 地面 / 1 = 低空 / 2 = 自由
 
-	public WindMode(WorldGenSimulation p) => _p = p;
+	public WindMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "风场";
 

@@ -42,6 +42,33 @@ public sealed class PlateBoundarySet
 		CellEdgeIndex = cellEdgeIndex;
 	}
 
+	/// <summary>
+	/// 用已保存的边界结果装配（导入地图用）：整表原序复制，不重算也不推断板块归属。
+	/// 只校验入参自身可定的长度关系；逐格归属与 CSR 语义由导出侧不变量与快照校验保证。
+	/// </summary>
+	internal static PlateBoundarySet FromSaved(int plateCount, PlateBoundaryEdge[] edges,
+		PlateBoundaryPair[] pairs, int[] cellEdgeStart, int[] cellEdgeIndex)
+	{
+		if (edges == null) throw new ArgumentNullException(nameof(edges));
+		if (pairs == null) throw new ArgumentNullException(nameof(pairs));
+		if (cellEdgeStart == null) throw new ArgumentNullException(nameof(cellEdgeStart));
+		if (cellEdgeIndex == null) throw new ArgumentNullException(nameof(cellEdgeIndex));
+		if (plateCount < 0) throw new ArgumentOutOfRangeException(nameof(plateCount));
+
+		long pairCount = (long)plateCount * plateCount;
+		if (pairs.Length != pairCount)
+			throw new ArgumentException($"板块对表长度 {pairs.Length} ≠ 板块数² {pairCount}", nameof(pairs));
+		if (cellEdgeIndex.Length != 2L * edges.Length)
+			throw new ArgumentException(
+				$"逐格关联表长度 {cellEdgeIndex.Length} ≠ 2×边数 {edges.Length}", nameof(cellEdgeIndex));
+		if (cellEdgeStart.Length == 0)
+			throw new ArgumentException("逐格边起始表至少含一个偏移", nameof(cellEdgeStart));
+
+		return new PlateBoundarySet(plateCount,
+			(PlateBoundaryEdge[])edges.Clone(), (PlateBoundaryPair[])pairs.Clone(),
+			(int[])cellEdgeStart.Clone(), (int[])cellEdgeIndex.Clone());
+	}
+
 	/// <summary>该格是否在板块边界上（至少有一条异板块邻居）。</summary>
 	public bool IsBoundaryCell(int cell) =>
 		(uint)cell < (uint)(CellEdgeStart.Length - 1)

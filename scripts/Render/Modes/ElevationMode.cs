@@ -14,9 +14,9 @@ public sealed class ElevationMode : MapMode
 	/// 同时让海平面恒为 0.5。</summary>
 	const float DomainHalfM = 10000f;
 
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 
-	public ElevationMode(WorldGenSimulation p) => _p = p;
+	public ElevationMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "海拔";
 

@@ -22,10 +22,10 @@ namespace World.Render;
 /// </summary>
 public sealed class OceanCurrentMode : MapMode
 {
-	readonly WorldGenSimulation _p;
+	readonly IWorldFactsSource _p;
 	int _view = 3;   // 0 = 冷暖；1 = 强度；2 = 方向；3 = 粒子（默认）
 
-	public OceanCurrentMode(WorldGenSimulation p) => _p = p;
+	public OceanCurrentMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "洋流";
 

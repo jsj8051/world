@@ -5,15 +5,15 @@ namespace World.Render;
 
 /// <summary>
 /// 世界视图（`RenderManager > WorldView`）：球面网格 <see cref="BallView"/> ＋ 连续河线叠加 ＋ 选中高亮。
-/// 存在的理由 = 把"重算后必须重烘"收成一个方法：世界侧只跑 <see cref="WorldGenSimulation.Run"/>，
-/// 跑完调 <see cref="Rebake"/>；两者不再是靠注释维持的约定。
+/// 存在的理由 = 把"重算后必须重烘"收成一个方法：世界侧发布一份新事实（生成 <see cref="WorldGenSimulation.Run"/>
+/// 或导入），发布后调 <see cref="Rebake"/>；两者不再是靠注释维持的约定。
 /// 装配一次（<see cref="Build"/>）；相机每帧经 <see cref="UpdateVisibility"/> 注入；
 /// 参数改完由 <see cref="RefreshColors"/> 重烘（几何/UV 不动）；选中由宿主喂格 id。
-/// 不订阅事件、不读参数、不判定选中，世界事实一律经注入的 sim 现取。
+/// 不订阅事件、不读参数、不判定选中，世界事实一律经注入的事实源现取。
 /// </summary>
 public partial class WorldView : Node3D
 {
-	WorldGenSimulation _sim;                              // 世界事实来源；Run() 会换快照 ⇒ 每次现取 _sim.Facts
+	IWorldFactsSource _source;                            // 世界事实来源（生成或导入）；重新发布会换快照 ⇒ 每次现取 _source.Facts
 	BallView _ballView;                                   // 球面网格（LOD / 剔除 / 拾取 / 高亮）
 	RiverLineOverlay _riverLines;                         // 连续河线叠加（只读 RiverGeometry，不改水文）
 	CurrentFlowOverlay _currentFlow;                      // 洋流流线粒子（只在"洋流 · 粒子"档显示）
@@ -42,26 +42,36 @@ public partial class WorldView : Node3D
 	public WorldPicker CreatePicker(Camera3D camera)
 	{
 		if (_ballView == null) throw new System.InvalidOperationException("世界视图尚未 Build，无法建拾取器");
-		return new WorldPicker(_ballView, camera, _sim);
+		return new WorldPicker(_ballView, camera, _source);
 	}
 
 	/// <summary>
-	/// 装配整个世界表现（幂等）。世界生成产物经 <paramref name="sim"/> 现取：
+	/// 装配整个世界表现（幂等）。世界事实经 <paramref name="source"/> 现取：
 	/// 初始取色源 = <c>Facts.HeightM</c>，河线 = <c>Facts.RiverLines</c> / <c>Facts.RiverTopology</c>。
 	/// </summary>
-	/// <param name="sim">世界事实来源（调用方持有，本类不接管生命周期）。</param>
+	/// <param name="source">世界事实来源（生成或已导入；调用方持有，本类不接管生命周期）。</param>
 	/// <param name="initialMode">初始地图模式（装配层注入，本类不内置默认）。</param>
-	public void Build(WorldGenSimulation sim, MapMode initialMode)
+	public void Build(IWorldFactsSource source, MapMode initialMode)
 	{
-		if (_ballView != null) return;
-		_sim = sim ?? throw new System.ArgumentNullException(nameof(sim));
+		BeginBuild(source, initialMode);
+		while (!StepBuild(1000)) { }
+	}
+
+	bool _buildStarted;
+	bool _riverBuilt;
+
+	/// <summary>准备分帧装配：建外壳与叠加层，不建网格/纹理。</summary>
+	public void BeginBuild(IWorldFactsSource source, MapMode initialMode)
+	{
+		if (_buildStarted) return;
+		_source = source ?? throw new System.ArgumentNullException(nameof(source));
 		if (initialMode == null) throw new System.ArgumentNullException(nameof(initialMode));
 
-		var facts = sim.Facts ?? throw new System.InvalidOperationException("世界尚未生成（先 Run）");
+		var facts = source.Facts ?? throw new System.InvalidOperationException("世界尚未生成或导入");
 		_mode = initialMode;
 		_ballView = new BallView(facts.Ball, facts.HeightM, initialMode, LodNearRatio, BackfaceCullRatio);
 		AddChild(_ballView);
-		_ballView.BuildChunks();
+		_ballView.BeginBuild();
 
 		_currentFlow = new CurrentFlowOverlay { Name = "CurrentFlow", Visible = false };
 		_ballView.AddChild(_currentFlow);
@@ -72,26 +82,46 @@ public partial class WorldView : Node3D
 		_plateMotion = new PlateMotionOverlay { Name = "PlateMotion", Visible = false };
 		AddChild(_plateMotion);
 		SyncOverlays();
-
-		if (!ShowRiverLines) return;
-
-		_riverLines = new RiverLineOverlay { Name = "RiverLines" };
-		_ballView.AddChild(_riverLines);
-		_riverLines.Build(facts.Ball, facts.RiverLines, facts.RiverTopology);
+		_buildStarted = true;
 	}
+
+	/// <summary>在毫秒预算内推进分帧装配；返回是否全部完成。</summary>
+	public bool StepBuild(double budgetMs)
+	{
+		if (_ballView == null) return true;
+		if (!_ballView.StepBuild(budgetMs)) return false;
+		if (_riverBuilt) return true;
+
+		_riverBuilt = true;
+		if (ShowRiverLines)
+		{
+			var facts = _source.Facts;
+			_riverLines = new RiverLineOverlay { Name = "RiverLines" };
+			_ballView.AddChild(_riverLines);
+			_riverLines.Build(facts.Ball, facts.RiverLines, facts.RiverTopology);
+		}
+		SyncOverlays();
+		return true;
+	}
+
+	/// <summary>分帧装配进度 0–1（网格/纹理 0–0.95，河线 0.95–1）。</summary>
+	public float BuildProgress => _riverBuilt ? 1f : 0.95f * (_ballView?.BuildProgress ?? 0f);
+
+	/// <summary>分帧装配当前阶段文字。</summary>
+	public string BuildStage => _riverBuilt ? "完成" : _ballView?.BuildStage ?? "画面装配";
 
 	/// <summary>选中高亮（<c>null</c> = 清除）。宿主（渲染管理器）点选后就地调它。</summary>
 	public void SetHighlight(ulong? cellId) => _ballView?.HighlightCell(cellId);
 
 	/// <summary>
-	/// 重算后重烘（世界侧 <c>Sim.Run()</c> 之后的唯一正确做法）：<c>Run</c> 会换快照 ⇒
+	/// 重算或导入发布后重烘（世界侧发布新事实之后的唯一正确做法）：发布换快照 ⇒
 	/// 重新绑定海拔源再重烘颜色纹理，河线按新图重建一遍。
 	/// 几何/UV 不重建（<c>BuildChunks</c> 与 <c>SetElevationSource</c> 成对使用）。
 	/// </summary>
 	public void Rebake()
 	{
-		if (_ballView == null || _sim == null) return;
-		var facts = _sim.Facts;
+		if (_ballView == null || _source == null) return;
+		var facts = _source.Facts;
 		if (facts == null) return;
 		_ballView.SetElevationSource(facts.HeightM);
 		_ballView.RefreshColors();
@@ -118,7 +148,7 @@ public partial class WorldView : Node3D
 	/// <summary>按当前模式决定叠加层可见性（洋流粒子只在"洋流 · 粒子"档，风丝只在风场模式）。</summary>
 	void SyncOverlays()
 	{
-		var facts = _sim?.Facts;
+		var facts = _source?.Facts;
 		if (_currentFlow != null && facts != null)
 		{
 			bool showCurrent = _mode is OceanCurrentMode ocean && ocean.ShowParticles;

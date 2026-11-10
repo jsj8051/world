@@ -35,6 +35,42 @@ public sealed class RiverGeometry
 	/// <summary>每条线终点的出口格（−1 = 内流洼地终止无以河流格表达的出口）。</summary>
 	public List<int> LineOutlet { get; private set; } = new();
 
+	/// <summary>从已保存的河线装配：逐线复制格序列与单位球方向，不重采样、不重建网格。
+	/// 只接受 Godot.Vector3 值结构体；空线（0 格 0 点）按原样保留。</summary>
+	internal static RiverGeometry FromSaved(int sourceRes, IReadOnlyList<int[]> lineCells,
+		IReadOnlyList<Vector3[]> lines, IReadOnlyList<int> lineOutlet)
+	{
+		if (lineCells == null) throw new ArgumentNullException(nameof(lineCells));
+		if (lines == null) throw new ArgumentNullException(nameof(lines));
+		int count = SavedCount(lineOutlet, nameof(lineOutlet));
+		if (lineCells.Count != count || lines.Count != count)
+			throw new ArgumentException($"河线数量 cells {lineCells.Count} / lines {lines.Count} / outlet {count} 不一致");
+
+		var geometry = new RiverGeometry
+		{
+			SourceRes = sourceRes,
+			LineCells = new List<int[]>(count),
+			Lines = new List<Vector3[]>(count),
+			LineOutlet = new List<int>(lineOutlet),
+		};
+		for (int i = 0; i < count; i++)
+		{
+			int[] cells = SavedCopy(lineCells[i], nameof(lineCells), i);
+			Vector3[] points = SavedCopy(lines[i], nameof(lines), i);
+			if (points.Length != cells.Length)
+				throw new ArgumentException($"河线 {i} 点数 {points.Length} ≠ 格数 {cells.Length}", nameof(lines));
+			geometry.LineCells.Add(cells);
+			geometry.Lines.Add(points);
+		}
+		return geometry;
+	}
+
+	static int SavedCount(IReadOnlyList<int> values, string name)
+		=> values?.Count ?? throw new ArgumentNullException(name);
+
+	static T[] SavedCopy<T>(T[] values, string name, int line)
+		=> values == null ? throw new ArgumentException($"河线 {line} 的 {name} 为空", name) : (T[])values.Clone();
+
 	/// <summary>由河流图生成连续河线（每个河源一条，回溯到出口）。</summary>
 	public void Generate(Ball ball, RiverGraph graph, RiverNetwork rivers)
 	{

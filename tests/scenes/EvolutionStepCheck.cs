@@ -39,10 +39,10 @@ public partial class EvolutionStepCheck : Node
 			return;
 		}
 		var root = (WorldRoot)GetTree().CurrentScene;
-		var dock = root.GetNode("UIManager/PanelLayer/MapDock");
+		var dock = root.GetNode("Presentation/UIManager/PanelLayer/MapDock");
 		var modeRow = dock.GetNode("DockBox/ModeRow");
-		var crustButton = modeRow.GetNodeOrNull<Button>("ModeCrust");
-		var motion = root.GetNodeOrNull<PlateMotionOverlay>("RenderManager/WorldView/PlateMotion");
+		var crustButton = modeRow.GetChildren().OfType<Button>().FirstOrDefault(button => button.Text == "地壳");
+		var motion = root.GetNodeOrNull<PlateMotionOverlay>("Presentation/RenderManager/WorldView/PlateMotion");
 		var current = root.FindChild("CurrentFlow", recursive: true, owned: false) as CurrentFlowOverlay;
 		if (crustButton?.Text != "地壳" || motion == null || motion.Visible
 			|| current == null || current.Visible || current.Mesh != null
@@ -109,7 +109,7 @@ public partial class EvolutionStepCheck : Node
 
 		float before = initial.HeightM[0];
 		long expected = initialFrame.Clock.StepIndex + 1;
-		var panel = GetTree().CurrentScene?.GetNodeOrNull<Control>("UIManager/PanelLayer/GeologyPanel");
+		var panel = GetTree().CurrentScene?.GetNodeOrNull<Control>("Presentation/UIManager/PanelLayer/GeologyPanel");
 		var buttons = panel?.FindChildren("*", "Button", recursive: true, owned: false).OfType<Button>().ToArray();
 		var play = buttons?.FirstOrDefault(button => button.Text == "播放");
 		var pause = buttons?.FirstOrDefault(button => button.Text == "暂停");
@@ -220,10 +220,11 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		modeRow.GetNode<Button>("ModeOceanCurrent").EmitSignal(BaseButton.SignalName.Pressed);
+		var oceanCurrent = modeRow.GetChildren().OfType<Button>().FirstOrDefault(button => button.Text == "洋流");
+		oceanCurrent.EmitSignal(BaseButton.SignalName.Pressed);
 		Mesh flowMesh = current.Mesh;
 		crustButton.EmitSignal(BaseButton.SignalName.Pressed);
-		modeRow.GetNode<Button>("ModeOceanCurrent").EmitSignal(BaseButton.SignalName.Pressed);
+		oceanCurrent.EmitSignal(BaseButton.SignalName.Pressed);
 		if (!current.Visible || flowMesh == null || current.Mesh != flowMesh)
 		{
 			GD.PushError("[EVO-CHECK] 首次切换洋流应按需生成网格，同帧再次切换应复用");

@@ -1,5 +1,10 @@
 using Godot;
+using System;
+using World.Data.Generation;
+using World.Params.Generation;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using World.Client;
 using World.Data;
 using World.Params;
@@ -17,8 +22,26 @@ namespace World.Scene;
 /// 只做四件事：持管理器树（依赖写成 [Export] NodePath）、按序初始化、做中介（管理器互不认识）、
 /// 按注册序转发每帧 Tick。不建 EventBus / 不做 DI / 不持有世界数据。
 /// </summary>
-public partial class WorldRoot : Node3D
-{	[ExportGroup("管理器（NodePath）")]
+public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
+{
+	WorldSpec _requestedSpec;
+	Action<Exception> _generationFailure;
+	Task<WorldGenerationResult> _generationTask;
+	LoadOperation _generationOperation;
+	LoadProgressMonitor _generationMonitor;
+	bool _renderBuilding;
+
+	void IGenerationPage.ConfigureGeneration(GenerationConfig config, Action<Exception> onFailure)
+	{
+		string json = WorldParamStore.ReadPresetText(out var ioProblems);
+		var defaults = WorldParams.ReadJson(json, out var codecProblems);
+		if (defaults == null || ioProblems.Count != 0 || codecProblems.Count != 0)
+			throw new InvalidOperationException("默认世界参数无法加载：" + string.Join("；", ioProblems) + string.Join("；", codecProblems));
+		_requestedSpec = GenerationConfigMapper.CreateWorldSpec(config, defaults);
+		_generationFailure = onFailure;
+	}
+
+	[ExportGroup("管理器（NodePath）")]
 	[Export] public NodePath WorldManagerPath { get; set; }
 	[Export] public NodePath RenderManagerPath { get; set; }
 	[Export] public NodePath UIManagerPath { get; set; }
@@ -45,6 +68,9 @@ public partial class WorldRoot : Node3D
 	/// <summary>每帧推进的子系统（注册序 = 帧内顺序）。</summary>
 	public List<ITickable> Ticks { get; } = new();
 
+	/// <summary>地图工具菜单的装配点（实现见 <c>WorldRoot.MapBindings.cs</c>）。</summary>
+	partial void OnMenusReady();
+
 	/// <summary>
 	/// 唯一的初始化点（幂等）。顺序即依赖序，改顺序只改这里：
 	/// <code>
@@ -59,6 +85,117 @@ public partial class WorldRoot : Node3D
 	/// </summary>
 	public override void _Ready()
 	{
+		if (_progressSink == null)
+		{
+			if (_generationFailure == null) { InitializeWorld(); return; }
+			try { InitializeWorld(); }
+			catch (Exception error)
+			{
+				Ticks.Clear();
+				GD.PushError($"[WORLDROOT] 初始化失败：{error}");
+				_generationFailure(error);
+			}
+			return;
+		}
+
+		try { BeginWorldGeneration(); }
+		catch (Exception error) { FailGeneration(error); }
+	}
+
+	/// <summary>应用内生成：绑定管理器、起后台 Job；生成与装配由 <see cref="_Process"/> 推进。</summary>
+	void BeginWorldGeneration()
+	{
+		World = this.Require<WorldManager>(WorldManagerPath, nameof(WorldManagerPath));
+		Render = this.Require<RenderManager>(RenderManagerPath, nameof(RenderManagerPath));
+		UI = this.Require<UIManager>(UIManagerPath, nameof(UIManagerPath));
+		Camera = this.Require<OrbitalCamera>(CameraPath, nameof(CameraPath));
+
+		Params = new WorldParams();
+		if (_requestedSpec != null) _requestedSpec.CopyTo(Params.Active);
+		else
+		{
+			Params.Reload();
+			foreach (var p in Params.LoadProblems) GD.PushWarning($"[WORLDGEN-PARAMS] {p}");
+		}
+
+		Render.SetDock(this.Require<PanelContainer>(DockPath, nameof(DockPath)));
+		_generationOperation = _progressSink.Begin(LoadFlow.WorldGeneration, "生成世界");
+		LoadOperation operation = _generationOperation;
+		WorldSpec spec = Params.Active;
+		int resolution = World.WorldResolution;
+		bool evolution = World.EnableEvolution;
+		int steps = World.InitialEvolutionSteps;
+		CancellationToken token = operation.Token;
+
+		var job = new WorldGenerationJob();
+		_generationMonitor = new LoadProgressMonitor(operation, LoadStagePlans.Generation, 0f, 0.70f);
+		_generationMonitor.Attach(job);
+		_generationTask = Task.Run(() => job.Run(spec, resolution,
+			PlanetGeometry.ProductionRadius, evolution, steps, token));
+	}
+
+	void PollGeneration()
+	{
+		if (_generationTask == null || !_generationTask.IsCompleted) return;
+		Task<WorldGenerationResult> task = _generationTask;
+		_generationTask = null;
+		_generationMonitor?.Dispose();
+		_generationMonitor = null;
+
+		if (task.IsCanceled) { _generationOperation?.Cancel(); return; }
+		if (task.IsFaulted) { FailGeneration(task.Exception); return; }
+		try { AdoptGeneratedWorld(task.Result); }
+		catch (Exception error) { FailGeneration(error); }
+	}
+
+	void AdoptGeneratedWorld(WorldGenerationResult result)
+	{
+		World.Adopt(result);
+		var modes = WorldGenMapModes.CreateAll(World.Sim);
+		Render.InitializeIncremental(World.Sim, modes);
+		World.WorldPublished += _ => ApplyPublishedWorld();
+		Ticks.Add(World);
+		Ticks.Add(Render);
+
+		Render.FrameLand(Camera);
+		UI.Initialize(Render, World);
+		Ticks.Add(UI);
+		OnMenusReady();
+		_renderBuilding = true;
+
+		GD.Print($"[WORLDROOT] 管理器树就绪：子系统 {Ticks.Count} 个" +
+				 $"（世界={World.Name} 渲染={Render.Name} 界面={UI.Name}/{UI.Dock.Name}）");
+	}
+
+	void FailGeneration(Exception error)
+	{
+		Ticks.Clear();
+		_renderBuilding = false;
+		_generationMonitor?.Dispose();
+		_generationMonitor = null;
+		Exception root = error is AggregateException aggregate ? aggregate.GetBaseException() : error;
+		GD.PushError($"[WORLDROOT] 生成失败：{root}");
+		_generationOperation?.Fail(new LoadFailure("GenerationError", "生成世界", root.Message));
+		_generationOperation = null;
+		_generationFailure?.Invoke(root);
+	}
+
+	/// <summary>演化发布新帧：禁用输入 → 重烘画面 → 恢复。当前重烘仍是整段同步。</summary>
+	void ApplyPublishedWorld()
+	{
+		if (_renderBuilding) return;
+		ulong started = Time.GetTicksMsec();
+		Render.BeginSwap();
+		try { Render.RebakeView(); }
+		finally
+		{
+			Render.EndSwap();
+			GD.Print($"[SWAP] rebake-ms={Time.GetTicksMsec() - started}");
+		}
+	}
+
+	void InitializeWorld()
+	{
 		World = this.Require<WorldManager>(WorldManagerPath, nameof(WorldManagerPath));
 		Render = this.Require<RenderManager>(RenderManagerPath, nameof(RenderManagerPath));
 		UI = this.Require<UIManager>(UIManagerPath, nameof(UIManagerPath));
@@ -66,8 +203,12 @@ public partial class WorldRoot : Node3D
 
 		// ① 参数（不进场景树的管理器：数据归它，节点不归它）
 		Params = new WorldParams();
-		Params.Reload();
-		foreach (var p in Params.LoadProblems) GD.PushWarning($"[WORLDGEN-PARAMS] {p}");
+		if (_requestedSpec != null) _requestedSpec.CopyTo(Params.Active);
+		else
+		{
+			Params.Reload();
+			foreach (var p in Params.LoadProblems) GD.PushWarning($"[WORLDGEN-PARAMS] {p}");
+		}
 
 		// ② 世界（生成事实；表现与点选都不在这步）。演化启用时它每帧推进。
 		World.Initialize(Params.Active);
@@ -81,7 +222,7 @@ public partial class WorldRoot : Node3D
 		Render.SetDock(this.Require<PanelContainer>(DockPath, nameof(DockPath)));
 		var modes = WorldGenMapModes.CreateAll(World.Sim);
 		Render.Initialize(World.Sim, modes);
-		World.WorldPublished += _ => Render.RebakeView();
+		World.WorldPublished += _ => ApplyPublishedWorld();
 		Ticks.Add(Render);
 
 		// 初始取景对准陆地质心（取景属表现侧，由渲染管理器读 FinalLand 后驱动相机）。
@@ -91,14 +232,39 @@ public partial class WorldRoot : Node3D
 		UI.Initialize(Render, World);
 		Ticks.Add(UI);
 
+		// 菜单依赖界面与渲染都就绪后再装配按钮。
+		OnMenusReady();
+
 		GD.Print($"[WORLDROOT] 管理器树就绪：子系统 {Ticks.Count} 个" +
 				 $"（世界={World.Name} 渲染={Render.Name} 界面={UI.Name}/{UI.Dock.Name}）");
 	}
 
-	/// <summary>每帧只转发（顺序 = <see cref="Ticks"/> 注册序）。</summary>
+	/// <summary>每帧：先轮询生成，再分帧装配首帧，最后按注册序转发 Tick。</summary>
 	public override void _Process(double delta)
 	{
+		PollGeneration();
+		if (_renderBuilding && Render != null)
+		{
+			bool done = Render.StepBuild(8.0);
+			_generationOperation?.Report(0.70f + 0.30f * Render.BuildProgress, Render.BuildStage);
+			if (done)
+			{
+				_renderBuilding = false;
+				_generationOperation?.Complete();
+				_generationOperation = null;
+			}
+		}
 		foreach (var t in Ticks) t.Tick(delta);
+	}
+
+	public override void _ExitTree()
+	{
+		_generationOperation?.Cancel();
+		_generationMonitor?.Dispose();
+		_generationMonitor = null;
+		if (_generationTask != null)
+			_ = _generationTask.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
+		World?.PauseEvolution();
 	}
 
 	// 输入不由本类转发：点选住在 RenderManager._UnhandledInput，靠 Godot 原生投递顺序

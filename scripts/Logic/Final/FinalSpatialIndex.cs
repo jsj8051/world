@@ -45,6 +45,35 @@ public sealed class FinalSpatialIndex
 		_ball = ball ?? throw new ArgumentNullException(nameof(ball));
 	}
 
+	/// <summary>
+	/// 用已保存的查询索引装配（导入地图用）：直接写入四张逐格表，不重跑 BFS。
+	/// 最近对象身份与距离全部来自文件；只校验与格数等长，不对照地形。
+	/// </summary>
+	internal static FinalSpatialIndex FromSaved(Ball ball, int[] nearestLandmassId,
+		int[] nearestLandmassDistHops, int[] nearestRiverCell, int[] nearestRiverDistHops)
+	{
+		if (ball == null) throw new ArgumentNullException(nameof(ball));
+		if (nearestLandmassId == null) throw new ArgumentNullException(nameof(nearestLandmassId));
+		if (nearestLandmassDistHops == null) throw new ArgumentNullException(nameof(nearestLandmassDistHops));
+		if (nearestRiverCell == null) throw new ArgumentNullException(nameof(nearestRiverCell));
+		if (nearestRiverDistHops == null) throw new ArgumentNullException(nameof(nearestRiverDistHops));
+
+		int cellCount = ball.CellDirs.Length;
+		if (nearestLandmassId.Length != cellCount || nearestLandmassDistHops.Length != cellCount
+			|| nearestRiverCell.Length != cellCount || nearestRiverDistHops.Length != cellCount)
+			throw new ArgumentException(
+				$"查询索引逐格表长度不一致：格数 {cellCount}、陆块 {nearestLandmassId.Length}、"
+				+ $"陆块距离 {nearestLandmassDistHops.Length}、河流 {nearestRiverCell.Length}、"
+				+ $"河流距离 {nearestRiverDistHops.Length}");
+
+		var index = new FinalSpatialIndex(ball);
+		index.NearestLandmassId = (int[])nearestLandmassId.Clone();
+		index.NearestLandmassDistHops = (int[])nearestLandmassDistHops.Clone();
+		index.NearestRiverCell = (int[])nearestRiverCell.Clone();
+		index.NearestRiverDistHops = (int[])nearestRiverDistHops.Clone();
+		return index;
+	}
+
 	/// <summary>预计算全部距离场（O(n)；一次构建，此后查询 O(1)/O(K)）。</summary>
 	public void Generate(TerrainPipeline terrain, IReadOnlyList<int> riverCells)
 	{

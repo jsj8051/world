@@ -27,7 +27,7 @@ namespace World.H3Grid
 		public Vector3[] CellCenters => _cellCenters;
 		public Vector3[] CellDirs => _cellDirs;
 		public int[][] CellNeighbors => _cellNeighbors;
-		public BallGeoIndex Geo { get; }   // 逐格经纬度索引（CellDirs 的纯函数缓存）
+		public BallGeoIndex Geo { get; private set; }   // 逐格经纬度索引（CellDirs 的纯函数缓存）
 		public int Res { get; }   // 分辨率档（拾取 LatLngToCell / 重染用，构造即定）
 		public float Radius { get; }   // 球半径（格心/顶点坐标同尺度；边界链浮起等派生几何用）
 
@@ -36,6 +36,31 @@ namespace World.H3Grid
 			Res = res;
 			Radius = radius;
 			BuildCellIds(res);
+			BuildGeometry(radius);
+		}
+
+		/// <summary>
+		/// 用已保存的格子表重建网格（导入地图用）：保持文件顺序，不重新枚举全球格子。
+		/// 只重建几何与查找缓存；地形、气候等内容必须来自调用方。
+		/// </summary>
+		/// <exception cref="ArgumentException">格子表为空、含重复或分辨率不符。</exception>
+		/// <example><code>var ball = new Ball(4, 2f, savedCellIds);</code></example>
+		public Ball(int res, float radius, ulong[] cellIds)
+		{
+			if (cellIds == null || cellIds.Length == 0)
+				throw new ArgumentException("格子表不能为空", nameof(cellIds));
+			var unique = new HashSet<ulong>();
+			foreach (ulong id in cellIds)
+				if (!unique.Add(id)) throw new ArgumentException($"格子 {H3.H3ToString(id)} 重复", nameof(cellIds));
+
+			Res = res;
+			Radius = radius;
+			_cellIds = (ulong[])cellIds.Clone();
+			BuildGeometry(radius);
+		}
+
+		void BuildGeometry(float radius)
+		{
 			BuildVertexIds(radius);
 			BuildCellCenters(radius);
 			BuildCellDirs();

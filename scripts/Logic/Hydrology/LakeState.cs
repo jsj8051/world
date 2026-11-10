@@ -50,6 +50,37 @@ public sealed class LakeState
 	/// <summary>溢出点格（**溢出事实独立**：未溢出 = −1；只有水位达到 rim 才存在出口）。</summary>
 	public int[] OutletCell { get; private set; } = Array.Empty<int>();
 
+	/// <summary>从已保存的湖泊状态装配：逐字段原样赋值（含无溢口 NaN），不重跑水量平衡、不要求路由流域。
+	/// LakeOfBasin 的原始洼地数 D 与湖数 L 是两个域，其长度不按 LakeCount 校验。</summary>
+	internal static LakeState FromSaved(int lakeCount, int[] depressionIdOf, int[] basinIdOf, int[] lakeOfBasin,
+		float[] surfaceElevationM, double[] areaKm2, double[] volumeKm3, float[] spillElevationM,
+		int[] outletCell)
+	{
+		return new LakeState
+		{
+			LakeCount = lakeCount,
+			DepressionIdOf = SavedWhole(depressionIdOf, nameof(depressionIdOf)),
+			BasinIdOf = SavedCopy(basinIdOf, lakeCount, nameof(basinIdOf)),
+			LakeOfBasin = SavedWhole(lakeOfBasin, nameof(lakeOfBasin)),
+			SurfaceElevationM = SavedCopy(surfaceElevationM, lakeCount, nameof(surfaceElevationM)),
+			AreaKm2 = SavedCopy(areaKm2, lakeCount, nameof(areaKm2)),
+			VolumeKm3 = SavedCopy(volumeKm3, lakeCount, nameof(volumeKm3)),
+			SpillElevationM = SavedCopy(spillElevationM, lakeCount, nameof(spillElevationM)),
+			OutletCell = SavedCopy(outletCell, lakeCount, nameof(outletCell)),
+		};
+	}
+
+	static int[] SavedWhole(int[] values, string name)
+		=> values == null ? throw new ArgumentNullException(name) : (int[])values.Clone();
+
+	static T[] SavedCopy<T>(T[] values, int length, string name)
+	{
+		if (values == null) throw new ArgumentNullException(name);
+		if (values.Length != length)
+			throw new ArgumentException($"{name} 长度 {values.Length} ≠ {length}", name);
+		return (T[])values.Clone();
+	}
+
 	/// <summary>
 	/// 水量平衡（只读洼地分区/降水/地形；不回写任何冻结层）。
 	/// <paramref name="depressionBasins"/> **必须**是在**原始高度**上算出的内流洼地分区
