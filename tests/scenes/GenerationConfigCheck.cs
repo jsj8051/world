@@ -16,17 +16,17 @@ public partial class GenerationConfigCheck : Node
 		public GenerationProfileCatalog Load() => new();
 		public void Save(GenerationProfileCatalog catalog) { catalog.Validate(); Writes++; }
 	}
-	sealed class Host : IPageHost
+	sealed class Host : IPageNavigator, IMapOpener, IGenerationStarter, INoticeSink
 	{
 		public int Starts;
 		public GenerationConfig Last;
-		public void ShowMainMenu() { }
-		public void ShowGeography() { }
-		public void ShowMapLibrary() { }
+		public void Navigate<TRequest>(TRequest request) where TRequest : PageRequest { }
 		public void OpenMap(string path) { }
-		public void ShowMapBrowser(ImportedWorldFactsSource source) { }
 		public void Notify(string message, NoticeKind kind = NoticeKind.Info) { }
 		public void StartGeography(GenerationConfig config) { Starts++; Last = config; }
+
+		public PageContext Context() => new(CancellationToken.None,
+			navigation: this, mapOpener: this, generation: this, notice: this);
 	}
 
 	public override async void _Ready()
@@ -59,12 +59,14 @@ public partial class GenerationConfigCheck : Node
 						}
 					Require(found && sessionCheck.Draft.Seed == 20261110 && sessionCheck.Draft.PlateCount == 12
 						&& sessionCheck.Draft.Rainfall == RainfallPreset.Wet, "Saved configuration did not survive process restart.");
-					Require(sessionCheck.Applied == null, "Process restart unexpectedly restored temporary Apply state.");
-					GD.Print("[CONFIG-CHECK] PASS persistence read in new process; Apply remains temporary");
+					Require(sessionCheck.Applied.Seed == 42 && sessionCheck.HasUnappliedChanges,
+						"Process restart restored a persisted Apply state.");
+					GD.Print("[CONFIG-CHECK] PASS persistence read in new process; loaded profile is not applied");
 				}
 				GetTree().Quit();
 				return;
 			}
+			NavigationLogicCheck.Run();
 			var app = ResourceLoader.Load<PackedScene>("res://scenes/app/AppRoot.tscn").Instantiate<AppRoot>();
 			AddChild(app);
 			if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--menu") >= 0)
@@ -78,7 +80,7 @@ public partial class GenerationConfigCheck : Node
 			}
 			if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--library") >= 0)
 			{
-				app.ShowMapLibrary();
+				app.Navigation.Navigate(new MapLibraryRequest());
 				for (int i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 				await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
 				GetViewport().GetTexture().GetImage().SavePng("res://tests/map-library-check.png");
@@ -86,7 +88,7 @@ public partial class GenerationConfigCheck : Node
 				GetTree().Quit();
 				return;
 			}
-			app.ShowGeography();
+			app.Navigation.Navigate(new GenerationConfigRequest());
 			Require(app.CurrentScreen is MapGenerationPage, "Geography did not open config page.");
 			Require(app.CurrentScreen.FindChild("WorldManager", true, false) == null, "Config page instantiated world.");
 			if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--generate") >= 0)
@@ -95,9 +97,11 @@ public partial class GenerationConfigCheck : Node
 				configPage.GetNode<World.UI.GenerationConfigEditor>("%Editor").GetNode<SpinBox>("%Seed").Value = 777;
 				configPage.GetNode<Button>("%Apply").EmitSignal(Button.SignalName.Pressed);
 				configPage.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
-				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+				// 生成跑在后台 Job 上；只等固定帧数会在任务结束前就断言。
+				ulong started = Time.GetTicksMsec();
+				while (Time.GetTicksMsec() - started < 120_000
+					&& !(app.CurrentScreen is WorldRoot ready && ready.World?.IsInitialized == true))
+					await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 				Require(app.CurrentScreen is WorldRoot root && root.World.IsInitialized && root.Params.Active.Seed == 777,
 					"Applied configuration did not initialize real world.");
 				GD.Print("[CONFIG-CHECK] PASS real world generation seed=777");
@@ -110,15 +114,13 @@ public partial class GenerationConfigCheck : Node
 			var host = new Host();
 			var page = ResourceLoader.Load<PackedScene>("res://scenes/app/MapGenerationPage.tscn").Instantiate<MapGenerationPage>();
 			page.SetSession(session);
-			((IAppPage)page).Configure(new PageContext(host, CancellationToken.None));
+			((IAppPage)page).Configure(host.Context());
 			AddChild(page);
 			var editor = page.GetNode<TabContainer>("%Editor");
 			Require(editor.GetTabCount() == 4 && editor.GetTabTitle(3) == "气候", "Tabs missing.");
-			page.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
-			Require(host.Starts == 0, "Generated before apply.");
 			editor.GetNode<SpinBox>("%Seed").Value = 12345;
 			page.GetNode<Button>("%Apply").EmitSignal(Button.SignalName.Pressed);
-			Require(session.Applied?.Seed == 12345 && store.Writes == 0, "Apply persisted or lost seed.");
+			Require(session.Applied.Seed == 12345 && store.Writes == 0, "Apply persisted or lost seed.");
 			editor.GetNode<SpinBox>("%Seed").Value = 12346;
 			page.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
 			Require(host.Starts == 0, "Unapplied edits generated.");
@@ -159,7 +161,25 @@ public partial class GenerationConfigCheck : Node
 				await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
 				GetViewport().GetTexture().GetImage().SavePng("res://tests/generation-config-check.png");
 			}
-			GD.Print("[CONFIG-CHECK] PASS navigation, tabs, apply, named save, dirty gate, generation request");
+			// 默认配置已应用：全新会话进入页面即显示“已应用”，无需点应用就能开始生成。
+			page.QueueFree();
+			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			var defaultSession = new GenerationConfigSession(new Store());
+			var defaultHost = new Host();
+			var defaultPage = ResourceLoader.Load<PackedScene>("res://scenes/app/MapGenerationPage.tscn")
+				.Instantiate<MapGenerationPage>();
+			defaultPage.SetSession(defaultSession);
+			((IAppPage)defaultPage).Configure(defaultHost.Context());
+			AddChild(defaultPage);
+			Require(!defaultSession.HasUnappliedChanges, "A fresh session must start applied.");
+			Require(defaultPage.GetNode<Label>("%ConfigState").Text == "已应用", "Config state did not report applied defaults.");
+			Require(!defaultPage.GetNode<Button>("%Generate").Disabled, "Generate was disabled before any edit.");
+			defaultPage.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
+			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			Require(defaultHost.Starts == 1 && defaultHost.Last.Seed == 42,
+				"Applied defaults did not start generation directly.");
+			GD.Print("[CONFIG-CHECK] PASS navigation, tabs, apply, named save, dirty gate, default-applied generation");
 			GetTree().Quit();
 		}
 		catch (Exception error) { GD.PushError($"[CONFIG-CHECK] {error}"); GetTree().Quit(1); }

@@ -29,6 +29,8 @@ public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
 	Task<WorldGenerationResult> _generationTask;
 	LoadOperation _generationOperation;
 	LoadProgressMonitor _generationMonitor;
+	LoadOperationBinding _generationBinding;
+	LoadCommitKey _generationKey;
 	bool _renderBuilding;
 
 	void IGenerationPage.ConfigureGeneration(GenerationConfig config, Action<Exception> onFailure)
@@ -125,13 +127,23 @@ public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
 		int resolution = World.WorldResolution;
 		bool evolution = World.EnableEvolution;
 		int steps = World.InitialEvolutionSteps;
-		CancellationToken token = operation.Token;
+		_generationBinding = new LoadOperationBinding(operation, _pageContext.PageId, _pageContext.Lifetime);
+		var work = new LoadWorkContext(_generationBinding);
+		_generationKey = work.Key;
 
 		var job = new WorldGenerationJob();
 		_generationMonitor = new LoadProgressMonitor(operation, LoadStagePlans.Generation, 0f, 0.70f);
 		_generationMonitor.Attach(job);
-		_generationTask = Task.Run(() => job.Run(spec, resolution,
-			PlanetGeometry.ProductionRadius, evolution, steps, token));
+		_generationTask = Task.Run(() =>
+		{
+			using (work)
+			{
+				work.Token.ThrowIfCancellationRequested();
+				var result = job.Run(spec, resolution, PlanetGeometry.ProductionRadius, evolution, steps, work.Token);
+				work.Token.ThrowIfCancellationRequested();
+				return result;
+			}
+		});
 	}
 
 	void PollGeneration()
@@ -142,8 +154,14 @@ public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
 		_generationMonitor?.Dispose();
 		_generationMonitor = null;
 
+		if (!LoadCommitGuard.IsCurrent(_generationKey, _generationBinding, _pageContext?.PageId ?? Guid.Empty))
+		{
+			_ = task.Exception;
+			return;
+		}
 		if (task.IsCanceled) { _generationOperation?.Cancel(); return; }
 		if (task.IsFaulted) { FailGeneration(task.Exception); return; }
+		if (!LoadCommitGuard.CanCommit(_generationKey, _generationBinding, _pageContext?.PageId ?? Guid.Empty)) return;
 		try { AdoptGeneratedWorld(task.Result); }
 		catch (Exception error) { FailGeneration(error); }
 	}
@@ -176,6 +194,7 @@ public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
 		Exception root = error is AggregateException aggregate ? aggregate.GetBaseException() : error;
 		GD.PushError($"[WORLDROOT] 生成失败：{root}");
 		_generationOperation?.Fail(new LoadFailure("GenerationError", "生成世界", root.Message));
+		_generationOperation?.Dispose();
 		_generationOperation = null;
 		_generationFailure?.Invoke(root);
 	}
@@ -245,13 +264,21 @@ public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
 		PollGeneration();
 		if (_renderBuilding && Render != null)
 		{
-			bool done = Render.StepBuild(8.0);
-			_generationOperation?.Report(0.70f + 0.30f * Render.BuildProgress, Render.BuildStage);
-			if (done)
+			if (!LoadCommitGuard.CanCommit(_generationKey, _generationBinding, _pageContext?.PageId ?? Guid.Empty))
 			{
 				_renderBuilding = false;
-				_generationOperation?.Complete();
-				_generationOperation = null;
+			}
+			else
+			{
+				bool done = Render.StepBuild(8.0);
+				_generationOperation?.Report(0.70f + 0.30f * Render.BuildProgress, Render.BuildStage);
+				if (done)
+				{
+					_renderBuilding = false;
+					_generationOperation?.Complete();
+					_generationOperation?.Dispose();
+					_generationOperation = null;
+				}
 			}
 		}
 		foreach (var t in Ticks) t.Tick(delta);
@@ -259,8 +286,9 @@ public partial class WorldRoot : Node3D, IAppPage, IGenerationPage
 
 	public override void _ExitTree()
 	{
-		_generationOperation?.Cancel();
+		_generationBinding = null;
 		_generationMonitor?.Dispose();
+		_generationOperation?.Dispose();
 		_generationMonitor = null;
 		if (_generationTask != null)
 			_ = _generationTask.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);

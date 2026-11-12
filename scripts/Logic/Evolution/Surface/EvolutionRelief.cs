@@ -9,7 +9,7 @@ namespace World.Logic;
 internal sealed class EvolutionRelief
 {
 	readonly record struct Profile(int FaceIndex, int PlateA, int PlateB, int Under,
-		double Amplitude, double RiftWidth, double CollisionWidth, double CollisionPeak,
+		double Amplitude, double RiftWidth,
 		double HeightBudgetA, double HeightBudgetB,
 		double ArcPeak, bool IslandArc, double HalfSpreadingSpeed, bool OceanA, bool OceanB);
 
@@ -18,6 +18,7 @@ internal sealed class EvolutionRelief
 	readonly CrustType[] _surfaceTypes;
 	readonly int[] _plateOfCell;
 	readonly float[] _materialHeight;
+	readonly EvolutionCrust _material;
 	readonly double[] _oceanBoundarySpeed;
 	readonly List<Profile> _profiles = new();
 	readonly Lazy<List<int>[]> _nearby;
@@ -28,14 +29,14 @@ internal sealed class EvolutionRelief
 
 	public EvolutionRelief(EvolutionGrid grid, EvolutionReliefGeometry geometry, PlateBoundarySet boundaries,
 		EvolutionBoundaryField field, CrustType[] surfaceTypes, int[] plateOfCell, float[] materialHeight,
-		double[] strain, double[] shortening, double[] collisionVolume,
-		double[] arcVolume, EvolutionSpec spec, double timeMa)
+		EvolutionCrust material, double[] strain, double[] arcVolume, EvolutionSpec spec, double timeMa)
 	{
 		_grid = grid;
 		_geometry = geometry;
 		_surfaceTypes = surfaceTypes;
 		_plateOfCell = plateOfCell;
 		_materialHeight = materialHeight;
+		_material = material;
 		_arcReach = spec.ArcReachKm;
 		_trenchReach = spec.TrenchReachKm;
 		_trenchDepth = spec.TrenchReliefScaleM;
@@ -61,31 +62,24 @@ internal sealed class EvolutionRelief
 			double speed = field.NormalSpeedKmPerMa[i];
 			RecordOceanBoundary(edge.CellA, speed);
 			RecordOceanBoundary(edge.CellB, speed);
+			if (field.UnderthrustingPlateIds[i] < 0 && field.MotionKinds[i] != EvolutionMotionKind.Divergent)
+				continue;
 			var (start, end) = grid.FacesStartingAt(edge.CellA);
 			for (int face = start; face < end; face++)
 				if (grid.Faces[face].B == edge.CellB) boundaryFaces.Add((face, i));
 		}
-		// 分段边按原共享弧段顺序累加，保留碰撞和火山的长度分配。
+		// 分段边按共享弧段顺序累加，保留火山弧的长度分配。
 		boundaryFaces.Sort();
-		var collisionLength = new double[grid.CellCount];
 		var arcLength = new double[grid.CellCount];
 		foreach (var (faceIndex, i) in boundaryFaces)
 		{
 			EvolutionFace face = grid.Faces[faceIndex];
-			if (field.ConvergenceKinds[i] == ConvergenceKind.Collision)
-			{
-				collisionLength[face.A] += face.LengthKm;
-				collisionLength[face.B] += face.LengthKm;
-			}
 			int under = field.UnderthrustingPlateIds[i];
 			if (under >= 0)
 				arcLength[boundaries.Edges[i].PlateA == under ? face.B : face.A] += face.LengthKm;
 		}
-		double buoyancy = 1 - spec.ContinentalDensityKgM3 / spec.MantleDensityKgM3;
 		for (int cell = 0; cell < grid.CellCount; cell++)
 		{
-			if (collisionLength[cell] > 0)
-				_redistributedHeight[cell] += 1000 * buoyancy * collisionVolume[cell] / grid.AreasKm2[cell];
 			if (arcLength[cell] > 0)
 				_redistributedHeight[cell] += 1000 * spec.VolcanicReliefFraction * arcVolume[cell] / grid.AreasKm2[cell];
 		}
@@ -95,26 +89,16 @@ internal sealed class EvolutionRelief
 			EvolutionMotionKind motion = field.MotionKinds[i];
 			PlateBoundaryEdge edge = boundaries.Edges[i];
 			int under = field.UnderthrustingPlateIds[i];
-			bool collision = field.ConvergenceKinds[i] == ConvergenceKind.Collision;
 			bool divergent = motion == EvolutionMotionKind.Divergent;
 			var (typeA, typeB) = field.SideTypes(i, surfaceTypes[face.A], surfaceTypes[face.B]);
 			bool oceanA = typeA == CrustType.Oceanic;
 			bool oceanB = typeB == CrustType.Oceanic;
 			bool rifting = divergent && !oceanA && !oceanB;
 			double halfSpreadingSpeed = divergent && (oceanA || oceanB) ? 0.5 * field.NormalSpeedKmPerMa[i] : 0;
-			if (under < 0 && !collision && !divergent)
-				continue;
 			double strength = Math.Min(1, Math.Abs(field.NormalSpeedKmPerMa[i]) / (4 * spec.ActiveSpeedKmPerMa));
 			double rift = rifting ? Math.Clamp(Math.Max(strain[face.A], strain[face.B]) / spec.RiftBreakupStrain, 0, 1) : 0;
-			double width = 0, collisionPeak = 0, budgetA = 0, budgetB = 0, arcPeak = 0;
+			double budgetA = 0, budgetB = 0, arcPeak = 0;
 			bool island = false;
-			if (collision)
-			{
-				width = Math.Clamp(100 + 0.67 * Math.Max(shortening[face.A], shortening[face.B]), 100, 350);
-				budgetA = 1000 * buoyancy * collisionVolume[face.A] * face.LengthKm / collisionLength[face.A];
-				budgetB = 1000 * buoyancy * collisionVolume[face.B] * face.LengthKm / collisionLength[face.B];
-				collisionPeak = 2 * (budgetA + budgetB) / (face.LengthKm * width);
-			}
 			if (under >= 0)
 			{
 				bool overIsA = edge.PlateB == under;
@@ -127,8 +111,8 @@ internal sealed class EvolutionRelief
 			}
 			double amplitude = under >= 0 ? _trenchDepth * strength
 				: rifting ? _riftDepth * strength * Math.Sqrt(rift) : 0;
-			_profiles.Add(new Profile(faceIndex, edge.PlateA, edge.PlateB, under, amplitude, 60 + 120 * rift, width,
-				collisionPeak, budgetA, budgetB, arcPeak, island, halfSpreadingSpeed, oceanA, oceanB));
+			_profiles.Add(new Profile(faceIndex, edge.PlateA, edge.PlateB, under, amplitude, 60 + 120 * rift,
+				budgetA, budgetB, arcPeak, island, halfSpreadingSpeed, oceanA, oceanB));
 		}
 
 		void RecordOceanBoundary(int cell, double speed)
@@ -138,7 +122,7 @@ internal sealed class EvolutionRelief
 		}
 	}
 
-	// 按边长分配已有的抬升。碰撞抬升回到两侧陆壳，火山弧抬升只进入上盘。
+	// 按边长分配已有的火山弧抬升，抬升只进入上盘。
 	// 权重以格面积归一，抬升的面积积分在重分布前后相同。
 	double[] BuildRedistributedDelta()
 	{
@@ -173,9 +157,7 @@ internal sealed class EvolutionRelief
 	{
 		int plate = _plateOfCell[cell];
 		if (plate != profile.PlateA && plate != profile.PlateB) return 0;
-		if (profile.Under >= 0)
-			return plate != profile.Under ? ArcWeight(distance) : 0;
-		return _surfaceTypes[cell] == CrustType.Continental ? Kernel(distance, 0.5 * profile.CollisionWidth) : 0;
+		return plate != profile.Under ? ArcWeight(distance) : 0;
 	}
 
 	double ArcWeight(double distance) => Kernel(distance - 0.8 * _arcReach, 0.6 * _arcReach);
@@ -186,31 +168,36 @@ internal sealed class EvolutionRelief
 		return delta.Length == 0 ? 0 : delta[cell];
 	}
 
-	/// <summary>在模拟格心直接归并抬升与沉降，细网格任意点采样才需要逐格索引。</summary>
-	public float[] AddToHeights()
+	internal sealed record CellRelief(double[] SharedDeltaM, IReadOnlyDictionary<long, double> OceanTrenchDeltaM)
 	{
-		float[] heights = _materialHeight;
-		var surface = new float[heights.Length];
+		public double TrenchDeltaAt(int cell, int plate) =>
+			OceanTrenchDeltaM != null && OceanTrenchDeltaM.TryGetValue(OceanKey(cell, plate), out double delta) ? delta : 0;
+	}
+
+	/// <summary>共享地形修正按格归并。海沟沉降按格、下盘板块分别归并。</summary>
+	public CellRelief BuildCellRelief()
+	{
+		var shared = new double[_grid.CellCount];
 		var active = new List<int>(_profiles.Count);
 		for (int i = 0; i < _profiles.Count; i++)
 		{
 			Profile profile = _profiles[i];
-			if (profile.Under >= 0 || profile.HalfSpreadingSpeed > 0
-				|| (profile.CollisionWidth == 0 && profile.Amplitude != 0))
+			if (profile.Under >= 0 || profile.HalfSpreadingSpeed > 0 || profile.Amplitude != 0)
 				active.Add(i);
 		}
 		if (active.Count == 0)
 		{
-			for (int cell = 0; cell < surface.Length; cell++) surface[cell] = heights[cell] + (float)RedistributionDeltaAt(cell);
-			return surface;
+			for (int cell = 0; cell < shared.Length; cell++) shared[cell] = RedistributionDeltaAt(cell);
+			return new CellRelief(shared, null);
 		}
 
 		int workers = Math.Min(EvolutionWork.MaxWorkers, (active.Count - 1) / 256 + 1);
 		var deltas = new (double Uplift, double Subsidence)[workers][];
+		var trenches = new Dictionary<long, double>[workers];
 		if (workers == 1) Rasterize(0);
 		else Parallel.For(0, workers, Rasterize);
 
-		EvolutionWork.ForCells(surface.Length, (start, end) =>
+		EvolutionWork.ForCells(shared.Length, (start, end) =>
 		{
 			for (int cell = start; cell < end; cell++)
 			{
@@ -220,16 +207,28 @@ internal sealed class EvolutionRelief
 					uplift = Math.Max(uplift, deltas[worker][cell].Uplift);
 					subsidence = Math.Max(subsidence, deltas[worker][cell].Subsidence);
 				}
-				surface[cell] = heights[cell] + (float)(RedistributionDeltaAt(cell) + (uplift - subsidence) * _relaxation);
+				shared[cell] = RedistributionDeltaAt(cell) + (uplift - subsidence) * _relaxation;
+				deltas[0][cell].Subsidence = subsidence;
 			}
 		});
-		return surface;
+		var oceanTrench = new Dictionary<long, double>();
+		foreach (var workerTrenches in trenches)
+			foreach (var (key, depth) in workerTrenches)
+			{
+				int cell = (int)(key >> 32);
+				double extra = Math.Max(0, depth - deltas[0][cell].Subsidence) * _relaxation;
+				if (extra > 0 && (!oceanTrench.TryGetValue(key, out double existing) || -extra < existing))
+					oceanTrench[key] = -extra;
+			}
+		return new CellRelief(shared, oceanTrench);
 
 		void Rasterize(int worker)
 		{
-			var delta = new (double Uplift, double Subsidence)[surface.Length];
+			var delta = new (double Uplift, double Subsidence)[shared.Length];
+			var trench = new Dictionary<long, double>();
 			deltas[worker] = delta;
-			var visited = new int[surface.Length];
+			trenches[worker] = trench;
+			var visited = new int[shared.Length];
 			var queue = new Queue<int>();
 			var scratch = new List<EvolutionReliefGeometry.Sample>();
 			int start = worker * active.Count / workers;
@@ -239,10 +238,18 @@ internal sealed class EvolutionRelief
 				Profile profile = _profiles[active[i]];
 				foreach (var (cell, distance) in _geometry.Samples(profile.FaceIndex, visited, queue, scratch))
 				{
+					if (profile.Under >= 0)
+					{
+						double depth = TrenchDepth(profile, cell, distance);
+						long key = OceanKey(cell, profile.Under);
+						if (depth > 0 && (!trench.TryGetValue(key, out double existing) || depth > existing))
+							trench[key] = depth;
+						continue;
+					}
 					int plate = _plateOfCell[cell];
 					if (plate != profile.PlateA && plate != profile.PlateB) continue;
 					ref var change = ref delta[cell];
-					ApplyCellProfile(profile, cell, plate, distance, ref change.Uplift, ref change.Subsidence);
+					ApplySharedProfile(profile, cell, plate, distance, ref change.Uplift, ref change.Subsidence);
 				}
 			}
 		}
@@ -261,7 +268,8 @@ internal sealed class EvolutionRelief
 		return nearby;
 	}
 
-	public float At(int cell, SpherePointD point, int plate, bool fine = false, double ridgeDetail = 1)
+	public float At(int cell, SpherePointD point, int plate, bool fine = false, double ridgeDetail = 1,
+		CrustType? sampledType = null)
 	{
 		var nearby = _nearby.Value[cell];
 		if (nearby == null) return fine ? 0 : (float)RedistributionDeltaAt(cell);
@@ -270,34 +278,42 @@ internal sealed class EvolutionRelief
 		{
 			Profile profile = _profiles[index];
 			if (plate != profile.PlateA && plate != profile.PlateB) continue;
-			double signedDistance = EvolutionReliefGeometry.SignedDistanceKm(
-				_grid.Faces[profile.FaceIndex], point, _grid.RadiusKm);
-			double distance = Math.Abs(signedDistance);
-			ApplyCellProfile(profile, cell, plate, distance, ref uplift, ref subsidence);
+			double distance = Math.Abs(EvolutionReliefGeometry.SignedDistanceKm(
+				_grid.Faces[profile.FaceIndex], point, _grid.RadiusKm));
+			if (profile.Under < 0)
+				ApplySharedProfile(profile, cell, plate, distance, ref uplift, ref subsidence);
 			if (fine && profile.Under >= 0 && plate != profile.Under)
 			{
 				ridges = Math.Max(ridges, profile.ArcPeak
 					* (profile.IslandArc ? ridgeDetail * ridgeDetail : ridgeDetail)
 					* ArcWeight(distance));
 			}
-			else if (fine && profile.CollisionWidth > 0)
-			{
-				double halfWidth = profile.CollisionWidth * (signedDistance < 0 ? 0.4 : 0.6);
-				ridges = Math.Max(ridges, profile.CollisionPeak * ridgeDetail * Kernel(distance, halfWidth));
-			}
 		}
-		return (float)((fine ? ridges : RedistributionDeltaAt(cell)) + (uplift - subsidence) * _relaxation);
+		double trenchHeightArea = 0, area = 0;
+		foreach (ref readonly var entry in _material.Rows.Row(cell))
+		{
+			var type = (CrustType)(entry.Key % 2);
+			int owner = entry.Key / 2;
+			if (sampledType.HasValue && (type != sampledType || owner != plate)) continue;
+			area += entry.Slot.Area;
+			if (type != CrustType.Oceanic) continue;
+			double trench = 0;
+			foreach (int index in nearby)
+			{
+				Profile profile = _profiles[index];
+				if (profile.Under != owner) continue;
+				double distance = Math.Abs(EvolutionReliefGeometry.SignedDistanceKm(
+					_grid.Faces[profile.FaceIndex], point, _grid.RadiusKm));
+				trench = Math.Max(trench, TrenchDepth(profile, cell, distance));
+			}
+			trenchHeightArea -= entry.Slot.Area * (Math.Max(0, trench - subsidence) * _relaxation);
+		}
+		double shared = (fine ? ridges : RedistributionDeltaAt(cell)) + (uplift - subsidence) * _relaxation;
+		return (float)(shared + (area > 0 ? trenchHeightArea / area : 0));
 	}
 
-	void ApplyCellProfile(Profile profile, int cell, int plate, double distance, ref double uplift, ref double subsidence)
+	void ApplySharedProfile(Profile profile, int cell, int plate, double distance, ref double uplift, ref double subsidence)
 	{
-		if (profile.Under >= 0)
-		{
-			if (plate == profile.Under && _oceanBoundarySpeed[cell] <= 0)
-				ApplyTrench(profile, distance, ref subsidence);
-			return;
-		}
-		if (profile.CollisionWidth > 0) return;
 		bool ocean = _surfaceTypes[cell] == CrustType.Oceanic;
 		double motion = _oceanBoundarySpeed[cell];
 		if (profile.Amplitude != 0)
@@ -314,12 +330,16 @@ internal sealed class EvolutionRelief
 		}
 	}
 
-	void ApplyTrench(Profile profile, double distance, ref double subsidence)
+	double TrenchDepth(Profile profile, int cell, double distance)
 	{
 		double offset = distance - 0.25 * _trenchReach;
-		if (offset >= _trenchReach && double.IsFinite(profile.Amplitude)) return;
-		subsidence = Math.Max(subsidence, profile.Amplitude * Kernel(offset, _trenchReach));
+		if (offset >= _trenchReach || _oceanBoundarySpeed[cell] > 0
+			|| _material.Get(cell, profile.Under, CrustType.Oceanic).Area <= 0)
+			return 0;
+		return profile.Amplitude * Kernel(offset, _trenchReach);
 	}
+
+	static long OceanKey(int cell, int plate) => ((long)cell << 32) | (uint)plate;
 
 	static void ApplyRift(Profile profile, double distance, bool allowSubsidence, ref double uplift, ref double subsidence)
 	{

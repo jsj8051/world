@@ -10,7 +10,7 @@ namespace World.Scene;
 
 /// <summary>
 /// 只读地图浏览：用导入结果装配画面与拾取，不创建生成器、演化会话或导出按钮。
-/// 由 <see cref="AppRoot"/> 在入树前调用 <see cref="Configure"/> 注入已校验事实。
+/// 页面工厂在入树前注入已校验事实，页面宿主再注入生命周期上下文。
 /// </summary>
 public partial class MapBrowser : Node3D, IAppPage
 {
@@ -36,10 +36,12 @@ public partial class MapBrowser : Node3D, IAppPage
 	[Export] public NodePath AppMenuPath { get; set; }
 
 	ImportedWorldFactsSource _source;
-	IPageHost _host;
+	IPageNavigator _nav;
 	bool _initialized;
 	bool _building;
 	LoadOperation _buildOperation;
+	LoadOperationBinding _buildBinding;
+	PageContext _pageContext;
 
 	/// <summary>注入已校验的导入事实；必须在加入场景树之前调用。</summary>
 	internal void SetSource(ImportedWorldFactsSource source) => _source = source;
@@ -47,9 +49,21 @@ public partial class MapBrowser : Node3D, IAppPage
 	/// <summary>注入页面加载操作；渲染分帧完成后由本页完成。</summary>
 	internal void SetBuildOperation(LoadOperation operation) => _buildOperation = operation;
 
-	void IAppPage.Configure(PageContext context) => _host = context?.Host;
+	void IAppPage.Configure(PageContext context)
+	{
+		_pageContext = context;
+		_nav = context?.Navigation;
+		if (_buildOperation != null && context != null)
+			_buildBinding = new LoadOperationBinding(_buildOperation, context.PageId, context.Lifetime);
+	}
 
-	void IAppPage.OnHidden() => _initialized = false;
+	void IAppPage.OnHidden()
+	{
+		_initialized = false;
+		_building = false;
+		_buildBinding = null;
+		_buildOperation?.Cancel();
+	}
 
 	public override void _Ready()
 	{
@@ -62,7 +76,7 @@ public partial class MapBrowser : Node3D, IAppPage
 		menu.Configure("浏览地图", new AppMenuItem("back", "返回地图库"));
 		menu.ItemPressed += id =>
 		{
-			if (id == "back") _host?.ShowMapLibrary();
+			if (id == "back") _nav?.Navigate(new MapLibraryRequest());
 		};
 
 		if (_source == null)
@@ -89,6 +103,12 @@ public partial class MapBrowser : Node3D, IAppPage
 		if (render == null) return;
 		if (_building)
 		{
+			if (_buildOperation != null && !LoadCommitGuard.CanCommit(_buildBinding?.Key ?? default,
+				_buildBinding, _pageContext?.PageId ?? System.Guid.Empty))
+			{
+				_building = false;
+				return;
+			}
 			bool done = render.StepBuild(8.0);
 			_buildOperation?.Report(0.75f + 0.25f * render.BuildProgress, render.BuildStage);
 			if (done)

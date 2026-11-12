@@ -16,7 +16,7 @@ public sealed class ClimateSpec
 {
 	// ── 行星 / 几何 ─────────────────────────────────────────────────────────
 
-	/// <summary>一年几个月（月循环长度；当前模型按 12 个月标定，改它需同时重标定季节相位）。</summary>
+	/// <summary>一年内的等长气候采样数，默认 12。</summary>
 	public int Months { get; set; } = 12;
 
 	/// <summary>转轴倾角（°）：决定太阳直射点摆幅 ±倾角，是季节与季风的唯一来源。出厂 23.44（地球）。</summary>
@@ -63,18 +63,18 @@ public sealed class ClimateSpec
 	/// <summary>洋流对沿岸气温的修幅（°C，冷暖 × 强度 满值时；旧链 ±5）。</summary>
 	public float OceanCurrentWarmthC { get; set; } = 5f;
 
-	// ── 月温度（季节项 + 大陆性 + 反照率）──────────────────────────────────
+	// ── 月温度（辐照 + 热惯性 + 反照率）────────────────────────────────────
 
-	/// <summary>海洋季节半幅（°C，在 23.4° 倾角、|sin lat| = 1 时；实际 = 本值 × (倾角/23.4) × |sin lat|^1.5）。</summary>
+	/// <summary>归一化日平均辐照异常为 0.20 时的平衡温差（°C），热惯性会削弱实际摆幅。</summary>
 	public float SeasonalBaseC { get; set; } = 25f;
 
-	/// <summary>大陆热力响应系数：`1 + 本值 × 大陆性 × 月辐射` 放大季节摆幅（内陆冬冷夏热）。</summary>
+	/// <summary>大陆的热响应速率为海洋的 `1 + 本值 × 大陆性` 倍。</summary>
 	public float ContinentalResponse { get; set; } = 3.5f;
 
-	/// <summary>大陆性特征长度（km）：`continent = sqrt(d/(d+Dc))`，d = 到海岸距离，渐近不饱和。</summary>
+	/// <summary>大陆性达到一半的距海长度（km），大陆性按 `d / (d + 本值)` 计算。</summary>
 	public float ContinentalityLengthKm { get; set; } = 1000f;
 
-	/// <summary>反照率全额反射时的降温标定（°C）：月温减去 `反照率 × 月辐射 × 本值`。</summary>
+	/// <summary>反照率降温标定（°C），地表反照率乘带热惯性的辐照，冰覆盖增量乘当月辐照。</summary>
 	public float AlbedoCoolingC { get; set; } = 10f;
 
 	/// <summary>海洋反照率（吸收多，反射损失小）。</summary>

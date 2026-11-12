@@ -1,18 +1,26 @@
+using System;
 using Godot;
 using World.Utils;
 
 namespace World.Scene;
 
-/// <summary>页面加载常驻层：Modal 遮罩，轮询绑定操作的快照并刷新视图。</summary>
+/// <summary>
+/// 一次加载的进度层：订阅后台快照，仅在主线程刷新视图；终态时自隐藏并通知外壳销毁本实例。
+/// </summary>
 public partial class LoadingOverlay : CanvasLayer
 {
 	[Export] public NodePath ViewPath { get; set; }
 	[Export] public NodePath DimPath { get; set; }
 
+	/// <summary>一次加载走到终态、视图已隐藏；外壳据此释放本实例。</summary>
+	internal event Action Finished;
+
 	LoadProgressView _view;
 	Control _dim;
-	LoadOperation _operation;
-	long _version = -1;
+	LoadProgressMailbox _mailbox;
+	LoadProgressSubscription _subscription;
+	LoadProgressSnapshot? _latest;
+	double _sinceSnapshot;
 	double _idle;
 
 	public override void _Ready()
@@ -22,35 +30,54 @@ public partial class LoadingOverlay : CanvasLayer
 		Visible = false;
 	}
 
+	/// <summary>主线程绑定进度观察者；后台通知只写入纯 .NET 邮箱。</summary>
 	internal void Bind(LoadOperation operation)
 	{
-		_operation = operation;
-		_version = -1;
+		if (operation == null) throw new ArgumentNullException(nameof(operation));
+		Unbind();
+		_mailbox = new LoadProgressMailbox(operation.Id);
+		_subscription = operation.Subscribe(_mailbox);
 		_idle = 0;
+		_sinceSnapshot = 0;
 		Visible = true;
 	}
 
-	internal void Unbind()
+	void Unbind()
 	{
-		_operation = null;
+		_mailbox?.Dispose();
+		_mailbox = null;
+		_subscription?.Dispose();
+		_subscription = null;
+		_latest = null;
+		_idle = 0;
 		Visible = false;
 	}
 
 	public override void _Process(double delta)
 	{
-		if (_operation == null) return;
-		LoadProgressSnapshot snapshot = _operation.Snapshot();
-		if (snapshot.State != LoadState.Running)
+		if (_mailbox == null) return;
+		if (_mailbox.TryTakeLatest(out LoadProgressSnapshot snapshot))
 		{
-			Unbind();
+			_latest = snapshot;
+			_sinceSnapshot = 0;
+			_idle = 0;
+			if (snapshot.State != LoadState.Running)
+			{
+				Unbind();
+				Finished?.Invoke();
+				return;
+			}
+			_view.Refresh(snapshot, snapshot.Elapsed);
 			return;
 		}
 
-		// 即使阶段内没有新的进度上报，也要至少每 100 ms 刷新一次已用时间。
+		if (_latest is not LoadProgressSnapshot latest) return;
 		_idle += delta;
-		if (snapshot.Version == _version && _idle < 0.1) return;
+		_sinceSnapshot += delta;
+		if (_idle < 0.1) return;
 		_idle = 0;
-		_version = snapshot.Version;
-		_view.Refresh(snapshot);
+		_view.Refresh(latest, latest.Elapsed + TimeSpan.FromSeconds(_sinceSnapshot));
 	}
+
+	public override void _ExitTree() => Unbind();
 }

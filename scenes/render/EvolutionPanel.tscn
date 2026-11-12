@@ -36,6 +36,7 @@ text = "0.0 Ma · 第 0 步"
 
 [node name="Readout" type="Label" parent="Box"]
 layout_mode = 2
+autowrap_mode = 3
 text = ""
 
 [node name="Buttons" type="HBoxContainer" parent="Box"]

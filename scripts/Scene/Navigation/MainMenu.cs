@@ -13,12 +13,12 @@ public partial class MainMenu : Control, IAppPage
 	[Export] public NodePath QuitButtonPath { get; set; }
 	[Export] public NodePath DisabledReasonPath { get; set; }
 
-	IPageHost _host;
+	IPageNavigator _nav;
 	Button _geography;
 	Button _library;
 	Label _reason;
 
-	void IAppPage.Configure(PageContext context) => _host = context?.Host;
+	void IAppPage.Configure(PageContext context) => _nav = context?.Navigation;
 
 	void IAppPage.OnHidden() { }
 
@@ -29,12 +29,12 @@ public partial class MainMenu : Control, IAppPage
 		var quit = this.Require<Button>(QuitButtonPath, nameof(QuitButtonPath));
 		_reason = this.Require<Label>(DisabledReasonPath, nameof(DisabledReasonPath));
 
-		_geography.Pressed += () => _host?.ShowGeography();
-		_library.Pressed += () => _host?.ShowMapLibrary();
+		_geography.Pressed += () => _nav?.Navigate(new GenerationConfigRequest());
+		_library.Pressed += () => _nav?.Navigate(new MapLibraryRequest());
 		quit.Pressed += () => GetTree().Quit();
 		_reason.Text = "文明演化与游玩尚未实现：本版本只提供地理演化与地图库。";
 
-		if (_host == null)
+		if (_nav == null)
 		{
 			_geography.Disabled = true;
 			_library.Disabled = true;

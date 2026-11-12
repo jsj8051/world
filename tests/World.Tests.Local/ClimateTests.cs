@@ -151,6 +151,79 @@ static class ClimateTests
 		Program.True(southJuly < southJan - 5f, $"30°S 应反相：7月 {southJuly:F1} vs 1月 {southJan:F1}");
 	}
 
+	public static void DailyInsolationIncludesPolarDayAndNight()
+	{
+		var year = MonthlyInsolation.BuildYear(12, 23.44f);
+		var noTilt = MonthlyInsolation.BuildYear(12, 0f);
+		Program.Near(noTilt[0].DailyMean(0.0, 1.0), 1.0 / Math.PI, 1e-9, "赤道全天平均应包含夜间");
+		Program.True(year[5].DeclinationRad > year[4].DeclinationRad
+			&& year[5].DeclinationRad > year[6].DeclinationRad, "北半球的太阳赤纬峰值应在 6 月");
+
+		double latitude = 80.0 * Math.PI / 180.0;
+		double sinLatitude = Math.Sin(latitude), cosLatitude = Math.Cos(latitude);
+		double polarDay = sinLatitude * Math.Sin(year[5].DeclinationRad);
+		Program.Near(year[5].DailyMean(sinLatitude, cosLatitude), polarDay, 1e-8, "极昼应积分整个自转周期");
+		Program.Near(year[11].DailyMean(sinLatitude, cosLatitude), 0.0, 1e-9, "极夜辐照应为零");
+	}
+
+	public static void MonthlyHeatResponseClosesAcrossNewYear()
+	{
+		var planet = Build(withLand: false);
+		int cell = planet.NorthMidCell;
+		double latitude = planet.Grid.LatRad(cell);
+		foreach (int monthCount in new[] { 6, 12 })
+		{
+			var spec = CleanSpec();
+			spec.Months = monthCount;
+			spec.AlbedoCoolingC = 0f;
+			var monthly = RunMonthly(planet, spec, out var baseTemp);
+			var year = MonthlyInsolation.BuildYear(monthCount, spec.ObliquityDeg);
+			double sinLatitude = Math.Sin(latitude), cosLatitude = Math.Cos(latitude);
+			double meanRadiation = 0.0;
+			foreach (var month in year) meanRadiation += month.DailyMean(sinLatitude, cosLatitude) / monthCount;
+			double firstRadiation = year[0].DailyMean(sinLatitude, cosLatitude);
+			double equilibrium = baseTemp[cell] + spec.SeasonalBaseC * (firstRadiation - meanRadiation) / 0.20;
+			double retention = Math.Exp(-12.0 / monthCount / 4.0);
+			double lastTemperature = monthly.MonthTempC[monthCount - 1][cell];
+			double expectedFirst = retention * lastTemperature + (1.0 - retention) * equilibrium;
+
+			Program.Near(monthly.MonthTempC[0][cell], expectedFirst, 1e-5, "年末与年初应遵循同一月度热响应");
+			Program.Near(monthly.AnnualTempC[cell], baseTemp[cell], 1e-5, "季节异常的年均应为零");
+		}
+	}
+
+	public static void HighLatitudeInteriorHasModerateSummerAndEarlierPeak()
+	{
+		const int interior = 80;
+		var dirs = new Vector3[interior + 1];
+		var neighbors = new int[dirs.Length][];
+		var land = new bool[dirs.Length];
+		float latitude = 60f * MathF.PI / 180f;
+		for (int i = 0; i < dirs.Length; i++)
+		{
+			float longitude = i * 0.008f;
+			dirs[i] = new Vector3(MathF.Cos(latitude) * MathF.Cos(longitude), MathF.Sin(latitude),
+				MathF.Cos(latitude) * MathF.Sin(longitude));
+			neighbors[i] = i == 0 ? new[] { 1 } : i == interior ? new[] { i - 1 } : new[] { i - 1, i + 1 };
+			land[i] = i > 0;
+		}
+
+		var grid = ClimateGrid.FromArrays(dirs, neighbors, land, new float[dirs.Length], neighborKm: 25.0);
+		var spec = new ClimateSpec { ContinentalityNoiseC = 0f };
+		var baseTemp = new TemperatureModel();
+		baseTemp.Compute(grid, spec, coastalWarmth: null, seed: 42);
+		TemperatureModel.ApplyWetCooling(baseTemp.AnnualC, PrecipitationModel.EstimateAnnualMm(grid, null), spec);
+		var monthly = new MonthlyClimate();
+		monthly.Compute(grid, spec, baseTemp.AnnualC, coastalWarmth: null, seed: 42);
+
+		float peak = monthly.HotMonthC[interior];
+		Program.True(peak > 10f && peak < 30f, $"60°N 内陆最热月 {peak:F1}°C 超出预期量级");
+		Program.Near(monthly.MonthTempC[6][interior], peak, 1e-5, "60°N 深内陆应在 7 月达到峰值");
+		Program.Near(monthly.MonthTempC[7][0], monthly.HotMonthC[0], 1e-5, "同纬度海洋应在 8 月达到峰值");
+		Program.True(Spread(monthly, 0) < Spread(monthly, 1) && Spread(monthly, 1) < Spread(monthly, interior),
+			"季节温差应随距海增加，从海洋到海岸再到内陆逐渐放大");
+	}
+
 	/// <summary>季风强度来自季节反差：零倾角 ⇒ 恒 0。</summary>
 	public static void MonsoonVanishesWithoutSeasons()
 	{

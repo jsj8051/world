@@ -3,7 +3,13 @@ name: CI
 on:
   push:
   pull_request:
-  workflow_dispatch:   # 手动触发（headless 回归等昂贵作业）
+  workflow_dispatch:
+    inputs:
+      world_resolution:
+        description: 'World regression resolution (2: quick, 4: production)'
+        type: choice
+        options: ['2', '4']
+        default: '2'
 
 jobs:
   build-test:
@@ -30,6 +36,26 @@ jobs:
       # 格式门槛暂缓：.editorconfig 写 space/4，全仓实际用 tab，dotnet format 必红；统一缩进后再启用。
       # - name: Format check
       #   run: dotnet format world.csproj --verify-no-changes --no-restore
+
+  world-regression:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Fixed-seed world regression
+        shell: pwsh
+        run: ./tests/verify-world.ps1 -Resolution ${{ inputs.world_resolution }}
+      - name: Upload regression report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: world-regression-res${{ inputs.world_resolution }}
+          path: tests/World.Tests.Local/bin/regression/report.json
+          if-no-files-found: warn
 
   # headless 回归（构造全流程）由 tests/verify.sh 承担：需要 Godot mono 控制台，本地用 GODOT_EXE 指定；
   # CI 暂不下载引擎。上自托管 runner 后按下面模板加成独立作业。

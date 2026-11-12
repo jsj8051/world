@@ -9,7 +9,7 @@ DLL=".godot/mono/temp/bin/Debug/world.dll"
 
 [ -x "$GODOT" ] || { echo "❌ Godot 不可执行: $GODOT（用 GODOT_EXE 指定）"; exit 2; }
 
-echo "═══ [1/3] dotnet build -t:Rebuild ═══"
+echo "═══ [1/4] dotnet build -t:Rebuild ═══"
 TS_BEFORE=$(stat -c '%Y' "$DLL" 2>/dev/null || echo 0)
 if ! dotnet build -t:Rebuild 2>&1 | tail -8 | grep -q "已成功生成\|Build succeeded\|0 个错误"; then
     echo "❌ 构建失败"; exit 1
@@ -19,11 +19,15 @@ TS_AFTER=$(stat -c '%Y' "$DLL" 2>/dev/null || echo 0)
 echo "✓ DLL 已更新"
 
 echo ""
-echo "═══ [2/3] 演化会话：失败恢复与取消 ═══"
+echo "═══ [2/4] 世界生成：固定样本、不变量与确定性 ═══"
+dotnet run --project tests/World.Tests.Local -- --world-regression 2 || exit 1
+
+echo ""
+echo "═══ [3/4] 演化会话：失败恢复与取消 ═══"
 dotnet run --project tests/World.Tests.Local -- --evolve-session || exit 1
 
 echo ""
-echo "═══ [3/3] headless 冒烟：主世界 res4 单步与跳转 ═══"
+echo "═══ [4/4] headless 冒烟：主世界 res4 单步与跳转 ═══"
 OUT=$(timeout 300 "$GODOT" --headless --path . "res://tests/scenes/WorldEvolutionCheck.tscn" -- --evo-check 2>&1)
 RC=$?
 if [ $RC -ne 0 ]; then

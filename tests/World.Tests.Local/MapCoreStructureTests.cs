@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using World.Data.Maps;
+using World.Scene;
 using World.Scene.Navigation;
 
 namespace World.Tests;
@@ -90,28 +91,38 @@ internal static class MapCoreStructureTests
 		Program.True(SceneContractRules.CanNavigate(ScreenKind.MainMenu, ScreenKind.Geography), "Geography entry is missing.");
 		Program.True(SceneContractRules.CanNavigate(ScreenKind.MapLibrary, ScreenKind.MapBrowser), "Map browse route is missing.");
 		Program.True(!SceneContractRules.CanNavigate(ScreenKind.Geography, ScreenKind.MapBrowser), "An unsupported direct route was accepted.");
-		Program.True(!SceneContractRules.CanInitializeTransition(SceneInitializationState.Created, SceneInitializationState.Active),
-			"NodesReady and Initializing were skipped.");
-		Program.True(!SceneContractRules.CanInitializeTransition(SceneInitializationState.Disposed, SceneInitializationState.Exiting),
-			"Disposed scene reentered its lifecycle.");
-		Program.True(!SceneContractRules.CanOperationTransition(MapOperationState.Cancelling, MapOperationState.Succeeded),
-			"Cancellation was converted into success.");
 	}
 
-	public static void OperationsRejectStaleAndCancelledPublication()
+	/// <summary>The load lifecycle has one state source; a screen's commit right is page identity plus lifetime.</summary>
+	public static void CommitGuardRejectsStaleOwnerAndCancelledWork()
 	{
-		Guid owner = Guid.NewGuid(), operation = Guid.NewGuid();
-		var context = new OperationContext(operation, owner, MapOperationState.Running, null, "Checking map", CancellationToken.None);
-		Program.True(context.CanCommit(owner, operation, SceneInitializationState.Initializing), "A current operation cannot commit.");
-		Program.True(!context.CanCommit(Guid.NewGuid(), operation, SceneInitializationState.Active), "A stale owner can commit.");
-		Program.True(!context.CanCommit(owner, Guid.NewGuid(), SceneInitializationState.Active), "A stale operation can commit.");
-		Program.True(!context.CanCommit(owner, operation, SceneInitializationState.Exiting), "An exiting owner can commit.");
-		using var cancellation = new CancellationTokenSource();
-		var cancelled = new OperationContext(operation, owner, MapOperationState.Running, 0.5f, "Checking map", cancellation.Token);
-		cancellation.Cancel();
-		Program.True(!cancelled.CanCommit(owner, operation, SceneInitializationState.Active), "A cancelled operation can commit.");
-		Program.Throws(() => new OperationContext(Guid.Empty, owner, MapOperationState.Idle, null, "", CancellationToken.None), "Empty identity accepted.");
-		Program.Throws(() => new OperationContext(operation, owner, MapOperationState.Idle, float.NaN, "", CancellationToken.None), "NaN progress accepted.");
+		using var pageLifetime = new CancellationTokenSource();
+		var operation = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "Load map", new CancellationTokenSource());
+		Guid pageId = Guid.NewGuid();
+		var binding = new LoadOperationBinding(operation, pageId, pageLifetime.Token);
+
+		Program.True(LoadCommitGuard.CanCommit(binding.Key, binding, pageId), "A current operation cannot commit.");
+		Program.True(!LoadCommitGuard.CanCommit(binding.Key, binding, Guid.NewGuid()), "A stale page can commit.");
+		Program.True(!LoadCommitGuard.CanCommit(new LoadCommitKey(Guid.NewGuid(), pageId), binding, pageId),
+			"A stale operation can commit.");
+		Program.True(!LoadCommitGuard.CanCommit(new LoadCommitKey(operation.Id, Guid.NewGuid()), binding, pageId),
+			"An operation owned by another page can commit.");
+		Program.True(!LoadCommitGuard.CanCommit(binding.Key, null, pageId), "A missing binding can commit.");
+
+		pageLifetime.Cancel();
+		Program.True(!LoadCommitGuard.CanCommit(binding.Key, binding, pageId), "A cancelled page can commit.");
+
+		using var freshLifetime = new CancellationTokenSource();
+		var second = new LoadOperationBinding(operation, pageId, freshLifetime.Token);
+		operation.Complete();
+		Program.True(!LoadCommitGuard.CanCommit(second.Key, second, pageId), "A completed operation can commit twice.");
+		Program.True(LoadCommitGuard.IsCurrent(second.Key, second, pageId), "A completed operation lost its identity.");
+
+		using var other = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "Load map", new CancellationTokenSource());
+		var third = new LoadOperationBinding(other, pageId, freshLifetime.Token);
+		other.Cancel();
+		Program.True(!LoadCommitGuard.IsCurrent(third.Key, third, pageId), "A cancelled operation is still current.");
+		Program.True(!LoadCommitGuard.CanCommit(third.Key, third, pageId), "A cancelled operation can commit.");
 	}
 
 	public static void BrowseRequestNeverFallsBackToGeneration()

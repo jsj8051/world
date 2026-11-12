@@ -1,52 +1,25 @@
 using Godot;
-using System;
 using World.Logic;
 using World.Utils;
 
 namespace World.Render;
 
 /// <summary>
-/// 地形模式（自然地理 · 注册序首位）：500 m 等高带高度图——把最终陆地海拔量化成等高带。
-/// 不做山体阴影、雪线、海岸高亮或任何后处理；高山用棕 / 暗棕，不用白色。
-/// 色带是表现层的 16 个停点（深海 → 浅海 → 沙滩 → 低地 → 平原 → 高地 → 山地 → 高山）：
-/// 陆地每 500 m 一条带，按高度单调加深 ⇒ 一条脊只有一条最深色带。
-/// 判读档（<c>ElevationBands</c>）仍归世界事实层，不参与这里的取色。
+/// 地形模式。最终格心海拔通过固定的连续色带映射为一格一色。
 /// </summary>
 public sealed class TerrainMode : MapMode
 {
-	/// <summary>等高带间隔（米）：高度图用 500 m 的色带把山脊 / 分支显出来（不做连续渐变）。</summary>
-	const float BandM = 500f;
-
 	readonly IWorldFactsSource _p;
 
 	public TerrainMode(IWorldFactsSource p) => _p = p;
 
 	public override string Name => "地形";
 
-	public override string ScaleCaption => "500 m 等高带 · 海岸混合格按露出面积着色";
+	public override string ScaleCaption => "最终格心海拔 · 连续色带 −11,200 到 +8,500 m";
 
-	public override Color CellColorAt(int i)
-	{
-		var facts = _p.Facts;
-		var cells = facts.Surface.Projected;
-		if (cells != null)
-		{
-			float emergent = cells.EmergentFraction[i];
-			if (emergent <= 0f) return ColorRamp.RampSampleSmooth(Stops, cells.WaterHeightM[i]);
-			Color land = LandColor(cells.LandHeightM[i]);
-			if (emergent >= 1f) return land;
-			return ColorRamp.RampSampleSmooth(Stops, cells.WaterHeightM[i]).Lerp(land, emergent);
-		}
-		float h = facts.HeightM[i];
+	public override Color CellColorAt(int i) => ColorAtElevation(_p.Facts.HeightM[i]);
 
-		// 陆地：量化到 500 m 等高带；色带按高度单调加深，山脊 = 最深的一条带。
-		// 不要交替明暗：那会在一条脊的两侧各造出一条"假脊线"。
-		// 海陆判据读世界事实、不写死 0 m——海面标高变化时海岸线与事实保持一致。
-		return facts.FinalLand[i] ? LandColor(h) : ColorRamp.RampSampleSmooth(Stops, h);
-	}
-
-	static Color LandColor(float height) =>
-		ColorRamp.RampSampleSmooth(Stops, MathF.Floor(height / BandM) * BandM + BandM * 0.5f);
+	internal static Color ColorAtElevation(float heightM) => ColorRamp.RampSampleSmooth(Stops, heightM);
 
 	/// <summary>连续海拔色带（表现层；与判读档解耦）。从深渊到最高峰共 16 个停点，位置覆盖 −11,200…8,500 m。</summary>
 	static readonly ColorRamp.ColorStop[] Stops =

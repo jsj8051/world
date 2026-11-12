@@ -19,7 +19,7 @@ public static class WorldGenMapModes
 	{
 		// 列表序 = 坞按钮序 = 模式身份（下标）。增删/换序只改这里，不必碰任何模式类。
 		// 模式持事实源引用但每次现取 Facts：重新发布会换快照，存旧快照会读到旧场。
-		new TerrainMode(source),          // 自然地理（初始画面：500 m 等高带高度图）
+		new TerrainMode(source),          // 自然地理（初始画面：连续海拔色带）
 		new ElevationMode(source),        // 自然地理（纯海拔判读）
 		new CrustMode(source),            // 成因层（壳型、板块运动与构造）
 		new CoastDistanceMode(source),    // 自然地理

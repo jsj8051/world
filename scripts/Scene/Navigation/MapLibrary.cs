@@ -24,14 +24,19 @@ public partial class MapLibrary : Control, IAppPage
 	sealed record Entry(string Path, string Title, MapProbeStatus Status, string Detail);
 
 	readonly List<Entry> _entries = new();
-	IPageHost _host;
+	IPageNavigator _nav;
+	IMapOpener _opener;
 	ItemList _list;
 	Label _detail;
 	Button _open;
 	FileDialog _dialog;
 	Label _status;
 
-	void IAppPage.Configure(PageContext context) => _host = context?.Host;
+	void IAppPage.Configure(PageContext context)
+	{
+		_nav = context?.Navigation;
+		_opener = context?.MapOpener;
+	}
 
 	void IAppPage.OnHidden() { }
 
@@ -46,7 +51,7 @@ public partial class MapLibrary : Control, IAppPage
 		_status = this.Require<Label>(StatusPath, nameof(StatusPath));
 
 		import.Pressed += () => _dialog.PopupCentered(new Vector2I(900, 600));
-		back.Pressed += () => _host?.ShowMainMenu();
+		back.Pressed += () => _nav?.Navigate(new MainMenuRequest());
 		_dialog.FileSelected += Import;
 		_list.ItemSelected += _ => RefreshSelection();
 		_open.Pressed += OpenSelected;
@@ -113,13 +118,13 @@ public partial class MapLibrary : Control, IAppPage
 
 	void TryOpen(string path)
 	{
-		if (_host == null)
+		if (_opener == null)
 		{
 			SetStatus("独立运行无法打开浏览页，请从主界面进入。");
 			return;
 		}
 		SetStatus("正在加载地图…");
-		_host.OpenMap(path);
+		_opener.OpenMap(path);
 	}
 
 	void SetStatus(string text)

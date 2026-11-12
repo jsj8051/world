@@ -13,6 +13,17 @@ static class Program
 
 	static int Main(string[] args)
 	{
+		if (args.Length > 0 && args[0] == "--world-regression")
+		{
+			if (args.Length > 3 || (args.Length > 1 && !int.TryParse(args[1], out _)))
+			{
+				Console.Error.WriteLine("Usage: --world-regression [2|4] [report.json]");
+				return 2;
+			}
+			return WorldGenerationRegression.Run(args.Length > 1 ? int.Parse(args[1]) : 2,
+				args.Length > 2 ? args[2] : "tests/World.Tests.Local/bin/regression/report.json");
+		}
+
 		if (args.Length > 0 && args[0] == "--terrain")
 		{
 			WorldSmoke.ExportTerrainMap(args.Length > 1 ? int.Parse(args[1]) : 3);
@@ -66,10 +77,15 @@ static class Program
 		}
 
 		Console.WriteLine("World.Tests.Local");
+		Run("World regression rejects invalid metrics and fingerprint drift",
+			WorldGenerationRegression.RejectsInvalidMetricsAndFingerprintDrift);
 
 		Run("年基温随纬度下降", ClimateTests.LatitudeCoolsTowardPoles);
 		Run("零倾角无季节", ClimateTests.ZeroObliquityRemovesSeasons);
 		Run("南北半球季节反相", ClimateTests.ObliquityFlipsHemispheres);
+		Run("全天平均辐照包含极昼极夜", ClimateTests.DailyInsolationIncludesPolarDayAndNight);
+		Run("月度热响应跨年连续", ClimateTests.MonthlyHeatResponseClosesAcrossNewYear);
+		Run("高纬内陆夏温合理且海洋峰值更晚", ClimateTests.HighLatitudeInteriorHasModerateSummerAndEarlierPeak);
 		Run("零倾角无季风", ClimateTests.MonsoonVanishesWithoutSeasons);
 		Run("气压随季节海陆反转", ClimateTests.PressureFlipsLandSeaSign);
 		Run("气压中心落在大陆内部", ClimateTests.PressureCenterSitsInland);
@@ -135,12 +151,16 @@ static class Program
 		Run("海底年龄随时间增加", EvolutionLogicTests.OceanAgeAdvancesWithTime);
 		Run("板块旋转并混合材料", EvolutionLogicTests.PlatesRotateAndMixMaterial);
 		Run("共同旋转无伪构造", EvolutionLogicTests.CommonRotationDoesNotCreateTectonics);
+		Run("共享格边按相对法向通量分配构造面积", EvolutionLogicTests.BoundaryFluxFollowsNormalMotion);
+		Run("黏性接触同速、对称与软硬不对称力平衡", EvolutionLogicTests.ViscousContactBalancesForces);
+		Run("碰撞增厚受局部速度求解限制", EvolutionLogicTests.CollisionOnlyUsesSolvedCompression);
 		Run("多子步输运保留来源帧", EvolutionLogicTests.MultiSubstepTransportKeepsSourceFrame);
 		Run("跨掩码字的板块仍能输运", EvolutionLogicTests.TransportSupportsPlateIdsAboveFirstMaskWord);
 		Run("极小材料尾量同时舍入面积和体积", EvolutionLogicTests.TransportRoundsUnderflowingSlotAsOneContribution);
+		Run("陆壳高阶输运局部有界且守恒", EvolutionLogicTests.LimitedTransportKeepsContinentalTracersBoundedAndConservative);
 		Run("大陆裂谷先减薄再破裂", EvolutionLogicTests.ContinentalRiftThinsBeforeMakingOcean);
 		Run("陆陆汇聚增厚抬升", EvolutionLogicTests.ContinentalCollisionThickensCrust);
-		Run("生产格心重分布碰撞抬升", EvolutionLogicTests.CollisionReliefRedistributesOnTheSimulationGrid);
+		Run("大陆碰撞从材料厚度生成板内山带", EvolutionLogicTests.CollisionDeformsContinentalCellsAwayFromTheContact);
 		Run("俯冲余量保留陆壳占地", EvolutionLogicTests.SubductionOverflowKeepsContinentalArea);
 		Run("混合格覆盖修正保留陆壳占地", EvolutionLogicTests.MixedCoverageCorrectionKeepsContinentalArea);
 		Run("混合海岸保留实际露出面积", EvolutionLogicTests.MixedCoastKeepsItsEmergentArea);
@@ -149,6 +169,7 @@ static class Program
 		Run("张裂生成新洋壳", EvolutionLogicTests.DivergenceCreatesNewOceanicCrust);
 		Run("边界分类识别俯冲", EvolutionLogicTests.BoundaryFieldClassifiesSubduction);
 		Run("陆洋汇聚形成陆弧和海沟", () => EvolutionLogicTests.SubductionFormsAnUpperArc(continentalUpper: true));
+		Run("海沟只降低同格的下盘洋壳", EvolutionLogicTests.TrenchOnlyLowersTheSubductingOceanicSlot);
 		Run("洋洋汇聚形成岛弧和海沟", () => EvolutionLogicTests.SubductionFormsAnUpperArc(continentalUpper: false));
 		Run("陆洋张裂仅在洋侧生成洋脊", () => EvolutionLogicTests.DivergenceFollowsCrustOnEachSide(continentalSide: true));
 		Run("洋洋张裂生成洋脊和年轻洋壳", () => EvolutionLogicTests.DivergenceFollowsCrustOnEachSide(continentalSide: false));
@@ -192,7 +213,17 @@ static class Program
 		Run("查询标签与距离必须一致", MapCoreStructureTests.QueryLabelsAndDistancesMustAgree);
 		Run("图结构拒绝环与非法链接", MapCoreStructureTests.GraphStructureRejectsCyclesAndInvalidLinks);
 		Run("场景契约不暴露未实现入口", MapCoreStructureTests.SceneContractsKeepUnsupportedScreensUnreachable);
-		Run("操作拒绝过期与已取消提交", MapCoreStructureTests.OperationsRejectStaleAndCancelledPublication);
+		Run("提交门拒绝过期页面与取消操作", MapCoreStructureTests.CommitGuardRejectsStaleOwnerAndCancelledWork);
+		Run("观察者订阅立即投递并可退订", LoadLifecycleTests.SubscribeDeliversCurrentSnapshotImmediately);
+		Run("订阅版本递增且释放后静默", LoadLifecycleTests.SubscriptionVersionsIncreaseAndStopOnDispose);
+		Run("终态后订阅只重放终态", LoadLifecycleTests.SubscribeAfterTerminalReplaysTerminalOnce);
+		Run("并发上报保持版本单调", LoadLifecycleTests.ConcurrentReportsKeepVersionsMonotonic);
+		Run("观察者重入上报不死锁", LoadLifecycleTests.ReentrantReportDoesNotDeadlock);
+		Run("观察者异常不影响其他观察者", LoadLifecycleTests.ObserverFailureDoesNotBlockOthers);
+		Run("邮箱保留最新并粘住终态", LoadLifecycleTests.MailboxKeepsLatestAndSticksToTerminal);
+		Run("邮箱关闭后丢弃迟到快照", LoadLifecycleTests.MailboxDropsSnapshotsAfterClose);
+		Run("邮箱经操作订阅接收通知", LoadLifecycleTests.MailboxFollowsOperationSubscriptions);
+		Run("释放操作取消并清空观察者", LoadLifecycleTests.DisposeCancelsOperationAndReleasesObservers);
 		Run("浏览请求不回退到生成", MapCoreStructureTests.BrowseRequestNeverFallsBackToGeneration);
 		Run("原生网格保持文件序并拒绝非法格", MapCoreStructureTests.NativeGridKeepsFileOrderAndRejectsInvalidCells);
 
@@ -212,6 +243,10 @@ static class Program
 		Run("演化进度与换帧边界", LoadStructureTests.EvolutionAndSwapBoundaries);
 		Run("进度单调与终态吸收", LoadStructureTests.OperationTransitionsAreMonotonic);
 		Run("取消触发令牌", LoadStructureTests.CancelCancelsToken);
+		Run("进度邮箱初始结构与身份约束", LoadStructureModelTests.MailboxValidatesIdentityAndInitialState);
+		Run("进度订阅身份与初始结构", LoadStructureModelTests.SubscriptionValidatesIdentityAndInitialState);
+		Run("操作绑定与工作令牌结构", LoadStructureModelTests.BindingLinksOperationAndPageCancellation);
+		Run("页面上下文拥有唯一标识", LoadStructureModelTests.PageContextsHaveUniqueIds);
 		Run("并行读取按块上报进度", MapRoundTripTests.ParallelReadReportsBlockProgress);
 		Run("浏览 Job 上报进度并装配事实", MapRoundTripTests.BrowseJobReportsProgressAndBuildsFacts);
 		Run("监控器按信号推进进度", LoadProgressMonitorTests.MonitorAdvancesFromSignals);
@@ -227,7 +262,7 @@ static class Program
 		Run("Generation JSON structure", GenerationConfigStructureTests.JsonRequiresCompleteKnownFields);
 		Run("Generation structure boundaries", GenerationConfigStructureTests.AdditionalStructureBoundariesAreEnforced);
 
-		Run("Config apply and generation gate", GenerationConfigLogicTests.ApplyIsMemoryOnlyAndGenerationRequiresCleanAppliedConfig);
+		Run("Config defaults applied and dirty gate", GenerationConfigLogicTests.DefaultsStartAppliedAndEditsRequireExplicitApply);
 		Run("Config named profile lifecycle", GenerationConfigLogicTests.ProfileNamingSelectionAndDeletionRemainSeparateFromApply);
 		Run("Config strict import export", GenerationConfigLogicTests.ImportExportAreStrictAndDoNotApplyOrPersist);
 		Run("Config failed storage rollback", GenerationConfigLogicTests.StoreFailuresDoNotPartiallyCommitSession);

@@ -5,7 +5,9 @@
 | 内容 | 约定 |
 |---|---|
 | 单元测试工程 | `tests/<ProjectName>/`，`world.csproj` 已排除 `tests/**` ⇒ 不进游戏程序集 |
-| 回归 / 冒烟脚本 | `tests/verify.sh`（Rebuild、会话失败恢复、主世界 headless res4 单步与跳转） |
+| 回归 / 冒烟脚本 | `tests/verify.sh`（Rebuild、固定世界样本、会话失败恢复、主世界 headless res4 单步与跳转） |
+| 世界生成回归 | `tests/verify-world.ps1 -Resolution 2|4`；固定 Earthlike/Pangea/Archipelago 种子，每样本独立生成两次，比较六阶段 SHA-256 指纹、运行地图快照完整校验、领域不变量并报告性能 |
+| 回归报告 | 默认写入 `tests/World.Tests.Local/bin/regression/report.json`（构建产物目录）；可用 `-ReportPath` 指定位置 |
 | 诊断场景 | `tests/scenes/`，不要放回 `scenes/`；脚本指 `res://tests/...` |
 
 `tests/verify.sh` 用法：
@@ -21,7 +23,11 @@ dotnet run --project tests/World.Tests.Local
 ```
 
 - 默认用例使用合成网格覆盖气候、构造边界、地形、演化材料守恒及候选帧确定性。
-- 全链冒烟（真 H3 网格，需原生库，不进默认表）：
+- 固定世界生成回归（真 H3 网格，默认逻辑入口包含 res2 三样本；生产规模手动运行）：
+  `powershell -ExecutionPolicy Bypass -File tests/verify-world.ps1 -Resolution 2|4`。
+  两次独立生成比较网格/地质/地形/气候/水文/索引指纹；宽松物理范围用于拦截明显退化，stage timings 只报告不设门槛。
+  GitHub Actions 的 `workflow_dispatch` 可选 res2/res4，并上传 JSON 报告。
+- 全链诊断（真 H3 网格，需原生库）：
   `dotnet run --project tests/World.Tests.Local -- --world 4`（打印各场读数与气候耗时）。
 - 演化会话回归（需 H3 原生库）：`dotnet run --project tests/World.Tests.Local -- --evolve-session`。
   验证失败后保留快照、确认恢复、旧任务取消和播放提交。

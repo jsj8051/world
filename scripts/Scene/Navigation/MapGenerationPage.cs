@@ -9,7 +9,8 @@ namespace World.Scene;
 /// <summary>配置页面编排用户操作，通过会话访问配置，通过页面宿主请求生成。</summary>
 public partial class MapGenerationPage : Control, IAppPage
 {
-	IPageHost _host;
+	IPageNavigator _nav;
+	IGenerationStarter _generation;
 	GenerationConfigSession _session;
 	GenerationConfigEditor _editor;
 	ItemList _profiles;
@@ -27,7 +28,11 @@ public partial class MapGenerationPage : Control, IAppPage
 	bool _reading;
 
 	internal void SetSession(GenerationConfigSession session) => _session = session;
-	void IAppPage.Configure(PageContext context) => _host = context?.Host;
+	void IAppPage.Configure(PageContext context)
+	{
+		_nav = context?.Navigation;
+		_generation = context?.Generation;
+	}
 	void IAppPage.OnHidden() { _starting = true; }
 
 	public override void _Ready()
@@ -50,7 +55,7 @@ public partial class MapGenerationPage : Control, IAppPage
 		}
 		_editor.Changed += ReadEditor;
 		_profiles.ItemSelected += SelectProfile;
-		Bind("Back", () => _host?.ShowMainMenu());
+		Bind("Back", () => _nav?.Navigate(new MainMenuRequest()));
 		Bind("Apply", () => Execute(() => { ReadEditor(); _session.Apply(); SetStatus("已应用，仅本次运行有效。"); RefreshState(); }));
 		Bind("Reset", () => Execute(() => { _session.ResetDraft(); RefreshEditor(); SetStatus("已恢复默认，尚未应用。"); }));
 		Bind("Save", () => OpenName("save"));
@@ -89,7 +94,7 @@ public partial class MapGenerationPage : Control, IAppPage
 
 	void RefreshState()
 	{
-		_state.Text = _session.Applied == null ? "尚未应用" : _session.HasUnappliedChanges ? "有未应用的修改" : "已应用";
+		_state.Text = _session.HasUnappliedChanges ? "有未应用的修改" : "已应用";
 		bool selected = _session.SelectedProfileId.HasValue;
 		GetNode<Button>("%Rename").Disabled = !selected;
 		GetNode<Button>("%Delete").Disabled = !selected;
@@ -207,12 +212,12 @@ public partial class MapGenerationPage : Control, IAppPage
 		{
 			ReadEditor();
 			var config = _session.GetAppliedForGeneration();
-			if (_host == null) throw new InvalidOperationException("请从主界面进入配置页面。");
+			if (_generation == null) throw new InvalidOperationException("请从主界面进入配置页面。");
 			_starting = true;
 			GetNode<Button>("%Generate").Disabled = true;
 			SetStatus("正在生成地图…");
 			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-			if (IsInsideTree()) _host.StartGeography(config);
+			if (IsInsideTree()) _generation.StartGeography(config);
 		}
 		catch (Exception e)
 		{

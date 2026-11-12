@@ -1,17 +1,9 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene format=3 uid="uid://clkniys6xyua0"]
 
-[ext_resource type="Script" path="res://scripts/Scene/Navigation/AppRoot.cs" id="1_app"]
-[ext_resource type="PackedScene" path="res://scenes/app/AppStatusBar.tscn" id="2_status"]
-[ext_resource type="PackedScene" path="res://scenes/app/LoadingOverlay.tscn" id="3_load"]
+[ext_resource type="Script" uid="uid://ciee1u5piimf2" path="res://scripts/Scene/Navigation/AppRoot.cs" id="1_app"]
 
-[node name="AppRoot" type="Node"]
+[node name="AppRoot" type="Node" unique_id=813578105]
 script = ExtResource("1_app")
 ScreenHostPath = NodePath("ScreenHost")
-StatusBarPath = NodePath("AppStatusBar")
-LoadingOverlayPath = NodePath("LoadingOverlay")
 
-[node name="ScreenHost" type="Node" parent="."]
-
-[node name="AppStatusBar" parent="." instance=ExtResource("2_status")]
-
-[node name="LoadingOverlay" parent="." instance=ExtResource("3_load")]
+[node name="ScreenHost" type="Node" parent="." unique_id=1526486667]

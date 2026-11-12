@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using World.Utils;
 
@@ -24,13 +25,18 @@ public partial class LoadProgressView : VBoxContainer
 		_percent = this.Require<Label>(PercentPath, nameof(PercentPath));
 	}
 
-	internal void Refresh(LoadProgressSnapshot snapshot)
+	/// <summary>仅在主线程显示不可变快照，不订阅或读取操作状态。</summary>
+	internal void Refresh(LoadProgressSnapshot snapshot) => Refresh(snapshot, snapshot.Elapsed);
+
+	/// <summary>在主线程显示进度快照，并可用本地时钟补偿快照之后的等待时间。</summary>
+	/// <example><code>view.Refresh(snapshot, snapshot.Elapsed);</code></example>
+	internal void Refresh(LoadProgressSnapshot snapshot, TimeSpan elapsed)
 	{
 		if (_bar == null) return;
 		_title.Text = snapshot.Title;
 		if (snapshot.Progress is float progress)
 		{
-			int percent = (int)System.Math.Round(progress * 100f);
+			int percent = (int)Math.Round(progress * 100f);
 			_bar.Value = percent;
 			_percent.Text = $"{percent}%";
 		}
@@ -39,6 +45,6 @@ public partial class LoadProgressView : VBoxContainer
 			_bar.Value = 0;
 			_percent.Text = "处理中";
 		}
-		_stage.Text = $"{snapshot.Stage} · {snapshot.Elapsed.TotalSeconds:F1}s";
+		_stage.Text = $"{snapshot.Stage} · {elapsed.TotalSeconds:F1}s";
 	}
 }

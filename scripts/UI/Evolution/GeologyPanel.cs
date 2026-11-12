@@ -50,7 +50,13 @@ public partial class GeologyPanel : PanelContainer
 	IWorkSignalSource _source;
 	LoadOperation _operation;
 	LoadProgressMonitor _monitor;
-	long _progressVersion = -1;
+	LoadProgressMailbox _progressMailbox;
+	LoadProgressSubscription _progressSubscription;
+	LoadProgressSnapshot? _latestProgress;
+	readonly Guid _pageId = Guid.NewGuid();
+	LoadOperationBinding _progressBinding;
+	double _progressIdle;
+	double _sinceProgressSnapshot;
 
 	public void SetStatus(EvolutionControlStatus status, bool busy)
 	{
@@ -88,42 +94,77 @@ public partial class GeologyPanel : PanelContainer
 		_feedback.Visible = !string.IsNullOrEmpty(message);
 	}
 
-	/// <summary>订阅演化信号源；忙碌开始时创建独立监控器，结束后解除。</summary>
+	/// <summary>主线程订阅演化进度；这里只观察任务，解绑不取消世界侧计算。</summary>
 	internal void SetEvolutionSignals(IWorkSignalSource source, bool busy)
 	{
-		if (busy && (source != _source || _monitor == null))
+		if (!busy || source == null)
 		{
-			_monitor?.Dispose();
-			_operation = new LoadOperation(Guid.NewGuid(), LoadFlow.Evolution, "演化计算",
-				new CancellationTokenSource());
-			_monitor = new LoadProgressMonitor(_operation, plan: null, start: 0f, span: 1f,
-				completesOperation: true);
-			_source = source;
-			_progressVersion = -1;
-			_progress.Visible = true;
-			if (source != null) _monitor.Attach(source);
-			RefreshProgress();
+			UnbindProgress();
+			return;
 		}
-		else if (!busy && _monitor != null)
-		{
-			_monitor.Dispose();
-			_monitor = null;
-			_source = null;
-			_operation = null;
-			_progress.Visible = false;
-		}
+		if (source == _source && _monitor != null) return;
+
+		UnbindProgress();
+		_operation = new LoadOperation(Guid.NewGuid(), LoadFlow.Evolution, "演化计算");
+		_progressBinding = new LoadOperationBinding(_operation, _pageId, CancellationToken.None);
+		_progressMailbox = new LoadProgressMailbox(_operation.Id);
+		_progressSubscription = _operation.Subscribe(_progressMailbox);
+		_monitor = new LoadProgressMonitor(_operation, plan: null, start: 0f, span: 1f,
+			completesOperation: true);
+		_source = source;
+		_monitor.Attach(source);
+		_progress.Visible = true;
+		RefreshProgress(0);
 	}
 
-	public override void _Process(double delta) => RefreshProgress();
-
-	void RefreshProgress()
+	void UnbindProgress()
 	{
-		if (_operation == null) return;
-		LoadProgressSnapshot snapshot = _operation.Snapshot();
-		if (snapshot.Version == _progressVersion) return;
-		_progressVersion = snapshot.Version;
-		_progress.Refresh(snapshot);
+		_progressMailbox?.Dispose();
+		_progressMailbox = null;
+		_progressSubscription?.Dispose();
+		_progressSubscription = null;
+		_progressBinding = null;
+		_monitor?.Dispose();
+		_monitor = null;
+		_source = null;
+		_operation?.Dispose();
+		_operation = null;
+		_latestProgress = null;
+		_progressIdle = 0;
+		_sinceProgressSnapshot = 0;
+		if (_progress != null) _progress.Visible = false;
 	}
+
+	public override void _Process(double delta) => RefreshProgress(delta);
+
+	void RefreshProgress(double delta)
+	{
+		if (_progressMailbox == null || _progressBinding == null) return;
+		if (!LoadCommitGuard.IsCurrent(_progressBinding.Key, _progressBinding, _pageId))
+		{
+			UnbindProgress();
+			return;
+		}
+
+		if (_progressMailbox.TryTakeLatest(out LoadProgressSnapshot snapshot))
+		{
+			_latestProgress = snapshot;
+			_sinceProgressSnapshot = 0;
+			_progressIdle = 0;
+			_progress.Refresh(snapshot, snapshot.Elapsed);
+			_progress.Visible = snapshot.State == LoadState.Running;
+			return;
+		}
+
+		if (_latestProgress is not LoadProgressSnapshot latest || latest.State != LoadState.Running) return;
+		_progressIdle += delta;
+		_sinceProgressSnapshot += delta;
+		if (_progressIdle < 0.1) return;
+		_progressIdle = 0;
+		_progress.Refresh(latest, latest.Elapsed + TimeSpan.FromSeconds(_sinceProgressSnapshot));
+	}
+
+	public override void _ExitTree() => UnbindProgress();
 
 	/// <summary>播放请求。</summary>
 	public event Action PlayPressed;

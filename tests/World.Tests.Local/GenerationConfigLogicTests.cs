@@ -8,15 +8,16 @@ namespace World.Tests;
 
 internal static class GenerationConfigLogicTests
 {
-	public static void ApplyIsMemoryOnlyAndGenerationRequiresCleanAppliedConfig()
+	public static void DefaultsStartAppliedAndEditsRequireExplicitApply()
 	{
 		var store = new MemoryStore();
 		var session = new GenerationConfigSession(store);
-		Program.True(session.Applied == null && session.HasUnappliedChanges, "Initial session must require Apply.");
-		Program.Throws(() => session.GetAppliedForGeneration(), "Unapplied generation accepted.");
-		session.Apply();
-		Program.True(store.Writes == 0 && !session.HasUnappliedChanges, "Apply wrote to storage.");
+		Program.True(session.Applied.Seed == 42 && !session.HasUnappliedChanges,
+			"A fresh session must start with the defaults applied.");
+		Program.True(session.GetAppliedForGeneration().Seed == 42 && store.Writes == 0,
+			"Applied defaults could not start generation.");
 		var edit = session.Draft; edit.Seed = 84; session.Edit(edit);
+		Program.True(session.HasUnappliedChanges, "An edit did not mark the session dirty.");
 		Program.Throws(() => session.GetAppliedForGeneration(), "Dirty generation accepted.");
 		session.Save("Draft");
 		Program.True(session.Applied.Seed == 42 && session.HasUnappliedChanges, "Save implicitly applied draft.");
@@ -37,11 +38,11 @@ internal static class GenerationConfigLogicTests
 		Program.True(session.SelectedProfileId == first && session.Profiles[0].Name == "Renamed", "Rename changed selection.");
 		Program.Throws(() => session.Rename(second, " renamed "), "Duplicate name accepted.");
 		session.Apply(); session.Delete(first);
-		Program.True(session.SelectedProfileId == null && session.Profiles.Count == 1 && session.Applied != null,
+		Program.True(session.SelectedProfileId == null && session.Profiles.Count == 1 && session.Applied.Seed == 42,
 			"Delete changed applied config or retained selection.");
 		Program.Throws(() => session.Select(first), "Deleted profile selected.");
 		session.ResetDraft();
-		Program.True(session.Draft.Seed == 42 && session.Applied != null, "Reset erased applied config.");
+		Program.True(session.Draft.Seed == 42 && session.Applied.Seed == 42, "Reset erased applied config.");
 	}
 
 	public static void ImportExportAreStrictAndDoNotApplyOrPersist()

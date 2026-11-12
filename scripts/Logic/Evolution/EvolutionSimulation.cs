@@ -163,8 +163,9 @@ public sealed class EvolutionSimulation
 				double oldCrust = material.VolumeKm3;
 				double oldMantle = mantle.StoredVolumeKm3;
 				var rates = new double[Grid.CellCount];
-				var processes = new CrustProcesses(Grid, _spec, projection, timeMa, deltaMa, rates);
-				CrustRows slots = _advection.Move(material, processes.SettleCell);
+				var deformation = ContinentalCollisionSolver.Solve(Grid, material, projection, motions, _spec, cancellation);
+				var processes = new CrustProcesses(Grid, _spec, projection, motions, timeMa, deltaMa, rates, deformation);
+				CrustRows slots = _advection.Move(material, processes.SettleCell, deformation);
 				slots = processes.ResolveOverflow(slots, cancellation);
 				var flows = processes.CollectFlows();
 				double mantleVolume = oldMantle + flows.Subducted - flows.NewOceanic - flows.Volcanic;

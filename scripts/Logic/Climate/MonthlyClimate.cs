@@ -14,7 +14,7 @@ namespace World.Logic;
 /// 风不做时间积分：按“地转/热成风 + 三圈纬向风带 + 海陆温差季风 + 地形”诊断生成。
 /// 月/年均场只保留风带、季风和准静止热力结构；冷锋/瞬变涡旋属于天气尺度，不在此生成。
 ///
-/// 关键量：月太阳赤纬 `δₘ = 倾角·sin(2π(m−3)/12)`（m=0 为 1 月）、月辐射 `Sₘ = max(0, cos(lat−δₘ))`。
+/// 月温使用全天平均辐照与海陆热惯性。气压带和降水带共享同一套月太阳赤纬。
 /// 月降水是**绝对量**（mm/月），年降水 = Σ12 月 —— 年值由月值涌现，不做"年值分配"。
 ///
 /// @example
@@ -88,31 +88,26 @@ public sealed class MonthlyClimate
 		MonthCount = Math.Max(1, spec.Months);
 		Allocate(n);
 
-		var continentality = BuildContinentality(grid, spec);
+		var insolation = MonthlyInsolation.BuildYear(MonthCount, spec.ObliquityDeg);
+		MonthlyTemperatureModel.Compute(grid, spec, baseTempC, insolation, MonthTempC, cancellation);
+
 		var elevationGradient = BuildElevationGradient(grid);
 
 		var precipNoise = new SphericalFbmNoise(seed ^ 0x4D5E6F, spec.PrecipNoiseWavelengthKm, 4);
 		var noise = new float[n];
 		for (int i = 0; i < n; i++) noise[i] = precipNoise.Sample(grid.Dirs[i]);
 
-		var seaLevelTemp = new float[n];
 		var annualSeaLevel = new float[n];
-		var seasonalAmplitude = new float[n];
-		float seasonalScale = spec.ObliquityDeg / 23.4f * spec.SeasonalBaseC;
-		for (int i = 0; i < n; i++)
-			seasonalAmplitude[i] = seasonalScale * MathF.Pow(MathF.Abs(MathF.Sin(grid.LatRad(i))), 1.5f);
 		var rainBands = BuildRainBands(grid, spec);
 
-		// ① 12 个月温度一次算完（月温本来就要存档），同时攒年均 T_sl——
-		// 热力项的年均偏置只能从"真实的 12 个月平均"来；用年基温近似会留下高纬几 hPa 的常年偏差。
+		// 气压热力项的年均偏置取已求解的月温平均，再折算到海平面。
 		for (int m = 0; m < MonthCount; m++)
 		{
 			cancellation.ThrowIfCancellationRequested();
-			float deltaRad = DeclinationRad(spec, m);
-			float phase = MathF.Sin(2f * MathF.PI * (m - 3f) / 12f);
-			BuildMonthTemperature(grid, spec, baseTempC, continentality, seasonalAmplitude, m, deltaRad, phase, seaLevelTemp);
-			for (int i = 0; i < n; i++) annualSeaLevel[i] += seaLevelTemp[i] / MonthCount;
+			for (int i = 0; i < n; i++) annualSeaLevel[i] += MonthTempC[m][i];
 		}
+		for (int i = 0; i < n; i++)
+			annualSeaLevel[i] = SeaLevelEquivalent(annualSeaLevel[i] / MonthCount, grid, spec, i);
 
 		Wind = BuildWindField(n);
 		var pressure = PressureFieldModel.Create(grid, spec, coarse ?? CoarseLayer.Identity(grid), annualSeaLevel);
@@ -127,23 +122,23 @@ public sealed class MonthlyClimate
 
 		void BuildMonths(int worker)
 		{
-			var radiation = new float[n];
-			var seaLevel = worker == 0 ? seaLevelTemp : new float[n];
+			var precipitationSolarWeight = new float[n];
+			var seaLevel = new float[n];
 			var pressureGradient = new Vector3[n];
 			var workspace = pressure.CreateWorkspace();
 			for (int m = worker; m < MonthCount; m += workers)
 			{
 				cancellation.ThrowIfCancellationRequested();
-				float deltaRad = DeclinationRad(spec, m);
-				BuildMonthRadiation(grid, deltaRad, radiation);
+				float deltaRad = insolation[m].DeclinationRad;
+				BuildPrecipitationSolarWeight(grid, deltaRad, precipitationSolarWeight);
 				BuildMonthSeaLevelTemp(grid, spec, MonthTempC[m], seaLevel);
 				pressure.BuildMonth(seaLevel, deltaRad, MonthPressureHpa[m], workspace);
 
 				TangentField.GradientField(grid, MonthPressureHpa[m], pressureGradient);
 				windSolver.SolveAll(pressureGradient,
 					Wind.Surface.Monthly[m], Wind.Low.Monthly[m], Wind.Free.Monthly[m]);
-				BuildMonthPrecip(grid, spec, m, deltaRad, rainBands, radiation, noise, coastalWarmth, elevationGradient,
-					Wind.Low.Monthly[m]);
+				BuildMonthPrecip(grid, spec, m, deltaRad, rainBands, precipitationSolarWeight, noise, coastalWarmth,
+					elevationGradient, Wind.Low.Monthly[m]);
 			}
 		}
 	}
@@ -181,18 +176,14 @@ public sealed class MonthlyClimate
 		DryMonthIndex = new int[n];
 	}
 
-	/// <summary>月太阳赤纬（弧度）：<c>δₘ = 倾角·sin(2π(m−3)/12)</c>，m = 0 为 1 月。</summary>
-	static float DeclinationRad(ClimateSpec spec, int month) =>
-		spec.ObliquityDeg * MathF.Sin(2f * MathF.PI * (month - 3f) / 12f) * MathF.PI / 180f;
-
-	/// <summary>月辐射：正午太阳高度（≤0 记 0）。月温与降水共用，第二段循环里重算一次。</summary>
-	static void BuildMonthRadiation(ClimateGrid grid, float deltaRad, float[] radiation)
+	/// <summary>季风增雨权重按当地正午太阳高度标定。</summary>
+	static void BuildPrecipitationSolarWeight(ClimateGrid grid, float deltaRad, float[] solarWeight)
 	{
 		for (int i = 0; i < grid.Count; i++)
-			radiation[i] = MathF.Max(0f, MathF.Cos(grid.LatRad(i) - deltaRad));
+			solarWeight[i] = MathF.Max(0f, MathF.Cos(grid.LatRad(i) - deltaRad));
 	}
 
-	/// <summary>由已存档的月温重建海平面等效温度（与 <see cref="BuildMonthTemperature"/> 同一公式）。</summary>
+	/// <summary>把月地表温度折算为气压计算使用的海平面等效温度。</summary>
 	static void BuildMonthSeaLevelTemp(ClimateGrid grid, ClimateSpec spec, float[] tempC, float[] seaLevelTemp)
 	{
 		for (int i = 0; i < grid.Count; i++)
@@ -203,40 +194,7 @@ public sealed class MonthlyClimate
 	static float SeaLevelEquivalent(float tempC, ClimateGrid grid, ClimateSpec spec, int i) =>
 		tempC + (grid.Land[i] && grid.HeightM[i] > 0f ? spec.LapseRateCPerKm / 1000f * grid.HeightM[i] : 0f);
 
-	void BuildMonthTemperature(ClimateGrid grid, ClimateSpec spec, float[] baseTempC,
-		float[] continentality, float[] seasonalAmplitude, int month, float deltaRad, float phase, float[] seaLevelTemp)
-	{
-		int n = grid.Count;
-		for (int i = 0; i < n; i++)
-		{
-			float latRad = grid.LatRad(i);
-			float rad = MathF.Max(0f, MathF.Cos(latRad - deltaRad));
-
-			// 大陆热力响应 ∝ 月辐射：夏季辐射强 → 内陆更热，冬季辐射弱 → 接近海洋。
-			float continentResponse = spec.ContinentalResponse * continentality[i] * rad;
-			// 季节相位南北半球相反（南半球 1 月是盛夏）：取纬度符号，否则南半球冬夏倒置。
-			float hemisphere = latRad >= 0f ? 1f : -1f;
-			float t = baseTempC[i] + seasonalAmplitude[i] * phase * hemisphere * (1f + continentResponse);
-
-			// 地表反照率：只按"下垫面"分（海 / 陆 / 高山终年积雪），冰由温度单独决定。
-			float ground = grid.Land[i] ? spec.AlbedoLand : spec.AlbedoOcean;
-			if (grid.ElevNorm[i] > spec.AlpineElevNorm) ground = spec.AlbedoSnow;
-
-			t -= ground * rad * spec.AlbedoCoolingC;
-
-			// 冰/雪按**温度**连续生长：纬度硬阈值会在 60° 画出一个人造圈（旧链实测跨圈 6 °C 阶跃），
-			// 而真实的冰边是"哪个月到冰点就在哪结"，跟着温度/海拔/洋流走。
-			float ice = IceFraction(t, spec.IceMeltC, spec.IceFullC);
-			if (ice > 0f) t -= ice * (spec.AlbedoIceCap - ground) * rad * spec.AlbedoCoolingC;
-
-			MonthTempC[month][i] = t;
-
-			// 海平面等效温度：海拔是地形效应、不是海陆热力，直接拿实温比会得出"高原恒高压"。
-			seaLevelTemp[i] = SeaLevelEquivalent(t, grid, spec, i);
-		}
-	}
-
-	void BuildMonthPrecip(ClimateGrid grid, ClimateSpec spec, int month, float deltaRad, RainBands[] rainBands, float[] radiation,
+	void BuildMonthPrecip(ClimateGrid grid, ClimateSpec spec, int month, float deltaRad, RainBands[] rainBands, float[] solarWeight,
 		float[] noise, float[] coastalWarmth, Vector3[] elevationGradient, Vector3[] windMonth)
 	{
 		int n = grid.Count;
@@ -247,7 +205,7 @@ public sealed class MonthlyClimate
 		{
 			float p = MonthPrecipBase(grid, spec, i, rainBands[i], deltaDeg, noise, coastalWarmth);
 
-			float monsoonWeight = moisture[i] * radiation[i];
+			float monsoonWeight = moisture[i] * solarWeight[i];
 			p *= 1f + spec.MonsoonPrecipBoost * monsoonWeight;
 
 			var wind = windMonth[i];
@@ -329,15 +287,6 @@ public sealed class MonthlyClimate
 			field[i] = (0.35f + 0.65f * speed) * MathF.Exp(-steps * spec.MoistureDecayPerStep);
 		}
 		return field;
-	}
-
-	/// <summary>冰雪覆盖比例 ∈ [0,1]：月温 ≥ <paramref name="meltC"/> 无冰、≤ <paramref name="fullC"/> 全冰，
-	/// 中间用 smoothstep 过渡（硬阈值会在纬度圈上留下可见台阶）。</summary>
-	static float IceFraction(float temperatureC, float meltC, float fullC)
-	{
-		if (meltC <= fullC) return temperatureC <= fullC ? 1f : 0f;   // 参数写反时退化成硬阈值
-		float x = Math.Clamp((meltC - temperatureC) / (meltC - fullC), 0f, 1f);
-		return x * x * (3f - 2f * x);
 	}
 
 	/// <summary>极锋和副高压制由纬度决定，所有月份共用。</summary>
@@ -433,42 +382,6 @@ public sealed class MonthlyClimate
 			set.Annual[i] = sum / MonthCount;
 			set.AnnualSpeed[i] = speedSum / MonthCount;
 		}
-	}
-
-	/// <summary>大陆性指数 ∈ [0,1]：`sqrt(d/(d+Dc))`，d = 到海岸跳数，Dc 由 km 按邻格距折算。</summary>
-	static float[] BuildContinentality(ClimateGrid grid, ClimateSpec spec)
-	{
-		int n = grid.Count;
-		var distance = new int[n];
-		var queue = new Queue<int>(n);
-		bool anyOcean = false;
-
-		for (int i = 0; i < n; i++)
-		{
-			if (!grid.Land[i]) { distance[i] = 0; anyOcean = true; queue.Enqueue(i); }
-			else distance[i] = int.MaxValue;
-		}
-
-		while (queue.Count > 0)
-		{
-			int i = queue.Dequeue();
-			foreach (int nb in grid.Neighbors[i])
-			{
-				if (distance[nb] != int.MaxValue) continue;
-				distance[nb] = distance[i] + 1;
-				queue.Enqueue(nb);
-			}
-		}
-
-		int decayHops = Math.Max(1, (int)MathF.Round(spec.ContinentalityLengthKm / (float)grid.NeighborKm));
-		var continentality = new float[n];
-		for (int i = 0; i < n; i++)
-		{
-			if (!anyOcean) { continentality[i] = 1f; continue; }
-			int d = distance[i];
-			continentality[i] = d >= int.MaxValue - 1 ? 1f : MathF.Sqrt(d / (float)(d + decayHops));
-		}
-		return continentality;
 	}
 
 	/// <summary>海拔梯度 ∇h（归一化海拔）：风向点积它得到迎风坡 / 背风坡的垂直速度。</summary>

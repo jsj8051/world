@@ -108,139 +108,165 @@ internal static class LoadContract
 	}
 }
 
-/// <summary>
-/// 进度真源：线程安全、无 Godot 类型。字段在结构层只读，状态迁移由第 5 步实现。
-/// </summary>
-internal sealed class LoadOperation
+/// <summary>线程安全的进度与操作真源；通知在状态锁外发送。</summary>
+internal sealed class LoadOperation : IDisposable
 {
 	readonly object _gate = new();
 	readonly CancellationTokenSource _cancellation;
+	readonly bool _ownsCancellation;
+	readonly Dictionary<Guid, LoadProgressSubscription> _observers = new();
+	LoadState _state = LoadState.Running;
+	float? _progress;
+	string _stage = string.Empty;
+	LoadFailure _failure;
+	long _version;
+	bool _disposed;
+
+	public LoadOperation(Guid id, LoadFlow flow, string title)
+		: this(id, flow, title, new CancellationTokenSource(), ownsCancellation: true) { }
 
 	public LoadOperation(Guid id, LoadFlow flow, string title, CancellationToken token)
-		: this(id, flow, title, null, token)
-	{
-	}
+		: this(id, flow, title, null, token, false) { }
 
 	public LoadOperation(Guid id, LoadFlow flow, string title, CancellationTokenSource cancellation)
-		: this(id, flow, title, cancellation, cancellation?.Token ?? CancellationToken.None)
-	{
-	}
+		: this(id, flow, title, cancellation, ownsCancellation: false) { }
 
-	LoadOperation(Guid id, LoadFlow flow, string title, CancellationTokenSource cancellation, CancellationToken token)
+	LoadOperation(Guid id, LoadFlow flow, string title, CancellationTokenSource cancellation, bool ownsCancellation)
+		: this(id, flow, title, cancellation, cancellation?.Token ?? CancellationToken.None, ownsCancellation) { }
+
+	LoadOperation(Guid id, LoadFlow flow, string title, CancellationTokenSource cancellation,
+		CancellationToken token, bool ownsCancellation)
 	{
 		if (id == Guid.Empty) throw new ArgumentException("操作标识不能为空。", nameof(id));
 		LoadContract.RequireFlow(flow);
 		LoadContract.RequireTitle(title);
-
 		Id = id;
 		Flow = flow;
 		Title = title.Trim();
 		Token = token;
 		_cancellation = cancellation;
-		State = LoadState.Running;
-		Progress = null;
-		Stage = string.Empty;
-		Failure = null;
-		Version = 0;
+		_ownsCancellation = ownsCancellation;
 		StartedTimestamp = Stopwatch.GetTimestamp();
 	}
 
 	public Guid Id { get; }
 	public LoadFlow Flow { get; }
 	public string Title { get; }
-	public LoadState State { get; private set; }
-	public float? Progress { get; private set; }
-	public string Stage { get; private set; }
-	public LoadFailure Failure { get; private set; }
+	public LoadState State { get { lock (_gate) return _state; } }
+	public float? Progress { get { lock (_gate) return _progress; } }
+	public string Stage { get { lock (_gate) return _stage; } }
+	public LoadFailure Failure { get { lock (_gate) return _failure; } }
 	public CancellationToken Token { get; }
-	public long Version { get; private set; }
+	public long Version { get { lock (_gate) return _version; } }
 	public long StartedTimestamp { get; }
-
-	/// <summary>终态不可再变。</summary>
-	public bool IsTerminal => State is LoadState.Completed or LoadState.Failed or LoadState.Cancelled;
-
-	/// <summary>已用时长（展示用，不持久化）。</summary>
+	public bool IsTerminal { get { lock (_gate) return _state != LoadState.Running; } }
 	public TimeSpan Elapsed => Stopwatch.GetElapsedTime(StartedTimestamp);
 
-	/// <summary>同一 Version 的字段快照，供视图轮询。</summary>
 	public LoadProgressSnapshot Snapshot()
 	{
-		lock (_gate)
-		{
-			return new LoadProgressSnapshot(Id, Flow, Title, State, Progress, Stage, Failure, Elapsed, Version);
-		}
+		lock (_gate) return SnapshotLocked();
 	}
 
-	/// <summary>上报进度与阶段；终态后静默忽略。低于当前值的进度钳到当前值。</summary>
+	LoadProgressSnapshot SnapshotLocked()
+		=> new(Id, Flow, Title, _state, _progress, _stage, _failure, Elapsed, _version);
+
+	/// <summary>
+	/// 立即投递当前快照，之后按版本递增投递；回调运行于上报线程，不可访问 Godot 节点。
+	/// 允许合并并发通知；释放返回句柄后停止后续投递，已开始的回调可以完成。
+	/// </summary>
+	internal LoadProgressSubscription Subscribe(ILoadProgressObserver observer)
+	{
+		if (observer == null) throw new ArgumentNullException(nameof(observer));
+		LoadProgressSubscription subscription;
+		LoadProgressSnapshot snapshot;
+		lock (_gate)
+		{
+			ObjectDisposedException.ThrowIf(_disposed, this);
+			subscription = new LoadProgressSubscription(Id, Guid.NewGuid(), observer, Unsubscribe);
+			_observers.Add(subscription.SubscriptionId, subscription);
+			snapshot = SnapshotLocked();
+		}
+		subscription.Deliver(snapshot);
+		return subscription;
+	}
+
+	void Unsubscribe(Guid id)
+	{
+		lock (_gate) _observers.Remove(id);
+	}
+
+	void Change(Action update)
+	{
+		LoadProgressSnapshot snapshot;
+		LoadProgressSubscription[] observers;
+		lock (_gate)
+		{
+			if (_disposed || _state != LoadState.Running) return;
+			update();
+			_version++;
+			snapshot = SnapshotLocked();
+			observers = _observers.Values.ToArray();
+		}
+		foreach (var observer in observers) observer.Deliver(snapshot);
+	}
+
 	public void Report(float? fraction, string stage)
 	{
 		LoadContract.RequireProgress(fraction);
 		LoadContract.RequireStage(stage, allowEmpty: false);
-		lock (_gate)
+		Change(() =>
 		{
-			if (IsTerminal) return;
-			if (fraction is float next)
-			{
-				if (Progress is float current && next < current) next = current;
-				Progress = next;
-			}
-			Stage = stage;
-			Version++;
-		}
+			if (fraction is float next) _progress = _progress is float current ? Math.Max(current, next) : next;
+			_stage = stage;
+		});
 	}
 
-	/// <summary>只更新阶段、不推进百分比（无法细分的阶段）。</summary>
-	public void ReportIndeterminate(string stage)
+	public void ReportIndeterminate(string stage) => Report(null, stage);
+
+	public void Complete() => Change(() =>
 	{
-		LoadContract.RequireStage(stage, allowEmpty: false);
-		lock (_gate)
-		{
-			if (IsTerminal) return;
-			Stage = stage;
-			Version++;
-		}
-	}
+		_state = LoadState.Completed;
+		_progress = 1f;
+		_stage = "完成";
+		_failure = null;
+	});
 
-	/// <summary>完成：进度置 1；终态后忽略。</summary>
-	public void Complete()
-	{
-		lock (_gate)
-		{
-			if (IsTerminal) return;
-			State = LoadState.Completed;
-			Progress = 1f;
-			if (string.IsNullOrEmpty(Stage)) Stage = "完成";
-			Failure = null;
-			Version++;
-		}
-	}
-
-	/// <summary>失败：必须带失败详情；终态后忽略。</summary>
 	public void Fail(LoadFailure failure)
 	{
 		if (failure == null) throw new ArgumentNullException(nameof(failure));
-		lock (_gate)
+		Change(() =>
 		{
-			if (IsTerminal) return;
-			State = LoadState.Failed;
-			Failure = failure;
-			if (string.IsNullOrEmpty(Stage)) Stage = failure.Stage;
-			Version++;
-		}
+			_state = LoadState.Failed;
+			_failure = failure;
+			if (string.IsNullOrEmpty(_stage)) _stage = string.IsNullOrEmpty(failure.Stage) ? "失败" : failure.Stage;
+		});
 	}
 
-	/// <summary>取消：置终态并取消令牌；终态后忽略。</summary>
 	public void Cancel()
 	{
-		lock (_gate)
+		Change(() =>
 		{
-			if (IsTerminal) return;
-			State = LoadState.Cancelled;
-			if (string.IsNullOrEmpty(Stage)) Stage = "已取消";
-			Version++;
-		}
+			_state = LoadState.Cancelled;
+			if (string.IsNullOrEmpty(_stage)) _stage = "已取消";
+		});
+		if (State != LoadState.Cancelled) return;
 		try { _cancellation?.Cancel(); }
 		catch (ObjectDisposedException) { }
+	}
+
+	public void Dispose()
+	{
+		Cancel();
+		LoadProgressSubscription[] observers;
+		lock (_gate)
+		{
+			if (_disposed) return;
+			_disposed = true;
+			observers = _observers.Values.ToArray();
+			_observers.Clear();
+		}
+		foreach (var observer in observers) observer.Dispose();
+		if (_ownsCancellation) _cancellation.Dispose();
 	}
 }
 

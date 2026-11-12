@@ -86,7 +86,7 @@ internal sealed class CrossResolutionSurfaceRemapper
 			int province = projection.Crust.ProvinceId[coarse];
 			Vector3 direction = ball.CellDirs[fine];
 			float relief = projection.Relief.At(coarse, Unit(direction), plate, fine: true,
-				ridgeDetail: 0.5 + ridge.SampleRidged(direction));
+				ridgeDetail: 0.5 + ridge.SampleRidged(direction), sampledType: type);
 			float height = projection.MaterialHeightM[coarse] - projection.Relief.RedistributedHeightM(coarse);
 			continental[fine] = type == CrustType.Continental;
 			if (continental[fine] && relief > 0) uplift[fine] = relief / scale;

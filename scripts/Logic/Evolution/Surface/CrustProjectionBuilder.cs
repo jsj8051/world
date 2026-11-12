@@ -20,8 +20,6 @@ internal static class CrustProjectionBuilder
 		var ages = new double?[n];
 		var oceanCoverage = new double[n];
 		var riftStrain = new double[n];
-		var shortening = new double[n];
-		var collisionVolume = new double[n];
 		var arcVolume = new double[n];
 
 		EvolutionWork.ForCells(n, ProjectCells);
@@ -69,8 +67,6 @@ internal static class CrustProjectionBuilder
 				oceanVolume += ocean.Volume;
 				birthVolume += ocean.BirthVolume;
 				strainArea += land.StrainArea;
-				shortening[cell] += land.ShorteningArea;
-				collisionVolume[cell] += Math.Min(land.CollisionVolume, Math.Max(0, land.Volume - land.ReferenceThicknessArea));
 				heightArea += HeightArea(land, spec, timeMa, false);
 				heightArea += HeightArea(ocean, spec, timeMa, true);
 			}
@@ -81,7 +77,6 @@ internal static class CrustProjectionBuilder
 			oceanCoverage[cell] = Math.Clamp(oceanArea / grid.AreasKm2[cell], 0, 1);
 			ages[cell] = oceanVolume > 0 ? Math.Max(0, timeMa - birthVolume / oceanVolume) : null;
 			riftStrain[cell] = landArea > 0 ? strainArea / landArea : 0;
-			shortening[cell] = landArea > 0 ? shortening[cell] / landArea : 0;
 		}
 
 		(float[], EvolutionRelief, CrustSurfaceCell[], double, CrustType[]) BuildSurface()
@@ -93,25 +88,45 @@ internal static class CrustProjectionBuilder
 					surfaceTypes[cell] = material.DominantType(cell, plateOfCell[cell]);
 			});
 			var relief = new EvolutionRelief(grid, reliefGeometry, boundaries, field, surfaceTypes, plateOfCell, heights,
-				riftStrain, shortening, collisionVolume, arcVolume, spec, timeMa);
-			float[] surface = relief.AddToHeights();
+				material, riftStrain, arcVolume, spec, timeMa);
+			var effects = relief.BuildCellRelief();
+			var surface = new float[n];
 			var cells = new CrustSurfaceCell[n];
 			EvolutionWork.ForCells(n, (start, end) =>
 			{
 				for (int cell = start; cell < end; cell++)
 				{
-					double landArea = 0, oceanArea = 0, landHeightArea = 0, oceanHeightArea = 0;
+					double shared = effects.SharedDeltaM[cell];
+					double area = 0, landArea = 0, otherOceanArea = 0;
+					double landHeightArea = 0, otherOceanHeightArea = 0, trenchHeightArea = 0;
+					var exposed = new SurfaceAreas();
 					foreach (ref readonly CrustEntry entry in material.Rows.Row(cell))
 					{
 						bool ocean = entry.Key % 2 == (int)CrustType.Oceanic;
+						double slotArea = entry.Slot.Area;
+						area += slotArea;
 						double heightArea = HeightArea(entry.Slot, spec, timeMa, ocean);
-						if (ocean) { oceanArea += entry.Slot.Area; oceanHeightArea += heightArea; }
-						else { landArea += entry.Slot.Area; landHeightArea += heightArea; }
+						if (!ocean)
+						{
+							landArea += slotArea;
+							landHeightArea += heightArea;
+							continue;
+						}
+						double trench = effects.TrenchDeltaAt(cell, entry.Key / 2);
+						if (trench == 0)
+						{
+							otherOceanArea += slotArea;
+							otherOceanHeightArea += heightArea;
+							continue;
+						}
+						// 先按洋壳所属板块修正海拔，再结算是否露出水面。
+						trenchHeightArea += trench * slotArea;
+						exposed.Add(slotArea, heightArea / slotArea + shared + trench, seaLevelM);
 					}
-					float delta = surface[cell] - heights[cell];
-					float landHeight = landArea > 0 ? (float)(landHeightArea / landArea) + delta : surface[cell];
-					float oceanHeight = oceanArea > 0 ? (float)(oceanHeightArea / oceanArea) + delta : surface[cell];
-					cells[cell] = ClassifySurface(landArea, landHeight, oceanArea, oceanHeight, seaLevelM);
+					surface[cell] = heights[cell] + (float)(shared + trenchHeightArea / area);
+					if (landArea > 0) exposed.Add(landArea, landHeightArea / landArea + shared, seaLevelM);
+					if (otherOceanArea > 0) exposed.Add(otherOceanArea, otherOceanHeightArea / otherOceanArea + shared, seaLevelM);
+					cells[cell] = exposed.ToCell(seaLevelM);
 				}
 			});
 			double exposedArea = 0, globeArea = 0;
@@ -127,17 +142,33 @@ internal static class CrustProjectionBuilder
 	internal static CrustSurfaceCell ClassifySurface(double continentalArea, float continentalHeight,
 		double oceanicArea, float oceanicHeight, float seaLevelM)
 	{
-		bool landExposed = continentalHeight > seaLevelM;
-		bool oceanExposed = oceanicHeight > seaLevelM;
-		double above = (landExposed ? continentalArea : 0) + (oceanExposed ? oceanicArea : 0);
-		double below = (landExposed ? 0 : continentalArea) + (oceanExposed ? 0 : oceanicArea);
-		double aboveHeight = (landExposed ? continentalArea * continentalHeight : 0)
-			+ (oceanExposed ? oceanicArea * oceanicHeight : 0);
-		double belowHeight = (landExposed ? 0 : continentalArea * continentalHeight)
-			+ (oceanExposed ? 0 : oceanicArea * oceanicHeight);
-		return new CrustSurfaceCell((float)(above / (above + below)),
-			above > 0 ? (float)(aboveHeight / above) : seaLevelM,
-			below > 0 ? (float)(belowHeight / below) : seaLevelM);
+		var areas = new SurfaceAreas();
+		areas.Add(continentalArea, continentalHeight, seaLevelM);
+		areas.Add(oceanicArea, oceanicHeight, seaLevelM);
+		return areas.ToCell(seaLevelM);
+	}
+
+	struct SurfaceAreas
+	{
+		double _above, _below, _aboveHeightArea, _belowHeightArea;
+
+		public void Add(double area, double height, float seaLevelM)
+		{
+			if (height > seaLevelM)
+			{
+				_above += area;
+				_aboveHeightArea += area * height;
+			}
+			else
+			{
+				_below += area;
+				_belowHeightArea += area * height;
+			}
+		}
+
+		public readonly CrustSurfaceCell ToCell(float seaLevelM) => new((float)(_above / (_above + _below)),
+			_above > 0 ? (float)(_aboveHeightArea / _above) : seaLevelM,
+			_below > 0 ? (float)(_belowHeightArea / _below) : seaLevelM);
 	}
 
 	internal static CrustField BuildCrust(CrustType[] types, int[] provinceOfCell, CrustProvince[] templates)

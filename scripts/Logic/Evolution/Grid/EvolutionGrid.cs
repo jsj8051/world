@@ -173,6 +173,14 @@ public sealed class EvolutionGrid
 			+ edge.Z * (omegaB.Z - omegaA.Z)) / edge.Length;
 	}
 
+	internal (double A, double B, double LengthKm) NormalAreaRates(int a, int b,
+		SphereVectorD omegaA, SphereVectorD omegaB)
+	{
+		var edge = _contacts[(a, b)];
+		return (edge.X * omegaA.X + edge.Y * omegaA.Y + edge.Z * omegaA.Z,
+			edge.X * omegaB.X + edge.Y * omegaB.Y + edge.Z * omegaB.Z, edge.Length);
+	}
+
 	/// <summary>网格指纹：格心、半径与分辨语义的摘要；用于重演一致性。</summary>
 	/// <example><code>string fp = grid.Fingerprint();</code></example>
 	public string Fingerprint()

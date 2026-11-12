@@ -37,7 +37,7 @@ public partial class WorldGenerationLoadCheck : Node
 
 		var root = packed.Instantiate<WorldRoot>();
 		var sink = new Sink();
-		((IAppPage)root).Configure(new PageContext(null, CancellationToken.None, sink));
+		((IAppPage)root).Configure(new PageContext(CancellationToken.None, progress: sink));
 		Exception failure = null;
 		((IGenerationPage)root).ConfigureGeneration(new GenerationConfig(), error => failure = error);
 		AddChild(root);

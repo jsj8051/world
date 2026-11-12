@@ -59,6 +59,85 @@ static class EvolutionLogicTests
 			&& simFrame.Budget.TotalVolcanic == 0, "刚体共转不能触发构造过程");
 	}
 
+	public static void BoundaryFluxFollowsNormalMotion()
+	{
+		Check(150, 150, 0, 0);
+		Check(150, 50, 0, 10);
+		Check(-50, -150, 10, 0);
+		Check(150, -50, 5, 15);
+		Check(-150, 50, -15, -5);
+
+		static void Check(double rateA, double rateB, double expectedA, double expectedB)
+		{
+			var (areaA, areaB) = CrustProcesses.SplitBoundaryArea(rateA, rateB, 0.1);
+			Program.Near(areaA, expectedA, 1e-12, "A 侧构造面积");
+			Program.Near(areaB, expectedB, 1e-12, "B 侧构造面积");
+			Program.Near(areaA + areaB, (rateA - rateB) * 0.1, 1e-12, "每条边的相对法向通量只结算一次");
+		}
+	}
+
+	public static void ViscousContactBalancesForces()
+	{
+		Check(3, 3, 1, 3, 3, 3);
+		Check(3, 1, 1, 7d / 3, 5d / 3, 2);
+		Check(3, 1, 0.25, 29d / 15, 19d / 15, 1.4);
+		var outward = new ViscousContactSolver.Velocity(1, 0, 0);
+		var vertical = new ViscousContactSolver.Velocity(0, 0, 1);
+		var separating = ViscousContactSolver.Solve(
+			new[] { new ViscousContactSolver.Node(vertical, 1, outward * -1), new ViscousContactSolver.Node(vertical, 1, outward) },
+			new[] { new ViscousContactSolver.Link(0, 1, 1, outward, 1) });
+		Program.Near(separating[0].X, -1, 1e-8, "两侧受向外驱动力时接触允许张开");
+		Program.Near(separating[1].X, 1, 1e-8, "接触解除后不产生拉力");
+
+		static void Check(double farA, double farB, double resistanceA, double expectedA, double expectedB, double expectedContact)
+		{
+			var radial = new ViscousContactSolver.Velocity(0, 0, 1);
+			var normal = new ViscousContactSolver.Velocity(1, 0, 0);
+			double halfA = 2 * resistanceA;
+			const double halfB = 2;
+			var nodes = new[] { new ViscousContactSolver.Node(radial, resistanceA), new ViscousContactSolver.Node(radial, 1) };
+			var link = new ViscousContactSolver.Link(0, 1, halfA * halfB / (halfA + halfB), normal, farA - farB);
+			var velocity = ViscousContactSolver.Solve(nodes, new[] { link });
+			double a = farA + velocity[0].X, b = farB + velocity[1].X;
+			Program.Near(a, expectedA, 1e-8, "A 侧格心速度");
+			Program.Near(b, expectedB, 1e-8, "B 侧格心速度");
+			double contact = (halfA * a + halfB * b) / (halfA + halfB);
+			Program.Near(contact, expectedContact, 1e-8, "界面速度");
+			Program.Near(resistanceA * (farA - a), b - farB, 1e-8, "碰撞两侧接触力平衡");
+		}
+	}
+
+	public static void CollisionOnlyUsesSolvedCompression()
+	{
+		var world = World(1.5, -1.5, out var grid, out var owners, out _, out _, out var plates);
+		EvolutionSimulation.Create(world, grid, owners, AllContinental(owners.Length), new float[owners.Length], plates,
+			out var frame);
+		const double deltaMa = 0.01;
+		var projection = frame.Projection;
+		var solved = ContinentalCollisionSolver.Solve(grid, frame.Material, projection, frame.Motions, world.Evolution, default);
+		foreach (var face in solved.Faces.Values.Where(face => face.PlateB >= 0))
+			Program.True(face.RateA <= face.RateB + 1e-10, "碰撞界面两侧不能继续相互穿透");
+		var (cell, motion) = solved.Cells.MaxBy(pair => pair.Value.ConvergenceKm2PerMa);
+		double capacity = grid.AreasKm2[cell];
+		double rawArea = capacity * 1.1;
+		double collisionArea = motion.ConvergenceKm2PerMa * deltaMa;
+		Program.True(collisionArea > 0 && collisionArea < rawArea - capacity, "测试须含额外的非构造覆盖误差");
+		var row = new CrustRowBuffer(4);
+		int first = (int)CrustType.Continental;
+		int second = 2 + first;
+		row.Set(first, CrustSlot.Create(rawArea / 2, 35, 0, null, 0));
+		row.Set(second, CrustSlot.Create(rawArea / 2, 35, 0, null, 0));
+		var processes = new CrustProcesses(grid, world.Evolution, projection, frame.Motions, deltaMa, deltaMa,
+			new double[grid.CellCount], solved);
+		processes.SettleCell(cell, row);
+		var a = row.Slots[first];
+		var b = row.Slots[second];
+		Program.Near(a.CollisionVolume + b.CollisionVolume, 35 * collisionArea, capacity * 1e-10,
+			"整格覆盖误差不能计入碰撞增厚");
+		Program.Near(a.Area + b.Area, capacity, capacity * 1e-12, "覆盖闭合");
+		Program.Near(a.Volume + b.Volume, 35 * rawArea, capacity * 1e-12, "缩短与覆盖修正均保存体积");
+	}
+
 	public static void MultiSubstepTransportKeepsSourceFrame()
 	{
 		var sim = BuildSim(1.5, 1.5, out var simFrame);
@@ -116,6 +195,65 @@ static class EvolutionLogicTests
 			"面积下溢时不能留下没有占地的极小体积");
 	}
 
+	public static void LimitedTransportKeepsContinentalTracersBoundedAndConservative()
+	{
+		var (grid, _) = IcoGrid();
+		var motions = new[] { new PlateMotion(0, new SphereVectorD(0.02, -0.03, 0.06), RotationD.Identity) };
+		const double stepMa = 1;
+		int key = (int)CrustType.Continental;
+		var sourceRows = CrustRows.Build(grid.CellCount, 2, null, (cell, row) =>
+		{
+			SpherePointD center = grid.Centers[cell];
+			var slot = CrustSlot.Create(grid.AreasKm2[cell], 34 + 2 * center.Y, 400 + 150 * center.Z, null, 0);
+			slot.Volume += 3 * center.X * slot.Area;
+			slot.CollisionVolume = Math.Max(0, 2 * center.X) * slot.Area;
+			row.Set(key, slot);
+		});
+		var material = new EvolutionCrust(grid.AreasKm2, 1, sourceRows, 0, 1e-8);
+		var moved = new CrustAdvection(grid, motions, stepMa).Move(material);
+		var fluxes = new CrustTransportFluxes(grid, motions, stepMa);
+		Program.True(fluxes.StepCount == 1, "局部限幅测试使用一个输运子步");
+		Check(slot => slot.ReferenceThicknessArea, "参考体积");
+		Check(slot => slot.Volume - slot.ReferenceThicknessArea, "厚度异常体积", expectCorrection: true);
+		Check(slot => slot.CollisionVolume, "碰撞增厚体积");
+		Check(slot => slot.ReferenceHeightArea, "面积加权参考高程");
+
+		void Check(Func<CrustSlot, double> amount, string name, bool expectCorrection = false)
+		{
+			double initialTotal = 0, finalTotal = 0;
+			bool corrected = false;
+			for (int cell = 0; cell < grid.CellCount; cell++)
+			{
+				var old = sourceRows.Get(cell, key);
+				var next = moved.Get(cell, key);
+				initialTotal += amount(old);
+				finalTotal += amount(next);
+				Program.Near(next.Area, old.Area, old.Area * 1e-12, "限幅不改变跨格面积");
+				double min = amount(old) / old.Area, max = min;
+				foreach (int neighbor in grid.Neighbors[cell])
+				{
+					var other = sourceRows.Get(neighbor, key);
+					double mean = amount(other) / other.Area;
+					min = Math.Min(min, mean);
+					max = Math.Max(max, mean);
+				}
+				double actual = amount(next) / next.Area;
+				Program.True(actual >= min - 1e-10 && actual <= max + 1e-10, $"{name} 不应产生局部过冲");
+				double firstOrder = amount(old) * fluxes.RetainedFraction(cell, 0);
+				foreach (int face in fluxes.FacesOfCell(cell))
+				{
+					var edge = grid.Faces[face];
+					bool isA = cell == edge.A;
+					double incoming = fluxes.SignedFraction(face, 0) * (isA ? -1 : 1);
+					if (incoming > 0) firstOrder += amount(sourceRows.Get(isA ? edge.B : edge.A, key)) * incoming;
+				}
+				corrected |= Math.Abs(firstOrder / next.Area - actual) > 1e-7;
+			}
+			Program.Near(finalTotal, initialTotal, grid.AreasKm2.Sum() * 1e-10, $"{name} 守恒");
+			Program.True(!expectCorrection || corrected, $"{name} 应有实际通量修正");
+		}
+	}
+
 	public static void ContinentalRiftThinsBeforeMakingOcean()
 	{
 		WorldSpec world = World(-1.5, 1.5, out EvolutionGrid grid, out int[] owners,
@@ -160,7 +298,7 @@ static class EvolutionLogicTests
 		Program.True(simFrame.Projection.HeightM.Max() > 20, "增厚产生均衡抬升");
 	}
 
-	public static void CollisionReliefRedistributesOnTheSimulationGrid()
+	public static void CollisionDeformsContinentalCellsAwayFromTheContact()
 	{
 		var world = World(1.5, -1.5, out var coarse, out var owners, out _, out _, out var plates);
 		world.Evolution.RiftReliefScaleM = 0;
@@ -169,17 +307,16 @@ static class EvolutionLogicTests
 			new float[owners.Length], plates, out var zero);
 		var frame = sim.CalculateToStep(zero, 1);
 		var projection = frame.Projection;
-		double integral = 0, total = 0;
-		bool raised = false;
+		var contacts = zero.Projection.PlateBoundaries.Edges
+			.Where((_, i) => zero.Projection.Boundary.ConvergenceKinds[i] == ConvergenceKind.Collision)
+			.SelectMany(edge => new[] { edge.CellA, edge.CellB }).ToHashSet();
+		bool raisedInside = false;
 		for (int cell = 0; cell < grid.CellCount; cell++)
 		{
-			double delta = (double)projection.HeightM[cell] - projection.MaterialHeightM[cell];
-			integral += delta * grid.AreasKm2[cell];
-			total += grid.AreasKm2[cell];
-			raised |= delta > 1;
+			Program.Near(projection.HeightM[cell], projection.MaterialHeightM[cell], 0, "碰撞高程直接来自材料增厚");
+			raisedInside |= !contacts.Contains(cell) && frame.Material.Get(cell, owners[cell], CrustType.Continental).CollisionVolume > 0;
 		}
-		Program.True(raised, "生产格心须收到碰撞剖面的抬升");
-		Program.Near(integral / total, 0, 1e-4, "碰撞剖面应重分布已有抬升");
+		Program.True(raisedInside, "碰撞缩短应向板内传播并增厚陆壳");
 		CheckCellCenterRelief(grid, frame);
 	}
 
@@ -204,7 +341,7 @@ static class EvolutionLogicTests
 
 		foreach (bool canBorrowSlab in new[] { true, false })
 		{
-			var process = new CrustProcesses(grid, world.Evolution, projection, 1, 1, new double[grid.CellCount]);
+			var process = new CrustProcesses(grid, world.Evolution, projection, frame.Motions, 1, 100, new double[grid.CellCount]);
 			var raw = CrustRows.Build(grid.CellCount, 4, null, (i, row) =>
 			{
 				if (i == cell)
@@ -233,6 +370,13 @@ static class EvolutionLogicTests
 				"本格放不下的陆壳应重新分配到邻格");
 		}
 
+		var onlyLower = new CrustRowBuffer(4);
+		onlyLower.Set(2 * under + (int)CrustType.Oceanic, CrustSlot.Create(1.1 * capacity, 7, -3000, 0, -1));
+		var noContact = new CrustProcesses(grid, world.Evolution, projection, frame.Motions, 1, 100,
+			new double[grid.CellCount]);
+		noContact.SettleCell(cell, onlyLower);
+		Program.Near(noContact.CollectFlows().Subducted, 0, 0, "只有下盘材料的覆盖误差不能触发俯冲");
+
 		int Dominant(int i) => projection.PlateBoundaries.EdgesOfCell(i).ToArray()
 			.Where(edge => projection.Boundary.MotionKinds[edge] is EvolutionMotionKind.Convergent or EvolutionMotionKind.Divergent)
 			.OrderByDescending(edge => Math.Abs(projection.Boundary.NormalSpeedKmPerMa[edge]))
@@ -256,7 +400,7 @@ static class EvolutionLogicTests
 		double capacity = grid.AreasKm2[0];
 		foreach (double ocean in new[] { 0.4, 0.6 })
 		{
-			var process = new CrustProcesses(grid, spec, frame.Projection, 1, 1, new double[grid.CellCount]);
+			var process = new CrustProcesses(grid, spec, frame.Projection, frame.Motions, 1, 1, new double[grid.CellCount]);
 			var row = new CrustRowBuffer(4);
 			int landKey = (int)CrustType.Continental;
 			int oceanKey = (int)CrustType.Oceanic;
@@ -316,7 +460,8 @@ static class EvolutionLogicTests
 			if (under < 0) return false;
 			EvolutionFace face = sim.Grid.Faces.First(f => f.A == pair.edge.CellA && f.B == pair.edge.CellB);
 			SpherePointD mid = Unit(face.Start.X + face.End.X, face.Start.Y + face.End.Y, face.Start.Z + face.End.Z);
-			return simFrame.Projection.Relief.At(face.A, mid, under) < -1;
+			int lowerCell = pair.edge.PlateA == under ? face.A : face.B;
+			return simFrame.Projection.Relief.At(lowerCell, mid, under) < -1;
 		}), "俯冲带应在下盘一侧形成海沟");
 		Program.True(!simFrame.Projection.MaterialHeightM.SequenceEqual(simFrame.Projection.HeightM),
 			"海沟剖面应压低至少一个格心");
@@ -391,6 +536,60 @@ static class EvolutionLogicTests
 		bool anySubduction = simFrame.Projection.Boundary.ConvergenceKinds
 			.Any(k => k == ConvergenceKind.Subduction);
 		Program.True(anySubduction, "汇聚边界应被分类为俯冲");
+	}
+
+	public static void TrenchOnlyLowersTheSubductingOceanicSlot()
+	{
+		var sim = PairedWorld(continentalPlate: true, out var zero);
+		var grid = sim.Grid;
+		var spec = zero.Definition.CreateSpecCopy().Evolution;
+		spec.TrenchReachKm = 350;
+		spec.CoolingDepthMPerSqrtMa = 0;
+		spec.RiftReliefScaleM = 0;
+		var initial = zero.Projection;
+		int edgeIndex = Enumerable.Range(0, initial.PlateBoundaries.Edges.Length)
+			.Where(i => initial.Boundary.UnderthrustingPlateIds[i] == 1)
+			.MinBy(i => initial.Boundary.NormalSpeedKmPerMa[i]);
+		var edge = initial.PlateBoundaries.Edges[edgeIndex];
+		int mixed = edge.PlateA == 1 ? edge.CellA : edge.CellB;
+		int upper = edge.PlateA == 0 ? edge.CellA : edge.CellB;
+		int pureLand = grid.Neighbors[mixed].First(i => initial.PlateOfCell[i] == 1);
+		var rows = CrustRows.Build(grid.CellCount, 4, zero.Material.Rows, (cell, row) =>
+		{
+			double area = grid.AreasKm2[cell];
+			if (cell == mixed)
+			{
+				row.Set((int)CrustType.Continental, CrustSlot.Create(0.30 * area, 35, 1800, null, 0));
+				row.Set((int)CrustType.Oceanic, CrustSlot.Create(0.10 * area, 7, 650, 0, -1));
+				row.Set(2 + (int)CrustType.Continental, CrustSlot.Create(0.29 * area, 35, 1800, null, 0));
+				row.Set(2 + (int)CrustType.Oceanic, CrustSlot.Create(0.31 * area, 7, 700, 0, -1));
+			}
+			else if (cell == upper)
+			{
+				row.Set((int)CrustType.Continental, CrustSlot.Create(0.75 * area, 35, 1800, null, 0));
+				row.Set(2 + (int)CrustType.Oceanic, CrustSlot.Create(0.25 * area, 7, 700, 0, -1));
+			}
+			else if (cell == pureLand)
+				row.Set(2 + (int)CrustType.Continental, CrustSlot.Create(area, 35, 1800, null, 0));
+			else
+				foreach (ref readonly var entry in zero.Material.Rows.Row(cell)) row.Set(entry.Key, entry.Slot);
+		});
+		var material = new EvolutionCrust(grid.AreasKm2, 2, rows, 30, spec.CoverageRelativeTolerance);
+		var p = CrustProjectionBuilder.Build(grid, new EvolutionReliefGeometry(grid, spec), spec, 1, 30, material,
+			zero.Motions, sim.Plates.ToArray(), initial.Crust.Provinces, new double[grid.CellCount], 0);
+		Program.True(p.SurfaceCrustType[mixed] == CrustType.Oceanic && p.OceanicCoverage[mixed] < 0.5,
+			"混合格复现主导板块以洋壳为主、整格以陆壳为主的情况");
+		Program.Near(p.SurfaceCells[mixed].EmergentFraction, 0.69, 1e-6, "陆壳和上盘洋壳保留露出面积");
+		Program.Near(p.SurfaceCells[mixed].LandHeightM, (0.59 * 1800 + 0.10 * 650) / 0.69, 1e-3,
+			"陆壳和上盘洋壳海拔各自保留");
+		Program.True(p.SurfaceCells[mixed].WaterHeightM < 0, "同格的下盘洋壳仍能沉入海平面");
+		Program.Near(p.HeightM[mixed] - p.MaterialHeightM[mixed],
+			0.31 * (p.SurfaceCells[mixed].WaterHeightM - 700), 1e-3, "格心只按下盘洋壳占地计入海沟");
+		Program.Near(p.HeightM[pureLand], 1800, 0, "下盘板块邻近的纯陆壳格保持材料高程");
+		Program.Near(p.SurfaceCells[upper].LandHeightM, 1800, 0, "上盘格的陆壳保持材料高程");
+		Program.True(p.SurfaceCells[upper].WaterHeightM < 0, "混在上盘格里的下盘洋壳仍受海沟沉降");
+		Program.Near(p.Relief.At(mixed, grid.Centers[mixed], 1, fine: true, sampledType: CrustType.Continental),
+			0, 0, "逐点采样陆壳时不加入海沟");
 	}
 
 	public static void SubductionFormsAnUpperArc(bool continentalUpper)

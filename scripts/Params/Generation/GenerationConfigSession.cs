@@ -12,7 +12,8 @@ public interface IGenerationProfileStore
 	void Save(GenerationProfileCatalog catalog);
 }
 
-/// <summary>跨页面配置会话。所有公开数据均为副本，应用不持久化，保存不隐式应用。</summary>
+/// <summary>跨页面配置会话。所有公开数据均为副本，应用不持久化，保存不隐式应用。
+/// 会话创建即把默认配置视为已应用，进入配置页可直接生成；一旦编辑，仍需显式应用。</summary>
 public sealed class GenerationConfigSession
 {
 	readonly IGenerationProfileStore _store;
@@ -20,8 +21,8 @@ public sealed class GenerationConfigSession
 	GenerationConfig _draft = new();
 	GenerationConfig _applied;
 	public GenerationConfig Draft => Copy(_draft);
-	public GenerationConfig Applied => _applied == null ? null : Copy(_applied);
-	public bool HasUnappliedChanges => _applied == null || !Equal(_draft, _applied);
+	public GenerationConfig Applied => Copy(_applied);
+	public bool HasUnappliedChanges => !Equal(_draft, _applied);
 	public Guid? SelectedProfileId { get; private set; }
 	public IReadOnlyList<GenerationProfile> Profiles => _catalog.Profiles.Select(Copy).ToArray();
 	public string LoadProblem { get; }
@@ -36,6 +37,8 @@ public sealed class GenerationConfigSession
 			_catalog = Copy(loaded);
 		}
 		catch (Exception e) { LoadProblem = $"配置目录加载失败，已禁止覆盖原文件：{e.Message}"; }
+		// 默认配置无需用户确认即可生成；坏目录不影响这条内存路径。
+		_applied = Copy(_draft);
 	}
 
 	public void Edit(GenerationConfig config)
@@ -116,7 +119,6 @@ public sealed class GenerationConfigSession
 
 	public GenerationConfig GetAppliedForGeneration()
 	{
-		if (_applied == null) throw new InvalidOperationException("请先应用配置再生成地图。");
 		if (HasUnappliedChanges) throw new InvalidOperationException("存在未应用的修改，请先点击应用。");
 		return Copy(_applied);
 	}
