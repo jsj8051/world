@@ -1,7 +1,7 @@
 [gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/Pages/GeographyEvolutionView.cs" id="1_root"]
-[ext_resource type="Script" path="res://scripts/Scene/WorldManager.cs" id="2_world"]
+[ext_resource type="Script" path="res://scripts/Simulation/WorldManager.cs" id="2_world"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="3_presentation"]
 [ext_resource type="PackedScene" path="res://scenes/components/AppMenu.tscn" id="4_menu"]
 [ext_resource type="PackedScene" path="res://scenes/components/EvolutionPanel.tscn" id="5_evolution"]

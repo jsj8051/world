@@ -5,6 +5,7 @@ using World.Data;
 using World.Data.Generation;
 using World.Application.Loading;
 using World.Scene;
+using World.Simulation;
 
 namespace World.Tests;
 

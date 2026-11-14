@@ -3,10 +3,9 @@ using System.Collections.Generic;
 using World.Client;
 using World.Data;
 using World.Logic;
-using World.Render;
 using World.Utils;
 
-namespace World.Scene;
+namespace World.Render;
 
 /// <summary>
 /// 渲染管理器（`GeographyEvolutionView > RenderManager`）：3D 世界表现的持有者，也是点选与地图模式的发起方。

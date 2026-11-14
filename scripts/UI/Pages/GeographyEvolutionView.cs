@@ -14,7 +14,7 @@ using World.Logic;
 using World.Params;
 using World.Params.Generation;
 using World.Render;
-using World.Scene;
+using World.Simulation;
 using World.UI.Components;
 using World.Utils;
 

@@ -5,7 +5,6 @@ using World.Client;
 using World.Data.Maps;
 using World.Logic;
 using World.Render;
-using World.Scene;
 using World.UI.Components;
 using World.Utils;
 

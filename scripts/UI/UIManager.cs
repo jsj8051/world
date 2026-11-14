@@ -6,7 +6,7 @@ using World.Render;
 using World.UI.Components;
 using World.Utils;
 
-namespace World.Scene;
+namespace World.UI;
 
 /// <summary>
 /// 界面管理器（世界表现子树的界面部分）：持有面板层、地图坞与格信息卡。

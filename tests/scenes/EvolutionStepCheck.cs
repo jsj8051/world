@@ -4,7 +4,7 @@ using Godot;
 using World.Data;
 using World.Logic;
 using World.Render;
-using World.Scene;
+using World.Simulation;
 using World.UI.Pages;
 
 namespace World.Tests;

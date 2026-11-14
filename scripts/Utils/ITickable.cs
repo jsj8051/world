@@ -1,4 +1,4 @@
-namespace World.Scene;
+namespace World.Utils;
 
 /// <summary>
 /// **每帧推进契约**：根管理器按注册序转发 `Tick`，仅此而已。

@@ -10,7 +10,7 @@ using World.Utils;
 using World.Render;
 using World.Logic;
 
-namespace World.Scene;
+namespace World.Simulation;
 
 /// <summary>
 /// 场景的世界入口，持有生成实例和可选演化会话。渲染通过世界事实快照读数据；

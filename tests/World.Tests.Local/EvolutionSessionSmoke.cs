@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.Threading;
 using World.Data;
 using World.Logic;
-using World.Scene;
+using World.Simulation;
 
 namespace World.Tests;
 
