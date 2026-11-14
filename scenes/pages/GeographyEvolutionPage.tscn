@@ -1,0 +1,44 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/Pages/GeographyEvolutionView.cs" id="1_root"]
+[ext_resource type="Script" path="res://scripts/Scene/WorldManager.cs" id="2_world"]
+[ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="3_presentation"]
+[ext_resource type="PackedScene" path="res://scenes/components/AppMenu.tscn" id="4_menu"]
+[ext_resource type="PackedScene" path="res://scenes/components/EvolutionPanel.tscn" id="5_evolution"]
+[ext_resource type="Theme" path="res://themes/ui_app.tres" id="6_theme"]
+
+[node name="GeographyEvolution" type="Node3D"]
+script = ExtResource("1_root")
+WorldManagerPath = NodePath("WorldManager")
+RenderManagerPath = NodePath("Presentation/RenderManager")
+UIManagerPath = NodePath("Presentation/UIManager")
+CameraPath = NodePath("Presentation/OrbitalCamera")
+DockPath = NodePath("Presentation/UIManager/PanelLayer/MapDock")
+AppMenuPath = NodePath("AppMenu")
+EvolutionPanelPath = NodePath("PageOverlay/EvolutionPanel")
+
+[node name="WorldManager" type="Node3D" parent="."]
+script = ExtResource("2_world")
+
+[node name="Presentation" parent="." instance=ExtResource("3_presentation")]
+
+[node name="PageOverlay" type="CanvasLayer" parent="."]
+layer = 2
+
+[node name="EvolutionPanel" parent="PageOverlay" instance=ExtResource("5_evolution")]
+visible = false
+
+[node name="AppMenu" parent="." instance=ExtResource("4_menu")]
+
+[node name="TopBar" type="CanvasLayer" parent="."]
+layer = 5
+
+[node name="Title" type="Label" parent="TopBar"]
+offset_left = 112.0
+offset_top = 14.0
+offset_right = 332.0
+offset_bottom = 44.0
+theme = ExtResource("6_theme")
+theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
+theme_override_font_sizes/font_size = 22
+text = "地理演化"

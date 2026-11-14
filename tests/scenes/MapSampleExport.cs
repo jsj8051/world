@@ -1,5 +1,6 @@
 using Godot;
 using World.Scene;
+using World.UI.Pages;
 
 namespace World.Tests;
 
@@ -12,18 +13,18 @@ public partial class MapSampleExport : Node
 {
 	public override void _Ready()
 	{
-		var packed = ResourceLoader.Load<PackedScene>("res://scenes/core/WorldGenWorld.tscn");
+		var packed = ResourceLoader.Load<PackedScene>("res://scenes/pages/GeographyEvolutionPage.tscn");
 		if (packed == null)
 		{
-			GD.PushError("[SAMPLE] WorldGenWorld 场景缺失");
+			GD.PushError("[SAMPLE] GeographyEvolutionPage 场景缺失");
 			GetTree().Quit(2);
 			return;
 		}
 
-		var world = packed.Instantiate<WorldRoot>();
+		var world = packed.Instantiate<GeographyEvolutionView>();
 		AddChild(world);
 
-		string path = world.World?.ExportMapData();
+		string path = world.World?.SaveMap();
 		if (string.IsNullOrEmpty(path) || !FileAccess.FileExists(path))
 		{
 			GD.PushError($"[SAMPLE] 导出失败：{path}");

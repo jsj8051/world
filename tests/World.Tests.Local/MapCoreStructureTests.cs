@@ -1,8 +1,7 @@
 using System;
 using System.Threading;
 using World.Data.Maps;
-using World.Scene;
-using World.Scene.Navigation;
+using World.Application.Loading;
 
 namespace World.Tests;
 
@@ -85,14 +84,6 @@ internal static class MapCoreStructureTests
 		Program.Throws(() => MapStructure.Acyclic(new[] { 5 }, "test.flow"), "Out-of-range edge was accepted.");
 	}
 
-	public static void SceneContractsKeepUnsupportedScreensUnreachable()
-	{
-		Program.True(Enum.GetValues<ScreenKind>().Length == 4, "An unimplemented play or civilization route was added.");
-		Program.True(SceneContractRules.CanNavigate(ScreenKind.MainMenu, ScreenKind.Geography), "Geography entry is missing.");
-		Program.True(SceneContractRules.CanNavigate(ScreenKind.MapLibrary, ScreenKind.MapBrowser), "Map browse route is missing.");
-		Program.True(!SceneContractRules.CanNavigate(ScreenKind.Geography, ScreenKind.MapBrowser), "An unsupported direct route was accepted.");
-	}
-
 	/// <summary>The load lifecycle has one state source; a screen's commit right is page identity plus lifetime.</summary>
 	public static void CommitGuardRejectsStaleOwnerAndCancelledWork()
 	{
@@ -101,36 +92,24 @@ internal static class MapCoreStructureTests
 		Guid pageId = Guid.NewGuid();
 		var binding = new LoadOperationBinding(operation, pageId, pageLifetime.Token);
 
-		Program.True(LoadCommitGuard.CanCommit(binding.Key, binding, pageId), "A current operation cannot commit.");
-		Program.True(!LoadCommitGuard.CanCommit(binding.Key, binding, Guid.NewGuid()), "A stale page can commit.");
-		Program.True(!LoadCommitGuard.CanCommit(new LoadCommitKey(Guid.NewGuid(), pageId), binding, pageId),
-			"A stale operation can commit.");
-		Program.True(!LoadCommitGuard.CanCommit(new LoadCommitKey(operation.Id, Guid.NewGuid()), binding, pageId),
-			"An operation owned by another page can commit.");
-		Program.True(!LoadCommitGuard.CanCommit(binding.Key, null, pageId), "A missing binding can commit.");
+		Program.True(LoadCommitGuard.CanCommit(binding, pageId), "A current operation cannot commit.");
+		Program.True(!LoadCommitGuard.CanCommit(binding, Guid.NewGuid()), "A stale page can commit.");
+		Program.True(!LoadCommitGuard.CanCommit(null, pageId), "A missing binding can commit.");
 
 		pageLifetime.Cancel();
-		Program.True(!LoadCommitGuard.CanCommit(binding.Key, binding, pageId), "A cancelled page can commit.");
+		Program.True(!LoadCommitGuard.CanCommit(binding, pageId), "A cancelled page can commit.");
 
 		using var freshLifetime = new CancellationTokenSource();
 		var second = new LoadOperationBinding(operation, pageId, freshLifetime.Token);
 		operation.Complete();
-		Program.True(!LoadCommitGuard.CanCommit(second.Key, second, pageId), "A completed operation can commit twice.");
-		Program.True(LoadCommitGuard.IsCurrent(second.Key, second, pageId), "A completed operation lost its identity.");
+		Program.True(!LoadCommitGuard.CanCommit(second, pageId), "A completed operation can commit twice.");
+		Program.True(LoadCommitGuard.IsCurrent(second, pageId), "A completed operation lost its identity.");
 
 		using var other = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "Load map", new CancellationTokenSource());
 		var third = new LoadOperationBinding(other, pageId, freshLifetime.Token);
 		other.Cancel();
-		Program.True(!LoadCommitGuard.IsCurrent(third.Key, third, pageId), "A cancelled operation is still current.");
-		Program.True(!LoadCommitGuard.CanCommit(third.Key, third, pageId), "A cancelled operation can commit.");
-	}
-
-	public static void BrowseRequestNeverFallsBackToGeneration()
-	{
-		Program.Throws(() => new ScreenRequest.MapBrowseRequest(null), "A missing imported source was accepted.");
-		Program.Throws(() => new ScreenRequest.GeographyRequest(""), "An implicit geography parameter source was accepted.");
-		Program.True(new ScreenRequest.GeographyRequest(ScreenRequest.GeographyRequest.EditorParameterResource).Kind == ScreenKind.Geography,
-			"An explicit editor geography request was rejected.");
+		Program.True(!LoadCommitGuard.IsCurrent(third, pageId), "A cancelled operation is still current.");
+		Program.True(!LoadCommitGuard.CanCommit(third, pageId), "A cancelled operation can commit.");
 	}
 
 	public static void NativeGridKeepsFileOrderAndRejectsInvalidCells()

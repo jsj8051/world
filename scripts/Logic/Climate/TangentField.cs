@@ -17,7 +17,7 @@ namespace World.Logic;
 public static class TangentField
 {
 	/// <summary>切平面梯度（邻域和口径）：Σ (f_j − f_i)·(r_j − r_i)/|r_j − r_i|，再投影回切平面。
-	/// 各向同性网格上 ≈ (邻居数/2)·d·∇f；换算成物理梯度要除以 ½Σ|r_j−r_i|（见 <see cref="WindSolver"/>）。</summary>
+	/// 各向同性网格上约为 (邻居数/2)·d·∇f，换算成物理梯度时除以 ½Σ|r_j−r_i|。</summary>
 	public static Vector3 Gradient(ClimateGrid grid, float[] field, int i)
 	{
 		var g = Vector3.Zero;

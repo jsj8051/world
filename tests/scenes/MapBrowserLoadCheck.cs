@@ -1,5 +1,6 @@
 using Godot;
 using World.Scene;
+using World.UI.Pages;
 
 namespace World.Tests;
 
@@ -29,13 +30,15 @@ public partial class MapBrowserLoadCheck : Node
 
 		var app = packed.Instantiate<AppRoot>();
 		AddChild(app);
+		var pageHost = app.GetNode<AppPageHost>("PageHost");
+		var coordinator = app.GetNode<AppLoadCoordinator>("LoadCoordinator");
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 
 		ulong started = Time.GetTicksMsec();
 		ulong last = started;
 		ulong maxGap = 0;
-		app.MapOpener.OpenMap(args[0]);
-		while (app.HasActiveLoad && Time.GetTicksMsec() - started < 60_000)
+		coordinator.OpenMap(args[0]);
+		while (coordinator.HasActive && Time.GetTicksMsec() - started < 60_000)
 		{
 			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 			ulong now = Time.GetTicksMsec();
@@ -43,8 +46,8 @@ public partial class MapBrowserLoadCheck : Node
 			last = now;
 		}
 
-		bool ok = !app.HasActiveLoad && app.CurrentScreen is MapBrowser;
-		GD.Print($"[BROWSE-CHECK] ok={ok} screen={app.CurrentScreen?.GetType().Name ?? "null"} " +
+		bool ok = !coordinator.HasActive && pageHost.CurrentScreen is MapBrowserView;
+		GD.Print($"[BROWSE-CHECK] ok={ok} screen={pageHost.CurrentScreen?.GetType().Name ?? "null"} " +
 			$"ms={Time.GetTicksMsec() - started} maxGap={maxGap}");
 		GetTree().Quit(ok ? 0 : 1);
 	}

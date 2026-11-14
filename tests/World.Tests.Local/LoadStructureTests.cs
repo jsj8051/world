@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
-using World.Scene;
+using World.Application.Loading;
 
 namespace World.Tests;
 
@@ -103,23 +103,5 @@ internal static class LoadStructureTests
 
 		operation.Complete();
 		Program.True(operation.State == LoadState.Cancelled, "取消后被完成");
-	}
-
-	public static void EvolutionAndSwapBoundaries()
-	{
-		Program.Throws(() => new EvolutionProgress(2, 1), "已完成步数超过总步数被接受");
-		Program.Throws(() => new EvolutionProgress(-1, 1), "负已完成步数被接受");
-		Program.Throws(() => new EvolutionProgress(0, 0), "零总步数被接受");
-
-		var seek = new EvolutionProgress(3, 10);
-		Program.True(!seek.SingleStep && seek.CompletedSteps == 3, "跳转进度字段错误");
-		Program.True(new EvolutionProgress(0, 1).SingleStep, "单步未被识别");
-
-		Program.Throws(() => new FrameSwap(FrameSwapState.Rebaking, 3, 2, "x"), "分片数越界被接受");
-		Program.Throws(() => new FrameSwap((FrameSwapState)99, 0, 1, "x"), "未知换帧状态被接受");
-		Program.Throws(() => new FrameSwap(FrameSwapState.Idle, 0, 0, ""), "零分片被接受");
-
-		var swap = new FrameSwap(FrameSwapState.Rebaking, 12, 122, "重建颜色纹理");
-		Program.True(swap.CompletedSlices == 12 && swap.TotalSlices == 122, "换帧计数错误");
 	}
 }

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using World.Scene;
+using World.Application.Loading;
 
 namespace World.Tests;
 

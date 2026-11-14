@@ -7,15 +7,14 @@ using World.Logic;                   // IWorldFactsSource（世界事实）
 namespace World.Render;
 
 /// <summary>
-/// 降水（气候）：年均或逐月 mm，Sequential 固定物理域 0–3000 mm/年 + 对数式显示变换。
+/// 降水（气候）：年累计和逐月分别使用固定量程，共用对数色带。
 /// 数据源 = <c>Facts.PrecipitationMm</c> / <c>Facts.PrecipitationMonthlyMm</c>；
-/// 参数行 = 年均 + 逐月（同上限 3000 mm/月，月值本就在同一量纲内）。
 /// 海洋也有降水（海面降水真值），不做陆地掩膜。
 /// </summary>
 public sealed class PrecipitationMode : MapMode
 {
 	readonly IWorldFactsSource _p;
-	int _month;   // 0 = 年均；1..MonthCount = 月份
+	int _month;   // 0 = 年累计；1..MonthCount = 月份
 
 	public PrecipitationMode(IWorldFactsSource p) => _p = p;
 
@@ -27,7 +26,7 @@ public sealed class PrecipitationMode : MapMode
 		{
 			int months = MonthCount;
 			var options = new string[months + 1];
-			options[0] = "年均";
+			options[0] = "年累计";
 			for (int m = 0; m < months; m++) options[m + 1] = $"{m + 1}月";
 			return options;
 		}
@@ -42,8 +41,9 @@ public sealed class PrecipitationMode : MapMode
 		get
 		{
 			int month = Math.Clamp(_month, 0, MonthCount);
-			string label = month == 0 ? "年均" : $"{month} 月";
-			return $"固定物理域 0–3000 mm（对数显示 · {label}）";
+			return month == 0
+				? $"年累计 · 0–{AnnualDomainMm:0} mm/年（对数显示）"
+				: $"{month} 月 · 0–{MonthlyDomainMm:0} mm/月（对数显示）";
 		}
 	}
 
@@ -51,23 +51,22 @@ public sealed class PrecipitationMode : MapMode
 	{
 		var facts = _p.Facts;
 		int month = Math.Clamp(_month, 0, facts.PrecipitationMonthlyMm.Length);
-		float mm = month == 0 ? facts.PrecipitationMm[i] : facts.PrecipitationMonthlyMm[month - 1][i];
-		return RampSampleSmooth(PrecipStops, PrecipNorm(mm));
+		float position = month == 0
+			? PrecipNorm(facts.PrecipitationMm[i])
+			: PrecipNorm(facts.PrecipitationMonthlyMm[month - 1][i] * (AnnualDomainMm / MonthlyDomainMm));
+		return RampSampleSmooth(PrecipStops, position);
 	}
 
 	int MonthCount => _p.Facts.PrecipitationMonthlyMm.Length;
 
-	// ── 降水色带（Sequential · 固定物理域 0–3000 mm/年 · 对数式显示变换）──
-	// 长尾分布：线性域会让湿润区挤在色带一端；对数变换只作用于**显示采样**（mm → [0,1]），
-	// 停点位置仍按物理量落位，跨世界可比。数据与生产公式零改动。
-	// ★色带内聚本文件（= 消费它的模式）；物理固定域，**禁止 min-max 自动拉伸**。
+	// 月值按量程比例取同一色带的位置。各月共享固定量程，换月时可直接比较。
+	const float AnnualDomainMm = 3000f;
+	const float MonthlyDomainMm = 400f;
+	const float PrecipLogK = 50f;
 
-	const float PrecipDomainMm = 3000f;   // 固定物理域上界（全球实测均 ~1,100 mm/年；>3000 夹末色）
-	const float PrecipLogK = 50f;         // 对数软化常数（t = ln(1+p/K) / ln(1+P/K)）
-
-	/// <summary>降水 mm → [0,1] 显示归一（对数式；负值夹 0、超域夹 1）。仅显示变换，不回写数据。</summary>
-	public static float PrecipNorm(float mm) => System.Math.Clamp(
-		MathF.Log(1f + MathF.Max(mm, 0f) / PrecipLogK) / MathF.Log(1f + PrecipDomainMm / PrecipLogK),
+	/// <summary>年降水色带坐标（对数式；负值夹 0、超域夹 1）。</summary>
+	public static float PrecipNorm(float mm) => Math.Clamp(
+		MathF.Log(1f + MathF.Max(mm, 0f) / PrecipLogK) / MathF.Log(1f + AnnualDomainMm / PrecipLogK),
 		0f, 1f);
 
 	/// <summary>降水色带（位置 = PrecipNorm(物理 mm)，干沙 → 枯黄 → 草绿 → 深绿 → 青 → 深蓝）。</summary>

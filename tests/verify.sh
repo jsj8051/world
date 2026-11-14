@@ -28,7 +28,7 @@ dotnet run --project tests/World.Tests.Local -- --evolve-session || exit 1
 
 echo ""
 echo "═══ [4/4] headless 冒烟：主世界 res4 单步与跳转 ═══"
-OUT=$(timeout 300 "$GODOT" --headless --path . "res://tests/scenes/WorldEvolutionCheck.tscn" -- --evo-check 2>&1)
+OUT=$(timeout 300 "$GODOT" --headless --path . "res://tests/scenes/GeographyEvolutionCheck.tscn" -- --evo-check 2>&1)
 RC=$?
 if [ $RC -ne 0 ]; then
     echo "❌ 主世界：退出码 $RC"; echo "$OUT" | tail -20; exit 1

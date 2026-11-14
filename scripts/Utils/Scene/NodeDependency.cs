@@ -8,7 +8,7 @@ namespace World.Utils;
 /// 这件事收成一处，供各管理器复用。
 ///
 /// ★为什么归 `World.Utils`（2026-10-11 用户拍板"util 也放开吧，可以放 godot 依赖的工具"）：
-///   原先四个管理器**各抄一份**同型代码（`WorldRoot`/`WorldManager`/`RenderManager`/`UIManager`
+///   原先四个管理器**各抄一份**同型代码（`GeographyEvolutionView`/`WorldManager`/`RenderManager`/`UIManager`
 ///   各一个 `Require`，约 90 行），且已出现文案漂移。工具层收编后只有一份判据。
 ///
 /// ★为什么依赖必须是 `NodePath`（**实测结论**，别改成直接引用——见
@@ -27,7 +27,7 @@ public static class NodeDependency
 	/// <summary>
 	/// **取一个必需依赖**：路径空 / 解析不到 / 类型不符 ⇒ 抛（启动即失败，别留到运行中途）。
 	/// <para>用法（调用点是扩展方法，无需改签名）：`Planet = Require&lt;WorldGenPlanet&gt;(PlanetPath, nameof(PlanetPath));`</para>
-	/// <para>★异常前缀自动取**宿主类型名**（`WorldRoot` / `WorldManager` / …）⇒ 不再靠每个管理器
+	/// <para>★异常前缀自动取**宿主类型名**（`GeographyEvolutionView` / `WorldManager` / …）⇒ 不再靠每个管理器
 	/// 手写 `[XXXMANAGER]` 标签（原先四处各写一遍，必然漂移）。</para>
 	/// </summary>
 	/// <param name="host">解析起点（调用它的那个管理器节点；扩展方法的 <c>this</c>）。</param>

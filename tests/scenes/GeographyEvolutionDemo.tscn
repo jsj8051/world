@@ -1,0 +1,57 @@
+[gd_scene format=3 uid="uid://ftc71o0p2rpk"]
+
+[ext_resource type="Script" path="res://scripts/UI/Pages/GeographyEvolutionView.cs" id="1_root"]
+[ext_resource type="Script" uid="uid://cj2s3gysjacuh" path="res://scripts/Scene/WorldManager.cs" id="2_world"]
+[ext_resource type="Script" uid="uid://lrfqiss7fse3" path="res://scripts/Scene/UIManager.cs" id="3_ui"]
+[ext_resource type="PackedScene" path="res://scenes/camera/OrbitalCamera.tscn" id="5_cam"]
+[ext_resource type="PackedScene" path="res://scenes/components/CellInfoCard.tscn" id="6_cellpanel"]
+[ext_resource type="PackedScene" path="res://scenes/components/MapDock.tscn" id="7_dock"]
+[ext_resource type="Script" uid="uid://ccqknbsnmfk14" path="res://scripts/Scene/RenderManager.cs" id="8_render"]
+[ext_resource type="PackedScene" path="res://scenes/render/WorldView.tscn" id="9_worldview"]
+[ext_resource type="PackedScene" path="res://scenes/components/EvolutionPanel.tscn" id="10_panel"]
+[ext_resource type="Script" uid="uid://d3bhqmoudrppa" path="res://tests/scenes/EvolutionStepCheck.cs" id="11_check"]
+
+[node name="GeographyEvolution" type="Node3D" unique_id=1750820986]
+script = ExtResource("1_root")
+WorldManagerPath = NodePath("WorldManager")
+RenderManagerPath = NodePath("RenderManager")
+UIManagerPath = NodePath("UIManager")
+CameraPath = NodePath("OrbitalCamera")
+DockPath = NodePath("UIManager/PanelLayer/MapDock")
+EvolutionPanelPath = NodePath("UIManager/PanelLayer/EvolutionPanel")
+
+[node name="OrbitalCamera" parent="." unique_id=1272256682 instance=ExtResource("5_cam")]
+
+[node name="WorldManager" type="Node3D" parent="." unique_id=1031321173]
+script = ExtResource("2_world")
+
+[node name="RenderManager" type="Node3D" parent="." unique_id=751487631]
+script = ExtResource("8_render")
+WorldViewPath = NodePath("WorldView")
+
+[node name="WorldView" parent="RenderManager" unique_id=1222600302 instance=ExtResource("9_worldview")]
+
+[node name="UIManager" type="Node3D" parent="." unique_id=992487898]
+script = ExtResource("3_ui")
+PanelLayerPath = NodePath("PanelLayer")
+DockPath = NodePath("PanelLayer/MapDock")
+CellCardPath = NodePath("PanelLayer/CellInfoCard")
+
+[node name="PanelLayer" type="CanvasLayer" parent="UIManager" unique_id=520999474]
+
+[node name="CellInfoCard" parent="UIManager/PanelLayer" unique_id=301365185 instance=ExtResource("6_cellpanel")]
+offset_left = 12.0
+offset_top = 12.0
+offset_right = 12.0
+offset_bottom = 12.0
+
+[node name="MapDock" parent="UIManager/PanelLayer" unique_id=651687137 instance=ExtResource("7_dock")]
+
+[node name="EvolutionPanel" parent="UIManager/PanelLayer" instance=ExtResource("10_panel")]
+
+[node name="EvolutionStepCheck" type="Node" parent="." unique_id=2014503896]
+script = ExtResource("11_check")
+
+[connection signal="ModeSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockModeSelected"]
+[connection signal="ParameterSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockParameterSelected"]
+[connection signal="VariantSelected" from="UIManager/PanelLayer/MapDock" to="RenderManager" method="OnDockVariantSelected"]

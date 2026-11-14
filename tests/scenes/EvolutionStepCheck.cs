@@ -5,10 +5,11 @@ using World.Data;
 using World.Logic;
 using World.Render;
 using World.Scene;
+using World.UI.Pages;
 
 namespace World.Tests;
 
-/// <summary>验证主场景的真实 res4 演化；带 --evo-check 时单步一次并退出。</summary>
+/// <summary>验证地理演化页的真实 res4 演化；带 --evo-check 时单步一次并退出。</summary>
 public partial class EvolutionStepCheck : Node
 {
 	public override async void _Ready()
@@ -38,7 +39,7 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		var root = (WorldRoot)GetTree().CurrentScene;
+		var root = (GeographyEvolutionView)GetTree().CurrentScene;
 		var dock = root.GetNode("Presentation/UIManager/PanelLayer/MapDock");
 		var modeRow = dock.GetNode("DockBox/ModeRow");
 		var crustButton = modeRow.GetChildren().OfType<Button>().FirstOrDefault(button => button.Text == "地壳");
@@ -109,7 +110,7 @@ public partial class EvolutionStepCheck : Node
 
 		float before = initial.HeightM[0];
 		long expected = initialFrame.Clock.StepIndex + 1;
-		var panel = GetTree().CurrentScene?.GetNodeOrNull<Control>("Presentation/UIManager/PanelLayer/GeologyPanel");
+		var panel = root.EvolutionReadout;
 		var buttons = panel?.FindChildren("*", "Button", recursive: true, owned: false).OfType<Button>().ToArray();
 		var play = buttons?.FirstOrDefault(button => button.Text == "播放");
 		var pause = buttons?.FirstOrDefault(button => button.Text == "暂停");

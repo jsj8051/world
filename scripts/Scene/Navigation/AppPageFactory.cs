@@ -1,74 +1,90 @@
 using System;
 using Godot;
+using World.Application.Components;
+using World.Application.Generation;
+using World.Application.Loading;
+using World.Application.Pages;
+using World.Application.Storage;
 using World.Data.Generation;
 using World.Logic;
-using World.Params.Generation;
+using World.UI.Pages;
 
 namespace World.Scene;
 
-/// <summary>显式登记页面创建方法，集中管理场景路径与入树前初始化。</summary>
+/// <summary>
+/// 页面创建与依赖注入的唯一入口：场景路径、动作端口与入树前初始化都集中在这里。
+/// 只负责"造出已装配好的页面"，不决定何时挂载；挂载归 <see cref="IPageHost"/>，时机归 <see cref="AppShell"/>。
+/// </summary>
 internal sealed class AppPageFactory
 {
-	const string MainMenuScene = "res://scenes/app/MainMenu.tscn";
-	const string GenerationConfigScene = "res://scenes/app/MapGenerationPage.tscn";
-	const string GeographyScene = "res://scenes/core/WorldGenWorld.tscn";
-	const string MapLibraryScene = "res://scenes/app/MapLibrary.tscn";
-	const string MapBrowserScene = "res://scenes/app/MapBrowser.tscn";
+	const string MainMenuScene = "res://scenes/pages/MainMenu.tscn";
+	const string GenerationConfigScene = "res://scenes/pages/MapGenerationPage.tscn";
+	const string GeographyEvolutionScene = "res://scenes/pages/GeographyEvolutionPage.tscn";
+	const string MapLibraryScene = "res://scenes/pages/MapLibrary.tscn";
+	const string MapBrowserScene = "res://scenes/pages/MapBrowser.tscn";
 
 	readonly INoticeSink _notice;
+	readonly IGeographyMapRepository _mapRepository;
+	readonly Action _quitApplication;
 
-	internal AppPageFactory(INoticeSink notice)
-		=> _notice = notice ?? throw new ArgumentNullException(nameof(notice));
-
-	public void RegisterPages(PageRegistry registry, Func<GenerationConfigSession> getSession)
+	internal AppPageFactory(INoticeSink notice, IGeographyMapRepository mapRepository, Action quitApplication)
 	{
-		ArgumentNullException.ThrowIfNull(registry);
-		ArgumentNullException.ThrowIfNull(getSession);
-		registry.Register<MainMenuRequest>(_ => Instantiate(MainMenuScene));
-		registry.Register<MapLibraryRequest>(_ => Instantiate(MapLibraryScene));
-		registry.Register<GenerationConfigRequest>(_ => CreateGenerationConfig(getSession()));
-		registry.Register<WorldGenerationRequest>(request => CreateWorld(request.Config, request.OnFailure));
-		registry.Register<MapBrowserRequest>(request => CreateMapBrowser(request.Source, request.Operation));
+		_notice = notice ?? throw new ArgumentNullException(nameof(notice));
+		_mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
+		_quitApplication = quitApplication ?? throw new ArgumentNullException(nameof(quitApplication));
 	}
 
-	Node CreateGenerationConfig(GenerationConfigSession session)
+	internal Node CreateMainMenu(IMainMenuActions actions)
 	{
-		if (session == null) throw new ArgumentNullException(nameof(session));
-		MapGenerationPage page = Instantiate<MapGenerationPage>(GenerationConfigScene);
-		page?.SetSession(session);
+		MainMenuView page = Instantiate<MainMenuView>(MainMenuScene);
+		if (page == null) return null;
+		page.SetController(new MainMenuController(actions, _quitApplication));
 		return page;
 	}
 
-	Node CreateWorld(GenerationConfig config, Action<Exception> onFailure)
+	internal Node CreateGenerationConfig(IGenerationConfigPageActions actions, GenerationConfigSession session)
 	{
-		if (config == null) throw new ArgumentNullException(nameof(config));
-		if (onFailure == null) throw new ArgumentNullException(nameof(onFailure));
-		config.Validate();
-
-		Node page = Instantiate(GeographyScene);
+		if (session == null) throw new ArgumentNullException(nameof(session));
+		GenerationConfigView page = Instantiate<GenerationConfigView>(GenerationConfigScene);
 		if (page == null) return null;
-		if (page is IGenerationPage generation)
-		{
-			generation.ConfigureGeneration(config, onFailure);
-			return page;
-		}
-
-		page.Free();
-		_notice.Notify("地图生成场景没有实现配置初始化契约。", NoticeKind.Error);
-		return null;
+		page.SetController(new GenerationConfigController(session, actions));
+		return page;
 	}
 
-	Node CreateMapBrowser(ImportedWorldFactsSource source, LoadOperation operation)
+	internal Node CreateMapLibrary(IMapCatalogActions actions)
+	{
+		MapLibraryView page = Instantiate<MapLibraryView>(MapLibraryScene);
+		if (page == null) return null;
+		page.SetRepository(_mapRepository);
+		page.SetActions(actions);
+		return page;
+	}
+
+	/// <summary>世界页接收已完成的生成产物与仍在进行的加载操作；装配完成由页面收尾。</summary>
+	internal Node CreateGeneratedWorld(WorldGenerationResult result, LoadOperation operation,
+		Action<Exception> onBuildFailure, IMainMenuReturn mainMenu)
+	{
+		if (result == null) throw new ArgumentNullException(nameof(result));
+		if (operation == null) throw new ArgumentNullException(nameof(operation));
+		GeographyEvolutionView page = Instantiate<GeographyEvolutionView>(GeographyEvolutionScene);
+		if (page == null) return null;
+		page.SetMapRepository(_mapRepository);
+		page.SetMainMenuReturn(mainMenu);
+		page.SetGeneratedWorld(result, operation, onBuildFailure);
+		return page;
+	}
+
+	internal Node CreateMapBrowser(ImportedWorldFactsSource source, LoadOperation operation,
+		IMapBrowserPageActions actions)
 	{
 		if (source == null) throw new ArgumentNullException(nameof(source));
-		MapBrowser page = Instantiate<MapBrowser>(MapBrowserScene);
+		MapBrowserView page = Instantiate<MapBrowserView>(MapBrowserScene);
 		if (page == null) return null;
 		page.SetSource(source);
 		page.SetBuildOperation(operation);
+		page.SetActions(actions);
 		return page;
 	}
-
-	Node Instantiate(string path) => Instantiate<Node>(path);
 
 	T Instantiate<T>(string path) where T : Node
 	{

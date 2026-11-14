@@ -11,7 +11,7 @@ public enum TemperaturePreset { Cold, Standard, Hot }
 public enum SeasonalityPreset { Weak, Standard, Strong }
 public enum RainfallPreset { Dry, Standard, Wet }
 
-/// <summary>用户界面可编辑的八项地图生成设置；只保存稳定选项，不复制全部底层模拟参数。</summary>
+/// <summary>用户界面可编辑的地图生成设置，不复制全部底层模拟参数。</summary>
 [JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
 public sealed class GenerationConfig
 {
@@ -23,6 +23,10 @@ public sealed class GenerationConfig
 	[JsonRequired] public TemperaturePreset Temperature { get; set; } = TemperaturePreset.Standard;
 	[JsonRequired] public SeasonalityPreset Seasonality { get; set; } = SeasonalityPreset.Standard;
 	[JsonRequired] public RainfallPreset Rainfall { get; set; } = RainfallPreset.Standard;
+	// Older trial profiles may still carry this field.
+	[Obsolete("守恒风已默认启用。")]
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+	public bool UseConservativeLowWind { get => false; set { } }
 
 	public const int MinimumPlateCount = 4;
 	public const int MaximumPlateCount = 24;
@@ -99,23 +103,5 @@ public sealed class GenerationProfileCatalog
 			if (!ids.Add(profile.Id)) throw new ArgumentException($"配置档案 ID 重复：{profile.Id}。", nameof(Profiles));
 			if (!names.Add(profile.Name.Trim())) throw new ArgumentException($"配置名称重复：{profile.Name.Trim()}。", nameof(Profiles));
 		}
-	}
-}
-
-/// <summary>单档 JSON 文件的版本化外壳；与本地档案目录分开定义。</summary>
-[JsonUnmappedMemberHandling(JsonUnmappedMemberHandling.Disallow)]
-public sealed class GenerationProfileFile
-{
-	public const int CurrentSchemaVersion = 1;
-	[JsonRequired] public int SchemaVersion { get; set; } = CurrentSchemaVersion;
-	[JsonRequired] public GenerationProfile Profile { get; set; } = new();
-
-	public void Validate()
-	{
-		if (SchemaVersion != CurrentSchemaVersion)
-			throw new ArgumentOutOfRangeException(nameof(SchemaVersion), SchemaVersion,
-				$"不支持配置文件版本 {SchemaVersion}，当前版本为 {CurrentSchemaVersion}。");
-		if (Profile == null) throw new ArgumentException("配置档案不能为空。", nameof(Profile));
-		Profile.Validate();
 	}
 }

@@ -8,7 +8,7 @@ namespace World.Render;
 /// 一个模式 = 一个可独立判读的世界字段/分类事实的视觉投影：有明确世界语义、有稳定数据源、
 /// 不反向依赖生成过程、适合逐格解释；线状符号走 <see cref="RiverLineOverlay"/>，未稳定语义不进坞。
 /// 注册序 = 坞按钮序 = 模式身份（下标），模式类不自报 Id ⇒ 增删/换序只改本表。
-/// 新增/删除模式必须同步 `scenes/render/MapDock.tscn` 的 ModeRow 按钮（数量不符 BindModes 即抛）。
+/// 新增/删除模式必须同步 `scenes/components/MapDock.tscn` 的 ModeRow 按钮（数量不符 BindModes 即抛）。
 /// 色带用物理固定域，禁止 min-max 自动拉伸（否则跑 100 个世界互不可比）；
 /// 长尾量（降水）只做对数式显示变换，数据本身与生产公式不动。
 /// </summary>

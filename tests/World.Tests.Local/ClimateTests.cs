@@ -251,6 +251,63 @@ static class ClimateTests
 		}
 	}
 
+	public static void MoistureTracingIsIndependentOfCellOrder()
+	{
+		var spec = CleanSpec();
+		spec.ObliquityDeg = 0f;
+		spec.PrecipItczMmPerMonth = 0f;
+		spec.PrecipPolarFrontMmPerMonth = 0f;
+		spec.PrecipSubtropicalSuppression = 0f;
+		spec.MoistureTraceSteps = 2;
+
+		const float speed = 0.5f;
+		// 0 是海格，1 → 2 → 4 → 5 是下游主链，3 从格 1 分出，6–7 构成环，8 无入流。
+		int[] upstreamByCell = { -1, 0, 1, 1, 2, 4, 7, 6, -1 };
+		int[] hopsByCell = { 0, 1, 2, 2, 3, 4, -1, -1, -1 };
+		int count = upstreamByCell.Length;
+
+		foreach (bool reversed in new[] { false, true })
+		{
+			int Index(int cell) => reversed ? count - 1 - cell : cell;
+			var dirs = new Vector3[count];
+			var land = new bool[count];
+			var neighbors = new List<int>[count];
+			var upstream = new int[count];
+			var transportSpeed = new float[count];
+			var wind = new Vector3[count];
+			for (int cell = 0; cell < count; cell++) neighbors[cell] = new List<int>();
+			for (int cell = 0; cell < count; cell++)
+			{
+				int i = Index(cell);
+				float longitude = cell * 0.1f;
+				dirs[i] = new Vector3(MathF.Cos(longitude), 0f, MathF.Sin(longitude));
+				land[i] = cell != 0;
+				wind[i] = new Vector3(-dirs[i].Z, 0f, dirs[i].X) * speed;
+				int source = upstreamByCell[cell];
+				upstream[i] = source < 0 ? -1 : Index(source);
+				if (source < 0) continue;
+				transportSpeed[i] = speed;
+				if (neighbors[i].Contains(upstream[i])) continue;
+				neighbors[i].Add(upstream[i]);
+				neighbors[upstream[i]].Add(i);
+			}
+
+			var grid = ClimateGrid.FromArrays(dirs, Array.ConvertAll(neighbors, list => list.ToArray()),
+				land, new float[count]);
+			var rain = MonthlyClimate.ComputePrecipitationFromWind(grid, spec, null, 7,
+				new[] { wind }, new[] { upstream }, new[] { transportSpeed })[0];
+			for (int cell = 0; cell < count; cell++)
+			{
+				int hops = hopsByCell[cell];
+				float expected = spec.PrecipBaseMmPerMonth;
+				if (hops > 0 && hops <= spec.MoistureTraceSteps)
+					expected *= 1f + spec.MonsoonPrecipBoost * (0.35f + 0.65f * speed)
+						* MathF.Exp(-hops * spec.MoistureDecayPerStep);
+				Program.Near(rain[Index(cell)], expected, 1e-4, $"倒序 {reversed}，格 {cell} 月降水");
+			}
+		}
+	}
+
 	/// <summary>ITCZ 随太阳北移：15°N 的海格 7 月降水应明显多于 1 月。</summary>
 	public static void ItczFollowsTheSun()
 	{
@@ -581,7 +638,7 @@ static class ClimateTests
 		var surface = new Vector3[grid.Count];
 		var low = new Vector3[grid.Count];
 		var free = new Vector3[grid.Count];
-		WindSolver.Create(grid, spec).SolveAll(gradient, surface, low, free);
+		LegacyWindSolver.Create(grid, spec).SolveAll(gradient, surface, low, free);
 
 		int mid = planet.CellAt(40f, 0f);
 		Program.True(free[mid].Length() > 0.05f, $"自由风太弱（{free[mid].Length():F3}），比较无意义");
@@ -677,7 +734,7 @@ static class ClimateTests
 		var grid = planet.Grid;
 		var wind = new Vector3[grid.Count];
 		var speed = new float[grid.Count];
-		WindSolver.Create(grid, spec).SolveSurface(gradient, wind, speed);
+		LegacyWindSolver.Create(grid, spec).SolveSurface(gradient, wind, speed);
 		return (wind, speed);
 	}
 

@@ -162,7 +162,8 @@ public sealed class PressureFieldModel
 
 	internal Workspace CreateWorkspace() => new(_grid.Count, _coarse.Count, _bandCount.Length);
 
-	internal float BuildMonth(float[] seaLevelC, float declinationRad, float[] destinationHpa, Workspace work)
+	internal float BuildMonth(float[] seaLevelC, float declinationRad, float[] destinationHpa, Workspace work,
+		float[] thermalAnomalyC = null, float[] thermalHpa = null)
 	{
 		if (seaLevelC == null) throw new ArgumentNullException(nameof(seaLevelC));
 		if (destinationHpa == null) throw new ArgumentNullException(nameof(destinationHpa));
@@ -170,15 +171,23 @@ public sealed class PressureFieldModel
 		if (seaLevelC.Length != n) throw new ArgumentException("温度场与格数不一致", nameof(seaLevelC));
 		if (destinationHpa.Length != n) throw new ArgumentException("目标场与格数不一致", nameof(destinationHpa));
 
-		BuildBandMeans(seaLevelC, work);
-		var bandMean = SmoothBandMeans(work.BandMean, passes: 2);
+		if (thermalAnomalyC != null && thermalAnomalyC.Length != n)
+			throw new ArgumentException("温度异常场与格数不一致", nameof(thermalAnomalyC));
+		if (thermalHpa != null && thermalHpa.Length != n)
+			throw new ArgumentException("热力气压场与格数不一致", nameof(thermalHpa));
+
+		float[] bandMean = null;
+		if (thermalAnomalyC == null)
+		{
+			BuildBandMeans(seaLevelC, work);
+			bandMean = SmoothBandMeans(work.BandMean, passes: 2);
+		}
 
 		// ① 热力异常：相对同纬带均值（纬度插值，不是阶梯），再扣掉年均偏置
 		Array.Clear(work.CoarseSum);
 		for (int i = 0; i < n; i++)
 		{
-			float mean = InterpolateBand(bandMean, _latDeg[i]);
-			float anomaly = seaLevelC[i] - mean - _biasC[i];
+			float anomaly = thermalAnomalyC?[i] ?? (seaLevelC[i] - InterpolateBand(bandMean, _latDeg[i]) - _biasC[i]);
 			anomaly *= _thermalGain[i];
 			work.CoarseSum[_coarse.CoarseOfCell[i]] += anomaly;
 		}
@@ -204,6 +213,7 @@ public sealed class PressureFieldModel
 		{
 			float zonal = MonotoneCubic.Evaluate(ZonalLat, ZonalHpa, _zonalSlopes, _latDeg[i] - beltShift);
 			destinationHpa[i] = zonal - work.Anomaly[i] + _asymmetryHpa[i];
+			if (thermalHpa != null) thermalHpa[i] = -work.Anomaly[i];
 		}
 		return beltShift;
 	}

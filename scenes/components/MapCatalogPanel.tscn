@@ -1,0 +1,49 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/Components/MapCatalogPanel.cs" id="1_panel"]
+
+[node name="MapCatalogPanel" type="VBoxContainer"]
+size_flags_vertical = 3
+theme_override_constants/separation = 12
+script = ExtResource("1_panel")
+
+[node name="Content" type="HBoxContainer" parent="."]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 20
+
+[node name="List" type="ItemList" parent="Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Side" type="VBoxContainer" parent="Content"]
+custom_minimum_size = Vector2(440, 0)
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Buttons" type="VBoxContainer" parent="Content/Side"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="OpenButton" type="Button" parent="Content/Side/Buttons"]
+unique_name_in_owner = true
+layout_mode = 2
+disabled = true
+text = "加载所选地图"
+
+[node name="Detail" type="Label" parent="Content/Side"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
+size_flags_vertical = 3
+autowrap_mode = 2
+text = "从左侧选择一张已保存的地图。"
+
+[node name="Status" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
+autowrap_mode = 2
+text = ""

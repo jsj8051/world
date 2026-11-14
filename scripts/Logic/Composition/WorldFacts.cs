@@ -113,7 +113,7 @@ public sealed class WorldFacts
 	/// <summary>最干月月份（0–11）。</summary>
 	public int[] DryMonthIndex { get; }
 
-	/// <summary>三套风事实（地面 / 低空 / 自由）：同一个气压梯度、三种摩擦闭合，各含逐月 + 年合成。</summary>
+	/// <summary>地面、低空和自由风，各含逐月场与年合成。</summary>
 	public WindField Wind { get; }
 
 	/// <summary>季风强度 ∈ [0,1]。</summary>

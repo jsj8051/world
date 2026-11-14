@@ -1,6 +1,8 @@
 using Godot;
 using System;
-using System.IO;
+using World.Application.Loading;
+using World.Application.Pages;
+using World.Application.Storage;
 using World.Data;
 using World.Data.Maps;
 using World.Data.Work;
@@ -11,9 +13,10 @@ using World.Logic;
 namespace World.Scene;
 
 /// <summary>
-/// 场景的世界入口，持有生成实例和可选演化会话。渲染通过世界事实快照读数据。
+/// 场景的世界入口，持有生成实例和可选演化会话。渲染通过世界事实快照读数据；
+/// 页面控制器经 <see cref="IGeographyEvolutionControl"/> 只发送演化命令、不接触会话内部。
 /// </summary>
-public partial class WorldManager : Node3D, ITickable
+public partial class WorldManager : Node3D, ITickable, IGeographyEvolutionControl
 {
 	/// <summary>
 	/// 世界生产分辨率 = res4（冻结）：res4 是世界本身的空间离散尺度
@@ -23,16 +26,8 @@ public partial class WorldManager : Node3D, ITickable
 	/// </summary>
 	public const int ProductionRes = 4;
 
-	/// <summary>生成和演化共用的 H3 分辨率。生产场景使用 res4。</summary>
-	[Export(PropertyHint.Range, "0,4,1")] public int WorldResolution { get; set; } = ProductionRes;
-
-	/// <summary>是否启用演化会话，主场景显式启用。</summary>
-	[Export] public bool EnableEvolution { get; set; }
-
-	/// <summary>生成后直接演化到指定步，再装配选定时代的完整世界。</summary>
-	[Export(PropertyHint.Range, "0,100000,1,or_greater")] public int InitialEvolutionSteps { get; set; }
-
 	WorldEvolutionSession _evolution;
+	IGeographyMapRepository _mapRepository;
 	public EvolutionFrame EvolutionFrame => Sim?.Facts?.Evolution;
 	public bool EvolutionBusy => _evolution?.Busy == true;
 	public EvolutionControlStatus EvolutionStatus => _evolution?.Status ?? EvolutionControlStatus.Uninitialized;
@@ -57,17 +52,23 @@ public partial class WorldManager : Node3D, ITickable
 	/// </summary>
 	WorldSpec _spec;
 
+	/// <summary>注入地图存档库；异步生成路径在 Adopt 之前也需要同一份。</summary>
+	internal void SetMapRepository(IGeographyMapRepository mapRepository)
+		=> _mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
+
 	/// <summary>
 	/// 显式初始化：建逻辑入口 + 跑一次全链生成，幂等。
 	/// 必须在渲染 / 界面管理器之前——模式表与初始取色都读 <see cref="Sim"/>。
 	/// </summary>
 	/// <param name="spec">世界定义实例（根管理器从参数管理器取来注入；世界定义只有一份）。</param>
-	public void Initialize(WorldSpec spec)
+	/// <param name="mapRepository">地图存档库；保存与加载都不由世界管理器决定目录。</param>
+	internal void Initialize(WorldSpec spec, IGeographyMapRepository mapRepository)
 	{
 		if (IsInitialized) return;
 
 		_spec = spec;
-		Sim = new WorldGenSimulation(WorldResolution, PlanetGeometry.ProductionRadius);
+		SetMapRepository(mapRepository);
+		Sim = new WorldGenSimulation(ProductionRes, PlanetGeometry.ProductionRadius);
 		Regenerate();                // 世界生成（重活在这一步）
 		LogGenerationSummary();      // 尺度 / 高程 / 气温的一行体检
 		IsInitialized = true;
@@ -117,7 +118,7 @@ public partial class WorldManager : Node3D, ITickable
 
 	/// <summary>
 	/// 主线程接收工作线程产出的生成结果：替换 Sim、发布事实、建立演化会话。
-	/// 不做生成计算；调用点唯一（WorldRoot 的生成轮询）。
+	/// 不做生成计算；调用点唯一（GeographyEvolutionView 的生成轮询）。
 	/// </summary>
 	internal void Adopt(WorldGenerationResult result)
 	{
@@ -135,12 +136,13 @@ public partial class WorldManager : Node3D, ITickable
 	/// <summary>按当前定义准备完整世界，成功后替换旧会话并发布快照。</summary>
 	public void Regenerate()
 	{
+		WorldGenerationOptions options = WorldGenerationPresets.Production;
 		WorldGenSimulation.State candidate;
 		WorldEvolutionSession nextSession = null;
-		if (EnableEvolution)
+		if (options.EnableEvolution)
 		{
 			var solver = Sim.CreateEvolutionSolver(_spec, out var initialFrame);
-			var frame = solver.CalculateToStep(initialFrame, InitialEvolutionSteps);
+			var frame = solver.CalculateToStep(initialFrame, options.EvolutionSteps);
 			candidate = Sim.PrepareEvolution(solver, frame);
 			nextSession = new WorldEvolutionSession(Sim, solver);
 			GD.Print($"[EVOLVE] 已接入：res={frame.Definition.H3Resolution} " +
@@ -155,35 +157,19 @@ public partial class WorldManager : Node3D, ITickable
 		if (IsInitialized) WorldPublished?.Invoke(Sim.Facts);
 	}
 
-	public void PlayEvolution() => _evolution?.Play();
 	public void PauseEvolution() => _evolution?.Pause();
-	public void StepEvolutionOnce() => _evolution?.Step();
-	public void ConfirmEvolutionFault() => _evolution?.ConfirmFault();
 
 	/// <summary>
-	/// 把当前已发布的世界事实导出为 <c>.wmap</c> 地图包，返回绝对路径。
-	/// 只读一份快照引用，导出期间演化继续推进也不会混入不同时刻的字段。
+	/// 把当前已发布的世界事实保存为地图包，返回落盘路径。
+	/// 只读一份快照引用，保存期间演化继续推进也不会混入不同时刻的字段。
 	/// </summary>
-	public string ExportMapData()
+	public string SaveMap()
 	{
 		WorldFacts facts = Sim?.Facts ?? throw new InvalidOperationException("世界尚未生成");
-		string directory = ProjectSettings.GlobalizePath("user://maps");
-		Directory.CreateDirectory(directory);
-		string file = Path.Combine(directory, $"map_{DateTime.Now:yyyyMMdd_HHmmss_fff}.wmap");
 		DateTimeOffset now = DateTimeOffset.UtcNow;
 		var snapshot = GeographySnapshotCapture.Capture(facts, Guid.NewGuid(),
 			$"世界 {DateTime.Now:yyyy-MM-dd HH:mm}", string.Empty, now, "0.5.0");
-		MapPackageWriter.Write(snapshot, file);
-		return file;
-	}
-
-	public string SeekEvolutionToMa(double targetMa) =>
-		_evolution == null ? "地质演化尚未初始化。" : _evolution.Seek(targetMa);
-
-	public void SetEvolutionSpeed(double yearsPerSecond)
-	{
-		try { _evolution?.SetSpeed(yearsPerSecond); }
-		catch (ArgumentOutOfRangeException e) { GD.PushWarning($"[EVOLVE] {e.Message}"); }
+		return _mapRepository.Save(snapshot);
 	}
 
 	public void Tick(double delta)
@@ -193,6 +179,20 @@ public partial class WorldManager : Node3D, ITickable
 	}
 
 	public override void _ExitTree() => _evolution?.Stop();
+
+	EvolutionControlStatus IGeographyEvolutionControl.Status => EvolutionStatus;
+	bool IGeographyEvolutionControl.Busy => EvolutionBusy;
+	void IGeographyEvolutionControl.Play() => _evolution?.Play();
+	void IGeographyEvolutionControl.Pause() => PauseEvolution();
+	void IGeographyEvolutionControl.Step() => _evolution?.Step();
+	void IGeographyEvolutionControl.ConfirmFault() => _evolution?.ConfirmFault();
+	string IGeographyEvolutionControl.Seek(double targetMa) =>
+		_evolution == null ? "地理演化尚未初始化。" : _evolution.Seek(targetMa);
+	void IGeographyEvolutionControl.SetSpeed(double yearsPerSecond)
+	{
+		try { _evolution?.SetSpeed(yearsPerSecond); }
+		catch (ArgumentOutOfRangeException e) { GD.PushWarning($"[EVOLVE] {e.Message}"); }
+	}
 
 	// 本类没有依赖：世界本体就是它自己。但 _GetConfigurationWarnings 的汇总机制仍需存在
 	// （根管理器会遍历三个子管理器调用它）⇒ 保留空实现，写明"无依赖"是结论而不是忘了填。

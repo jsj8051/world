@@ -1,4 +1,4 @@
-﻿# AppRoot 重构回归：构建 → 逻辑单测 → 配置页 → 生成加载 → 浏览加载。
+# AppRoot 重构回归：构建 → 逻辑单测 → 配置页 → 生成加载 → 浏览加载。
 # 用法：powershell -File tests/verify-approot.ps1（或 pwsh -File）
 # 前置：Godot mono 可执行文件（$env:GODOT_EXE 覆盖）；首次运行会导出一次 .wmap 样本。
 $ErrorActionPreference = 'Stop'
@@ -27,13 +27,13 @@ try {
     ([regex]::Match($gen, '\[GEN-CHECK\][^\r\n]*')).Value
 
     Write-Host '═══ [5/5] 浏览加载检查 ═══'
-    $maps = Get-ChildItem (Join-Path $env:APPDATA 'Godot/app_userdata/world/maps') -Filter *.wmap -ErrorAction SilentlyContinue |
+    $maps = Get-ChildItem (Join-Path $PWD 'userdata/saves') -Filter *.wmap -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending
     if ($maps) {
         $mapPath = $maps[0].FullName
     }
     else {
-        Write-Host '  没有样本地图，先导出一份…'
+        Write-Host '  没有样本地图，先保存一份…'
         $sample = (& $godot --headless --path . res://tests/scenes/MapSampleExport.tscn 2>&1 | Out-String)
         $found = [regex]::Match($sample, '\[SAMPLE\] path=(.+)')
         if (-not $found.Success) { throw "样本导出失败：$sample" }

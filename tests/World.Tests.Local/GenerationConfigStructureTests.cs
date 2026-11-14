@@ -73,24 +73,26 @@ internal static class GenerationConfigStructureTests
 		var options = new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
 		options.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false));
 		var now = DateTimeOffset.UtcNow;
-		var file = new GenerationProfileFile
+		var catalog = new GenerationProfileCatalog
 		{
-			Profile = new GenerationProfile { Name = "Roundtrip", CreatedUtc = now, UpdatedUtc = now }
+			Profiles = { new GenerationProfile { Id = Guid.NewGuid(), Name = "Roundtrip", CreatedUtc = now, UpdatedUtc = now } }
 		};
-		string json = JsonSerializer.Serialize(file, options);
-		var restored = JsonSerializer.Deserialize<GenerationProfileFile>(json, options);
+		string json = JsonSerializer.Serialize(catalog, options);
+		var restored = JsonSerializer.Deserialize<GenerationProfileCatalog>(json, options);
 		restored.Validate();
-		Program.True(restored.Profile.Id == file.Profile.Id && restored.Profile.Config.Seed == 42,
-			"Profile JSON roundtrip changed identity or settings.");
+		Program.True(restored.Profiles[0].Name == "Roundtrip" && restored.Profiles[0].Config.Seed == 42,
+			"Catalog JSON roundtrip changed identity or settings.");
 		Program.Throws(() => JsonSerializer.Deserialize<GenerationConfig>("{}", options), "Missing settings were accepted.");
-		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileFile>("{}", options), "Missing file version was accepted.");
 		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileCatalog>("{}", options), "Missing catalog fields were accepted.");
 		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfile>("{}", options), "Missing profile metadata was accepted.");
-		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileFile>(json.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"unknown\":true"), options),
-			"Unknown file field was accepted.");
-		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileFile>(json.Replace("\"seed\":42", "\"seed\":42,\"unknown\":true"), options),
+		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileCatalog>(
+			json.Replace("\"schemaVersion\":1", "\"schemaVersion\":1,\"unknown\":true"), options),
+			"Unknown catalog field was accepted.");
+		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileCatalog>(
+			json.Replace("\"seed\":42", "\"seed\":42,\"unknown\":true"), options),
 			"Unknown setting field was accepted.");
-		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileFile>(json.Replace("\"Auto\"", "\"Earth\""), options),
+		Program.Throws(() => JsonSerializer.Deserialize<GenerationProfileCatalog>(
+			json.Replace("\"Auto\"", "\"Earth\""), options),
 			"Unknown layout string was accepted.");
 	}
 
@@ -110,16 +112,5 @@ internal static class GenerationConfigStructureTests
 		Program.Throws(() => new GenerationProfile { Name = "Offset", CreatedUtc = now.ToOffset(TimeSpan.FromHours(8)), UpdatedUtc = now }.Validate(), "Non-UTC time accepted.");
 		Program.Throws(() => new GenerationProfileCatalog { Profiles = null }.Validate(), "Null profile list accepted.");
 		Program.Throws(() => new GenerationProfileCatalog { Profiles = { null } }.Validate(), "Null profile list item accepted.");
-	}
-
-	public static void SingleProfileFileValidatesVersionAndProfile()
-	{
-		var now = DateTimeOffset.UtcNow;
-		new GenerationProfileFile
-		{
-			Profile = new GenerationProfile { Id = Guid.NewGuid(), Name = "Export", CreatedUtc = now, UpdatedUtc = now }
-		}.Validate();
-		Program.Throws(() => new GenerationProfileFile { SchemaVersion = 0 }.Validate(), "Invalid profile file version was accepted.");
-		Program.Throws(() => new GenerationProfileFile { Profile = null }.Validate(), "Missing profile was accepted.");
 	}
 }

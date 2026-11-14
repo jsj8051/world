@@ -1,0 +1,55 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/Components/ProfileLibraryPanel.cs" id="1_panel"]
+
+[node name="ProfileLibraryPanel" type="VBoxContainer"]
+custom_minimum_size = Vector2(260, 220)
+theme_override_constants/separation = 10
+script = ExtResource("1_panel")
+
+[node name="Title" type="Label" parent="."]
+layout_mode = 2
+text = "已保存配置"
+
+[node name="Profiles" type="ItemList" parent="."]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 180)
+layout_mode = 2
+size_flags_vertical = 3
+allow_reselect = true
+text_overrun_behavior = 3
+
+[node name="ProfileActions" type="HFlowContainer" parent="."]
+layout_mode = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 8
+
+[node name="Rename" type="Button" parent="ProfileActions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "重命名"
+
+[node name="Delete" type="Button" parent="ProfileActions"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "删除"
+
+[node name="NameDialog" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "保存配置"
+
+[node name="Fields" type="VBoxContainer" parent="NameDialog"]
+
+[node name="Label" type="Label" parent="NameDialog/Fields"]
+layout_mode = 2
+text = "配置名称"
+
+[node name="ProfileName" type="LineEdit" parent="NameDialog/Fields"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(400, 40)
+layout_mode = 2
+max_length = 40
+
+[node name="ConfirmDialog" type="ConfirmationDialog" parent="."]
+unique_name_in_owner = true
+title = "确认"

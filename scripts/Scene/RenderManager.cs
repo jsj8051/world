@@ -4,16 +4,15 @@ using World.Client;
 using World.Data;
 using World.Logic;
 using World.Render;
-using World.UI;
 using World.Utils;
 
 namespace World.Scene;
 
 /// <summary>
-/// 渲染管理器（`WorldRoot > RenderManager`）：3D 世界表现的持有者，也是点选与地图模式的发起方。
+/// 渲染管理器（`GeographyEvolutionView > RenderManager`）：3D 世界表现的持有者，也是点选与地图模式的发起方。
 /// 持有 <c>WorldView</c>（球面网格 + 河线 + 高亮）、<c>WorldPicker</c>（屏幕坐标 → 一格世界事实）
 /// 与坞的模式侧（模式表 / 当前模式 / 四处同步）。地图模式归本类：模式 = 同一批世界事实换一种取色。
-/// 坞→本类的信号连接写在 `scenes/core/WorldGenWorld.tscn` 的 [connection] 里，本类→坞一律经
+/// 坞→本类的信号连接写在 `scenes/render/WorldPresentation.tscn` 的 [connection] 里，本类→坞一律经
 /// <c>Node.Call</c> ⇒ 两侧不引用彼此的类型：本类不认识 MapDock，坞也不认识本类。
 /// 点选通道：<c>_UnhandledInput</c>（GUI 消费过的不到这里）→ <c>Picker.TryPick</c> →
 /// <c>View.SetHighlight</c> 就地高亮 ＋ <see cref="CellPicked"/> 给界面侧订阅。
@@ -189,7 +188,7 @@ public partial class RenderManager : Node3D, ITickable
 		WorldBuildProfile.Mark(ref timing, "map-rebake");
 	}
 
-	// ── 坞信号的处理口（连接写在 WorldGenWorld.tscn 的 [connection] 里）──
+	// ── 坞信号的处理口（连接写在 WorldPresentation.tscn 的 [connection] 里）──
 	// 这两个方法必须是 public：Godot 的 C# 桥只把公开方法暴露给引擎（场景连接按名字解析）。
 	// 参数是一个整数（模式下标 / 参数下标）：坞只发数字，语义由本类解释——
 	// 这是"哑组件 + 驱动方"的分工，也是坞不必认识 MapMode 的原因。
@@ -322,7 +321,7 @@ public partial class RenderManager : Node3D, ITickable
 
 	// ── 依赖解析 / 校验（判据收在 World.Utils.NodeDependency，四个管理器共用一份）──
 
-	/// <summary>编辑器依赖校验（同 <see cref="WorldRoot"/> 的自文档化机制）。</summary>
+	/// <summary>编辑器依赖校验（同 <see cref="GeographyEvolutionView"/> 的自文档化机制）。</summary>
 	public override string[] _GetConfigurationWarnings()
 	{
 		var warnings = new List<string>();

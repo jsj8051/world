@@ -4,8 +4,8 @@
 [ext_resource type="Script" path="res://scripts/Scene/RenderManager.cs" id="2_render"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldView.tscn" id="3_view"]
 [ext_resource type="Script" path="res://scripts/Scene/UIManager.cs" id="4_ui"]
-[ext_resource type="PackedScene" path="res://scenes/render/CellInfoCard.tscn" id="5_card"]
-[ext_resource type="PackedScene" path="res://scenes/render/MapDock.tscn" id="6_dock"]
+[ext_resource type="PackedScene" path="res://scenes/components/CellInfoCard.tscn" id="5_card"]
+[ext_resource type="PackedScene" path="res://scenes/components/MapDock.tscn" id="6_dock"]
 
 [node name="WorldPresentation" type="Node3D"]
 

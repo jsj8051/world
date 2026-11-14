@@ -1,5 +1,7 @@
 using System;
 using Godot;
+using World.Application.Pages;
+using World.UI.Components;
 
 namespace World.Scene;
 
@@ -9,7 +11,7 @@ namespace World.Scene;
 /// </summary>
 internal sealed class AppNoticeBoard : INoticeSink
 {
-	const string StatusBarScene = "res://scenes/app/AppStatusBar.tscn";
+	const string StatusBarScene = "res://scenes/components/AppStatusBar.tscn";
 
 	readonly Node _owner;
 	AppStatusBar _bar;

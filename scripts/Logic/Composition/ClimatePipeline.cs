@@ -14,7 +14,7 @@ namespace World.Logic;
 /// 洋流第一遍（解析盛行风驱动）
 ///   → 年基温（纬度 + 沿岸冷暖 + 海拔 + 噪声）
 ///   → 湿润降温闭环（纬向估算降水，一步解析）
-///   → 月循环：月温 → 气压（三项叠加）→ 诊断风场（地转 + 风带 + 季风 + 地形）→ 水汽追踪 → 月降水 / 季风
+///   → 月循环：月温 → 气压强迫 → 三档定常环流 → 低空边界通量驱动水汽追踪 → 月降水
 ///   → 温度（年均 = mean 月）、降水（年 = Σ 月）、气压（年均 = mean 月）、风（年合成）
 ///   → 洋流第二遍（统一风场 + 年均温热成风）——存档场
 /// </code>
@@ -100,7 +100,8 @@ public sealed class ClimatePipeline
 			? PressureGrids.GetValue(ball, static b => CoarseLayer.Parent(b, 2))
 			: CoarseLayer.Identity(grid);
 		WorldBuildProfile.Mark(ref timing, "monthly-input");
-		monthly.Compute(grid, spec, baseTemperature.AnnualC, coastalWarmth, seed, coarse, cancellation);
+		var windSolver = new ConservativeWindSolver(ball, grid, spec, cancellation);
+		monthly.Compute(grid, spec, baseTemperature.AnnualC, coastalWarmth, seed, coarse, cancellation, windSolver);
 		WorldBuildProfile.Mark(ref timing, "monthly-climate");
 		cancellation.ThrowIfCancellationRequested();
 

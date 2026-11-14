@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
-using System.Threading.Tasks;
 using Godot;
 using World.Data;
 using World.Utils;
@@ -11,7 +10,7 @@ namespace World.Logic;
 /// <summary>
 /// 月度气候：12 个月的月温 → 气压 → 诊断风场 → 水汽追踪 → 月降水，外加季风强度与月极值。
 ///
-/// 风不做时间积分：按“地转/热成风 + 三圈纬向风带 + 海陆温差季风 + 地形”诊断生成。
+/// 三档风按气压强迫、科氏力和各自的摩擦条件求定常环流。
 /// 月/年均场只保留风带、季风和准静止热力结构；冷锋/瞬变涡旋属于天气尺度，不在此生成。
 ///
 /// 月温使用全天平均辐照与海陆热惯性。气压带和降水带共享同一套月太阳赤纬。
@@ -35,7 +34,7 @@ public sealed class MonthlyClimate
 	/// <summary>逐月温度（°C）：<c>[month][cell]</c>。</summary>
 	public float[][] MonthTempC { get; private set; } = Array.Empty<float[]>();
 
-	/// <summary>三套风事实（地面 / 低空 / 自由）：同一次月循环、同一个气压梯度。</summary>
+	/// <summary>同一次月循环生成的地面、低空和自由风。</summary>
 	public WindField Wind { get; private set; }
 
 	/// <summary>逐月降水（mm/月）。</summary>
@@ -77,7 +76,7 @@ public sealed class MonthlyClimate
 		=> Compute(grid, spec, baseTempC, coastalWarmth, seed, coarse, CancellationToken.None);
 
 	internal void Compute(ClimateGrid grid, ClimateSpec spec, float[] baseTempC, float[] coastalWarmth, int seed,
-		CoarseLayer coarse, CancellationToken cancellation)
+		CoarseLayer coarse, CancellationToken cancellation, ConservativeWindSolver windSolver = null)
 	{
 		if (grid == null) throw new ArgumentNullException(nameof(grid));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -91,14 +90,8 @@ public sealed class MonthlyClimate
 		var insolation = MonthlyInsolation.BuildYear(MonthCount, spec.ObliquityDeg);
 		MonthlyTemperatureModel.Compute(grid, spec, baseTempC, insolation, MonthTempC, cancellation);
 
-		var elevationGradient = BuildElevationGradient(grid);
-
-		var precipNoise = new SphericalFbmNoise(seed ^ 0x4D5E6F, spec.PrecipNoiseWavelengthKm, 4);
-		var noise = new float[n];
-		for (int i = 0; i < n; i++) noise[i] = precipNoise.Sample(grid.Dirs[i]);
-
+		var precipitation = new PrecipitationInputs(grid, spec, coastalWarmth, seed);
 		var annualSeaLevel = new float[n];
-		var rainBands = BuildRainBands(grid, spec);
 
 		// 气压热力项的年均偏置取已求解的月温平均，再折算到海平面。
 		for (int m = 0; m < MonthCount; m++)
@@ -109,49 +102,53 @@ public sealed class MonthlyClimate
 		for (int i = 0; i < n; i++)
 			annualSeaLevel[i] = SeaLevelEquivalent(annualSeaLevel[i] / MonthCount, grid, spec, i);
 
-		Wind = BuildWindField(n);
+		var surfaceWind = new Vector3[MonthCount][];
+		var lowWind = new Vector3[MonthCount][];
+		var freeWind = new Vector3[MonthCount][];
 		var pressure = PressureFieldModel.Create(grid, spec, coarse ?? CoarseLayer.Identity(grid), annualSeaLevel);
-		var windSolver = WindSolver.Create(grid, spec);
-		// 年基准已固定，各月独立。工人只写自己的月度数组，年平均仍按月份顺序汇总。
-		int workers = n >= 10_000 ? Math.Min(MonthCount, Math.Clamp(System.Environment.ProcessorCount - 1, 1, 6)) : 1;
-		if (workers == 1) BuildMonths(0);
-		else Parallel.For(0, workers, new ParallelOptions { CancellationToken = cancellation }, BuildMonths);
+		windSolver ??= new ConservativeWindSolver(null, grid, spec, cancellation);
+		var precipitationSolarWeight = new float[n];
+		var seaLevel = new float[n];
+		var workspace = pressure.CreateWorkspace();
+		var target = new float[n];
+		var upstream = new int[n];
+		var transportSpeed = new float[n];
+		for (int m = 0; m < MonthCount; m++)
+		{
+			cancellation.ThrowIfCancellationRequested();
+			float deltaRad = insolation[m].DeclinationRad;
+			BuildMonthSeaLevelTemp(grid, spec, MonthTempC[m], seaLevel);
+			pressure.BuildMonth(seaLevel, deltaRad, MonthPressureHpa[m], workspace, thermalHpa: target);
+			for (int i = 0; i < n; i++)
+				target[i] = MonthPressureHpa[m][i] + (ConservativeWindSolver.ThermalGainMultiplier - 1f) * target[i];
+			var winds = windSolver.SolveMonth(target, upstream, transportSpeed, cancellation);
+			surfaceWind[m] = winds.Surface;
+			lowWind[m] = winds.Low;
+			freeWind[m] = winds.Free;
+			precipitation.BuildMonth(deltaRad, precipitationSolarWeight, winds.Low, MonthPrecipMm[m], upstream, transportSpeed);
+		}
 
+		Wind = new WindField(new WindSet(WindKind.Surface, surfaceWind, new Vector3[n], new float[n]),
+			new WindSet(WindKind.Low, lowWind, new Vector3[n], new float[n]),
+			new WindSet(WindKind.Free, freeWind, new Vector3[n], new float[n]));
 		Finalize(grid);
 		MonsoonStrength = MonsoonIndex.Compute(grid, spec, MonthPressureHpa);
-
-		void BuildMonths(int worker)
-		{
-			var precipitationSolarWeight = new float[n];
-			var seaLevel = new float[n];
-			var pressureGradient = new Vector3[n];
-			var workspace = pressure.CreateWorkspace();
-			for (int m = worker; m < MonthCount; m += workers)
-			{
-				cancellation.ThrowIfCancellationRequested();
-				float deltaRad = insolation[m].DeclinationRad;
-				BuildPrecipitationSolarWeight(grid, deltaRad, precipitationSolarWeight);
-				BuildMonthSeaLevelTemp(grid, spec, MonthTempC[m], seaLevel);
-				pressure.BuildMonth(seaLevel, deltaRad, MonthPressureHpa[m], workspace);
-
-				TangentField.GradientField(grid, MonthPressureHpa[m], pressureGradient);
-				windSolver.SolveAll(pressureGradient,
-					Wind.Surface.Monthly[m], Wind.Low.Monthly[m], Wind.Free.Monthly[m]);
-				BuildMonthPrecip(grid, spec, m, deltaRad, rainBands, precipitationSolarWeight, noise, coastalWarmth,
-					elevationGradient, Wind.Low.Monthly[m]);
-			}
-		}
 	}
 
-	WindField BuildWindField(int n) =>
-		new(AllocateWindSet(WindKind.Surface, n), AllocateWindSet(WindKind.Low, n),
-			AllocateWindSet(WindKind.Free, n));
-
-	WindSet AllocateWindSet(WindKind kind, int n)
+	internal static float[][] ComputePrecipitationFromWind(ClimateGrid grid, ClimateSpec spec, float[] coastalWarmth,
+		int seed, Vector3[][] monthlyLowWind, int[][] upstreamByMonth = null, float[][] transportSpeedByMonth = null)
 	{
-		var monthly = new Vector3[MonthCount][];
-		for (int m = 0; m < MonthCount; m++) monthly[m] = new Vector3[n];
-		return new WindSet(kind, monthly, new Vector3[n], new float[n]);
+		var precipitation = new PrecipitationInputs(grid, spec, coastalWarmth, seed);
+		var insolation = MonthlyInsolation.BuildYear(monthlyLowWind.Length, spec.ObliquityDeg);
+		var solarWeight = new float[grid.Count];
+		var monthly = new float[monthlyLowWind.Length][];
+		for (int month = 0; month < monthly.Length; month++)
+		{
+			monthly[month] = new float[grid.Count];
+			precipitation.BuildMonth(insolation[month].DeclinationRad, solarWeight, monthlyLowWind[month], monthly[month],
+				upstreamByMonth?[month], transportSpeedByMonth?[month]);
+		}
+		return monthly;
 	}
 
 	void Allocate(int n)
@@ -194,99 +191,114 @@ public sealed class MonthlyClimate
 	static float SeaLevelEquivalent(float tempC, ClimateGrid grid, ClimateSpec spec, int i) =>
 		tempC + (grid.Land[i] && grid.HeightM[i] > 0f ? spec.LapseRateCPerKm / 1000f * grid.HeightM[i] : 0f);
 
-	void BuildMonthPrecip(ClimateGrid grid, ClimateSpec spec, int month, float deltaRad, RainBands[] rainBands, float[] solarWeight,
-		float[] noise, float[] coastalWarmth, Vector3[] elevationGradient, Vector3[] windMonth)
+	sealed class PrecipitationInputs
 	{
-		int n = grid.Count;
-		var moisture = BuildMoisture(grid, spec, windMonth);
-		float deltaDeg = deltaRad * 180f / MathF.PI;
+		readonly ClimateGrid _grid;
+		readonly ClimateSpec _spec;
+		readonly float[] _coastalWarmth;
+		readonly Vector3[] _elevationGradient;
+		readonly float[] _noise;
+		readonly RainBands[] _rainBands;
 
-		for (int i = 0; i < n; i++)
+		public PrecipitationInputs(ClimateGrid grid, ClimateSpec spec, float[] coastalWarmth, int seed)
 		{
-			float p = MonthPrecipBase(grid, spec, i, rainBands[i], deltaDeg, noise, coastalWarmth);
+			_grid = grid;
+			_spec = spec;
+			_coastalWarmth = coastalWarmth;
+			_elevationGradient = BuildElevationGradient(grid);
+			var precipNoise = new SphericalFbmNoise(seed ^ 0x4D5E6F, spec.PrecipNoiseWavelengthKm, 4);
+			_noise = new float[grid.Count];
+			for (int i = 0; i < grid.Count; i++) _noise[i] = precipNoise.Sample(grid.Dirs[i]);
+			_rainBands = BuildRainBands(grid, spec);
+		}
 
-			float monsoonWeight = moisture[i] * solarWeight[i];
-			p *= 1f + spec.MonsoonPrecipBoost * monsoonWeight;
+		public void BuildMonth(float deltaRad, float[] solarWeight, Vector3[] windMonth, float[] destination,
+			int[] upstream = null, float[] transportSpeed = null)
+		{
+			BuildPrecipitationSolarWeight(_grid, deltaRad, solarWeight);
+			var moisture = BuildMoisture(_grid, _spec, windMonth, upstream, transportSpeed);
+			float deltaDeg = deltaRad * 180f / MathF.PI;
 
-			var wind = windMonth[i];
-			if (wind.LengthSquared() > 1e-9f)
+			for (int i = 0; i < _grid.Count; i++)
 			{
-				float upslope = wind.Normalized().Dot(elevationGradient[i]);
-				p *= 1f + Math.Clamp(upslope * spec.OrographicGain, -0.65f, 0.65f);
-			}
+				float p = MonthPrecipBase(_grid, _spec, i, _rainBands[i], deltaDeg, _noise, _coastalWarmth);
 
-			p = MathF.Max(0f, p);
-			MonthPrecipMm[month][i] = p;
+				float monsoonWeight = moisture[i] * solarWeight[i];
+				p *= 1f + _spec.MonsoonPrecipBoost * monsoonWeight;
+
+				var wind = windMonth[i];
+				if (wind.LengthSquared() > 1e-9f)
+				{
+					float upslope = wind.Normalized().Dot(_elevationGradient[i]);
+					p *= 1f + Math.Clamp(upslope * _spec.OrographicGain, -0.65f, 0.65f);
+				}
+
+				destination[i] = MathF.Max(0f, p);
+			}
 		}
 	}
 
-	/// <summary>逐格水汽权重：陆地沿风上游走到海，得到季风水汽（步数越多衰减越大）。</summary>
-	/// <remarks>
-	/// 上游邻格先按月份预计算（每格一次 O(6)），再沿链记忆化求步数——
-	/// 逐格重走 25 步的朴素写法在 res4 是 ~1.8 亿次点积，记忆化后摊还 O(n)。
-	/// </remarks>
-	float[] BuildMoisture(ClimateGrid grid, ClimateSpec spec, Vector3[] windMonth)
+	/// <summary>从海格沿每月的下游边传播，按到海的跳数衰减水汽权重。</summary>
+	static float[] BuildMoisture(ClimateGrid grid, ClimateSpec spec, Vector3[] windMonth,
+		int[] suppliedUpstream, float[] transportSpeed)
 	{
 		int n = grid.Count;
 		var field = new float[n];
-		var upstreamOf = new int[n];
+		var firstDownstream = new int[n];
+		var nextDownstream = new int[n];
+		Array.Fill(firstDownstream, -1);
+		var queue = new Queue<int>();
+		for (int i = 0; i < n; i++)
+		{
+			if (!grid.Land[i])
+			{
+				queue.Enqueue(i);
+				continue;
+			}
+
+			int upstream = suppliedUpstream?[i] ?? FindUpstream(grid, i, windMonth[i]);
+			if (upstream < 0) continue;
+			nextDownstream[i] = firstDownstream[upstream];
+			firstDownstream[upstream] = i;
+		}
+
+		// 每个陆格只有一个上游，因此最多入队一次，断链和闭环不会从海格传播到。
 		var stepsToOcean = new int[n];
-
-		for (int i = 0; i < n; i++)
+		while (queue.TryDequeue(out int source))
 		{
-			upstreamOf[i] = -1;
-			stepsToOcean[i] = grid.Land[i] ? -1 : 0;
-
-			var wind = windMonth[i];
-			if (!grid.Land[i] || wind.LengthSquared() < 1e-12f) continue;
-
-			var upstream = -wind.Normalized();
-			int best = -1;
-			float bestDot = -2f;
-			foreach (int nb in grid.Neighbors[i])
+			int steps = stepsToOcean[source] + 1;
+			if (steps > spec.MoistureTraceSteps) break;
+			for (int i = firstDownstream[source]; i >= 0; i = nextDownstream[i])
 			{
-				float dot = grid.Dirs[nb].Dot(upstream);
-				if (dot > bestDot) { bestDot = dot; best = nb; }
+				stepsToOcean[i] = steps;
+				queue.Enqueue(i);
+
+				float speed = transportSpeed?[i] ?? windMonth[i].Length();
+				if (speed < 1e-6f) continue;
+				// 弱风也保留季风水汽的基础权重，否则衰减会把整片弱风区压得过干。
+				field[i] = (0.35f + 0.65f * speed) * MathF.Exp(-steps * spec.MoistureDecayPerStep);
 			}
-			upstreamOf[i] = best;
-		}
-
-		// 链条可能成环（风场闭环）⇒ 用"未知即 -1 + 显式栈"解析，环上整条链判为无海洋。
-		var chain = new List<int>();
-		for (int i = 0; i < n; i++)
-		{
-			if (!grid.Land[i] || stepsToOcean[i] >= 0) continue;
-
-			chain.Clear();
-			int current = i;
-			int depth = 0;
-			while (current >= 0 && stepsToOcean[current] < 0 && depth <= spec.MoistureTraceSteps)
-			{
-				chain.Add(current);
-				current = upstreamOf[current];
-				depth++;
-			}
-
-			bool resolved = current >= 0 && stepsToOcean[current] >= 0;
-			int steps = resolved ? stepsToOcean[current] : int.MaxValue;
-			for (int k = chain.Count - 1; k >= 0; k--)
-			{
-				steps = steps == int.MaxValue ? int.MaxValue : steps + 1;
-				stepsToOcean[chain[k]] = steps;
-			}
-		}
-
-		for (int i = 0; i < n; i++)
-		{
-			if (!grid.Land[i]) continue;
-			float speed = windMonth[i].Length();
-			int steps = stepsToOcean[i];
-			if (speed < 1e-6f || steps <= 0 || steps > spec.MoistureTraceSteps) continue;
-
-			// 弱风也要有季风"存在性"（0.35 底），否则乘法衰减会把整个季风区压到阈值下。
-			field[i] = (0.35f + 0.65f * speed) * MathF.Exp(-steps * spec.MoistureDecayPerStep);
 		}
 		return field;
+	}
+
+	static int FindUpstream(ClimateGrid grid, int cell, Vector3 wind)
+	{
+		if (wind.LengthSquared() < 1e-12f) return -1;
+
+		var upstreamDirection = -wind.Normalized();
+		int upstream = -1;
+		float bestDot = -2f;
+		foreach (int neighbor in grid.Neighbors[cell])
+		{
+			float dot = grid.Dirs[neighbor].Dot(upstreamDirection);
+			if (dot > bestDot)
+			{
+				bestDot = dot;
+				upstream = neighbor;
+			}
+		}
+		return upstream;
 	}
 
 	/// <summary>极锋和副高压制由纬度决定，所有月份共用。</summary>

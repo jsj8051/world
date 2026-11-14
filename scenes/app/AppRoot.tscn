@@ -1,9 +1,17 @@
-[gd_scene format=3 uid="uid://clkniys6xyua0"]
+[gd_scene load_steps=4 format=3 uid="uid://clkniys6xyua0"]
 
 [ext_resource type="Script" uid="uid://ciee1u5piimf2" path="res://scripts/Scene/Navigation/AppRoot.cs" id="1_app"]
+[ext_resource type="Script" path="res://scripts/Scene/Navigation/AppPageHost.cs" id="2_page_host"]
+[ext_resource type="Script" path="res://scripts/Scene/Navigation/AppLoadCoordinator.cs" id="3_load_coordinator"]
 
 [node name="AppRoot" type="Node" unique_id=813578105]
 script = ExtResource("1_app")
-ScreenHostPath = NodePath("ScreenHost")
+PageHostPath = NodePath("PageHost")
+LoadCoordinatorPath = NodePath("LoadCoordinator")
 
-[node name="ScreenHost" type="Node" parent="." unique_id=1526486667]
+[node name="PageHost" type="Node" parent="." unique_id=1526486667]
+script = ExtResource("2_page_host")
+
+; Coordinator exits first so its TreeExiting signal cancels the page before PageHost exits.
+[node name="LoadCoordinator" type="Node" parent="."]
+script = ExtResource("3_load_coordinator")

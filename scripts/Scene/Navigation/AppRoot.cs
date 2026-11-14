@@ -1,95 +1,51 @@
-using System;
-using System.Threading;
-using World.Data.Generation;
-using World.Logic;
 using Godot;
+using World.Application.Generation;
+using World.Application.Storage;
+using World.Infrastructure;
+using World.Infrastructure.Generation;
+using World.Infrastructure.Maps;
+using World.Logic;
 using World.Utils;
 
 namespace World.Scene;
 
-/// <summary>
-/// 应用组合根与页面宿主：创建应用级协作者，负责页面生命周期，不持有玩法数据。
-/// 每个页面是独立场景，进入用新实例、离开即释放。
-/// </summary>
-/// <example><code>var app = (AppRoot)GetTree().CurrentScene; var page = app.CurrentScreen;</code></example>
-public partial class AppRoot : Node, IPageHost, IGenerationStarter
+/// <summary>Connects the app scene's page host, load coordinator, and notice nodes, then opens the main menu.</summary>
+public partial class AppRoot : Node
 {
+	[Export] public NodePath PageHostPath { get; set; }
+	[Export] public NodePath LoadCoordinatorPath { get; set; }
 
-	/// <summary>页面宿主（当前页面唯一子节点）。</summary>
-	[Export] public NodePath ScreenHostPath { get; set; }
-
-	Node _screenHost;
-	AppNoticeBoard _notice;
-	AppNavigator _navigation;
-	internal IPageNavigator Navigation => _navigation;
-	Node _current;
-	CancellationTokenSource _pageLifetime;
-	PageContext _pageContext;
+	AppPageHost _pageHost;
 	AppLoadCoordinator _loadCoordinator;
+	AppNoticeBoard _notice;
+	AppShell _shell;
 
 	public override void _Ready()
 	{
-		_screenHost = this.Require<Node>(ScreenHostPath, nameof(ScreenHostPath));
+		_pageHost = this.Require<AppPageHost>(PageHostPath, nameof(PageHostPath));
+		_loadCoordinator = this.Require<AppLoadCoordinator>(LoadCoordinatorPath, nameof(LoadCoordinatorPath));
 		_notice = new AppNoticeBoard(this);
-		_navigation = new AppNavigator(this, new AppPageFactory(_notice).RegisterPages,
+
+		IGeographyMapRepository mapRepository = GameMapRepository.CreateDefault();
+		var factory = new AppPageFactory(_notice, mapRepository, () => GetTree().Quit());
+		_shell = new AppShell(_pageHost, factory, _loadCoordinator, _loadCoordinator, _notice,
 			GenerationSessions.CreateDefault);
-		_loadCoordinator = new AppLoadCoordinator();
-		_loadCoordinator.Configure(() => _pageContext, OpenBrowser, _notice);
-		AddChild(_loadCoordinator);
-		_navigation.Navigate(new MainMenuRequest());
+		_pageHost.Configure(_loadCoordinator, _notice);
+		_loadCoordinator.Configure(() => _pageHost.CurrentContext, _shell.OpenBrowser, _shell.OpenWorld,
+			_notice, mapRepository);
+		_shell.Start();
 	}
+}
 
-	internal bool HasActiveLoad => _loadCoordinator?.HasActive == true;
-	internal IMapOpener MapOpener => _loadCoordinator;
-
-	void OpenBrowser(ImportedWorldFactsSource source, LoadOperation operation)
-		=> _navigation.Navigate(new MapBrowserRequest(source, operation));
-
-	/// <summary>当前页面节点（无页面时为 null）。</summary>
-	public Node CurrentScreen => _current;
-
-	public void StartGeography(GenerationConfig config)
+/// <summary>
+/// 生成配置会话的出厂入口：档案文件位置留在游戏目录，
+/// 让组合根不认识 <c>user://</c> 约定与具体存储。
+/// </summary>
+internal static class GenerationSessions
+{
+	internal static GenerationConfigSession CreateDefault()
 	{
-		Node page = null;
-		_navigation.Navigate(new WorldGenerationRequest(config, error => Callable.From(() =>
-		{
-			if (_current != page || !IsInsideTree()) return;
-			_navigation.Navigate(new GenerationConfigRequest());
-			_notice.Notify($"地图生成失败：{error.Message}", NoticeKind.Error);
-		}).CallDeferred()));
-		page = _current;
+		var store = new FileGenerationProfileStore();
+		return new GenerationConfigSession(store, GamePaths.GenerationProfilesPath);
 	}
-
-	void IPageHost.MountPage(Node page, LoadOperation transferredOperation) => MountPage(page, transferredOperation);
-
-	void MountPage(Node page, LoadOperation transferredOperation = null)
-	{
-		// 工厂已提示场景缺失；保留当前页面比切到空白更好。
-		if (page == null) return;
-		UnmountCurrent(transferredOperation);
-		_pageLifetime = new CancellationTokenSource();
-		_pageContext = new PageContext(_pageLifetime.Token,
-			navigation: _navigation, mapOpener: _loadCoordinator, generation: this,
-			notice: _notice, progress: _loadCoordinator);
-		_loadCoordinator.OnPageMounted(_pageContext, transferredOperation);
-		if (page is IAppPage appPage) appPage.Configure(_pageContext);
-		// AddChild runs _Ready synchronously; ownership must already be established.
-		_current = page;
-		_notice.Clear();
-		_screenHost.AddChild(page);
-	}
-
-	void UnmountCurrent(LoadOperation transferredOperation = null)
-	{
-		_pageLifetime?.Cancel();
-		if (_current is IAppPage appPage) appPage.OnHidden();
-		_loadCoordinator.OnPageLeaving(transferredOperation);
-		_current?.QueueFree();
-		_current = null;
-		_pageContext = null;
-		_pageLifetime?.Dispose();
-		_pageLifetime = null;
-	}
-
-	public override void _ExitTree() => UnmountCurrent();
 }

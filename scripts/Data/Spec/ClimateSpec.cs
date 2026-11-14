@@ -138,6 +138,10 @@ public sealed class ClimateSpec
 	/// <summary>低空风摩擦倍数（乘海面 r）：水汽输送层，摩擦小于地面。</summary>
 	public float FrictionLowFactor { get; set; } = 0.5f;
 
+	[System.Obsolete("守恒风已默认启用。")]
+	[System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
+	public bool UseConservativeLowWind { get => false; set { } }
+
 	/// <summary>自由低层风摩擦倍数（乘海面 r）：洋流风应力层，三套里摩擦最小。</summary>
 	public float FrictionFreeFactor { get; set; } = 0.3f;
 

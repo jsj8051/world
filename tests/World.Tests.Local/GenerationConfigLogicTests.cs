@@ -1,7 +1,11 @@
 using System;
 using System.IO;
+using System.Threading;
+using World.Application.Generation;
+using World.Application.Storage;
 using World.Data;
 using World.Data.Generation;
+using World.Infrastructure.Generation;
 using World.Params.Generation;
 
 namespace World.Tests;
@@ -11,7 +15,7 @@ internal static class GenerationConfigLogicTests
 	public static void DefaultsStartAppliedAndEditsRequireExplicitApply()
 	{
 		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store);
+		var session = new GenerationConfigSession(store, "profiles.json");
 		Program.True(session.Applied.Seed == 42 && !session.HasUnappliedChanges,
 			"A fresh session must start with the defaults applied.");
 		Program.True(session.GetAppliedForGeneration().Seed == 42 && store.Writes == 0,
@@ -27,7 +31,7 @@ internal static class GenerationConfigLogicTests
 
 	public static void ProfileNamingSelectionAndDeletionRemainSeparateFromApply()
 	{
-		var session = new GenerationConfigSession(new MemoryStore());
+		var session = new GenerationConfigSession(new MemoryStore(), "profiles.json");
 		session.Save(" First ");
 		Guid first = session.SelectedProfileId.Value;
 		Program.True(session.Profiles[0].Name == "First", "Name was not normalized.");
@@ -45,34 +49,10 @@ internal static class GenerationConfigLogicTests
 		Program.True(session.Draft.Seed == 42 && session.Applied.Seed == 42, "Reset erased applied config.");
 	}
 
-	public static void ImportExportAreStrictAndDoNotApplyOrPersist()
-	{
-		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store);
-		session.Save("Stored"); session.Apply();
-		var config = session.Draft; config.Seed = 123; session.Edit(config);
-		string json = session.Export("Shared");
-		session.ResetDraft(); session.Import(json);
-		Program.True(session.Draft.Seed == 123 && session.Applied.Seed == 42 && session.SelectedProfileId == null
-			&& store.Writes == 1, "Import persisted, applied, or retained selection.");
-		foreach (string invalid in new[]
-		{
-			"{}", "null", json.Replace("\"schemaVersion\": 1", "\"schemaVersion\": 2"),
-			json.Replace("\"seed\": 123,", ""), json.Replace("\"seed\": 123", "\"seed\": 123, \"unknown\": true"),
-			json.Replace("\"Standard\"", "\"INVALID\""), json.Replace("\"Auto\"", "99"),
-			json.Replace("\"plateCount\": 8", "\"plateCount\": 25")
-		})
-		{
-			Program.Throws(() => session.Import(invalid), "Malformed import accepted.");
-			Program.True(session.Draft.Seed == 123 && session.Applied.Seed == 42 && session.SelectedProfileId == null,
-				"Rejected import partially changed state.");
-		}
-	}
-
 	public static void StoreFailuresDoNotPartiallyCommitSession()
 	{
 		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store);
+		var session = new GenerationConfigSession(store, "profiles.json");
 		session.Save("Original");
 		Guid original = session.SelectedProfileId.Value;
 		store.FailWrite = true;
@@ -89,7 +69,7 @@ internal static class GenerationConfigLogicTests
 	public static void InvalidCatalogIsProtectedButTemporaryGenerationWorks()
 	{
 		var store = new MemoryStore { FailLoad = true };
-		var session = new GenerationConfigSession(store);
+		var session = new GenerationConfigSession(store, "profiles.json");
 		Program.True(!string.IsNullOrEmpty(session.LoadProblem), "Load failure was hidden.");
 		Program.Throws(() => session.Save("Overwrite"), "Broken catalog overwritten.");
 		session.Apply();
@@ -99,7 +79,7 @@ internal static class GenerationConfigLogicTests
 	public static void SessionClonesAllInboundAndOutboundData()
 	{
 		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store);
+		var session = new GenerationConfigSession(store, "profiles.json");
 		var edit = new GenerationConfig { Seed = 7 }; session.Edit(edit); edit.Seed = 9;
 		session.Apply(); session.Save("Clone");
 		var draft = session.Draft; draft.Seed = 10;
@@ -141,10 +121,10 @@ internal static class GenerationConfigLogicTests
 		try
 		{
 			string path = Path.Combine(directory, "profiles.json");
-			var session = new GenerationConfigSession(new FileGenerationProfileStore(path));
+			var session = new GenerationConfigSession(new FileGenerationProfileStore(), path);
 			session.Save("Disk");
 			string original = File.ReadAllText(path);
-			var loaded = new GenerationConfigSession(new FileGenerationProfileStore(path));
+			var loaded = new GenerationConfigSession(new FileGenerationProfileStore(), path);
 			Program.True(loaded.Profiles.Count == 1 && loaded.Profiles[0].Name == "Disk", "Disk store roundtrip failed.");
 			using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
 			{
@@ -153,25 +133,25 @@ internal static class GenerationConfigLogicTests
 			}
 			if (OperatingSystem.IsWindows()) Program.True(File.ReadAllText(path) == original, "Failed replacement changed original.");
 			AtomicTextFile.Write(path, "broken");
-			var broken = new GenerationConfigSession(new FileGenerationProfileStore(path));
+			var broken = new GenerationConfigSession(new FileGenerationProfileStore(), path);
 			Program.Throws(() => broken.Save("Bad"), "Corrupt file overwritten.");
 			Program.True(File.ReadAllText(path) == "broken", "Corrupt original was lost.");
 		}
 		finally { Directory.Delete(directory, recursive: true); }
 	}
 
-	sealed class MemoryStore : IGenerationProfileStore
+	sealed class MemoryStore : IFileStorage<GenerationProfileCatalog>
 	{
 		public GenerationProfileCatalog Catalog = new();
 		public int Writes;
 		public bool FailWrite;
 		public bool FailLoad;
-		public GenerationProfileCatalog Load()
+		public GenerationProfileCatalog Import(string path, IFileImportObserver observer = null, CancellationToken cancellation = default)
 		{
 			if (FailLoad) throw new InvalidDataException("Broken catalog");
 			return Catalog;
 		}
-		public void Save(GenerationProfileCatalog catalog)
+		public void Export(string path, GenerationProfileCatalog catalog)
 		{
 			if (FailWrite) throw new IOException("Write refused");
 			Writes++; Catalog = catalog;

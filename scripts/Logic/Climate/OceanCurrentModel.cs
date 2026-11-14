@@ -124,7 +124,8 @@ public sealed class OceanCurrentModel
 		=> Compute(grid, spec, wind, oceanTempC, initialPsi, iterationCap, null, CancellationToken.None);
 
 	internal void Compute(ClimateGrid grid, ClimateSpec spec, Vector3[] wind, float[] oceanTempC,
-		float[] initialPsi, int iterationCap, int[] relaxationCells, CancellationToken cancellation)
+		float[] initialPsi, int iterationCap, int[] relaxationCells, CancellationToken cancellation,
+		float[] windCurl = null)
 	{
 		if (grid == null) throw new ArgumentNullException(nameof(grid));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -137,7 +138,7 @@ public sealed class OceanCurrentModel
 		var land = grid.Land;
 		var neighbors = grid.Neighbors;
 
-		var stress = wind ?? PrevailingWind.BuildAll(grid.Dirs, spec.RotationSpeed, spec.Prograde);
+		var stress = windCurl == null ? wind ?? PrevailingWind.BuildAll(grid.Dirs, spec.RotationSpeed, spec.Prograde) : null;
 		var thermalWind = ThermalWindGradient(grid, oceanTempC, spec.OceanThermalWindWeight);
 
 		if (initialPsi != null && initialPsi.Length == n)
@@ -157,10 +158,10 @@ public sealed class OceanCurrentModel
 			{
 				int a = nbs[j];
 				int b = nbs[(j + 1) % nbs.Length];
-				var local = stress[a] + thermalWind[a];
+				var local = stress == null ? thermalWind[a] : stress[a] + thermalWind[a];
 				c += local.Dot(grid.Dirs[b] - grid.Dirs[a]);
 			}
-			curl[i] = c / nbs.Length;
+			curl[i] = c / nbs.Length + (windCurl?[i] ?? 0);
 
 			if (spec.OceanBetaScale > 0f)
 			{

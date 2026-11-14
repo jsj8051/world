@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
-using World.Scene;
+using World.Application.Loading;
+using World.Application.Pages;
 
 namespace World.Tests;
 
@@ -38,12 +39,10 @@ internal static class LoadStructureModelTests
 		Guid pageId = Guid.NewGuid();
 		var binding = new LoadOperationBinding(operation, pageId, pageLifetime.Token);
 		using var work = new LoadWorkContext(binding);
-		Program.True(ReferenceEquals(binding.Operation, operation) && binding.OwnerLifetime == pageLifetime.Token,
-			"Binding must retain the operation and page lifetime without copying state.");
-		Program.True(work.Key.OperationId == operation.Id && work.Key.OwnerPageId == pageId,
-			"Work context must retain both identities.");
-		Program.True(binding.Flow == operation.Flow && work.Flow == operation.Flow && !work.Token.IsCancellationRequested,
-			"Work flow or initial cancellation is incorrect.");
+		Program.True(ReferenceEquals(binding.Operation, operation) && binding.OwnerLifetime == pageLifetime.Token
+			&& binding.OwnerPageId == pageId,
+			"Binding must retain the operation, page identity and page lifetime.");
+		Program.True(!work.Token.IsCancellationRequested, "Work token must start uncancelled.");
 
 		pageLifetime.Cancel();
 		Program.True(work.Token.IsCancellationRequested, "Page cancellation did not reach the work token.");
@@ -55,8 +54,6 @@ internal static class LoadStructureModelTests
 		operation.Cancel();
 		Program.True(secondWork.Token.IsCancellationRequested, "Operation cancellation did not reach the work token.");
 		Program.True(!secondPageLifetime.IsCancellationRequested, "Operation cancellation must not cancel the page.");
-		Program.Throws(() => new LoadCommitKey(Guid.Empty, pageId), "Empty operation key was accepted.");
-		Program.Throws(() => new LoadCommitKey(operation.Id, Guid.Empty), "Empty page key was accepted.");
 		Program.Throws(() => new LoadOperationBinding(null, pageId, CancellationToken.None), "Null operation was accepted.");
 		Program.Throws(() => new LoadOperationBinding(operation, Guid.Empty, CancellationToken.None), "Empty binding owner was accepted.");
 		Program.Throws(() => new LoadWorkContext(null), "Null work binding was accepted.");
@@ -69,7 +66,6 @@ internal static class LoadStructureModelTests
 		var second = new PageContext(CancellationToken.None);
 		Program.True(first.PageId != Guid.Empty && second.PageId != Guid.Empty && first.PageId != second.PageId,
 			"Page contexts must have unique nonempty identities.");
-		Program.True(first.IsStandalone && second.IsStandalone, "Standalone status changed.");
 		Program.True(first.Lifetime == lifetime.Token && first.Progress == null, "Existing page capabilities changed.");
 	}
 }

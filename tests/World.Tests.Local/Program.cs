@@ -13,6 +13,24 @@ static class Program
 
 	static int Main(string[] args)
 	{
+		if (args.Length == 1 && args[0] == "--seasonal-circulation")
+			return SeasonalCirculationExperiment.Run();
+
+		if (args.Length == 1 && args[0] == "--conservative-circulation")
+			return SeasonalCirculationExperiment.RunConservativeTransport();
+
+		if (args.Length == 1 && args[0] == "--low-wind-audit")
+			return SeasonalCirculationExperiment.RunConservativeTransport(SeasonalCirculationExperiment.Audit.LowWind);
+
+		if (args.Length == 1 && args[0] == "--low-wind-thermal")
+			return SeasonalCirculationExperiment.RunConservativeTransport(SeasonalCirculationExperiment.Audit.Thermal);
+
+		if (args.Length == 1 && args[0] == "--low-wind-annual")
+			return SeasonalCirculationExperiment.RunConservativeTransport(SeasonalCirculationExperiment.Audit.Annual);
+
+		if (args.Length == 1 && args[0] == "--wind-production")
+			return ProductionWindCheck.Run();
+
 		if (args.Length > 0 && args[0] == "--world-regression")
 		{
 			if (args.Length > 3 || (args.Length > 1 && !int.TryParse(args[1], out _)))
@@ -98,6 +116,7 @@ static class Program
 		Run("季风指数只在反号时成立", ClimateTests.MonsoonIndexNeedsReversal);
 		Run("季风强度跟随气压", ClimateTests.MonsoonStrengthFollowsPressure);
 		Run("年降水 = Σ 月", ClimateTests.AnnualPrecipIsMonthlySum);
+		Run("水汽追踪与格子编号顺序无关", ClimateTests.MoistureTracingIsIndependentOfCellOrder);
 		Run("ITCZ 随太阳北移", ClimateTests.ItczFollowsTheSun);
 		Run("内陆季节摆幅大于海岸", ClimateTests.InteriorHasLargerSeasonalSwing);
 		Run("纬度剖面没有台阶", ClimateTests.NoLatitudeRingsInTemperature);
@@ -212,7 +231,6 @@ static class Program
 		Run("地形保留无来源距离哨兵", MapCoreStructureTests.TerrainKeepsAbsentDistanceSources);
 		Run("查询标签与距离必须一致", MapCoreStructureTests.QueryLabelsAndDistancesMustAgree);
 		Run("图结构拒绝环与非法链接", MapCoreStructureTests.GraphStructureRejectsCyclesAndInvalidLinks);
-		Run("场景契约不暴露未实现入口", MapCoreStructureTests.SceneContractsKeepUnsupportedScreensUnreachable);
 		Run("提交门拒绝过期页面与取消操作", MapCoreStructureTests.CommitGuardRejectsStaleOwnerAndCancelledWork);
 		Run("观察者订阅立即投递并可退订", LoadLifecycleTests.SubscribeDeliversCurrentSnapshotImmediately);
 		Run("订阅版本递增且释放后静默", LoadLifecycleTests.SubscriptionVersionsIncreaseAndStopOnDispose);
@@ -224,7 +242,6 @@ static class Program
 		Run("邮箱关闭后丢弃迟到快照", LoadLifecycleTests.MailboxDropsSnapshotsAfterClose);
 		Run("邮箱经操作订阅接收通知", LoadLifecycleTests.MailboxFollowsOperationSubscriptions);
 		Run("释放操作取消并清空观察者", LoadLifecycleTests.DisposeCancelsOperationAndReleasesObservers);
-		Run("浏览请求不回退到生成", MapCoreStructureTests.BrowseRequestNeverFallsBackToGeneration);
 		Run("原生网格保持文件序并拒绝非法格", MapCoreStructureTests.NativeGridKeepsFileOrderAndRejectsInvalidCells);
 
 		Run("最小水文结构合法", MapHydrologyTests.MinimalHydrologyValidates);
@@ -240,7 +257,6 @@ static class Program
 		Run("加载操作身份与初始状态", LoadStructureTests.OperationValidatesIdentityAndState);
 		Run("进度快照终态不变量", LoadStructureTests.SnapshotEnforcesTerminalInvariants);
 		Run("阶段计划权重与唯一性", LoadStructureTests.StagePlansAreWellFormed);
-		Run("演化进度与换帧边界", LoadStructureTests.EvolutionAndSwapBoundaries);
 		Run("进度单调与终态吸收", LoadStructureTests.OperationTransitionsAreMonotonic);
 		Run("取消触发令牌", LoadStructureTests.CancelCancelsToken);
 		Run("进度邮箱初始结构与身份约束", LoadStructureModelTests.MailboxValidatesIdentityAndInitialState);
@@ -258,18 +274,28 @@ static class Program
 		Run("Generation config unknown enums", GenerationConfigStructureTests.UnknownEnumValuesAreRejected);
 		Run("Generation profile metadata", GenerationConfigStructureTests.ProfileRequiresIdentityNameAndValidConfig);
 		Run("Generation catalog uniqueness", GenerationConfigStructureTests.CatalogEnforcesVersionAndUniqueProfiles);
-		Run("Generation profile file version", GenerationConfigStructureTests.SingleProfileFileValidatesVersionAndProfile);
 		Run("Generation JSON structure", GenerationConfigStructureTests.JsonRequiresCompleteKnownFields);
 		Run("Generation structure boundaries", GenerationConfigStructureTests.AdditionalStructureBoundariesAreEnforced);
 
 		Run("Config defaults applied and dirty gate", GenerationConfigLogicTests.DefaultsStartAppliedAndEditsRequireExplicitApply);
 		Run("Config named profile lifecycle", GenerationConfigLogicTests.ProfileNamingSelectionAndDeletionRemainSeparateFromApply);
-		Run("Config strict import export", GenerationConfigLogicTests.ImportExportAreStrictAndDoNotApplyOrPersist);
 		Run("Config failed storage rollback", GenerationConfigLogicTests.StoreFailuresDoNotPartiallyCommitSession);
 		Run("Config damaged catalog protection", GenerationConfigLogicTests.InvalidCatalogIsProtectedButTemporaryGenerationWorks);
 		Run("Config copy isolation", GenerationConfigLogicTests.SessionClonesAllInboundAndOutboundData);
 		Run("Config parameter mapping", GenerationConfigLogicTests.MapperCopiesDefaultsAndMapsEveryPreset);
+		Run("Retired wind switch remains readable", ProductionWindCheck.ReadsRetiredTrialProfile);
 		Run("Config atomic file persistence", GenerationConfigLogicTests.FileStoreRoundTripsAndFailedReplacePreservesOriginal);
+
+		Run("组件编辑器表单往返", ComponentLogicTests.EditorFormRoundTrip);
+		Run("组件编辑器拒绝非法选项", ComponentLogicTests.EditorRejectsInvalidSelections);
+		Run("组件编辑器回填时静默", ComponentLogicTests.EditorSuppressesNotificationsWhileLoading);
+		Run("组件编辑器随机种子可复现", ComponentLogicTests.EditorRandomSeedIsSeeded);
+		Run("配置库选择确认流", ComponentLogicTests.ProfileSelectionConfirmationFlow);
+		Run("配置库命名对话框分流", ComponentLogicTests.ProfileNameDialogRoutesOperations);
+		Run("配置库删除确认流", ComponentLogicTests.ProfileDeleteConfirmationFlow);
+		Run("演化面板门禁矩阵", ComponentLogicTests.EvolutionPanelGating);
+		Run("演化面板解析与倍率", ComponentLogicTests.EvolutionPanelParsingAndSpeeds);
+		Run("格子信息卡格式化", ComponentLogicTests.CellInfoCardFormatting);
 
 		Console.WriteLine($"\n{_passed} passed, {_failed} failed");
 		return _failed == 0 ? 0 : 1;

@@ -3,8 +3,9 @@ using System.IO;
 using System.Threading;
 using World.Data;
 using World.Data.Maps;
+using World.Infrastructure.Maps;
 using World.Logic;
-using World.Scene;
+using World.Application.Loading;
 
 namespace World.Tests;
 
@@ -93,7 +94,8 @@ internal static class MapRoundTripTests
 		{
 			MapPackageWriter.Write(Capture(sim.Facts), path);
 			var operation = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "加载地图", CancellationToken.None);
-			var job = new MapBrowseJob();
+			var repository = new GameMapRepository(new MapPackageFileStorage(), directory);
+			var job = new MapBrowseJob(repository);
 			using var monitor = new LoadProgressMonitor(operation, LoadStagePlans.Browse, 0f, 0.75f);
 			monitor.Attach(job);
 			ImportedWorldFactsSource source = job.Run(path, CancellationToken.None);

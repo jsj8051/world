@@ -1,0 +1,84 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/Pages/MainMenuView.cs" id="1_menu"]
+[ext_resource type="Theme" path="res://themes/ui_app.tres" id="2_theme"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+theme = ExtResource("2_theme")
+GeographyButtonPath = NodePath("Center/Panel/Box/GeographyButton")
+LibraryButtonPath = NodePath("Center/Panel/Box/LibraryButton")
+QuitButtonPath = NodePath("Center/Panel/Box/QuitButton")
+DisabledReasonPath = NodePath("Center/Panel/Box/Reason")
+
+[node name="Backdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.55, 0.47, 0.35, 1)
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(520, 0)
+layout_mode = 2
+
+[node name="Box" type="VBoxContainer" parent="Center/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Center/Panel/Box"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
+text = "世界"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Center/Panel/Box"]
+layout_mode = 2
+text = "地理演化 · 地图库 · 文明演化 · 游玩"
+horizontal_alignment = 1
+
+[node name="GeographyButton" type="Button" parent="Center/Panel/Box"]
+layout_mode = 2
+text = "地理演化"
+
+[node name="LibraryButton" type="Button" parent="Center/Panel/Box"]
+layout_mode = 2
+text = "地图库"
+
+[node name="CivilizationButton" type="Button" parent="Center/Panel/Box"]
+layout_mode = 2
+disabled = true
+tooltip_text = "文明演化尚未实现"
+text = "文明演化（未实现）"
+
+[node name="PlayButton" type="Button" parent="Center/Panel/Box"]
+layout_mode = 2
+disabled = true
+tooltip_text = "游玩尚未实现"
+text = "游玩（未实现）"
+
+[node name="QuitButton" type="Button" parent="Center/Panel/Box"]
+layout_mode = 2
+text = "退出"
+
+[node name="Reason" type="Label" parent="Center/Panel/Box"]
+layout_mode = 2
+autowrap_mode = 2
+horizontal_alignment = 1
+text = ""
