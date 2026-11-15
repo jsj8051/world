@@ -20,7 +20,9 @@ obj/
 
 # Godot 导入元数据（.import 入库：官方 VCS 指南要求提交，保证 uid 稳定；
 # 已入库 icon.svg.import 与 addons/**/*.import。docs/ 有 .gdignore 不参与导入）
-# Godot 4.4+ 资源/脚本 uid 文件（.uid）一律入库，与场景 ext_resource 的 uid= 引用配套
+# Godot 4.4+ 脚本 uid 文件（*.uid）不入库（2026-11-15 起）：由各机器就地生成；场景
+# ext_resource 同时带 path=，uid 失配时按路径回退解析。移动脚本请用编辑器拖拽，勿手动挪目录
+*.uid
 
 # 本地启动脚本（不入库）
 /启动deepseek-harness.bat
