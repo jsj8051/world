@@ -1,11 +1,8 @@
 using Godot;
 using System;
-using System.Threading;
 using World.Application.Components;
 using World.Data;
-using World.Data.Work;
 using World.Logic;
-using World.Application.Loading;
 using World.Utils;
 
 namespace World.UI.Components;
@@ -33,7 +30,6 @@ public partial class EvolutionPanel : PanelContainer
 	[Export] public NodePath SeekPath { get; set; }
 	[Export] public NodePath JumpPath { get; set; }
 	[Export] public NodePath SpeedPath { get; set; }
-	[Export] public NodePath ProgressPath { get; set; }
 	[Export] public NodePath FeedbackPath { get; set; }
 
 	Label _status;
@@ -46,14 +42,9 @@ public partial class EvolutionPanel : PanelContainer
 	Button _step;
 	Button _jump;
 	OptionButton _speed;
-	LoadProgressView _progress;
 
 	EvolutionControlStatus _lastStatus;
 	bool _wasBusy;
-	IWorkSignalSource _source;
-	LoadOperation _operation;
-	LoadProgressMonitor _monitor;
-	readonly LoadProgressPresenter _presenter = new();
 	bool _feedbackError;
 
 	public void SetStatus(EvolutionControlStatus status, bool busy)
@@ -85,48 +76,6 @@ public partial class EvolutionPanel : PanelContainer
 		_feedback.Visible = next.Length != 0;
 	}
 
-	/// <summary>主线程订阅演化进度；这里只观察任务，解绑不取消世界侧计算。</summary>
-	internal void SetEvolutionSignals(IWorkSignalSource source, bool busy)
-	{
-		if (!busy || source == null)
-		{
-			UnbindProgress();
-			return;
-		}
-		if (source == _source && _monitor != null) return;
-
-		UnbindProgress();
-		_operation = new LoadOperation(Guid.NewGuid(), LoadFlow.Evolution, "演化计算");
-		_monitor = new LoadProgressMonitor(_operation, plan: null, start: 0f, span: 1f,
-			completesOperation: true);
-		_source = source;
-		_monitor.Attach(source);
-		_presenter.Bind(_operation, _progress);
-		RefreshProgress(0);
-	}
-
-	void UnbindProgress()
-	{
-		_presenter.Detach();
-		_monitor?.Dispose();
-		_monitor = null;
-		_source = null;
-		_operation?.Dispose();
-		_operation = null;
-		if (_progress != null) _progress.Visible = false;
-	}
-
-	public override void _Process(double delta) => RefreshProgress(delta);
-
-	void RefreshProgress(double delta)
-	{
-		_presenter.Tick(delta);
-		if (_progress == null || !_presenter.IsBound) return;
-		_progress.Visible = _presenter.Latest?.State == LoadState.Running;
-	}
-
-	public override void _ExitTree() => UnbindProgress();
-
 	/// <summary>播放请求。</summary>
 	public event Action PlayPressed;
 	/// <summary>暂停请求。</summary>
@@ -152,7 +101,6 @@ public partial class EvolutionPanel : PanelContainer
 		_step = this.Require<Button>(StepPath, nameof(StepPath));
 		_jump = this.Require<Button>(JumpPath, nameof(JumpPath));
 		_speed = this.Require<OptionButton>(SpeedPath, nameof(SpeedPath));
-		_progress = this.Require<LoadProgressView>(ProgressPath, nameof(ProgressPath));
 
 		CustomMinimumSize = new Vector2(360, 0);
 		Theme = CreatePanelTheme();
@@ -185,7 +133,6 @@ public partial class EvolutionPanel : PanelContainer
 		_speed.ItemSelected += index => SpeedChanged?.Invoke(EvolutionPanelController.YearsPerSecond((int)index));
 		_speed.GetPopup().Theme = Theme;
 
-		_progress.Visible = false;
 		SetStatus(EvolutionControlStatus.Paused, false);
 	}
 

@@ -26,16 +26,16 @@ internal partial class AppPageHost : Node, IPageHost
 		_loadCoordinator.TreeExiting += OnLoadCoordinatorTreeExiting;
 	}
 
-	void IPageHost.MountPage(Node page, LoadOperation transferredOperation) => MountPage(page, transferredOperation);
+	void IPageHost.MountPage(Node page) => MountPage(page);
 
-	internal void MountPage(Node page, LoadOperation transferredOperation = null)
+	internal void MountPage(Node page)
 	{
 		if (page == null) return;
 		if (_loadCoordinator == null) throw new InvalidOperationException("The page host is not configured.");
 
 		// 先装配后卸载：Configure 抛错时旧页仍在，新页直接释放，不留半挂载状态。
 		var lifetime = new CancellationTokenSource();
-		var context = new PageContext(lifetime.Token, notice: _notice, progress: _loadCoordinator);
+		var context = new PageContext(lifetime.Token, notice: _notice);
 		try
 		{
 			if (page is IAppPage appPage) appPage.Configure(context);
@@ -49,10 +49,9 @@ internal partial class AppPageHost : Node, IPageHost
 			return;
 		}
 
-		UnmountCurrent(transferredOperation);
+		UnmountCurrent();
 		_pageLifetime = lifetime;
 		CurrentContext = context;
-		_loadCoordinator.OnPageMounted(context, transferredOperation);
 		// AddChild runs _Ready synchronously; ownership must already be established.
 		CurrentScreen = page;
 		_notice.Clear();
@@ -70,12 +69,11 @@ internal partial class AppPageHost : Node, IPageHost
 		}).CallDeferred();
 	}
 
-	void UnmountCurrent(LoadOperation transferredOperation = null)
+	void UnmountCurrent()
 	{
 		if (CurrentScreen == null && _pageLifetime == null) return;
 		_pageLifetime?.Cancel();
 		if (CurrentScreen is IAppPage appPage) appPage.OnHidden();
-		_loadCoordinator?.OnPageLeaving(transferredOperation);
 		Node previous = CurrentScreen;
 		CurrentScreen = null;
 		CurrentContext = null;

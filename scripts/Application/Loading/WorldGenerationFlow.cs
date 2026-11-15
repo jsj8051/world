@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using System.Threading.Tasks;
 using World.Data;
 using World.Data.Generation;
@@ -71,34 +72,22 @@ internal static class WorldGenerationSpecs
 	}
 }
 
-/// <summary>
-/// 一次世界生成的流水线：后台跑纯数据 Job、按提交门判定结果，把加载操作推进到 0.70；
-/// 页面接手画面装配并收尾。只认操作与绑定，不认页面；页面切换由外壳负责。
-/// </summary>
+/// <summary>一次世界生成的流水线：后台跑纯数据 Job，主线程轮询结果；取消由自己的令牌收起。</summary>
 internal sealed class WorldGenerationFlow : IDisposable
 {
-	readonly LoadOperation _operation;
-	readonly LoadOperationBinding _binding;
-	readonly Func<Guid> _currentPageId;
 	readonly WorldSpec _spec;
 	readonly WorldGenerationOptions _options;
+	readonly CancellationTokenSource _cancellation = new();
 
 	Task<WorldGenerationResult> _task;
-	LoadProgressMonitor _monitor;
 	WorldGenerationOutcome _outcome = WorldGenerationOutcome.Running;
 	bool _started;
 	bool _disposed;
 
-	internal WorldGenerationFlow(LoadOperation operation, LoadOperationBinding binding,
-		Func<Guid> currentPageId, WorldSpec spec, WorldGenerationOptions options)
+	internal WorldGenerationFlow(WorldSpec spec, WorldGenerationOptions options)
 	{
-		_operation = operation ?? throw new ArgumentNullException(nameof(operation));
-		_binding = binding ?? throw new ArgumentNullException(nameof(binding));
-		_currentPageId = currentPageId ?? throw new ArgumentNullException(nameof(currentPageId));
 		_spec = spec ?? throw new ArgumentNullException(nameof(spec));
 		_options = options;
-		if (!ReferenceEquals(binding.Operation, operation))
-			throw new ArgumentException("绑定必须属于同一加载操作。", nameof(binding));
 	}
 
 	internal void Start()
@@ -107,20 +96,15 @@ internal sealed class WorldGenerationFlow : IDisposable
 		if (_started) throw new InvalidOperationException("一次生成只能启动一次。");
 		_started = true;
 
-		var work = new LoadWorkContext(_binding);
 		var job = new WorldGenerationJob();
-		_monitor = new LoadProgressMonitor(_operation, LoadStagePlans.Generation, 0f, 0.70f);
-		_monitor.Attach(job);
+		CancellationToken token = _cancellation.Token;
 		_task = Task.Run(() =>
 		{
-			using (work)
-			{
-				work.Token.ThrowIfCancellationRequested();
-				var result = job.Run(_spec, _options.Resolution, PlanetGeometry.ProductionRadius,
-					_options.EnableEvolution, _options.EvolutionSteps, work.Token);
-				work.Token.ThrowIfCancellationRequested();
-				return result;
-			}
+			token.ThrowIfCancellationRequested();
+			WorldGenerationResult result = job.Run(_spec, _options.Resolution, PlanetGeometry.ProductionRadius,
+				_options.EnableEvolution, _options.EvolutionSteps, token);
+			token.ThrowIfCancellationRequested();
+			return result;
 		});
 	}
 
@@ -133,29 +117,8 @@ internal sealed class WorldGenerationFlow : IDisposable
 		if (!_task.IsCompleted) return _outcome;
 
 		Task<WorldGenerationResult> task = _task;
-		_monitor?.Dispose();
-		_monitor = null;
-
-		if (!LoadCommitGuard.IsCurrent(_binding, _currentPageId()))
-		{
-			_ = task.Exception;
-			return _outcome = WorldGenerationOutcome.Abandoned;
-		}
-		if (task.IsCanceled)
-		{
-			_operation.Cancel();
-			return _outcome = WorldGenerationOutcome.Abandoned;
-		}
-		if (task.IsFaulted)
-		{
-			LoadFailure failure = ToFailure(task.Exception);
-			_operation.Fail(failure);
-			return _outcome = WorldGenerationOutcome.Failed(failure);
-		}
-		if (!LoadCommitGuard.CanCommit(_binding, _currentPageId()))
-			return _outcome = WorldGenerationOutcome.Abandoned;
-
-		_operation.Report(0.70f, "画面装配");
+		if (task.IsCanceled) return _outcome = WorldGenerationOutcome.Abandoned;
+		if (task.IsFaulted) return _outcome = WorldGenerationOutcome.Failed(ToFailure(task.Exception));
 		return _outcome = WorldGenerationOutcome.Succeeded(task.Result);
 	}
 
@@ -163,13 +126,13 @@ internal sealed class WorldGenerationFlow : IDisposable
 	{
 		if (_disposed) return;
 		_disposed = true;
-		_monitor?.Dispose();
-		_monitor = null;
+		_cancellation.Cancel();
 		if (_task != null)
 		{
 			_ = _task.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
 			_task = null;
 		}
+		_cancellation.Dispose();
 	}
 
 	static LoadFailure ToFailure(Exception error)

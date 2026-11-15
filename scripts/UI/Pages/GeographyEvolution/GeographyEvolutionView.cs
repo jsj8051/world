@@ -42,8 +42,6 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 	[Export] public NodePath EvolutionPanelPath { get; set; }
 
 	WorldGenerationResult _generatedWorld;
-	LoadOperation _buildOperation;
-	LoadOperationBinding _buildBinding;
 	Action<Exception> _buildFailure;
 	IGeographyMapRepository _mapRepository = GameMapRepository.CreateDefault();
 	PageContext _pageContext;
@@ -73,19 +71,12 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 	/// <summary>演化读数面板（仅世界含演化时存在）。</summary>
 	internal EvolutionPanel EvolutionReadout { get; private set; }
 
-	void IAppPage.Configure(PageContext context)
-	{
-		_pageContext = context;
-		if (_buildOperation != null && context != null)
-			_buildBinding = new LoadOperationBinding(_buildOperation, context.PageId, context.Lifetime);
-	}
+	void IAppPage.Configure(PageContext context) => _pageContext = context;
 
-	/// <summary>入树前注入已生成的世界、仍在进行的加载操作与装配失败回调；装配完成由本页收尾。</summary>
-	internal void SetGeneratedWorld(WorldGenerationResult result, LoadOperation operation,
-		Action<Exception> onBuildFailure)
+	/// <summary>入树前注入已生成的世界与装配失败回调；装配完成由本页收尾。</summary>
+	internal void SetGeneratedWorld(WorldGenerationResult result, Action<Exception> onBuildFailure)
 	{
 		_generatedWorld = result ?? throw new ArgumentNullException(nameof(result));
-		_buildOperation = operation ?? throw new ArgumentNullException(nameof(operation));
 		_buildFailure = onBuildFailure;
 	}
 
@@ -181,10 +172,6 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 		_renderBuilding = false;
 		Exception root = error is AggregateException aggregate ? aggregate.GetBaseException() : error;
 		GD.PushError($"[TERRAIN-EVOLUTION] 装配失败：{root}");
-		// 操作由协调器拥有，页面只负责置终态并交回失败原因。
-		_buildOperation?.Fail(new LoadFailure("GenerationError", "画面装配", root.Message));
-		_buildOperation = null;
-		_buildBinding = null;
 		_buildFailure?.Invoke(root);
 	}
 
@@ -208,22 +195,8 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 	{
 		if (_renderBuilding && Render != null)
 		{
-			if (!LoadCommitGuard.CanCommit(_buildBinding, _pageContext?.PageId ?? Guid.Empty))
-			{
-				_renderBuilding = false;
-			}
-			else
-			{
-				bool done = Render.StepBuild(8.0);
-				_buildOperation?.Report(0.70f + 0.30f * Render.BuildProgress, Render.BuildStage);
-				if (done)
-				{
-					_renderBuilding = false;
-					_buildOperation?.Complete();
-					_buildOperation = null;
-					_buildBinding = null;
-				}
-			}
+			bool done = Render.StepBuild(8.0);
+			if (done) _renderBuilding = false;
 		}
 		foreach (var tick in _ticks) tick.Tick(delta);
 		TickUi(delta);
@@ -231,8 +204,6 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 
 	public override void _ExitTree()
 	{
-		_buildBinding = null;
-		_buildOperation?.Cancel();
 		World?.PauseEvolution();
 	}
 
@@ -240,8 +211,6 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 	{
 		OnUiHidden();
 		if (World != null) World.WorldPublished -= OnWorldPublished;
-		_buildBinding = null;
-		_buildOperation?.Cancel();
 		_renderBuilding = false;
 		_ticks.Clear();
 		World?.PauseEvolution();
@@ -264,7 +233,6 @@ public partial class GeographyEvolutionView : Node3D, IAppPage
 	{
 		if (_controller == null) return;
 		_controller.Refresh();
-		EvolutionReadout?.SetEvolutionSignals(World?.EvolutionSource, World?.EvolutionBusy == true);
 	}
 
 	void OnUiHidden()

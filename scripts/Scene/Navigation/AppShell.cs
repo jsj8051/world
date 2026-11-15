@@ -41,28 +41,20 @@ internal sealed class AppShell : IMainMenuActions, IGenerationConfigPageActions,
 	/// <summary>应用启动：打开主菜单。</summary>
 	internal void Start() => ShowMainMenu();
 
-	/// <summary>地图包读取完成：把仍在进行的加载操作转交给浏览页；场景缺失时直接判这次加载失败。</summary>
-	internal void OpenBrowser(ImportedWorldFactsSource source, LoadOperation operation)
+	/// <summary>地图包读取完成：打开浏览页；场景缺失时工厂已提示，这里不再重复。</summary>
+	internal void OpenBrowser(ImportedWorldFactsSource source)
 	{
-		Node page = _factory.CreateMapBrowser(source, operation, this);
-		if (page == null)
-		{
-			operation?.Fail(new LoadFailure("LoadError", "画面装配", "地图浏览场景缺失。"));
-			return;
-		}
-		_host.MountPage(page, operation);
+		Node page = _factory.CreateMapBrowser(source, this);
+		if (page == null) return;
+		_host.MountPage(page);
 	}
 
-	/// <summary>世界生成完成：把生成产物与仍在进行的加载操作一起转交给世界页。</summary>
-	internal void OpenWorld(WorldGenerationResult result, LoadOperation operation)
+	/// <summary>世界生成完成：打开演化页。</summary>
+	internal void OpenWorld(WorldGenerationResult result)
 	{
-		Node page = _factory.CreateGeneratedWorld(result, operation, HandleGenerationFailure, this);
-		if (page == null)
-		{
-			operation?.Fail(new LoadFailure("LoadError", "画面装配", "地理演化页面场景缺失。"));
-			return;
-		}
-		_host.MountPage(page, operation);
+		Node page = _factory.CreateGeneratedWorld(result, HandleGenerationFailure, this);
+		if (page == null) return;
+		_host.MountPage(page);
 	}
 
 	void IMainMenuActions.OpenGenerationConfig() => ShowGenerationConfig();

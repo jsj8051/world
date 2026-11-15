@@ -60,28 +60,25 @@ internal sealed class AppPageFactory
 		return page;
 	}
 
-	/// <summary>世界页接收已完成的生成产物与仍在进行的加载操作；装配完成由页面收尾。</summary>
-	internal Node CreateGeneratedWorld(WorldGenerationResult result, LoadOperation operation,
+	/// <summary>世界页接收已完成的生成产物；装配完成由页面收尾。</summary>
+	internal Node CreateGeneratedWorld(WorldGenerationResult result,
 		Action<Exception> onBuildFailure, IMainMenuReturn mainMenu)
 	{
 		if (result == null) throw new ArgumentNullException(nameof(result));
-		if (operation == null) throw new ArgumentNullException(nameof(operation));
 		GeographyEvolutionView page = Instantiate<GeographyEvolutionView>(GeographyEvolutionScene);
 		if (page == null) return null;
 		page.SetMapRepository(_mapRepository);
 		page.SetMainMenuReturn(mainMenu);
-		page.SetGeneratedWorld(result, operation, onBuildFailure);
+		page.SetGeneratedWorld(result, onBuildFailure);
 		return page;
 	}
 
-	internal Node CreateMapBrowser(ImportedWorldFactsSource source, LoadOperation operation,
-		IMapBrowserPageActions actions)
+	internal Node CreateMapBrowser(ImportedWorldFactsSource source, IMapBrowserPageActions actions)
 	{
 		if (source == null) throw new ArgumentNullException(nameof(source));
 		MapBrowserView page = Instantiate<MapBrowserView>(MapBrowserScene);
 		if (page == null) return null;
 		page.SetSource(source);
-		page.SetBuildOperation(operation);
 		page.SetActions(actions);
 		return page;
 	}

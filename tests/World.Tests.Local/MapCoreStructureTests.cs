@@ -84,34 +84,6 @@ internal static class MapCoreStructureTests
 		Program.Throws(() => MapStructure.Acyclic(new[] { 5 }, "test.flow"), "Out-of-range edge was accepted.");
 	}
 
-	/// <summary>The load lifecycle has one state source; a screen's commit right is page identity plus lifetime.</summary>
-	public static void CommitGuardRejectsStaleOwnerAndCancelledWork()
-	{
-		using var pageLifetime = new CancellationTokenSource();
-		var operation = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "Load map", new CancellationTokenSource());
-		Guid pageId = Guid.NewGuid();
-		var binding = new LoadOperationBinding(operation, pageId, pageLifetime.Token);
-
-		Program.True(LoadCommitGuard.CanCommit(binding, pageId), "A current operation cannot commit.");
-		Program.True(!LoadCommitGuard.CanCommit(binding, Guid.NewGuid()), "A stale page can commit.");
-		Program.True(!LoadCommitGuard.CanCommit(null, pageId), "A missing binding can commit.");
-
-		pageLifetime.Cancel();
-		Program.True(!LoadCommitGuard.CanCommit(binding, pageId), "A cancelled page can commit.");
-
-		using var freshLifetime = new CancellationTokenSource();
-		var second = new LoadOperationBinding(operation, pageId, freshLifetime.Token);
-		operation.Complete();
-		Program.True(!LoadCommitGuard.CanCommit(second, pageId), "A completed operation can commit twice.");
-		Program.True(LoadCommitGuard.IsCurrent(second, pageId), "A completed operation lost its identity.");
-
-		using var other = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "Load map", new CancellationTokenSource());
-		var third = new LoadOperationBinding(other, pageId, freshLifetime.Token);
-		other.Cancel();
-		Program.True(!LoadCommitGuard.IsCurrent(third, pageId), "A cancelled operation is still current.");
-		Program.True(!LoadCommitGuard.CanCommit(third, pageId), "A cancelled operation can commit.");
-	}
-
 	public static void NativeGridKeepsFileOrderAndRejectsInvalidCells()
 	{
 		ulong[] identities = World.Utils.H3.H3.GetRes0Cells();

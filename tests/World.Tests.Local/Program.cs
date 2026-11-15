@@ -235,17 +235,6 @@ static class Program
 		Run("地形保留无来源距离哨兵", MapCoreStructureTests.TerrainKeepsAbsentDistanceSources);
 		Run("查询标签与距离必须一致", MapCoreStructureTests.QueryLabelsAndDistancesMustAgree);
 		Run("图结构拒绝环与非法链接", MapCoreStructureTests.GraphStructureRejectsCyclesAndInvalidLinks);
-		Run("提交门拒绝过期页面与取消操作", MapCoreStructureTests.CommitGuardRejectsStaleOwnerAndCancelledWork);
-		Run("观察者订阅立即投递并可退订", LoadLifecycleTests.SubscribeDeliversCurrentSnapshotImmediately);
-		Run("订阅版本递增且释放后静默", LoadLifecycleTests.SubscriptionVersionsIncreaseAndStopOnDispose);
-		Run("终态后订阅只重放终态", LoadLifecycleTests.SubscribeAfterTerminalReplaysTerminalOnce);
-		Run("并发上报保持版本单调", LoadLifecycleTests.ConcurrentReportsKeepVersionsMonotonic);
-		Run("观察者重入上报不死锁", LoadLifecycleTests.ReentrantReportDoesNotDeadlock);
-		Run("观察者异常不影响其他观察者", LoadLifecycleTests.ObserverFailureDoesNotBlockOthers);
-		Run("邮箱保留最新并粘住终态", LoadLifecycleTests.MailboxKeepsLatestAndSticksToTerminal);
-		Run("邮箱关闭后丢弃迟到快照", LoadLifecycleTests.MailboxDropsSnapshotsAfterClose);
-		Run("邮箱经操作订阅接收通知", LoadLifecycleTests.MailboxFollowsOperationSubscriptions);
-		Run("释放操作取消并清空观察者", LoadLifecycleTests.DisposeCancelsOperationAndReleasesObservers);
 		Run("原生网格保持文件序并拒绝非法格", MapCoreStructureTests.NativeGridKeepsFileOrderAndRejectsInvalidCells);
 
 		Run("最小水文结构合法", MapHydrologyTests.MinimalHydrologyValidates);
@@ -258,20 +247,13 @@ static class Program
 		Run("生成世界经快照往返保持一致", MapRoundTripTests.GeneratedWorldRoundTripsThroughSnapshot);
 		Run("地图包写入读出保持事实", MapRoundTripTests.PackageWriteReadPreservesFacts);
 		Run("地图包拒绝缺失与损坏文件", MapRoundTripTests.PackageRejectsMissingAndCorruptFiles);
-		Run("加载操作身份与初始状态", LoadStructureTests.OperationValidatesIdentityAndState);
-		Run("进度快照终态不变量", LoadStructureTests.SnapshotEnforcesTerminalInvariants);
-		Run("阶段计划权重与唯一性", LoadStructureTests.StagePlansAreWellFormed);
-		Run("进度单调与终态吸收", LoadStructureTests.OperationTransitionsAreMonotonic);
-		Run("取消触发令牌", LoadStructureTests.CancelCancelsToken);
-		Run("进度邮箱初始结构与身份约束", LoadStructureModelTests.MailboxValidatesIdentityAndInitialState);
-		Run("进度订阅身份与初始结构", LoadStructureModelTests.SubscriptionValidatesIdentityAndInitialState);
-		Run("操作绑定与工作令牌结构", LoadStructureModelTests.BindingLinksOperationAndPageCancellation);
 		Run("页面上下文拥有唯一标识", LoadStructureModelTests.PageContextsHaveUniqueIds);
 		Run("并行读取按块上报进度", MapRoundTripTests.ParallelReadReportsBlockProgress);
-		Run("浏览 Job 上报进度并装配事实", MapRoundTripTests.BrowseJobReportsProgressAndBuildsFacts);
-		Run("监控器按信号推进进度", LoadProgressMonitorTests.MonitorAdvancesFromSignals);
-		Run("监控器独立完成或失败", LoadProgressMonitorTests.MonitorCompletesOrFailsIndependently);
-		Run("生成 Job 不暴露进度类型", LoadProgressMonitorTests.GenerationJobDoesNotExposeProgress);
+		Run("浏览 Job 发出完成信号并装配事实", MapRoundTripTests.BrowseJobSignalsCompletionAndBuildsFacts);
+		Run("进度条初始化并跟踪计数", LoadProgressControllerTests.InitAndUpdateTrackCounts);
+		Run("进度条更新夹紧并可调整总数", LoadProgressControllerTests.UpdateClampsAndMayAdjustTotal);
+		Run("进度条完成置满并忽略迟到更新", LoadProgressControllerTests.CompleteFillsAndStops);
+		Run("进度条拒绝非法总数", LoadProgressControllerTests.RejectsInvalidTotal);
 
 		Run("Generation config defaults", GenerationConfigStructureTests.DefaultsAndEnumSelectionsAreValid);
 		Run("Generation config plate bounds", GenerationConfigStructureTests.PlateCountEnforcesApprovedBounds);

@@ -1,7 +1,6 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=2 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/Components/EvolutionPanel.cs" id="1_panel"]
-[ext_resource type="PackedScene" path="res://scenes/components/LoadProgressView.tscn" id="2_progress"]
 
 [node name="EvolutionPanel" type="PanelContainer"]
 script = ExtResource("1_panel")
@@ -14,7 +13,6 @@ StepPath = NodePath("Box/Buttons/Step")
 SeekPath = NodePath("Box/SeekRow/SeekTime")
 JumpPath = NodePath("Box/SeekRow/Jump")
 SpeedPath = NodePath("Box/SpeedRow/Speed")
-ProgressPath = NodePath("Box/Progress")
 FeedbackPath = NodePath("Box/Feedback")
 
 [node name="Box" type="VBoxContainer" parent="."]
@@ -80,10 +78,6 @@ text = "倍率"
 [node name="Speed" type="OptionButton" parent="Box/SpeedRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-
-[node name="Progress" parent="Box" instance=ExtResource("2_progress")]
-layout_mode = 2
-visible = false
 
 [node name="Feedback" type="Label" parent="Box"]
 visible = false

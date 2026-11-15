@@ -1,10 +1,10 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/UI/Components/LoadProgressView.cs" id="1_view"]
+[ext_resource type="Script" path="res://scripts/UI/Components/LoadProgressBar.cs" id="1_bar"]
 
-[node name="LoadProgressView" type="VBoxContainer"]
+[node name="LoadProgressBar" type="VBoxContainer"]
 theme_override_constants/separation = 10
-script = ExtResource("1_view")
+script = ExtResource("1_bar")
 TitlePath = NodePath("Title")
 BarPath = NodePath("Bar")
 StagePath = NodePath("Meta/Stage")
@@ -29,4 +29,4 @@ text = ""
 
 [node name="Percent" type="Label" parent="Meta"]
 layout_mode = 2
-text = "0%"
+text = "0/0"

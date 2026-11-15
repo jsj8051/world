@@ -1,6 +1,5 @@
 using System;
 using Godot;
-using World.Application.Loading;
 
 namespace World.Scene;
 
@@ -8,6 +7,6 @@ namespace World.Scene;
 internal interface IPageHost
 {
 	Node CurrentScreen { get; }
-	void MountPage(Node page, LoadOperation transferredOperation = null);
+	void MountPage(Node page);
 	void Defer(Action action);
 }

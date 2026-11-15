@@ -31,8 +31,7 @@ public partial class AppRoot : Node
 		_shell = new AppShell(_pageHost, factory, _loadCoordinator, _loadCoordinator, _notice,
 			GenerationSessions.CreateDefault);
 		_pageHost.Configure(_loadCoordinator, _notice);
-		_loadCoordinator.Configure(() => _pageHost.CurrentContext, _shell.OpenBrowser, _shell.OpenWorld,
-			_notice, mapRepository);
+		_loadCoordinator.Configure(_shell.OpenBrowser, _shell.OpenWorld, _notice, mapRepository);
 		_shell.Start();
 	}
 }

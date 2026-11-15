@@ -1,11 +1,9 @@
 using System;
-using System.Threading;
 using Godot;
+using World.Application.Generation;
+using World.Application.Loading;
 using World.Data;
 using World.Data.Generation;
-using World.Application.Loading;
-using World.Scene;
-using World.Application.Generation;
 
 namespace World.Tests;
 
@@ -18,12 +16,8 @@ public partial class WorldGenerationLoadCheck : Node
 {
 	public override async void _Ready()
 	{
-		LoadOperation operation = new(Guid.NewGuid(), LoadFlow.WorldGeneration, "生成世界");
-		Guid pageId = Guid.NewGuid();
-		var binding = new LoadOperationBinding(operation, pageId, CancellationToken.None);
 		WorldSpec spec = WorldGenerationSpecs.Create(new GenerationConfig());
-		using var flow = new WorldGenerationFlow(operation, binding, () => pageId, spec,
-			WorldGenerationPresets.Production);
+		using var flow = new WorldGenerationFlow(spec, WorldGenerationPresets.Production);
 
 		ulong started = Time.GetTicksMsec();
 		ulong last = started;
@@ -39,12 +33,8 @@ public partial class WorldGenerationLoadCheck : Node
 			outcome = flow.Poll();
 		}
 
-		// 流程只推进到 0.70，收尾（Complete）归世界页；这里断言的是后台产物与操作仍可提交。
-		bool ok = outcome.State == WorldGenerationState.Succeeded
-			&& outcome.Result?.Simulation != null
-			&& operation.State == LoadState.Running;
-		GD.Print($"[GEN-CHECK] ok={ok} state={outcome.State} operation={operation.State} " +
-			$"ms={Time.GetTicksMsec() - started} maxGap={maxGap}");
+		bool ok = outcome.State == WorldGenerationState.Succeeded && outcome.Result?.Simulation != null;
+		GD.Print($"[GEN-CHECK] ok={ok} state={outcome.State} ms={Time.GetTicksMsec() - started} maxGap={maxGap}");
 		GetTree().Quit(ok ? 0 : 1);
 	}
 }

@@ -1,5 +1,4 @@
 using Godot;
-using World.Application.Loading;
 using World.Application.Pages;
 using World.Client;
 using World.Data.Maps;
@@ -24,9 +23,6 @@ public partial class MapBrowserView : Node3D, IAppPage
 	[Export] public NodePath AppMenuPath { get; set; }
 
 	ImportedWorldFactsSource _source;
-	LoadOperation _buildOperation;
-	LoadOperationBinding _buildBinding;
-	PageContext _pageContext;
 	IMapBrowserPageActions _actions;
 	MapBrowserController _controller;
 	RenderManager _render;
@@ -36,25 +32,15 @@ public partial class MapBrowserView : Node3D, IAppPage
 	/// <summary>注入已校验的导入事实；必须在加入场景树之前调用。</summary>
 	internal void SetSource(ImportedWorldFactsSource source) => _source = source;
 
-	/// <summary>注入页面加载操作；渲染分帧完成后由本页完成。</summary>
-	internal void SetBuildOperation(LoadOperation operation) => _buildOperation = operation;
-
 	/// <summary>注入宿主动作；独立运行时为空，浏览页只读不返回。</summary>
 	internal void SetActions(IMapBrowserPageActions actions) => _actions = actions;
 
-	void IAppPage.Configure(PageContext context)
-	{
-		_pageContext = context;
-		if (_buildOperation != null && context != null)
-			_buildBinding = new LoadOperationBinding(_buildOperation, context.PageId, context.Lifetime);
-	}
+	void IAppPage.Configure(PageContext context) { }
 
 	void IAppPage.OnHidden()
 	{
 		_initialized = false;
 		_building = false;
-		_buildBinding = null;
-		_buildOperation?.Cancel();
 		_controller = null;
 	}
 
@@ -97,26 +83,14 @@ public partial class MapBrowserView : Node3D, IAppPage
 		if (!_initialized || _render == null) return;
 		if (_building)
 		{
-			if (_buildOperation != null && !LoadCommitGuard.CanCommit(_buildBinding,
-				_pageContext?.PageId ?? System.Guid.Empty))
-			{
-				_building = false;
-				return;
-			}
 			bool done = _render.StepBuild(8.0);
-			_buildOperation?.Report(0.75f + 0.25f * _render.BuildProgress, _render.BuildStage);
-			if (done)
-			{
-				_building = false;
-				_buildOperation?.Complete();
-			}
+			if (done) _building = false;
 		}
 		_render.Tick(delta);
 	}
 
 	public override void _ExitTree()
 	{
-		if (_building) _buildOperation?.Cancel();
 		if (_initialized) GD.Print("[MAP] 关闭导入地图浏览");
 	}
 }

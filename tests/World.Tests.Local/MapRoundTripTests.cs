@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading;
 using World.Data;
 using World.Data.Maps;
+using World.Data.Work;
 using World.Infrastructure.Maps;
 using World.Logic;
 using World.Application.Loading;
@@ -83,7 +84,7 @@ internal static class MapRoundTripTests
 		}
 	}
 
-	public static void BrowseJobReportsProgressAndBuildsFacts()
+	public static void BrowseJobSignalsCompletionAndBuildsFacts()
 	{
 		var sim = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
 		sim.Run(new WorldSpec());
@@ -93,18 +94,14 @@ internal static class MapRoundTripTests
 		try
 		{
 			MapPackageWriter.Write(Capture(sim.Facts), path);
-			var operation = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "加载地图", CancellationToken.None);
 			var repository = new GameMapRepository(new MapPackageFileStorage(), directory);
 			var job = new MapBrowseJob(repository);
-			using var monitor = new LoadProgressMonitor(operation, LoadStagePlans.Browse, 0f, 0.75f);
-			monitor.Attach(job);
+			bool finished = false;
+			job.Signal += signal => finished |= signal.Kind == WorkSignalKind.JobCompleted;
 			ImportedWorldFactsSource source = job.Run(path, CancellationToken.None);
 
-			Program.True(operation.Progress >= 0.75f, $"浏览 Job 未推进到事实就绪：{operation.Progress}");
+			Program.True(finished, "浏览 Job 未发出完成信号");
 			Program.True(source.Facts.Ball.CellIds.Length > 0, "浏览 Job 没有装配出世界事实");
-
-			operation.Complete();
-			Program.True(operation.State == LoadState.Completed && operation.Progress == 1f, "浏览 Job 完成后状态错误");
 		}
 		finally
 		{

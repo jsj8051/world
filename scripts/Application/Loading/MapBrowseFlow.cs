@@ -51,33 +51,19 @@ internal readonly struct BrowseOutcome
 	public LoadFailure Failure { get; }
 }
 
-/// <summary>
-/// 一次地图浏览的流水线：起后台读包、按提交门判定结果，并把加载操作推进到终态。
-/// 只认操作与绑定，不认页面；页面切换由外壳负责。
-/// </summary>
+/// <summary>一次地图浏览的流水线：后台读包/解码/装配事实，主线程轮询结果；取消由自己的令牌收起。</summary>
 internal sealed class MapBrowseFlow : IDisposable
 {
-	readonly LoadOperation _operation;
-	readonly LoadOperationBinding _binding;
-	readonly Func<Guid> _currentPageId;
 	readonly IGeographyMapRepository _mapRepository;
+	readonly CancellationTokenSource _cancellation = new();
 
 	Task<ImportedWorldFactsSource> _task;
-	LoadProgressMonitor _monitor;
 	BrowseOutcome _outcome = BrowseOutcome.Running;
 	bool _started;
 	bool _disposed;
 
-	internal MapBrowseFlow(LoadOperation operation, LoadOperationBinding binding, Func<Guid> currentPageId,
-		IGeographyMapRepository mapRepository)
-	{
-		_operation = operation ?? throw new ArgumentNullException(nameof(operation));
-		_binding = binding ?? throw new ArgumentNullException(nameof(binding));
-		_currentPageId = currentPageId ?? throw new ArgumentNullException(nameof(currentPageId));
-		_mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
-		if (!ReferenceEquals(binding.Operation, operation))
-			throw new ArgumentException("绑定必须属于同一加载操作。", nameof(binding));
-	}
+	internal MapBrowseFlow(IGeographyMapRepository mapRepository)
+		=> _mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
 
 	internal void Start(string path)
 	{
@@ -86,19 +72,14 @@ internal sealed class MapBrowseFlow : IDisposable
 		if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("地图路径不能为空。", nameof(path));
 		_started = true;
 
-		var work = new LoadWorkContext(_binding);
 		var job = new MapBrowseJob(_mapRepository);
-		_monitor = new LoadProgressMonitor(_operation, LoadStagePlans.Browse, 0f, 0.75f);
-		_monitor.Attach(job);
+		CancellationToken token = _cancellation.Token;
 		_task = Task.Run(() =>
 		{
-			using (work)
-			{
-				work.Token.ThrowIfCancellationRequested();
-				var result = job.Run(path, work.Token);
-				work.Token.ThrowIfCancellationRequested();
-				return result;
-			}
+			token.ThrowIfCancellationRequested();
+			ImportedWorldFactsSource source = job.Run(path, token);
+			token.ThrowIfCancellationRequested();
+			return source;
 		});
 	}
 
@@ -108,31 +89,11 @@ internal sealed class MapBrowseFlow : IDisposable
 		ObjectDisposedException.ThrowIf(_disposed, this);
 		if (!_started) throw new InvalidOperationException("浏览尚未启动。");
 		if (_outcome.State != BrowseState.Running) return _outcome;
-		if (!_task.IsCompleted) return BrowseOutcome.Running;
+		if (!_task.IsCompleted) return _outcome;
 
 		Task<ImportedWorldFactsSource> task = _task;
-		_monitor?.Dispose();
-		_monitor = null;
-
-		if (!LoadCommitGuard.IsCurrent(_binding, _currentPageId()))
-		{
-			_ = task.Exception;
-			return _outcome = BrowseOutcome.Abandoned;
-		}
-		if (task.IsCanceled)
-		{
-			_operation.Cancel();
-			return _outcome = BrowseOutcome.Abandoned;
-		}
-		if (task.IsFaulted)
-		{
-			LoadFailure failure = ToFailure(task.Exception);
-			_operation.Fail(failure);
-			return _outcome = BrowseOutcome.Failed(failure);
-		}
-		if (!LoadCommitGuard.CanCommit(_binding, _currentPageId())) return _outcome = BrowseOutcome.Abandoned;
-
-		_operation.Report(0.75f, "画面装配");
+		if (task.IsCanceled) return _outcome = BrowseOutcome.Abandoned;
+		if (task.IsFaulted) return _outcome = BrowseOutcome.Failed(ToFailure(task.Exception));
 		return _outcome = BrowseOutcome.Succeeded(task.Result);
 	}
 
@@ -140,13 +101,13 @@ internal sealed class MapBrowseFlow : IDisposable
 	{
 		if (_disposed) return;
 		_disposed = true;
-		_monitor?.Dispose();
-		_monitor = null;
+		_cancellation.Cancel();
 		if (_task != null)
 		{
 			_ = _task.ContinueWith(t => _ = t.Exception, TaskScheduler.Default);
 			_task = null;
 		}
+		_cancellation.Dispose();
 	}
 
 	static LoadFailure ToFailure(Exception error)

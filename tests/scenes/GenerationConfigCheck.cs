@@ -128,28 +128,11 @@ public partial class GenerationConfigCheck : Node
 				configPage.GetNode<Button>("%Apply").EmitSignal(Button.SignalName.Pressed);
 				configPage.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
 				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-				// 生成期间配置页仍在槽位，由不透明覆盖层挡住；世界页在生成完成后才挂载。
+				// 生成期间配置页仍在槽位；世界页在生成完成后才挂载。
 				Require(GodotObject.IsInstanceValid(configPage) && configPage.IsInsideTree()
 					&& pageHost.CurrentScreen is GenerationConfigView,
 					"Generation must keep the config page mounted until the world is ready.");
-				var loadingOverlay = FindLoadingOverlay(app);
-				Require(loadingOverlay != null, "Generation did not show the loading overlay.");
-				var overlayPanel = loadingOverlay.GetNodeOrNull<PanelContainer>("Center/Panel");
-				Require(overlayPanel != null && overlayPanel.HasThemeStylebox("panel"),
-					"The loading overlay must render a themed panel with the progress component.");
-				if (Array.IndexOf(args, "--loading-shot") >= 0)
-				{
-					for (int i = 0; i < 8; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-					if (DisplayServer.GetName() != "headless")
-					{
-						await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
-						GetViewport().GetTexture().GetImage().SavePng("res://tests/loading-page-check.png");
-					}
-					GD.Print("[CONFIG-CHECK] PASS loading overlay capture");
-					GetTree().Quit();
-					return;
-				}
-				// 生成跑在后台 Job 上；先等世界页挂载，再等覆盖层释放（画面装配收尾）。
+				// 生成跑在后台 Job 上；等世界页挂载。
 				ulong started = Time.GetTicksMsec();
 				while (Time.GetTicksMsec() - started < 120_000
 					&& pageHost.CurrentScreen is not GeographyEvolutionView)
@@ -158,13 +141,13 @@ public partial class GenerationConfigCheck : Node
 				Require(worldView != null, "Generation did not mount the world page.");
 				Require(pageHost.GetChildCount() == 1 && pageHost.GetChild(0) == worldView,
 					"The world page must be the only page in the slot.");
-				while (Time.GetTicksMsec() - started < 120_000 && FindLoadingOverlay(app) != null)
+				while (Time.GetTicksMsec() - started < 120_000
+					&& (worldView.World == null || !worldView.World.IsInitialized))
 					await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 				Require(worldView.World != null && worldView.World.IsInitialized && worldView.Params.Active.Seed == 777,
 					"Applied configuration did not initialize real world.");
-				Require(FindLoadingOverlay(app) == null, "The loading overlay must be released once assembly finishes.");
 				Require(pageHost.CurrentScreen == worldView && pageHost.GetChildCount() == 1,
-					"The world page must stay mounted after the overlay leaves.");
+					"The world page must stay mounted after assembly.");
 				Require(worldView.GetNode<CanvasLayer>("AppMenu").Visible,
 					"The world chrome must stay visible after generation.");
 				if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--roundtrip") >= 0)
@@ -285,14 +268,6 @@ public partial class GenerationConfigCheck : Node
 	static void Require(bool condition, string message)
 	{
 		if (!condition) throw new InvalidOperationException(message);
-	}
-
-	/// <summary>协调器按需持有的进度覆盖层；终态后自毁，因此可以当作"生成是否还在进行"的判据。</summary>
-	static Node FindLoadingOverlay(Node app)
-	{
-		foreach (Node child in app.GetNode("LoadCoordinator").GetChildren())
-			if (child is World.UI.Components.LoadingOverlay) return child;
-		return null;
 	}
 
 	/// <summary>校验文字与底色的实际主题对比度（WCAG 正文门槛 4.5:1）。</summary>

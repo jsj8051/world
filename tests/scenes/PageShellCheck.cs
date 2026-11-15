@@ -37,15 +37,13 @@ internal static class PageShellCheck
 		readonly List<Node> _pages = new();
 		public Node CurrentScreen { get; private set; }
 		public int Mounts { get; private set; }
-		public LoadOperation TransferredOperation { get; private set; }
 
 		public void Defer(Action action) => action();
 
-		public void MountPage(Node page, LoadOperation transferredOperation = null)
+		public void MountPage(Node page)
 		{
 			_pages.Add(page);
 			CurrentScreen = page;
-			TransferredOperation = transferredOperation;
 			Mounts++;
 		}
 

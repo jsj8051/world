@@ -1,64 +1,11 @@
 using System;
 using System.Threading;
-using World.Application.Loading;
 using World.Application.Pages;
 
 namespace World.Tests;
 
 internal static class LoadStructureModelTests
 {
-	public static void MailboxValidatesIdentityAndInitialState()
-	{
-		Guid operationId = Guid.NewGuid();
-		var mailbox = new LoadProgressMailbox(operationId);
-		Program.True(mailbox.OperationId == operationId, "Mailbox identity changed.");
-		Program.True(mailbox.Latest == null && !mailbox.Closed, "Mailbox must start open and empty.");
-		Program.True(mailbox.PublishedVersion == -1 && mailbox.ConsumedVersion == -1,
-			"Mailbox versions must start before the first operation version.");
-		Program.Throws(() => new LoadProgressMailbox(Guid.Empty), "Empty mailbox identity was accepted.");
-	}
-
-	public static void SubscriptionValidatesIdentityAndInitialState()
-	{
-		Guid operationId = Guid.NewGuid(), subscriptionId = Guid.NewGuid();
-		var subscription = new LoadProgressSubscription(operationId, subscriptionId);
-		Program.True(subscription.OperationId == operationId && subscription.SubscriptionId == subscriptionId,
-			"Subscription identity changed.");
-		Program.True(!subscription.IsDisposed, "Subscription must start active.");
-		Program.Throws(() => new LoadProgressSubscription(Guid.Empty, subscriptionId),
-			"Empty operation identity was accepted.");
-		Program.Throws(() => new LoadProgressSubscription(operationId, Guid.Empty),
-			"Empty subscription identity was accepted.");
-	}
-
-	public static void BindingLinksOperationAndPageCancellation()
-	{
-		using var operationCancellation = new CancellationTokenSource();
-		using var pageLifetime = new CancellationTokenSource();
-		var operation = new LoadOperation(Guid.NewGuid(), LoadFlow.MapBrowse, "Load map", operationCancellation);
-		Guid pageId = Guid.NewGuid();
-		var binding = new LoadOperationBinding(operation, pageId, pageLifetime.Token);
-		using var work = new LoadWorkContext(binding);
-		Program.True(ReferenceEquals(binding.Operation, operation) && binding.OwnerLifetime == pageLifetime.Token
-			&& binding.OwnerPageId == pageId,
-			"Binding must retain the operation, page identity and page lifetime.");
-		Program.True(!work.Token.IsCancellationRequested, "Work token must start uncancelled.");
-
-		pageLifetime.Cancel();
-		Program.True(work.Token.IsCancellationRequested, "Page cancellation did not reach the work token.");
-		Program.True(!operation.Token.IsCancellationRequested, "Page cancellation must not cancel the operation token.");
-
-		using var secondPageLifetime = new CancellationTokenSource();
-		var secondBinding = new LoadOperationBinding(operation, Guid.NewGuid(), secondPageLifetime.Token);
-		using var secondWork = new LoadWorkContext(secondBinding);
-		operation.Cancel();
-		Program.True(secondWork.Token.IsCancellationRequested, "Operation cancellation did not reach the work token.");
-		Program.True(!secondPageLifetime.IsCancellationRequested, "Operation cancellation must not cancel the page.");
-		Program.Throws(() => new LoadOperationBinding(null, pageId, CancellationToken.None), "Null operation was accepted.");
-		Program.Throws(() => new LoadOperationBinding(operation, Guid.Empty, CancellationToken.None), "Empty binding owner was accepted.");
-		Program.Throws(() => new LoadWorkContext(null), "Null work binding was accepted.");
-	}
-
 	public static void PageContextsHaveUniqueIds()
 	{
 		using var lifetime = new CancellationTokenSource();
@@ -66,6 +13,6 @@ internal static class LoadStructureModelTests
 		var second = new PageContext(CancellationToken.None);
 		Program.True(first.PageId != Guid.Empty && second.PageId != Guid.Empty && first.PageId != second.PageId,
 			"Page contexts must have unique nonempty identities.");
-		Program.True(first.Lifetime == lifetime.Token && first.Progress == null, "Existing page capabilities changed.");
+		Program.True(first.Lifetime == lifetime.Token, "Page context must keep the host lifetime.");
 	}
 }
