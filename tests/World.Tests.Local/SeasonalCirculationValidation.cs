@@ -8,6 +8,7 @@ using World.H3Grid;
 using World.Logic;
 using static World.Logic.CirculationInterpolation;
 using H3 = World.Utils.H3.H3;
+using World.Utils;
 
 namespace World.Tests;
 

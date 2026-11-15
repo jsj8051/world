@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using Godot;
 
 namespace World.Utils;
 
 /// <summary>
 /// 通用数值核：平滑阶跃、高斯带、已排序样本的分位。
-/// 只收「没有世界语义、且至少两处共用」的口径；单处使用的公式留在它的语义拥有者旁边。
+/// 收录口径：**没有世界语义的纯函数/纯数据类型**一律放 Utils（不限使用处数）；带板块/气候/河流等
+/// 领域语义的实现留在它的语义拥有者旁边。
 /// </summary>
 public static class MathOps
 {
@@ -30,6 +32,29 @@ public static class MathOps
 
 	/// <summary>中心在 0 的高斯带（<c>exp(−(d/w)²)</c>）。</summary>
 	public static float GaussianBand(float d, float w) => GaussianBand(d, 0f, w);
+
+	/// <summary>
+	/// 球面角度核：两个单位方向的夹角余弦的四次方（重合 = 1，垂直 = 0，反向 = 1，故调用方需保证同向）。
+	/// 四次方在"最近格权重占优"和"邻域混合足够平滑"之间取折中：二次方会拉偏方向，更高次退化成单格硬切换。
+	/// </summary>
+	public static float CosFourthWeight(Vector3 dirA, Vector3 dirB)
+	{
+		float cos = Mathf.Clamp(dirA.Dot(dirB), -1f, 1f);
+		float w = cos * cos;
+		return w * w;
+	}
+
+	/// <summary>
+	/// 两端平滑淡出权重：<c>t ∈ [0,1]</c> 表示沿线段的位置，两端各 <paramref name="edge"/> 宽度的区间内
+	/// 用 smoothstep 收到 0，中段为 1。用于让线头/线尾自然消失，而不是被齐平切断。
+	/// </summary>
+	public static float EndTaper(float t, float edge)
+	{
+		if (!(edge > 0f)) return 1f;
+		float head = Mathf.Clamp(t / edge, 0f, 1f);
+		float tail = Mathf.Clamp((1f - t) / edge, 0f, 1f);
+		return head * head * (3f - 2f * head) * tail * tail * (3f - 2f * tail);
+	}
 
 	/// <summary>已升序排序的样本上取分位（0~1）；空样本 ⇒ 0。</summary>
 	public static float QuantileSorted(IReadOnlyList<float> sorted, double q)

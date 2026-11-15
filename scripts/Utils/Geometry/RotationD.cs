@@ -1,6 +1,6 @@
 using System;
 
-namespace World.Data;
+namespace World.Utils;
 
 /// <summary>A double-precision unit quaternion; no rotation or integration behavior is provided.</summary>
 /// <example><code>RotationD initial = RotationD.Identity;</code></example>

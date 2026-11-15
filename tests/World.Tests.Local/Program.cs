@@ -95,6 +95,10 @@ static class Program
 		}
 
 		Console.WriteLine("World.Tests.Local");
+		Run("Village layer is gated by session stage and map mode", VillageLayerTests.StageAndModeGateVisibility);
+		Run("Layer sources expose owner data without copying", VillageLayerTests.SourcesExposeOwnerData);
+		Run("Village dots reject the far hemisphere", VillageLayerTests.BackHemisphereIsOccluded);
+		Run("Layers keep one public data entry", VillageLayerTests.LayersExposeSingleUpdateEntry);
 		Run("World regression rejects invalid metrics and fingerprint drift",
 			WorldGenerationRegression.RejectsInvalidMetricsAndFingerprintDrift);
 

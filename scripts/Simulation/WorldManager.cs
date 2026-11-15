@@ -9,6 +9,7 @@ using World.Data.Work;
 using World.Utils;
 using World.Render;
 using World.Logic;
+using World.H3Grid;
 
 namespace World.Simulation;
 

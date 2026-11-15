@@ -29,11 +29,9 @@ render_mode unshaded, blend_mix, depth_draw_always, cull_disabled;
 //   而且恒定 NDC 偏移对应的世界距离 ∝ z_view²，正好匹配深度精度的 1/z² 分布
 //   ⇒ 全视距余量恒定（实测口径 R=2/Near=0.02R/Far=10R/24-bit：Δz_world / 精度 = 1.68e7 × bias）。
 //
-// uniform u_screen_space：1 = 恒 px（v2 正式路径）；0 = 世界空间宽度（v1.2 fallback）。
+// uniform u_viewport：视口尺寸（px），把"目标 px 宽度"换算成 NDC 偏移。
 
 uniform vec2 u_viewport = vec2(1920.0, 1080.0);
-uniform float u_screen_space = 1.0;   // 1 = screen-space（恒 px）；0 = world-space fallback
-uniform float u_world_per_px = 0.0;   // 世界单位/像素（u_screen_space=0 时由 C# 每帧写入）
 uniform float u_core = 0.62;          // |cross| < u_core ⇒ 主水面（不透明）
 uniform float u_edge = 1.0;           // |cross| = u_edge ⇒ 完全淡出
 uniform float u_edge_gain = 1.16;     // 边缘相对中心的提亮系数（★不是白边，只是同色系稍亮）
@@ -48,27 +46,21 @@ void vertex() {
 	vec3 p = VERTEX;
 	vec3 side = NORMAL;
 
-	if (u_screen_space > 0.5) {
-		// ── 恒 px：中心线与"沿 side 偏移一点"的辅助点分别投影，
-		//    取屏幕空间方向作为加宽方向 ⇒ 宽度**与相机距离无关**。
-		vec4 c0 = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(p, 1.0));
-		vec4 c1 = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(p + side * 0.001, 1.0));
-		float w0 = max(abs(c0.w), 1e-6);
-		float w1 = max(abs(c1.w), 1e-6);
-		vec2 s0 = (c0.xy / w0) * u_viewport;
-		vec2 s1 = (c1.xy / w1) * u_viewport;
-		vec2 d = s1 - s0;
-		float dl = length(d);
-		vec2 dir = dl > 1e-9 ? d / dl : vec2(1.0, 0.0);
-		// px → NDC：NDC 跨度 2 对应整个视口 ⇒ offset_ndc = px / viewport * 2
-		vec2 offs = dir * (target_px * 0.5) * cross_sign;
-		c0.xy += (offs / max(u_viewport, vec2(1.0, 1.0))) * 2.0 * c0.w;
-		POSITION = c0;
-	} else {
-		// ── fallback：世界空间宽度（等价 v1.2 的 camera-aware）
-		vec3 world_off = side * (target_px * 0.5 * max(u_world_per_px, 0.0)) * cross_sign;
-		POSITION = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(p + world_off, 1.0));
-	}
+	// ── 恒 px：中心线与"沿 side 偏移一点"的辅助点分别投影，
+	//    取屏幕空间方向作为加宽方向 ⇒ 宽度**与相机距离无关**。
+	vec4 c0 = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(p, 1.0));
+	vec4 c1 = PROJECTION_MATRIX * (MODELVIEW_MATRIX * vec4(p + side * 0.001, 1.0));
+	float w0 = max(abs(c0.w), 1e-6);
+	float w1 = max(abs(c1.w), 1e-6);
+	vec2 s0 = (c0.xy / w0) * u_viewport;
+	vec2 s1 = (c1.xy / w1) * u_viewport;
+	vec2 d = s1 - s0;
+	float dl = length(d);
+	vec2 dir = dl > 1e-9 ? d / dl : vec2(1.0, 0.0);
+	// px → NDC：NDC 跨度 2 对应整个视口 ⇒ offset_ndc = px / viewport * 2
+	vec2 offs = dir * (target_px * 0.5) * cross_sign;
+	c0.xy += (offs / max(u_viewport, vec2(1.0, 1.0))) * 2.0 * c0.w;
+	POSITION = c0;
 
 	// ★深度层次：把顶点在 NDC 深度上"拉近"一点（只改 z，不改 x/y ⇒ 零视差）。
 	//   ⚠️ **方向由实测确定**（2026-10-04）：Godot 4 的 RenderingDevice 在 D3D12/Vulkan 下用

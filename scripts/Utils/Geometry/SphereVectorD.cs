@@ -1,6 +1,6 @@
 using System;
 
-namespace World.Data;
+namespace World.Utils;
 
 /// <summary>A finite double-precision vector, with no unit-length constraint.</summary>
 /// <example><code>var omega = new SphereVectorD(0, 0, 0.01);</code></example>

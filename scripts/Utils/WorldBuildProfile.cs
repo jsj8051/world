@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>可选的世界生成诊断计时。生产运行默认关闭。</summary>
 internal static class WorldBuildProfile

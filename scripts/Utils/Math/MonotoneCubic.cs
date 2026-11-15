@@ -1,6 +1,6 @@
 using System;
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>
 /// 分段三次 Hermite（PCHIP / Fritsch–Carlson 单调保形）：节点处 C1、段内不越过两端点值。

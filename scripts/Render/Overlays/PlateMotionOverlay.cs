@@ -7,26 +7,25 @@ using World.Logic;
 namespace World.Render;
 
 /// <summary>在可见球面上采样板块切向速度，用固定屏幕尺寸的箭头显示方向。</summary>
-internal sealed partial class PlateMotionOverlay : Node2D
+internal sealed partial class PlateMotionOverlay : ScreenSpaceOverlay, IMapLayer
 {
+	public void SetContext(WorldFacts facts, MapMode mode)
+		=> ApplyFacts(mode is CrustMode crust && crust.ShowMotion ? facts : null);
+
 	const float SpacingPx = 72f;
 	static readonly Color Ink = new(1f, 0.98f, 0.88f);
 	static readonly Color Outline = new(0.07f, 0.10f, 0.15f);
 	readonly List<Vector2> _strokes = new();
 	WorldFacts _facts;
-	Transform3D _cameraTransform;
-	Projection _cameraProjection;
-	Vector2 _viewportSize;
-	bool _dirty;
 
 	internal int ArrowCount => _strokes.Count / 6;
 
-	public void SetFacts(WorldFacts facts)
+	void ApplyFacts(WorldFacts facts)
 	{
 		if (ReferenceEquals(_facts, facts)) return;
 		_facts = facts;
 		Visible = facts != null;
-		_dirty = true;
+		MarkDirty();
 		_strokes.Clear();
 		QueueRedraw();
 	}
@@ -37,29 +36,25 @@ internal sealed partial class PlateMotionOverlay : Node2D
 		if (camera == null)
 		{
 			_strokes.Clear();
-			_dirty = true;
+			MarkDirty();
 			QueueRedraw();
 			return;
 		}
 
-		Vector2 size = camera.GetViewport().GetVisibleRect().Size;
-		Transform3D transform = camera.GetCameraTransform();
-		Projection projection = camera.GetCameraProjection();
-		if (!_dirty && size == _viewportSize && transform == _cameraTransform
-			&& projection.Equals(_cameraProjection)) return;
-		(_viewportSize, _cameraTransform, _cameraProjection) = (size, transform, projection);
-		_dirty = false;
+		if (!UpdateCameraState(camera)) return;
 
 		_strokes.Clear();
 		float radius = _facts.Ball.Radius;
-		for (float y = SpacingPx / 2; y < size.Y; y += SpacingPx)
+		Vector3 cameraPosition = CameraTransform.Origin;
+		for (float y = SpacingPx / 2; y < ViewportSize.Y; y += SpacingPx)
 		{
-			for (float x = SpacingPx / 2; x < size.X; x += SpacingPx)
+			for (float x = SpacingPx / 2; x < ViewportSize.X; x += SpacingPx)
 			{
 				var center = new Vector2(x, y);
 				if (!CellQuery.TrySurfaceDirection(radius, center, camera, out Vector3 normal)) continue;
 				Vector3 surface = normal * radius;
-				if (normal.Dot((transform.Origin - surface).Normalized()) < 0.22f) continue;
+				// 掠射角下限 0.22：斜看时投影拉长，箭头方向会失真 ⇒ 连同边缘一起剔除。
+				if (!FacesCamera(surface, cameraPosition, 0.22f)) continue;
 				int cell = BallGeoIndex.CellAt(_facts.Ball, normal);
 				Vector3 tangent = CrustCellQuery.PlateTangent(_facts, _facts.PlateOfCell[cell], normal);
 				if (tangent.LengthSquared() < 1e-16f) continue;

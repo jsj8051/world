@@ -1,6 +1,6 @@
 using System;
 
-namespace World.Data;
+namespace World.Utils;
 
 /// <summary>A finite unit direction in double precision; construction never normalizes invalid input.</summary>
 /// <example><code>var north = new SpherePointD(0, 0, 1); north.Validate();</code></example>

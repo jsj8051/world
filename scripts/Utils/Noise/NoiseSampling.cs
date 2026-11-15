@@ -1,6 +1,6 @@
 using System;
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>
 /// 噪声采样下限守卫：按格距把倍频层数截到「采得到」的范围。

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试宿主可用
 using World.H3Grid;          // Ball / BallGeoIndex（连续点 → 格下标）
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>
 /// 逐格图的派生算子：输入一份逐格标记（掩码 / 类别），输出它的图论派生量。

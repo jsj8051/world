@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.Intrinsics;
 using World.Data;
 using Tracers = System.Runtime.Intrinsics.Vector256<double>;
+using World.Utils;
 
 namespace World.Logic;
 

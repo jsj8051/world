@@ -2,7 +2,7 @@ using System;
 using System.Threading.Tasks;
 using World.H3Grid;          // Ball（H3 球壳数据层）
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>
 /// 逐格标量场的**图平滑**：每遍把每格拉向"自身与邻居的加权混合"

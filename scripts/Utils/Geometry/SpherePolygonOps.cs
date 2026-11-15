@@ -1,6 +1,6 @@
 using System;
 
-namespace World.Data;
+namespace World.Utils;
 
 /// <summary>固定球面格的双精度有向面积。格边为大圆弧，顶点须位于同一半球。</summary>
 static class SpherePolygonOps

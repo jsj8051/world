@@ -4,7 +4,7 @@ using Godot;                 // 仅 Vector3 结构体（纯值类型）；测试
 using World.H3Grid;
 using World.Utils;
 
-namespace World.Logic;
+namespace World.Utils;
 
 /// <summary>
 /// 逐格图的真实距离算子：多源 Dijkstra，逐格求到最近源的大圆距离（km）、该源强度、最近源格号。

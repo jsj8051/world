@@ -404,7 +404,6 @@ public sealed partial class BallView : Node3D   // partial 是 Godot 源生成�
 	// 本节只管 MeshInstance3D 的生命周期与材质。
 	MeshInstance3D _highlight;
 	ShaderMaterial _ringMat;
-	bool _ringTried;
 	Vector2 _ringViewport = Vector2.Zero;
 
 	/// <summary>选中格高亮：贴地闭合环带（只描边界，不填整格）；传 null 隐藏。</summary>
@@ -454,12 +453,7 @@ public sealed partial class BallView : Node3D   // partial 是 Godot 源生成�
 	bool EnsureRingMaterial()
 	{
 		if (_ringMat != null) return true;
-		if (_ringTried) return false;
-		_ringTried = true;
-		var sh = GD.Load<Shader>(CellQuery.HighlightShaderPath);
-		if (sh == null) return false;
-		_ringMat = new ShaderMaterial { Shader = sh };
-		_ringMat.SetShaderParameter("u_screen_space", 1.0f);   // 1 = 屏幕空间恒 px
+		if (!ShaderMaterialFactory.TryCreate(CellQuery.HighlightShaderPath, "[HIGHLIGHT]", out _ringMat)) return false;
 		_ringMat.SetShaderParameter("u_core", CellQuery.HighlightCore);
 		_ringMat.SetShaderParameter("u_edge", 1.0f);
 		_ringMat.SetShaderParameter("u_edge_gain", 1.0f);      // 不取河流的"边缘提亮"：那是水色效果

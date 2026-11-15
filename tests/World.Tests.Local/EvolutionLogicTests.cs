@@ -4,6 +4,7 @@ using System.Linq;
 using Godot;
 using World.Data;
 using World.Logic;
+using World.Utils;
 
 namespace World.Tests;
 

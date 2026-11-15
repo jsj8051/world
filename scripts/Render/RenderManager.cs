@@ -86,6 +86,13 @@ public partial class RenderManager : Node3D, ITickable
 
 	bool _appliedInitial;
 
+	/// <summary>Registers a layer after render initialization, without depending on its concrete type.</summary>
+	public void AddLayer(IMapLayer layer)
+	{
+		if (View == null) throw new System.InvalidOperationException("Render view is not initialized.");
+		View.AddLayer(layer);
+	}
+
 	/// <summary>
 	/// 分帧初始化（由页面/根管理器每帧调 <see cref="StepBuild"/>）：
 	/// 只建外壳、拾取器与坞模式名；网格/纹理/河线由 <see cref="StepBuild"/> 推进。
@@ -274,13 +281,14 @@ public partial class RenderManager : Node3D, ITickable
 		catch (System.Exception e) { GD.PushError($"[MAP] 导出失败：{e.Message}"); }
 	}
 
-	/// <summary>导出当前地图模式的 2D 图片并返回绝对路径；世界未就绪或写入失败时抛。</summary>
+	/// <summary>导出地形模式的 2D 图片并返回绝对路径；世界未就绪、模式表缺地形模式或写入失败时抛。</summary>
 	public string ExportTerrainMapNow()
 	{
 		if (_source?.Facts == null || _modes == null || _modes.Count == 0)
 			throw new System.InvalidOperationException("世界尚未就绪");
 		int terrain = _modes.FindIndex(m => m is TerrainMode);
-		var mode = terrain >= 0 ? _modes[terrain] : _modes[System.Math.Max(0, _currentMode)];
+		if (terrain < 0) throw new System.InvalidOperationException("模式表缺少地形模式，无法导出");
+		var mode = _modes[terrain];
 
 		GD.Print($"[MAP] 开始导出 2D 地形图（{mode.Name}，{MapExportWidth}×{MapExportHeight}）...");
 		var watch = System.Diagnostics.Stopwatch.StartNew();

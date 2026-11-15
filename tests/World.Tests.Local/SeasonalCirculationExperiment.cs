@@ -8,6 +8,7 @@ using World.Data;
 using World.H3Grid;
 using World.Logic;
 using H3 = World.Utils.H3.H3;
+using World.Utils;
 
 namespace World.Tests;
 

@@ -1,9 +1,8 @@
 using System;
-using World.H3Grid;
 using World.Utils;
 using World.Utils.H3;
 
-namespace World.Logic;
+namespace World.H3Grid;
 
 // 空间尺度 / 单位层：res 只决定「一格多大」，不改变任何物理量的意义。
 // 参数先分三类、不得混用：A 拓扑（BFS 距离 / H3 hop / 邻居数 / 图深度 → cell / hop，与 res 强相关）；
