@@ -5,7 +5,7 @@ using World.Data;
 using World.Data.Generation;
 using World.Application.Loading;
 using World.Scene;
-using World.Simulation;
+using World.Application.Generation;
 
 namespace World.Tests;
 

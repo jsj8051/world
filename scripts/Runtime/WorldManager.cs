@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using World.Application.Generation;
 using World.Application.Loading;
 using World.Application.Pages;
 using World.Application.Storage;
@@ -11,7 +12,7 @@ using World.Render;
 using World.Logic;
 using World.H3Grid;
 
-namespace World.Simulation;
+namespace World.Runtime;
 
 /// <summary>
 /// 场景的世界入口，持有生成实例和可选演化会话。渲染通过世界事实快照读数据；
@@ -19,14 +20,6 @@ namespace World.Simulation;
 /// </summary>
 public partial class WorldManager : Node3D, ITickable, IGeographyEvolutionControl
 {
-	/// <summary>
-	/// 世界生产分辨率 = res4（冻结）：res4 是世界本身的空间离散尺度
-	/// （288,122 格、每格 1,770 km²、格边长 ≈26.1 km），各模拟系统都应适配这个尺度。
-	/// 不得靠降低生产分辨率规避子系统的尺度适配缺陷——正确处置是让子系统适配 res4，
-	/// 否则滑向"不工作就换档"的架构倒退。res1~res4 同时用作诊断实验档，不是从中挑生产档。
-	/// </summary>
-	public const int ProductionRes = 4;
-
 	WorldEvolutionSession _evolution;
 	IGeographyMapRepository _mapRepository;
 	public EvolutionFrame EvolutionFrame => Sim?.Facts?.Evolution;
@@ -69,7 +62,7 @@ public partial class WorldManager : Node3D, ITickable, IGeographyEvolutionContro
 
 		_spec = spec;
 		SetMapRepository(mapRepository);
-		Sim = new WorldGenSimulation(ProductionRes, PlanetGeometry.ProductionRadius);
+		Sim = new WorldGenSimulation(WorldGenerationPresets.ProductionRes, PlanetGeometry.ProductionRadius);
 		Regenerate();                // 世界生成（重活在这一步）
 		LogGenerationSummary();      // 尺度 / 高程 / 气温的一行体检
 		IsInitialized = true;

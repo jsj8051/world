@@ -3,10 +3,16 @@ using System.Collections.Generic;
 using Godot;
 using World.Data;
 using World.Logic;
+using World.Render;
 
-namespace World.Render;
+namespace World.Application.Layers;
 
-/// <summary>Reads session-owned data and creates village markers only while applicable.</summary>
+/// <summary>
+/// 村庄图层的装配者：把会话数据（村庄列表 + 当前阶段）翻译成渲染图层的存在与否。
+/// 位于应用层而非渲染层——阶段（文明演化 / 正式游玩）是会话语义，渲染层只负责"给定数据怎么画"。
+/// 只在 <see cref="IsApplicable"/> 成立时创建 <see cref="VillageOverlay"/>，否则立刻释放节点；
+/// 数据变化由 <see cref="IMapLayerDataSource{T}"/> 的 Changed 驱动，不持有业务数据副本。
+/// </summary>
 internal sealed class VillageLayerController : IMapLayer, IDisposable
 {
 	readonly Node _host;
@@ -28,6 +34,7 @@ internal sealed class VillageLayerController : IMapLayer, IDisposable
 		_stage.Changed += Refresh;
 	}
 
+	/// <summary>显示条件：有村庄 + 处于文明演化/正式游玩 + 当前是地形模式。</summary>
 	internal static bool IsApplicable(WorldStage stage, MapMode mode, int villageCount)
 		=> villageCount > 0
 			&& stage is WorldStage.CivilizationEvolution or WorldStage.Playing

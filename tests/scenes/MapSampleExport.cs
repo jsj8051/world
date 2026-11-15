@@ -13,7 +13,7 @@ public partial class MapSampleExport : Node
 {
 	public override void _Ready()
 	{
-		var packed = ResourceLoader.Load<PackedScene>("res://scenes/pages/GeographyEvolutionPage.tscn");
+		var packed = ResourceLoader.Load<PackedScene>("res://scenes/pages/GeographyEvolution/GeographyEvolutionPage.tscn");
 		if (packed == null)
 		{
 			GD.PushError("[SAMPLE] GeographyEvolutionPage 场景缺失");

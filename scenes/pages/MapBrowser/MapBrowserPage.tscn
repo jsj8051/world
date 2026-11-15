@@ -1,6 +1,6 @@
 [gd_scene format=3]
 
-[ext_resource type="Script" path="res://scripts/UI/Pages/MapBrowserView.cs" id="1_browser"]
+[ext_resource type="Script" path="res://scripts/UI/Pages/MapBrowser/MapBrowserView.cs" id="1_browser"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="2_presentation"]
 [ext_resource type="PackedScene" path="res://scenes/components/AppMenu.tscn" id="3_menu"]
 

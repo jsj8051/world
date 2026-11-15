@@ -211,7 +211,7 @@ public partial class GenerationConfigCheck : Node
 			var store = new Store();
 			var session = new GenerationConfigSession(store, "profiles.json");
 			var host = new Host();
-			var page = ResourceLoader.Load<PackedScene>("res://scenes/pages/MapGenerationPage.tscn").Instantiate<GenerationConfigView>();
+			var page = ResourceLoader.Load<PackedScene>("res://scenes/pages/GenerationConfig/GenerationConfigPage.tscn").Instantiate<GenerationConfigView>();
 			page.SetController(new GenerationConfigController(session, host));
 			AddChild(page);
 			var editor = page.GetNode<TabContainer>("%Editor");
@@ -265,7 +265,7 @@ public partial class GenerationConfigCheck : Node
 			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 			var defaultSession = new GenerationConfigSession(new Store(), "profiles.json");
 			var defaultHost = new Host();
-			var defaultPage = ResourceLoader.Load<PackedScene>("res://scenes/pages/MapGenerationPage.tscn")
+			var defaultPage = ResourceLoader.Load<PackedScene>("res://scenes/pages/GenerationConfig/GenerationConfigPage.tscn")
 				.Instantiate<GenerationConfigView>();
 			defaultPage.SetController(new GenerationConfigController(defaultSession, defaultHost));
 			AddChild(defaultPage);

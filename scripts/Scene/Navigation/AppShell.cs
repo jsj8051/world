@@ -7,7 +7,6 @@ using World.Application.Pages;
 using World.Data;
 using World.Data.Generation;
 using World.Logic;
-using World.Simulation;
 using World.UI.Pages;
 
 namespace World.Scene;

@@ -1,6 +1,6 @@
 [gd_scene load_steps=5 format=3]
 
-[ext_resource type="Script" path="res://scripts/UI/Pages/GenerationConfigView.cs" id="1"]
+[ext_resource type="Script" path="res://scripts/UI/Pages/GenerationConfig/GenerationConfigView.cs" id="1"]
 [ext_resource type="Theme" path="res://themes/ui_app.tres" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/components/GenerationConfigEditor.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://scenes/components/ProfileLibraryPanel.tscn" id="4"]

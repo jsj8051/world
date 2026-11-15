@@ -17,11 +17,11 @@ namespace World.Scene;
 /// </summary>
 internal sealed class AppPageFactory
 {
-	const string MainMenuScene = "res://scenes/pages/MainMenu.tscn";
-	const string GenerationConfigScene = "res://scenes/pages/MapGenerationPage.tscn";
-	const string GeographyEvolutionScene = "res://scenes/pages/GeographyEvolutionPage.tscn";
-	const string MapLibraryScene = "res://scenes/pages/MapLibrary.tscn";
-	const string MapBrowserScene = "res://scenes/pages/MapBrowser.tscn";
+	const string MainMenuScene = "res://scenes/pages/MainMenu/MainMenuPage.tscn";
+	const string GenerationConfigScene = "res://scenes/pages/GenerationConfig/GenerationConfigPage.tscn";
+	const string GeographyEvolutionScene = "res://scenes/pages/GeographyEvolution/GeographyEvolutionPage.tscn";
+	const string MapLibraryScene = "res://scenes/pages/MapLibrary/MapLibraryPage.tscn";
+	const string MapBrowserScene = "res://scenes/pages/MapBrowser/MapBrowserPage.tscn";
 
 	readonly INoticeSink _notice;
 	readonly IGeographyMapRepository _mapRepository;

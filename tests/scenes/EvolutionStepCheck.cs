@@ -4,7 +4,8 @@ using Godot;
 using World.Data;
 using World.Logic;
 using World.Render;
-using World.Simulation;
+using World.Runtime;
+using World.Application.Generation;
 using World.UI.Pages;
 
 namespace World.Tests;
@@ -20,7 +21,7 @@ public partial class EvolutionStepCheck : Node
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		var world = GetTree().CurrentScene?.GetNodeOrNull<WorldManager>("WorldManager");
 		if (world?.EvolutionFrame == null
-			|| world.Sim.Ball.Res != WorldManager.ProductionRes
+			|| world.Sim.Ball.Res != WorldGenerationPresets.ProductionRes
 			|| world.EvolutionFrame.Definition.H3Resolution != world.Sim.Ball.Res
 			|| world.EvolutionFrame.Material.CellCount != world.Sim.Facts.HeightM.Length)
 		{

@@ -6,7 +6,7 @@ using World.Data.Work;
 using World.Logic;
 using World.Utils;
 
-namespace World.Simulation;
+namespace World.Runtime;
 
 /// <summary>独占播放与后台请求状态。计算线程只产出候选快照，由场景线程提交。
 /// 进度只通过 <see cref="Signal"/> 发出；不认识 LoadOperation/UI。</summary>
