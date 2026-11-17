@@ -103,6 +103,12 @@ public partial class WorldView : Node3D
 	/// <summary>分帧装配进度 0–1（网格/纹理 0–0.95，河线 0.95–1）。</summary>
 	public float BuildProgress => _riverBuilt ? 1f : 0.95f * (_ballView?.BuildProgress ?? 0f);
 
+	/// <summary>分帧装配的总项数：球面构建项 + 河线。</summary>
+	public int BuildTotal => _ballView == null ? 0 : _ballView.BuildTotal + 1;
+
+	/// <summary>已完成的装配项数：球面构建项 + 河线。</summary>
+	public int BuildStep => (_ballView?.BuildStep ?? 0) + (_riverBuilt ? 1 : 0);
+
 	/// <summary>分帧装配当前阶段文字。</summary>
 	public string BuildStage => _riverBuilt ? "完成" : _ballView?.BuildStage ?? "画面装配";
 

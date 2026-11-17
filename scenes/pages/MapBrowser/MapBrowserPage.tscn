@@ -1,4 +1,4 @@
-[gd_scene format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/Pages/MapBrowser/MapBrowserView.cs" id="1_browser"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="2_presentation"]
@@ -8,8 +8,10 @@
 script = ExtResource("1_browser")
 CameraPath = NodePath("Presentation/OrbitalCamera")
 RenderManagerPath = NodePath("Presentation/RenderManager")
-UIManagerPath = NodePath("Presentation/UIManager")
-DockPath = NodePath("Presentation/UIManager/PanelLayer/MapDock")
+CellInfoCardPath = NodePath("Presentation/PanelLayer/CellInfoCard")
+DockPath = NodePath("Presentation/PanelLayer/MapDock")
+PanelLayerPath = NodePath("Presentation/PanelLayer")
+StatusLabelPath = NodePath("TopBar/Status")
 TitleLabelPath = NodePath("TopBar/Title")
 AppMenuPath = NodePath("AppMenu")
 
@@ -30,5 +32,17 @@ theme_override_font_sizes/font_size = 20
 theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
 horizontal_alignment = 1
 text = "地图"
+
+[node name="Status" type="Label" parent="TopBar"]
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -280.0
+offset_top = 52.0
+offset_right = 280.0
+offset_bottom = 112.0
+grow_horizontal = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+text = "未指定地图，请从地图库打开。"
 
 [node name="AppMenu" parent="." instance=ExtResource("3_menu")]

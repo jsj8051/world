@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using Godot;
 using World.Application.Generation;
@@ -9,7 +10,7 @@ using World.Data.Generation;
 using World.Infrastructure;
 using World.Infrastructure.Generation;
 using World.Logic;
-using World.Scene;
+using World.Infrastructure.Maps;
 using World.UI.Pages;
 
 namespace World.Tests;
@@ -28,13 +29,6 @@ public partial class GenerationConfigCheck : Node
 		public GenerationConfig Last;
 		public void BackToMainMenu() { }
 		public void StartGeneration(GenerationConfig config) { Starts++; Last = config; }
-	}
-
-	/// <summary>装配必失败的页面：用于验证宿主保留当前页并释放新页。</summary>
-	sealed partial class BrokenPage : Node, IAppPage
-	{
-		public void Configure(PageContext context) => throw new InvalidOperationException("broken page");
-		public void OnHidden() { }
 	}
 
 	public override async void _Ready()
@@ -79,9 +73,9 @@ public partial class GenerationConfigCheck : Node
 			GD.Print($"[GEOGRAPHY-CONTROLLER] PASS {GeographyEvolutionControllerCheck.Run()} assertions");
 			GD.Print($"[MAP-CATALOG-CONTROLLER] PASS {MapCatalogControllerCheck.Run()} assertions");
 			GD.Print($"[MAP-BROWSER-CONTROLLER] PASS {MapBrowserControllerCheck.Run()} assertions");
-			var app = ResourceLoader.Load<PackedScene>("res://scenes/app/AppRoot.tscn").Instantiate<AppRoot>();
-			AddChild(app);
-			var pageHost = app.GetNode<AppPageHost>("PageHost");
+			var initialMenu = MainMenuView.Create();
+			AddChild(initialMenu);
+			Require(GetTree().CurrentScene == this, "Direct page navigation changed the test runner current scene.");
 			if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--menu") >= 0)
 			{
 				for (int i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
@@ -93,66 +87,71 @@ public partial class GenerationConfigCheck : Node
 			}
 			if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--library") >= 0)
 			{
-				app.GetNode<Button>("PageHost/MainMenu/Center/Panel/Box/LibraryButton").EmitSignal(Button.SignalName.Pressed);
-				for (int i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+				initialMenu.GetNode<Button>("Center/Panel/Box/LibraryButton").EmitSignal(Button.SignalName.Pressed);
+				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+				var library = FindPage<MapLibraryView>();
+				Require(library != null && !GodotObject.IsInstanceValid(initialMenu), "Library action did not replace the menu page.");
+				for (int i = 0; i < 4; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 				await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
 				GetViewport().GetTexture().GetImage().SavePng("res://tests/map-library-check.png");
 				GD.Print("[CONFIG-CHECK] PASS map library capture");
 				GetTree().Quit();
 				return;
 			}
-			// 装配失败必须保留当前页：Configure 抛异常时新页被释放，槽位不动。
-			var brokenPage = new BrokenPage { Name = "BrokenPage" };
-			pageHost.MountPage(brokenPage);
-			Require(pageHost.CurrentScreen is MainMenuView, "A page whose Configure throws replaced the current screen.");
-			Require(!GodotObject.IsInstanceValid(brokenPage), "A page that failed to configure was not released.");
-			app.GetNode<Button>("PageHost/MainMenu/Center/Panel/Box/GeographyButton").EmitSignal(Button.SignalName.Pressed);
-			Require(pageHost.CurrentScreen is GenerationConfigView, "Geography did not open config page.");
-			Require(pageHost.CurrentContext != null, "Page host did not create a page context.");
-			Require(pageHost.CurrentScreen.FindChild("WorldManager", true, false) == null, "Config page instantiated world.");
-			var firstConfigContext = pageHost.CurrentContext;
-			var firstConfigPage = (GenerationConfigView)pageHost.CurrentScreen;
-			firstConfigPage.GetNode<Button>("%Back").EmitSignal(Button.SignalName.Pressed);
-			Require(firstConfigContext.Lifetime.IsCancellationRequested && pageHost.CurrentScreen is MainMenuView,
-				"Leaving a page must cancel its lifetime before mounting the next page.");
-			var menuContext = pageHost.CurrentContext;
-			pageHost.CurrentScreen.GetNode<Button>("Center/Panel/Box/GeographyButton")
-				.EmitSignal(Button.SignalName.Pressed);
-			Require(pageHost.CurrentScreen is GenerationConfigView && pageHost.CurrentContext.PageId != menuContext.PageId
-				&& !pageHost.CurrentContext.Lifetime.IsCancellationRequested,
-				"Returning to config must create a fresh page context.");
+			initialMenu.GetNode<Button>("Center/Panel/Box/GeographyButton").EmitSignal(Button.SignalName.Pressed);
+			Require(initialMenu.IsInsideTree() && FindPage<GenerationConfigView>() == null,
+				"Opening config must defer replacement until frame end.");
+			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			var navigationConfig = FindPage<GenerationConfigView>();
+			Require(navigationConfig != null && !GodotObject.IsInstanceValid(initialMenu), "Geography did not replace the menu with config.");
+			Require(navigationConfig.FindChild("WorldManager", true, false) == null, "Config page instantiated world.");
+			Require(GetTree().CurrentScene == this, "Opening config replaced the test runner current scene.");
+			navigationConfig.GetNode<World.UI.Components.GenerationConfigEditor>("%Editor")
+				.GetNode<SpinBox>("%Seed").Value = 987654;
+			navigationConfig.GetNode<Button>("%Back").EmitSignal(Button.SignalName.Pressed);
+			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			var returnedMenu = FindPage<MainMenuView>();
+			Require(returnedMenu != null && !GodotObject.IsInstanceValid(navigationConfig), "Config back action did not replace the page with a fresh menu.");
+			returnedMenu.GetNode<Button>("Center/Panel/Box/GeographyButton").EmitSignal(Button.SignalName.Pressed);
+			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+			navigationConfig = FindPage<GenerationConfigView>();
+			Require(navigationConfig != null && GetTree().CurrentScene == this,
+				"Returning to config did not preserve the test runner scene.");
+			Require(navigationConfig.GetNode<World.UI.Components.GenerationConfigEditor>("%Editor")
+				.GetNode<SpinBox>("%Seed").Value == new GenerationConfig().Seed,
+				"A new configuration page must not inherit the previous page's unsaved draft.");
 			if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--generate") >= 0)
 			{
-				var configPage = (GenerationConfigView)pageHost.CurrentScreen;
+				var configPage = FindPage<GenerationConfigView>();
 				configPage.GetNode<World.UI.Components.GenerationConfigEditor>("%Editor").GetNode<SpinBox>("%Seed").Value = 777;
 				configPage.GetNode<Button>("%Apply").EmitSignal(Button.SignalName.Pressed);
 				configPage.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
 				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 				// 生成期间配置页仍在槽位；世界页在生成完成后才挂载。
 				Require(GodotObject.IsInstanceValid(configPage) && configPage.IsInsideTree()
-					&& pageHost.CurrentScreen is GenerationConfigView,
+					&& FindPage<Node>() is GenerationConfigView,
 					"Generation must keep the config page mounted until the world is ready.");
 				// 生成跑在后台 Job 上；等世界页挂载。
 				ulong started = Time.GetTicksMsec();
 				while (Time.GetTicksMsec() - started < 120_000
-					&& pageHost.CurrentScreen is not GeographyEvolutionView)
+					&& FindPage<Node>() is not GeographyEvolutionView)
 					await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-				var worldView = pageHost.CurrentScreen as GeographyEvolutionView;
+				var worldView = FindPage<GeographyEvolutionView>();
 				Require(worldView != null, "Generation did not mount the world page.");
-				Require(pageHost.GetChildCount() == 1 && pageHost.GetChild(0) == worldView,
+				Require(GetChildCount() == 1 && GetChild(0) == worldView,
 					"The world page must be the only page in the slot.");
 				while (Time.GetTicksMsec() - started < 120_000
 					&& (worldView.World == null || !worldView.World.IsInitialized))
 					await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 				Require(worldView.World != null && worldView.World.IsInitialized && worldView.Params.Active.Seed == 777,
 					"Applied configuration did not initialize real world.");
-				Require(pageHost.CurrentScreen == worldView && pageHost.GetChildCount() == 1,
+				Require(FindPage<Node>() == worldView && GetChildCount() == 1,
 					"The world page must stay mounted after assembly.");
 				Require(worldView.GetNode<CanvasLayer>("AppMenu").Visible,
 					"The world chrome must stay visible after generation.");
 				if (Array.IndexOf(OS.GetCmdlineUserArgs(), "--roundtrip") >= 0)
 				{
-					Require(pageHost.GetChildCount() == 1 && pageHost.GetChild(0) == worldView,
+					Require(GetChildCount() == 1 && GetChild(0) == worldView,
 						"Only the world page may stay mounted after generation.");
 					var menu = worldView.GetNode<World.UI.Components.AppMenu>("AppMenu");
 					menu.GetNode<Button>("MenuButton").EmitSignal(Button.SignalName.Pressed);
@@ -161,18 +160,18 @@ public partial class GenerationConfigCheck : Node
 						if (item is Button { Text: "返回主界面" } button) backButton = button;
 					Require(backButton != null, "The world menu has no back item.");
 					backButton.EmitSignal(Button.SignalName.Pressed);
-					Require(!GodotObject.IsInstanceValid(worldView) || !worldView.IsInsideTree(),
-						"The world page must leave the tree in the same frame as the navigation.");
+					Require(GodotObject.IsInstanceValid(worldView) && worldView.IsInsideTree(),
+						"Navigation must defer replacing the world page until frame end.");
 					for (int i = 0; i < 3; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-					Require(pageHost.CurrentScreen is MainMenuView, "Roundtrip did not return to the main menu.");
+					Require(FindPage<Node>() is MainMenuView, "Roundtrip did not return to the main menu.");
 					Require(!GodotObject.IsInstanceValid(worldView) || !worldView.IsInsideTree(),
 						"The world page stayed inside the tree after navigating away.");
-					Require(pageHost.GetChildCount() == 1, "The page host kept more than one page.");
-					pageHost.CurrentScreen.GetNode<Button>("Center/Panel/Box/GeographyButton")
+					Require(GetChildCount() == 1, "The page host kept more than one page.");
+					FindPage<Node>().GetNode<Button>("Center/Panel/Box/GeographyButton")
 						.EmitSignal(Button.SignalName.Pressed);
 					for (int i = 0; i < 5; i++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-					Require(pageHost.CurrentScreen is GenerationConfigView, "Roundtrip did not reopen the config page.");
-					Require(pageHost.GetChildCount() == 1, "The page host kept more than one page after opening config.");
+					Require(FindPage<Node>() is GenerationConfigView, "Roundtrip did not reopen the config page.");
+					Require(GetChildCount() == 1, "The page host kept more than one page after opening config.");
 					if (DisplayServer.GetName() != "headless")
 					{
 						await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
@@ -186,11 +185,8 @@ public partial class GenerationConfigCheck : Node
 				GetTree().Quit();
 				return;
 			}
-			var exitingContext = pageHost.CurrentContext;
-			RemoveChild(app);
-			Require(exitingContext.Lifetime.IsCancellationRequested && pageHost.CurrentScreen == null,
-				"Exiting the app root must cancel and release the current page before teardown.");
-			app.QueueFree();
+			RemoveChild(navigationConfig);
+			navigationConfig.QueueFree();
 			var store = new Store();
 			var session = new GenerationConfigSession(store, "profiles.json");
 			var host = new Host();
@@ -265,6 +261,8 @@ public partial class GenerationConfigCheck : Node
 		}
 		catch (Exception error) { GD.PushError($"[CONFIG-CHECK] {error}"); GetTree().Quit(1); }
 	}
+	T FindPage<T>() where T : Node => GetChildren().OfType<T>().SingleOrDefault();
+
 	static void Require(bool condition, string message)
 	{
 		if (!condition) throw new InvalidOperationException(message);

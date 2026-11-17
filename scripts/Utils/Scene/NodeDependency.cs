@@ -8,8 +8,7 @@ namespace World.Utils;
 /// 这件事收成一处，供各管理器复用。
 ///
 /// ★为什么归 `World.Utils`（2026-10-11 用户拍板"util 也放开吧，可以放 godot 依赖的工具"）：
-///   原先四个管理器**各抄一份**同型代码（`GeographyEvolutionView`/`WorldManager`/`RenderManager`/`UIManager`
-///   各一个 `Require`，约 90 行），且已出现文案漂移。工具层收编后只有一份判据。
+///   原先多个场景节点各自实现 `Require`，错误文案也各不相同。现在统一使用同一份判据。
 ///
 /// ★为什么依赖必须是 `NodePath`（**实测结论**，别改成直接引用——见
 ///   `docs/债务清单-架构与分层.md` 的 A-6c）：本项目的跨层依赖全都指向**另一个 packed scene 的根**

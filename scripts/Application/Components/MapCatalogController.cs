@@ -97,11 +97,13 @@ internal sealed class MapCatalogController
 		SetStatus("正在加载地图…");
 		StateChanged?.Invoke();
 		try { _actions.LoadMap(path); }
-		catch (Exception error)
-		{
-			SetStatus($"无法加载地图：{error.Message}", true);
-			StateChanged?.Invoke();
-		}
+		catch (Exception error) { ReportLoadFailure($"无法加载地图：{error.Message}"); }
+	}
+
+	internal void ReportLoadFailure(string message)
+	{
+		SetStatus(message, true);
+		StateChanged?.Invoke();
 	}
 
 	static MapCatalogEntry CreateEntry(MapPackageCandidate candidate)

@@ -1,19 +1,26 @@
 using System;
 using Godot;
 using World.Application.Components;
+using World.Application.Generation;
+using World.Application.Loading;
 using World.Application.Pages;
 using World.Data.Generation;
 using World.UI.Components;
+using World.Utils;
 
 namespace World.UI.Pages;
 
 /// <summary>
 /// 生成配置页宿主：装配配置编辑器、已保存配置组件与页面动作按钮；
-/// 草稿、应用门禁与生成启动归 <see cref="GenerationConfigController"/>，
+/// 草稿与应用门禁归 <see cref="GenerationConfigController"/>，页面拥有生成任务和场景切换；
 /// 配置库的选择/命名/确认流转给 <see cref="ProfileLibraryController"/>。
 /// </summary>
-public partial class GenerationConfigView : Control, IAppPage
+public partial class GenerationConfigView : Control, IGenerationConfigPageActions
 {
+	WorldGenerationFlow _generation;
+	Exception _generationFailure;
+
+	internal void ReportGenerationFailure(Exception error) => _generationFailure = error;
 	GenerationConfigController _controller;
 	GenerationConfigEditor _editor;
 	ProfileLibraryController _profiles;
@@ -21,9 +28,9 @@ public partial class GenerationConfigView : Control, IAppPage
 	Label _status;
 	Label _configState;
 
-	void IAppPage.Configure(PageContext context) { }
-
-	void IAppPage.OnHidden() => DetachController();
+	internal static GenerationConfigView Create()
+		=> GD.Load<PackedScene>("res://scenes/pages/GenerationConfig/GenerationConfigPage.tscn")
+			.Instantiate<GenerationConfigView>();
 
 	internal void SetController(GenerationConfigController controller)
 	{
@@ -39,10 +46,9 @@ public partial class GenerationConfigView : Control, IAppPage
 		_configState = GetNode<Label>("%ConfigState");
 
 		if (_controller == null)
-		{
-			SetStandaloneState();
-			return;
-		}
+			SetController(new GenerationConfigController(new GenerationConfigSession(
+				new World.Infrastructure.Generation.FileGenerationProfileStore(),
+				World.Infrastructure.GamePaths.GenerationProfilesPath), this));
 
 		_profileLibrary.Bind(_profiles = new ProfileLibraryController(new ProfileLibraryHost(this, _controller)));
 		_editor.Changed += () => UpdateDraft();
@@ -53,15 +59,54 @@ public partial class GenerationConfigView : Control, IAppPage
 		Bind("SaveAs", () => _profiles.RequestSaveAs());
 		Bind("Generate", StartGeneration);
 		RefreshEditorAndProfiles();
+		if (_generationFailure != null) _controller.ReportError(_generationFailure);
 	}
 
-	void SetStandaloneState()
+	void IGenerationConfigPageActions.BackToMainMenu()
+		=> SceneReplacement.Replace(this, MainMenuView.Create());
+
+	void IGenerationConfigPageActions.StartGeneration(GenerationConfig config)
 	{
-		SetStatus("配置页面需要从主界面启动。", true);
-		GetNode<Control>("%Workspace").MouseFilter = MouseFilterEnum.Stop;
-		foreach (string name in new[] { "Apply", "Save", "SaveAs", "Generate", "Reset" })
-			GetNode<Button>("%" + name).Disabled = true;
-		_profileLibrary.SetInteractive(false);
+		if (_generation != null) throw new InvalidOperationException("生成仍在进行。");
+		try
+		{
+			_generation = new WorldGenerationFlow(WorldGenerationSpecs.Create(config), WorldGenerationPresets.Production);
+			_generation.Start();
+		}
+		catch
+		{
+			DisposeGeneration();
+			throw;
+		}
+	}
+
+	public override void _Process(double delta)
+	{
+		if (_generation == null) return;
+		try
+		{
+			WorldGenerationOutcome outcome = _generation.Poll();
+			if (outcome.State == WorldGenerationState.Running) return;
+			DisposeGeneration();
+			if (outcome.State == WorldGenerationState.Failed)
+			{
+				_controller.GenerationFailed(new InvalidOperationException(outcome.Failure.Message));
+				return;
+			}
+			if (outcome.State == WorldGenerationState.Succeeded)
+				SceneReplacement.Replace(this, GeographyEvolutionView.Create(outcome.Result));
+		}
+		catch (Exception error)
+		{
+			DisposeGeneration();
+			_controller.GenerationFailed(error);
+		}
+	}
+
+	void DisposeGeneration()
+	{
+		_generation?.Dispose();
+		_generation = null;
 	}
 
 	void Bind(string name, Action action) => GetNode<Button>("%" + name).Pressed += action;
@@ -117,7 +162,11 @@ public partial class GenerationConfigView : Control, IAppPage
 	/// <summary>载入配置后把草稿回填到编辑器（由配置库宿主动作调用）。</summary>
 	void SyncEditor() => _editor.ShowConfig(_controller.Draft);
 
-	public override void _ExitTree() => DetachController();
+	public override void _ExitTree()
+	{
+		DisposeGeneration();
+		DetachController();
+	}
 
 	void DetachController()
 	{

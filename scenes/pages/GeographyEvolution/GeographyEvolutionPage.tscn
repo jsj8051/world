@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/Pages/GeographyEvolution/GeographyEvolutionView.cs" id="1_root"]
 [ext_resource type="Script" path="res://scripts/Runtime/WorldManager.cs" id="2_world"]
@@ -6,15 +6,17 @@
 [ext_resource type="PackedScene" path="res://scenes/components/AppMenu.tscn" id="4_menu"]
 [ext_resource type="PackedScene" path="res://scenes/components/EvolutionPanel.tscn" id="5_evolution"]
 [ext_resource type="Theme" path="res://themes/ui_app.tres" id="6_theme"]
+[ext_resource type="PackedScene" path="res://scenes/components/AppStatusBar.tscn" id="7_status"]
 
 [node name="GeographyEvolution" type="Node3D"]
 script = ExtResource("1_root")
 WorldManagerPath = NodePath("WorldManager")
 RenderManagerPath = NodePath("Presentation/RenderManager")
-UIManagerPath = NodePath("Presentation/UIManager")
 CameraPath = NodePath("Presentation/OrbitalCamera")
-DockPath = NodePath("Presentation/UIManager/PanelLayer/MapDock")
+DockPath = NodePath("Presentation/PanelLayer/MapDock")
+CellInfoCardPath = NodePath("Presentation/PanelLayer/CellInfoCard")
 AppMenuPath = NodePath("AppMenu")
+AppStatusBarPath = NodePath("AppStatusBar")
 EvolutionPanelPath = NodePath("PageOverlay/EvolutionPanel")
 
 [node name="WorldManager" type="Node3D" parent="."]
@@ -42,3 +44,5 @@ theme = ExtResource("6_theme")
 theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 22
 text = "地理演化"
+
+[node name="AppStatusBar" parent="." instance=ExtResource("7_status")]

@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using Godot;
 using World.Application.Components;
 using World.Application.Storage;
-using World.Infrastructure.Maps;
-using World.Application.Pages;
 using World.UI.Components;
 using World.Utils;
 
@@ -14,7 +12,7 @@ namespace World.UI.Pages;
 /// 地图库页面宿主：标题与返回按钮，内容交给 <see cref="MapCatalogPanel"/>。
 /// 存档列表、选择与加载意图归 <see cref="MapCatalogController"/>。
 /// </summary>
-public partial class MapLibraryView : Control, IAppPage
+public partial class MapLibraryView : Control, IMapCatalogActions
 {
 	[Export] public NodePath CatalogPath { get; set; }
 	[Export] public NodePath BackButtonPath { get; set; }
@@ -24,15 +22,19 @@ public partial class MapLibraryView : Control, IAppPage
 	MapCatalogController _controller;
 	MapCatalogPanel _catalog;
 
-	void IAppPage.Configure(PageContext context) { }
+	internal static MapLibraryView Create(IGeographyMapRepository repository = null, IMapCatalogActions actions = null)
+	{
+		var page = GD.Load<PackedScene>("res://scenes/pages/MapLibrary/MapLibraryPage.tscn").Instantiate<MapLibraryView>();
+		page._repository = repository;
+		page._actions = actions;
+		return page;
+	}
 
-	void IAppPage.OnHidden() => _controller = null;
-
-	/// <summary>应用装配注入存档库；独立运行时回退到游戏目录默认实现。</summary>
+	/// <summary>注入测试或自定义存档库；默认使用游戏存档目录。</summary>
 	internal void SetRepository(IGeographyMapRepository repository)
 		=> _repository = repository ?? throw new ArgumentNullException(nameof(repository));
 
-	/// <summary>应用装配注入宿主动作；独立运行时为空，页面只读不跳转。</summary>
+	/// <summary>注入测试或自定义页面动作；默认由本页面处理导航。</summary>
 	internal void SetActions(IMapCatalogActions actions) => _actions = actions;
 
 	public override void _Ready()
@@ -40,11 +42,20 @@ public partial class MapLibraryView : Control, IAppPage
 		_catalog = this.Require<MapCatalogPanel>(CatalogPath, nameof(CatalogPath));
 		var back = this.Require<Button>(BackButtonPath, nameof(BackButtonPath));
 
-		_controller = new MapCatalogController(_repository ?? GameMapRepository.CreateDefault(), _actions);
+		_repository ??= World.Infrastructure.Maps.GameMapRepository.CreateDefault();
+		_controller = new MapCatalogController(_repository, _actions ?? this);
 		back.Pressed += () => _controller.BackToMainMenu();
 		_catalog.Bind(_controller);
 		_controller.Refresh();
 	}
+
+	void IMapCatalogActions.BackToMainMenu()
+		=> SceneReplacement.Replace(this, MainMenuView.Create());
+
+	void IMapCatalogActions.LoadMap(string path)
+		=> SceneReplacement.Replace(this, MapBrowsingHost.Create(_repository, path));
+
+	internal void ReportLoadFailure(string message) => _controller.ReportLoadFailure(message);
 
 	public override void _ExitTree() => _controller = null;
 

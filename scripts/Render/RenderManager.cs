@@ -1,6 +1,5 @@
 using Godot;
 using System.Collections.Generic;
-using World.Client;
 using World.Data;
 using World.Logic;
 using World.Utils;
@@ -17,7 +16,7 @@ namespace World.Render;
 /// <c>View.SetHighlight</c> 就地高亮 ＋ <see cref="CellPicked"/> 给界面侧订阅。
 /// 相机按需现取（每帧 <c>GetViewport().GetCamera3D()</c>）。不生成世界、不取参数。
 /// </summary>
-public partial class RenderManager : Node3D, ITickable
+public partial class RenderManager : Node3D, ITickable, ICellSelectionSource
 {
 	[Export] public NodePath WorldViewPath { get; set; }
 
@@ -54,12 +53,10 @@ public partial class RenderManager : Node3D, ITickable
 	public void EndSwap() => SwapActive = false;
 
 	/// <summary>
-	/// 点选结果出口（<c>null</c> = 点空 / 取消选中）：一份自足的 <c>PickedCell</c>（经纬 / 海拔 /
-	/// 海陆 / 附块 / 各距离），界面侧订阅后直接写信息卡 ⇒ 不必回头找世界侧补数据。
-	/// 高亮不在这里——它在 <see cref="PickAt"/> 里就地完成（本管理器就是发起方）。
+	/// 点选或刷新时发布格子快照，取消选中时发布 null。高亮由渲染侧更新。
 	/// </summary>
 	public event System.Action<PickedCell?> CellPicked;
-	internal bool ShowCrustDetails => _currentMode >= 0 && _modes[_currentMode] is CrustMode;
+	public bool ShowCrustDetails => _currentMode >= 0 && _modes[_currentMode] is CrustMode;
 	ulong? _selectedCellId;
 
 	// ── 地图模式（模式表 / 当前模式 / 坞同步）──
@@ -131,6 +128,12 @@ public partial class RenderManager : Node3D, ITickable
 	/// <summary>分帧装配进度 0–1。</summary>
 	public float BuildProgress => View?.BuildProgress ?? 1f;
 
+	/// <summary>分帧装配的总项数（颜色纹理 + 网格块 + 河线）。</summary>
+	public int BuildTotal => View?.BuildTotal ?? 0;
+
+	/// <summary>已完成的装配项数。</summary>
+	public int BuildStep => View?.BuildStep ?? 0;
+
 	/// <summary>分帧装配当前阶段文字。</summary>
 	public string BuildStage => View?.BuildStage ?? "完成";
 
@@ -146,32 +149,24 @@ public partial class RenderManager : Node3D, ITickable
 	}
 
 	/// <summary>
-	/// 初始取景对准陆地质心：第一眼看到陆地，而不是随机半球的大洋。
-	/// 取景只依赖最终事实（<c>FinalLand</c> + 格心方向），不改任何世界数据。
+	/// 从最终陆地掩码和格心方向计算初始取景方向；方向无法确定时返回 null。
 	/// </summary>
-	public void FrameLand(OrbitalCamera camera)
+	internal Vector3? GetLandFocusDirection()
 	{
-		if (camera == null) return;
 		var facts = _source?.Facts;
-		if (facts == null) return;
+		if (facts == null) return null;
 		var dirs = facts.Ball.CellDirs;
-		if (facts.FinalLand.Length != dirs.Length) return;
+		if (facts.FinalLand.Length != dirs.Length) return null;
 
 		Vector3 sum = Vector3.Zero;
-		int count = 0;
 		for (int i = 0; i < dirs.Length; i++)
-		{
-			if (!facts.FinalLand[i]) continue;
-			sum += dirs[i];
-			count++;
-		}
-		if (count > 0) camera.LookAtPoint(sum.Normalized());
+			if (facts.FinalLand[i]) sum += dirs[i];
+		return sum.IsZeroApprox() ? null : sum.Normalized();
 	}
 
 	/// <summary>
 	/// 每帧推进（ITickable）：剔除 / LOD / 高亮宽度。
-	/// 相机按需现取活动相机，不存字段、不由根管理器注入——<c>OrbitalCamera._Ready</c> 已把自建
-	/// <c>Camera3D</c> 设为 <c>Current</c>，"当前相机"是场景树里的事实。
+	/// 每帧通过 <c>GetViewport().GetCamera3D()</c> 读取活动相机。
 	/// 不缓存是有意的：Godot 节点释放延迟，"已排队释放但尚未删除"期间 <c>IsInstanceValid</c> 仍为真
 	/// ⇒ 缓存字段会拿死相机去射线，点选静默失灵。
 	/// </summary>

@@ -11,45 +11,45 @@ internal sealed class GeographyEvolutionPageActions : IGeographyEvolutionPageAct
 	readonly Func<string> _saveMap;
 	readonly Func<string> _exportMapImage;
 	readonly IMainMenuReturn _mainMenu;
-	readonly INoticeSink _notice;
+	readonly Action<string> _notify;
 
 	internal GeographyEvolutionPageActions(Func<string> saveMap, Func<string> exportMapImage,
-		IMainMenuReturn mainMenu, INoticeSink notice)
+		IMainMenuReturn mainMenu, Action<string> notify)
 	{
 		_saveMap = saveMap ?? throw new ArgumentNullException(nameof(saveMap));
 		_exportMapImage = exportMapImage ?? throw new ArgumentNullException(nameof(exportMapImage));
 		_mainMenu = mainMenu;
-		_notice = notice;
+		_notify = notify;
 	}
 
 	public void BackToMainMenu() => _mainMenu?.BackToMainMenu();
 
 	public void SaveMap()
 	{
-		_notice?.Notify("正在保存地图…");
+		_notify?.Invoke("正在保存地图…");
 		try
 		{
 			string path = _saveMap();
-			_notice?.Notify($"地图已保存：{path}", NoticeKind.Success);
+			_notify?.Invoke($"地图已保存：{path}");
 		}
 		catch (Exception error)
 		{
-			_notice?.Notify($"地图保存失败：{error.Message}", NoticeKind.Error);
+			_notify?.Invoke($"地图保存失败：{error.Message}");
 			throw;
 		}
 	}
 
 	public void ExportMapImage()
 	{
-		_notice?.Notify("正在导出地图图片…");
+		_notify?.Invoke("正在导出地图图片…");
 		try
 		{
 			string path = _exportMapImage();
-			_notice?.Notify($"地图图片已导出：{path}", NoticeKind.Success);
+			_notify?.Invoke($"地图图片已导出：{path}");
 		}
 		catch (Exception error)
 		{
-			_notice?.Notify($"地图图片导出失败：{error.Message}", NoticeKind.Error);
+			_notify?.Invoke($"地图图片导出失败：{error.Message}");
 			throw;
 		}
 	}

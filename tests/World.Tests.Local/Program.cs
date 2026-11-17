@@ -247,11 +247,19 @@ static class Program
 		Run("生成世界经快照往返保持一致", MapRoundTripTests.GeneratedWorldRoundTripsThroughSnapshot);
 		Run("地图包写入读出保持事实", MapRoundTripTests.PackageWriteReadPreservesFacts);
 		Run("地图包拒绝缺失与损坏文件", MapRoundTripTests.PackageRejectsMissingAndCorruptFiles);
-		Run("页面上下文拥有唯一标识", LoadStructureModelTests.PageContextsHaveUniqueIds);
+		Run("页面生成失败释放重试门禁", LoadStructureModelTests.GenerationFailureReleasesGate);
 		Run("并行读取按块上报进度", MapRoundTripTests.ParallelReadReportsBlockProgress);
 		Run("浏览 Job 发出完成信号并装配事实", MapRoundTripTests.BrowseJobSignalsCompletionAndBuildsFacts);
-		Run("进度条初始化并跟踪计数", LoadProgressControllerTests.InitAndUpdateTrackCounts);
-		Run("进度条更新夹紧并可调整总数", LoadProgressControllerTests.UpdateClampsAndMayAdjustTotal);
+		Run("Browser loads then builds once before ticking", MapBrowserControllerTests.SuccessBuildsOnceBeforeTicking);
+		Run("Browser read failure stops polling", MapBrowserControllerTests.ReadFailureStopsPolling);
+		Run("Browser flow exceptions become failures", MapBrowserControllerTests.FlowExceptionsBecomeFailures);
+		Run("Browser build failures stop presentation", MapBrowserControllerTests.BuildFailuresStopPresentation);
+		Run("Browser Dispose and Back ignore late results", MapBrowserControllerTests.DisposeAndBackIgnoreLateResults);
+		Run("Browser closing stops build and ready ticks", MapBrowserControllerTests.ClosingStopsBuildAndReadyTicks);
+		Run("Browser propagates loading and build progress", MapBrowserControllerTests.ProgressPropagatesAcrossLoadingAndBuilding);
+		Run("Browser abandoned flow closes without building", MapBrowserControllerTests.AbandonedFlowClosesWithoutBuilding);
+		Run("进度条初始化并跟踪当前项", LoadProgressControllerTests.InitAndUpdateTrackCurrentStep);
+		Run("进度条夹紧当前项", LoadProgressControllerTests.UpdateClampsStepToTotal);
 		Run("进度条完成置满并忽略迟到更新", LoadProgressControllerTests.CompleteFillsAndStops);
 		Run("进度条拒绝非法总数", LoadProgressControllerTests.RejectsInvalidTotal);
 

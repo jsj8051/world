@@ -6,7 +6,7 @@ namespace World.Application.Components;
 
 /// <summary>格子信息卡的展示内容（视图只负责写入控件）。</summary>
 internal sealed record CellInfoCardContent(
-	string Summary, string Crust, bool ShowCrust, string BoundaryToggleText,
+	ulong CellId, string Summary, string Crust, bool ShowCrust, string BoundaryToggleText,
 	bool ShowBoundaryToggle, string Boundaries);
 
 /// <summary>
@@ -30,7 +30,7 @@ internal static class CellInfoCardFormatter
 
 		CrustCellBoundary[] edges = crust?.Boundaries ?? Array.Empty<CrustCellBoundary>();
 		bool showBoundaryToggle = edges.Length > 1;
-		return new CellInfoCardContent(summary, CrustText(crust), crust != null,
+		return new CellInfoCardContent(cell.CellId, summary, CrustText(crust), crust != null,
 			showBoundaryToggle ? $"全部相邻边界（{edges.Length}）" : string.Empty,
 			showBoundaryToggle, showBoundaryToggle ? BoundariesText(edges) : string.Empty);
 	}

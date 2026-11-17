@@ -41,7 +41,7 @@ public partial class EvolutionStepCheck : Node
 			return;
 		}
 		var root = (GeographyEvolutionView)GetTree().CurrentScene;
-		var dock = root.GetNode("Presentation/UIManager/PanelLayer/MapDock");
+		var dock = root.GetNode(root.DockPath);
 		var modeRow = dock.GetNode("DockBox/ModeRow");
 		var crustButton = modeRow.GetChildren().OfType<Button>().FirstOrDefault(button => button.Text == "地壳");
 		var motion = root.GetNodeOrNull<PlateMotionOverlay>("Presentation/RenderManager/WorldView/PlateMotion");
@@ -74,7 +74,7 @@ public partial class EvolutionStepCheck : Node
 			return;
 		}
 		crustWithMotion.EmitSignal(BaseButton.SignalName.Pressed);
-		var card = root.UI.CellCard;
+		var card = root.GetNode<Control>(root.CellInfoCardPath);
 		var cardSummary = card.FindChild("CellSummary", recursive: true, owned: false) as Label;
 		var crustSummary = card.FindChild("CrustSummary", recursive: true, owned: false) as Label;
 		var boundaryList = card.FindChild("CrustBoundaries", recursive: true, owned: false) as Label;

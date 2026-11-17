@@ -163,6 +163,12 @@ public sealed partial class BallView : Node3D   // partial 是 Godot 源生成�
 		}
 	}
 
+	/// <summary>分帧构建的总项数：颜色纹理 + 每个 res0 块。</summary>
+	public int BuildTotal => _res0Order == null ? 0 : _res0Order.Length + 1;
+
+	/// <summary>已完成的构建项数：颜色纹理完成 + 已建块。</summary>
+	public int BuildStep => (_colorsReady ? 1 : 0) + _chunkCursor;
+
 	/// <summary>分帧构建当前阶段文字。</summary>
 	public string BuildStage => _colorsReady ? "网格装配" : "颜色纹理";
 

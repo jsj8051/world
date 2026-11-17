@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
 using World.Application.Storage;
@@ -52,8 +53,16 @@ internal readonly struct BrowseOutcome
 }
 
 /// <summary>一次地图浏览的流水线：后台读包/解码/装配事实，主线程轮询结果；取消由自己的令牌收起。</summary>
-internal sealed class MapBrowseFlow : IDisposable
+internal interface IMapBrowseFlow : IDisposable
 {
+	void Start(string path);
+	BrowseOutcome Poll();
+	bool TryReadProgress(out WorkSignal signal);
+}
+
+internal sealed class MapBrowseFlow : IMapBrowseFlow
+{
+	readonly ConcurrentQueue<WorkSignal> _progress = new();
 	readonly IGeographyMapRepository _mapRepository;
 	readonly CancellationTokenSource _cancellation = new();
 
@@ -65,7 +74,9 @@ internal sealed class MapBrowseFlow : IDisposable
 	internal MapBrowseFlow(IGeographyMapRepository mapRepository)
 		=> _mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
 
-	internal void Start(string path)
+	public bool TryReadProgress(out WorkSignal signal) => _progress.TryDequeue(out signal);
+
+	public void Start(string path)
 	{
 		ObjectDisposedException.ThrowIf(_disposed, this);
 		if (_started) throw new InvalidOperationException("一次浏览只能启动一次。");
@@ -73,6 +84,7 @@ internal sealed class MapBrowseFlow : IDisposable
 		_started = true;
 
 		var job = new MapBrowseJob(_mapRepository);
+		job.Signal += _progress.Enqueue;
 		CancellationToken token = _cancellation.Token;
 		_task = Task.Run(() =>
 		{
@@ -84,7 +96,7 @@ internal sealed class MapBrowseFlow : IDisposable
 	}
 
 	/// <summary>主线程轮询；终态之后重复调用返回同一结果。</summary>
-	internal BrowseOutcome Poll()
+	public BrowseOutcome Poll()
 	{
 		ObjectDisposedException.ThrowIf(_disposed, this);
 		if (!_started) throw new InvalidOperationException("浏览尚未启动。");
@@ -122,6 +134,9 @@ internal sealed class MapBrowseFlow : IDisposable
 /// <summary>浏览加载的纯数据 Job：读包/校验/解码 + 世界事实装配，只发领域信号。</summary>
 internal sealed class MapBrowseJob : IWorkSignalSource
 {
+	internal const string DecodeStage = "decode";
+	internal const string FactsStage = "facts";
+
 	readonly IGeographyMapRepository _mapRepository;
 
 	internal MapBrowseJob(IGeographyMapRepository mapRepository)
@@ -131,13 +146,13 @@ internal sealed class MapBrowseJob : IWorkSignalSource
 
 	internal ImportedWorldFactsSource Run(string path, CancellationToken token)
 	{
-		Signal?.Invoke(WorkSignal.Started("decode", "并行解码"));
+		Signal?.Invoke(WorkSignal.Started(DecodeStage, "读取地图存档"));
 		GeographySnapshot snapshot = _mapRepository.Load(path, new DecodeProgress(this), token);
 
 		token.ThrowIfCancellationRequested();
-		Signal?.Invoke(WorkSignal.Started("facts", "装配世界事实"));
+		Signal?.Invoke(WorkSignal.Started(FactsStage, "装配世界事实"));
 		ImportedWorldFactsSource source = ImportedWorldFactsFactory.Build(snapshot);
-		Signal?.Invoke(WorkSignal.Unit("facts", "世界事实就绪", 1, 1));
+		Signal?.Invoke(WorkSignal.Unit(FactsStage, "世界事实就绪", 1, 1));
 		Signal?.Invoke(WorkSignal.Finished());
 		return source;
 	}
@@ -148,6 +163,6 @@ internal sealed class MapBrowseJob : IWorkSignalSource
 		internal DecodeProgress(MapBrowseJob job) => _job = job;
 
 		public void Report(int completed, int total)
-			=> _job.Signal?.Invoke(WorkSignal.Unit("decode", $"并行解码 {completed}/{total}", completed, total));
+			=> _job.Signal?.Invoke(WorkSignal.Unit(DecodeStage, "解码地图存档", completed, total));
 	}
 }

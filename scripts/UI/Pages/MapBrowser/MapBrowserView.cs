@@ -1,96 +1,89 @@
+using System;
 using Godot;
 using World.Application.Pages;
-using World.Client;
-using World.Data.Maps;
-using World.Logic;
 using World.Render;
 using World.UI.Components;
 using World.Utils;
 
 namespace World.UI.Pages;
 
-/// <summary>
-/// 地图浏览页：用导入结果装配只读画面、分帧构建并驱动相机；不创建生成器或演化会话。
-/// 页面信息与返回意图交给控制器，渲染装配与构建生命周期留在这里。
-/// </summary>
-public partial class MapBrowserView : Node3D, IAppPage
+/// <summary>显示已经装配的地图并转发返回意图。</summary>
+public partial class MapBrowserView : Node3D, IMapBrowserPageActions
 {
 	[Export] public NodePath CameraPath { get; set; }
 	[Export] public NodePath RenderManagerPath { get; set; }
-	[Export] public NodePath UIManagerPath { get; set; }
+	[Export] public NodePath CellInfoCardPath { get; set; }
 	[Export] public NodePath DockPath { get; set; }
+	[Export] public NodePath PanelLayerPath { get; set; }
 	[Export] public NodePath TitleLabelPath { get; set; }
+	[Export] public NodePath StatusLabelPath { get; set; }
 	[Export] public NodePath AppMenuPath { get; set; }
 
-	ImportedWorldFactsSource _source;
 	IMapBrowserPageActions _actions;
-	MapBrowserController _controller;
-	RenderManager _render;
-	bool _initialized;
-	bool _building;
+	MapBrowserPresentation _presentation;
+	AppMenu _menu;
+	Label _title;
+	Label _status;
 
-	/// <summary>注入已校验的导入事实；必须在加入场景树之前调用。</summary>
-	internal void SetSource(ImportedWorldFactsSource source) => _source = source;
-
-	/// <summary>注入宿主动作；独立运行时为空，浏览页只读不返回。</summary>
-	internal void SetActions(IMapBrowserPageActions actions) => _actions = actions;
-
-	void IAppPage.Configure(PageContext context) { }
-
-	void IAppPage.OnHidden()
+	internal static MapBrowserView Create(IMapBrowserPageActions actions)
 	{
-		_initialized = false;
-		_building = false;
-		_controller = null;
+		var page = ResourceLoader.Load<PackedScene>("res://scenes/pages/MapBrowser/MapBrowserPage.tscn")
+			.Instantiate<MapBrowserView>();
+		page._actions = actions;
+		return page;
+	}
+
+	internal IMapBrowserPresentation PreparePresentation() => _presentation = new MapBrowserPresentation(
+		this.Require<RenderManager>(RenderManagerPath, nameof(RenderManagerPath)),
+		this.Require<OrbitalCamera>(CameraPath, nameof(CameraPath)),
+		this.Require<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath)),
+		this.Require<MapDock>(DockPath, nameof(DockPath)),
+		this.Require<CanvasLayer>(PanelLayerPath, nameof(PanelLayerPath)));
+
+	internal void Activate(string title)
+	{
+		if (_presentation == null)
+			throw new InvalidOperationException("地图画面尚未就绪。");
+		_title.Text = title;
+		_presentation.Show();
+		_title.Show();
+		_menu.Visible = true;
 	}
 
 	public override void _Ready()
 	{
-		var camera = this.Require<OrbitalCamera>(CameraPath, nameof(CameraPath));
-		_render = this.Require<RenderManager>(RenderManagerPath, nameof(RenderManagerPath));
-		var ui = this.Require<UIManager>(UIManagerPath, nameof(UIManagerPath));
-		var dock = this.Require<PanelContainer>(DockPath, nameof(DockPath));
-		var title = this.Require<Label>(TitleLabelPath, nameof(TitleLabelPath));
-		var menu = this.Require<AppMenu>(AppMenuPath, nameof(AppMenuPath));
-
-		IMapBrowserPageActions actions = _actions;
-		MapBrowserPageInfo info = _source == null
-			? new MapBrowserPageInfo("没有地图数据", 0, false)
-			: new MapBrowserPageInfo(_source.Snapshot.Manifest.Title,
-				_source.Facts.Ball.CellIds.Length, true);
-		_controller = new MapBrowserController(info, actions);
-
-		menu.Configure("浏览地图", new AppMenuItem("back", "返回地图库"));
-		menu.ItemPressed += id =>
-		{
-			if (id == "back") _controller?.BackToMapLibrary();
-		};
-		title.Text = _controller.Title;
-		if (!_controller.HasMap) return;
-
-		_render.SetDock(dock);
-		var modes = WorldGenMapModes.CreateAll(_source);
-		_render.InitializeIncremental(_source, modes);
-		_render.FrameLand(camera);
-		ui.Initialize(_render, _source);
-		_building = true;
-		_initialized = true;
-		GD.Print($"[MAP] 已浏览导入地图：{_controller.Title} cells={_controller.CellCount}");
+		_title = this.Require<Label>(TitleLabelPath, nameof(TitleLabelPath));
+		_status = this.Require<Label>(StatusLabelPath, nameof(StatusLabelPath));
+		_menu = this.Require<AppMenu>(AppMenuPath, nameof(AppMenuPath));
+		_menu.Configure("浏览地图", new AppMenuItem("back", "返回地图库"));
+		_menu.ItemPressed += OnMenuItemPressed;
+		bool standalone = _actions == null;
+		_title.Visible = standalone;
+		_status.Visible = standalone;
+		_menu.Visible = standalone;
 	}
 
-	public override void _Process(double delta)
+	internal void ShowStatus(string message)
 	{
-		if (!_initialized || _render == null) return;
-		if (_building)
-		{
-			bool done = _render.StepBuild(8.0);
-			if (done) _building = false;
-		}
-		_render.Tick(delta);
+		_status.Text = message;
+		_status.Show();
+	}
+
+	void IMapBrowserPageActions.BackToMapLibrary() => ReturnToLibrary();
+
+	void ReturnToLibrary()
+	{
+		if (_actions == null) SceneReplacement.Replace(this, MapBrowsingHost.Create());
+		else _actions.BackToMapLibrary();
+	}
+
+	void OnMenuItemPressed(string id)
+	{
+		if (id == "back") ReturnToLibrary();
 	}
 
 	public override void _ExitTree()
 	{
-		if (_initialized) GD.Print("[MAP] 关闭导入地图浏览");
+		if (_menu != null) _menu.ItemPressed -= OnMenuItemPressed;
 	}
 }

@@ -1,5 +1,4 @@
 using Godot;
-using World.Scene;
 using World.UI.Pages;
 
 namespace World.Tests;

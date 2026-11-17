@@ -1,14 +1,17 @@
+using System;
 using Godot;
 using World.Application.Components;
-using World.Data; // PickedCell（拾取结果：纯数据载体）
+using World.Data;
+using World.Logic;
+using World.Render;
 
 namespace World.UI.Components;
 
-// 格子信息卡（决策 08 §4.4 表现层保留资产）：点选一格的只读信息卡，未选中时隐藏。
-// **纯哑组件**：数据由宿主喂（ShowCell 吃一份 PickedCell），不感知星球与相机，不认识任何生成类型；
-// 文本格式化交给 CellInfoCardFormatter。样式为羊皮纸底 + 深金标题（全局主题 ui_medieval 的深棕字给浅底设计）。
+/// <summary>随地图选中格显示或刷新摘要与地壳详情，取消选中时隐藏。</summary>
 public partial class CellInfoCard : PanelContainer
 {
+	ICellSelectionSource _selectionSource;
+	IWorldFactsSource _factsSource;
 	Label _body;
 	Label _crust;
 	Button _boundaryToggle;
@@ -45,16 +48,46 @@ public partial class CellInfoCard : PanelContainer
 		Visible = false;
 	}
 
+	/// <summary>卡片就绪后、启用地图交互前绑定。事实源与选中格应来自同一张地图。</summary>
+	public void Bind(ICellSelectionSource selectionSource, IWorldFactsSource factsSource = null)
+	{
+		ArgumentNullException.ThrowIfNull(selectionSource);
+		if (!IsInsideTree() || _body == null)
+			throw new InvalidOperationException("格子信息卡必须在场景树中就绪后绑定。");
+		if (ReferenceEquals(_selectionSource, selectionSource) && ReferenceEquals(_factsSource, factsSource)) return;
+
+		Unbind();
+		_selectionSource = selectionSource;
+		_factsSource = factsSource;
+		_selectionSource.CellPicked += OnCellPicked;
+	}
+
+	public override void _ExitTree() => Unbind();
+
+	void Unbind()
+	{
+		if (_selectionSource != null) _selectionSource.CellPicked -= OnCellPicked;
+		_selectionSource = null;
+		_factsSource = null;
+		Clear();
+	}
+
+	void OnCellPicked(PickedCell? picked)
+	{
+		CellInfoCardContent content = CellInfoCardController.DescribeSelection(
+			picked, _selectionSource.ShowCrustDetails, _factsSource);
+		if (content == null) Clear();
+		else Present(content);
+	}
+
 	/// <summary>显示一格（不带地壳详情）。</summary>
 	public void ShowCell(in PickedCell cell, string bandName)
-		=> ShowCell(cell, bandName, null);
+		=> Present(CellInfoCardFormatter.Describe(cell, bandName, null));
 
-	/// <summary>显示一格；地壳段与边界列表由 <see cref="CellInfoCardFormatter"/> 生成。</summary>
-	internal void ShowCell(in PickedCell cell, string bandName, CrustCellDetails crust)
+	void Present(CellInfoCardContent content)
 	{
-		CellInfoCardContent content = CellInfoCardFormatter.Describe(cell, bandName, crust);
-		if (_cellId != cell.CellId || crust == null) _boundaryToggle.SetPressedNoSignal(false);
-		_cellId = cell.CellId;
+		if (_cellId != content.CellId || !content.ShowCrust) _boundaryToggle.SetPressedNoSignal(false);
+		_cellId = content.CellId;
 		_body.Text = content.Summary;
 		_crust.Text = content.Crust;
 		_crust.Visible = content.ShowCrust;

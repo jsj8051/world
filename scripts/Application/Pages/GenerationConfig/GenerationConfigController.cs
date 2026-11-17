@@ -56,6 +56,15 @@ internal sealed class GenerationConfigController
 		SetError(error ?? throw new ArgumentNullException(nameof(error)));
 	}
 
+	internal void GenerationFailed(Exception error)
+	{
+		ArgumentNullException.ThrowIfNull(error);
+		if (!_isVisible) return;
+		_starting = false;
+		_pendingGeneration = null;
+		SetError(error);
+	}
+
 	internal void Apply()
 	{
 		Run(_session.Apply, "已应用，仅本次运行有效。");

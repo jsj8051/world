@@ -1,12 +1,10 @@
 using Godot;
-using World.Application.Pages;
 using World.Utils;
 
 namespace World.UI.Components;
 
 /// <summary>
-/// 常驻应用状态条：独立 CanvasLayer 组件，显示跨页面提示并按等级着色。
-/// 无消息时只隐藏自身，不影响其它覆盖层。
+/// 页面状态条：显示提示文本，文本为空时隐藏面板。
 /// </summary>
 public partial class AppStatusBar : CanvasLayer
 {
@@ -23,15 +21,9 @@ public partial class AppStatusBar : CanvasLayer
 		Clear();
 	}
 
-	public void ShowNotice(string message, NoticeKind kind)
+	public void Notify(string message)
 	{
 		_label.Text = message ?? string.Empty;
-		_label.AddThemeColorOverride("font_color", kind switch
-		{
-			NoticeKind.Success => new Color(0.76f, 0.93f, 0.70f),
-			NoticeKind.Error => new Color(1f, 0.66f, 0.58f),
-			_ => new Color(0.984f, 0.961f, 0.878f),
-		});
 		_panel.Visible = !string.IsNullOrEmpty(message);
 	}
 

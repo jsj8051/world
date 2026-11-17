@@ -193,15 +193,4 @@ public partial class WorldManager : Node3D, ITickable, IGeographyEvolutionContro
 
 	/// <summary>编辑器依赖校验：本管理器无子依赖（世界本体即自身）⇒ 恒无警告。</summary>
 	public override string[] _GetConfigurationWarnings() => System.Array.Empty<string>();
-
-	/// <summary>
-	/// 取景半径一致性校验（编辑器与根管理器调用）：取景与裁剪都 ∝ 球半径
-	/// （<c>OrbitalCamera</c> 的取景半径 vs <c>PlanetGeometry.ProductionRadius</c>），不一致时画面会错位。
-	/// 两侧缺省取同一个常量 ⇒ 运行期不会漂移；本方法只服务"有人在场景里手改 <c>_planetRadius</c>"这一种失真。
-	/// 暂留本类：调用方只有根管理器一处（它同时看得见相机与球半径）。
-	/// </summary>
-	public static string[] RadiusMismatchWarnings(float cameraRadius, float planetRadius)
-		=> Mathf.IsEqualApprox(cameraRadius, planetRadius)
-			? System.Array.Empty<string>()
-			: new[] { $"取景半径不一致：相机 {cameraRadius} ≠ 球半径 {planetRadius}（取景/裁剪 ∝ R）" };
 }
