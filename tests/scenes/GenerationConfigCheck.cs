@@ -39,7 +39,7 @@ public partial class GenerationConfigCheck : Node
 			if (Array.IndexOf(args, "--persistence-write") >= 0 || Array.IndexOf(args, "--persistence-read") >= 0)
 			{
 				string path = Path.Combine(GamePaths.ConfigDirectory, "verification", "profiles.json");
-				var sessionCheck = new GenerationConfigSession(new FileGenerationProfileStore(), path);
+				var sessionCheck = new GenerationConfigSession(new FileGenerationProfileStore(), path, GamePaths.GameDirectory);
 				Require(string.IsNullOrEmpty(sessionCheck.LoadProblem), sessionCheck.LoadProblem);
 				if (Array.IndexOf(args, "--persistence-write") >= 0)
 				{
@@ -126,11 +126,10 @@ public partial class GenerationConfigCheck : Node
 				configPage.GetNode<World.UI.Components.GenerationConfigEditor>("%Editor").GetNode<SpinBox>("%Seed").Value = 777;
 				configPage.GetNode<Button>("%Apply").EmitSignal(Button.SignalName.Pressed);
 				configPage.GetNode<Button>("%Generate").EmitSignal(Button.SignalName.Pressed);
-				await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-				// 生成期间配置页仍在槽位；世界页在生成完成后才挂载。
-				Require(GodotObject.IsInstanceValid(configPage) && configPage.IsInsideTree()
-					&& FindPage<Node>() is GenerationConfigView,
-					"Generation must keep the config page mounted until the world is ready.");
+				for (int frame = 0; frame < 3; frame++) await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+				var loadingPage = FindPage<MapLoadingView>();
+				Require(loadingPage != null && (!GodotObject.IsInstanceValid(configPage) || !configPage.IsInsideTree()),
+					"Generation must replace config with the loading page before doing work.");
 				// 生成跑在后台 Job 上；等世界页挂载。
 				ulong started = Time.GetTicksMsec();
 				while (Time.GetTicksMsec() - started < 120_000
@@ -188,7 +187,7 @@ public partial class GenerationConfigCheck : Node
 			RemoveChild(navigationConfig);
 			navigationConfig.QueueFree();
 			var store = new Store();
-			var session = new GenerationConfigSession(store, "profiles.json");
+			var session = new GenerationConfigSession(store, "profiles.json", AppContext.BaseDirectory);
 			var host = new Host();
 			var page = ResourceLoader.Load<PackedScene>("res://scenes/pages/GenerationConfig/GenerationConfigPage.tscn").Instantiate<GenerationConfigView>();
 			page.SetController(new GenerationConfigController(session, host));
@@ -242,7 +241,7 @@ public partial class GenerationConfigCheck : Node
 			// 默认配置已应用：全新会话进入页面即显示“已应用”，无需点应用就能开始生成。
 			page.QueueFree();
 			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-			var defaultSession = new GenerationConfigSession(new Store(), "profiles.json");
+			var defaultSession = new GenerationConfigSession(new Store(), "profiles.json", AppContext.BaseDirectory);
 			var defaultHost = new Host();
 			var defaultPage = ResourceLoader.Load<PackedScene>("res://scenes/pages/GenerationConfig/GenerationConfigPage.tscn")
 				.Instantiate<GenerationConfigView>();

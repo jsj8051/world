@@ -11,20 +11,20 @@ namespace World.UI.Pages;
 /// <summary>地图库、加载页和浏览页的父节点，持有页面切换上下文及本次浏览会话。</summary>
 internal partial class MapBrowsingHost : Node, IMapCatalogActions, IMapBrowserPageActions
 {
-	IGeographyMapRepository _repository;
+	IGeographyMapCatalog _repository;
 	Node _activePage;
 	string _selectedPath;
 	MapBrowserView _browser;
 	MapBrowserController _controller;
 	bool _returnToLibrary;
 
-	internal static MapBrowsingHost Create(IGeographyMapRepository repository = null, string selectedPath = null)
+	internal static MapBrowsingHost Create(IGeographyMapCatalog repository = null, string selectedPath = null)
 	{
-		if (selectedPath != null) ArgumentException.ThrowIfNullOrWhiteSpace(selectedPath);
+		if (selectedPath != null) selectedPath = RootRelativePath.Normalize(selectedPath);
 		return new MapBrowsingHost
 		{
 			Name = nameof(MapBrowsingHost),
-			_repository = repository ?? GameMapRepository.CreateDefault(),
+			_repository = repository ?? GameMapCatalog.CreateDefault(),
 			_selectedPath = selectedPath,
 		};
 	}
@@ -37,7 +37,7 @@ internal partial class MapBrowsingHost : Node, IMapCatalogActions, IMapBrowserPa
 
 	void IMapCatalogActions.LoadMap(string path)
 	{
-		ArgumentException.ThrowIfNullOrWhiteSpace(path);
+		path = RootRelativePath.Normalize(path);
 		if (_activePage is not MapLibraryView || _selectedPath != null) return;
 		var loading = MapLoadingView.Create();
 		_selectedPath = path;
@@ -102,7 +102,6 @@ internal partial class MapBrowsingHost : Node, IMapCatalogActions, IMapBrowserPa
 				case MapBrowserState.Failed: ShowLibrary($"无法加载地图：{_controller.Stage}"); break;
 				case MapBrowserState.Closed: ShowLibrary("地图加载已取消。"); break;
 				default:
-					loading.ShowProgress(_controller.ProgressPercent, _controller.Stage);
 					break;
 			}
 		}
@@ -124,7 +123,9 @@ internal partial class MapBrowsingHost : Node, IMapCatalogActions, IMapBrowserPa
 		// 提前入树以装配地图。完成时保留这棵子树，避免渲染资源和订阅随退出清理。
 		_browser = MapBrowserView.Create(this);
 		AddChild(_browser);
-		_controller = new MapBrowserController(_selectedPath, _repository);
+		var loader = new FileLoadComponent<World.Data.Maps.GeographySnapshot>(
+			new MapPackageFileStorage(), World.Infrastructure.GamePaths.GameDirectory);
+		_controller = new MapBrowserController(_selectedPath, loader);
 		_controller.Start(_browser.PreparePresentation());
 	}
 

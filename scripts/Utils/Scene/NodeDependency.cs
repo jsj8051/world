@@ -26,7 +26,7 @@ public static class NodeDependency
 	/// <summary>
 	/// **取一个必需依赖**：路径空 / 解析不到 / 类型不符 ⇒ 抛（启动即失败，别留到运行中途）。
 	/// <para>用法（调用点是扩展方法，无需改签名）：`Planet = Require&lt;WorldGenPlanet&gt;(PlanetPath, nameof(PlanetPath));`</para>
-	/// <para>★异常前缀自动取**宿主类型名**（`GeographyEvolutionView` / `WorldManager` / …）⇒ 不再靠每个管理器
+	/// <para>★异常前缀自动取**宿主类型名**（`GeographyEvolutionView` / `WorldPresentation` / …）⇒ 不再靠每个管理器
 	/// 手写 `[XXXMANAGER]` 标签（原先四处各写一遍，必然漂移）。</para>
 	/// </summary>
 	/// <param name="host">解析起点（调用它的那个管理器节点；扩展方法的 <c>this</c>）。</param>

@@ -5,7 +5,7 @@ namespace World.Tests;
 
 /// <summary>
 /// 验证用样本导出：无头生成一次世界并导出 <c>.wmap</c>，
-/// 打印绝对路径供 <c>MapBrowserLoadCheck</c> 使用。
+/// 打印相对游戏根目录路径供 <c>MapBrowserLoadCheck</c> 使用。
 /// 用法：godot --headless --path . res://tests/scenes/MapSampleExport.tscn
 /// </summary>
 public partial class MapSampleExport : Node
@@ -23,8 +23,8 @@ public partial class MapSampleExport : Node
 		var world = packed.Instantiate<GeographyEvolutionView>();
 		AddChild(world);
 
-		string path = world.World?.SaveMap();
-		if (string.IsNullOrEmpty(path) || !FileAccess.FileExists(path))
+		string path = world.SaveMap();
+		if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(World.Utils.RootRelativePath.Resolve(World.Infrastructure.GamePaths.GameDirectory, path)))
 		{
 			GD.PushError($"[SAMPLE] 导出失败：{path}");
 			GetTree().Quit(1);

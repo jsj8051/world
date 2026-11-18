@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading;
+using World.Application.Configuration;
 using World.Application.Generation;
 using World.Application.Storage;
 using World.Data;
@@ -12,10 +13,43 @@ namespace World.Tests;
 
 internal static class GenerationConfigLogicTests
 {
+	sealed class SampleConfig
+	{
+		internal int Count { get; set; }
+	}
+
+	sealed class SampleConfigStrategy : IConfigurationStrategy<SampleConfig>
+	{
+		public SampleConfig CreateDefault() => new() { Count = 3 };
+		public SampleConfig Copy(SampleConfig config) => new() { Count = config.Count };
+		public void Validate(SampleConfig config)
+		{
+			if (config.Count < 0) throw new ArgumentOutOfRangeException(nameof(config.Count));
+		}
+		public bool AreEqual(SampleConfig left, SampleConfig right) => left.Count == right.Count;
+	}
+
+	public static void ConfigurationDraftUsesDomainStrategy()
+	{
+		var state = new ConfigurationDraft<SampleConfig>(new SampleConfigStrategy());
+		Program.True(state.Applied.Count == 3 && !state.HasUnappliedChanges, "策略默认值应初始化为已应用状态。");
+		var edited = state.Draft;
+		edited.Count = 8;
+		state.Edit(edited);
+		Program.True(state.HasUnappliedChanges, "独立领域配置编辑应标记为未应用。");
+		Program.Throws(() => state.GetApplied(), "未应用的独立领域配置不应被提交。");
+		state.Apply();
+		Program.True(state.GetApplied().Count == 8, "策略配置应用后应读取新值。");
+		state.ResetDraft();
+		Program.True(state.Draft.Count == 3 && state.Applied.Count == 8 && state.HasUnappliedChanges,
+			"重置草稿不应覆盖已应用配置。");
+		Program.Throws(() => state.Edit(new SampleConfig { Count = -1 }), "策略应拒绝领域非法配置。");
+	}
+
 	public static void DefaultsStartAppliedAndEditsRequireExplicitApply()
 	{
 		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store, "profiles.json");
+		var session = new GenerationConfigSession(store, "profiles.json", AppContext.BaseDirectory);
 		Program.True(session.Applied.Seed == 42 && !session.HasUnappliedChanges,
 			"A fresh session must start with the defaults applied.");
 		Program.True(session.GetAppliedForGeneration().Seed == 42 && store.Writes == 0,
@@ -31,7 +65,7 @@ internal static class GenerationConfigLogicTests
 
 	public static void ProfileNamingSelectionAndDeletionRemainSeparateFromApply()
 	{
-		var session = new GenerationConfigSession(new MemoryStore(), "profiles.json");
+		var session = new GenerationConfigSession(new MemoryStore(), "profiles.json", AppContext.BaseDirectory);
 		session.Save(" First ");
 		Guid first = session.SelectedProfileId.Value;
 		Program.True(session.Profiles[0].Name == "First", "Name was not normalized.");
@@ -52,7 +86,7 @@ internal static class GenerationConfigLogicTests
 	public static void StoreFailuresDoNotPartiallyCommitSession()
 	{
 		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store, "profiles.json");
+		var session = new GenerationConfigSession(store, "profiles.json", AppContext.BaseDirectory);
 		session.Save("Original");
 		Guid original = session.SelectedProfileId.Value;
 		store.FailWrite = true;
@@ -69,7 +103,7 @@ internal static class GenerationConfigLogicTests
 	public static void InvalidCatalogIsProtectedButTemporaryGenerationWorks()
 	{
 		var store = new MemoryStore { FailLoad = true };
-		var session = new GenerationConfigSession(store, "profiles.json");
+		var session = new GenerationConfigSession(store, "profiles.json", AppContext.BaseDirectory);
 		Program.True(!string.IsNullOrEmpty(session.LoadProblem), "Load failure was hidden.");
 		Program.Throws(() => session.Save("Overwrite"), "Broken catalog overwritten.");
 		session.Apply();
@@ -79,7 +113,7 @@ internal static class GenerationConfigLogicTests
 	public static void SessionClonesAllInboundAndOutboundData()
 	{
 		var store = new MemoryStore();
-		var session = new GenerationConfigSession(store, "profiles.json");
+		var session = new GenerationConfigSession(store, "profiles.json", AppContext.BaseDirectory);
 		var edit = new GenerationConfig { Seed = 7 }; session.Edit(edit); edit.Seed = 9;
 		session.Apply(); session.Save("Clone");
 		var draft = session.Draft; draft.Seed = 10;
@@ -121,10 +155,10 @@ internal static class GenerationConfigLogicTests
 		try
 		{
 			string path = Path.Combine(directory, "profiles.json");
-			var session = new GenerationConfigSession(new FileGenerationProfileStore(), path);
+			var session = new GenerationConfigSession(new FileGenerationProfileStore(), "profiles.json", directory);
 			session.Save("Disk");
 			string original = File.ReadAllText(path);
-			var loaded = new GenerationConfigSession(new FileGenerationProfileStore(), path);
+			var loaded = new GenerationConfigSession(new FileGenerationProfileStore(), "profiles.json", directory);
 			Program.True(loaded.Profiles.Count == 1 && loaded.Profiles[0].Name == "Disk", "Disk store roundtrip failed.");
 			using (var held = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
 			{
@@ -133,11 +167,57 @@ internal static class GenerationConfigLogicTests
 			}
 			if (OperatingSystem.IsWindows()) Program.True(File.ReadAllText(path) == original, "Failed replacement changed original.");
 			AtomicTextFile.Write(path, "broken");
-			var broken = new GenerationConfigSession(new FileGenerationProfileStore(), path);
+			var broken = new GenerationConfigSession(new FileGenerationProfileStore(), "profiles.json", directory);
 			Program.Throws(() => broken.Save("Bad"), "Corrupt file overwritten.");
 			Program.True(File.ReadAllText(path) == "broken", "Corrupt original was lost.");
 		}
 		finally { Directory.Delete(directory, recursive: true); }
+	}
+
+	public static void SessionsResolveRelativeProfilePaths()
+	{
+		string root = Path.Combine(AppContext.BaseDirectory, "injected-game-root");
+		string relativePath = Path.Combine("userdata", "configs", "profiles.json");
+		string resolvedPath = Path.Combine(root, relativePath);
+		var generationStore = new MemoryStore();
+		var generation = new GenerationConfigSession(generationStore, relativePath, root);
+		generation.Save("Relative");
+		Program.True(generationStore.ReadPath == resolvedPath && generationStore.WritePath == resolvedPath,
+			"Generation session must resolve relative requests using the injected root.");
+		var civilizationStore = new CivilizationStore();
+		var civilization = new World.Application.Civilization.CivilizationConfigSession(civilizationStore, relativePath, root);
+		civilization.Save("Relative");
+		Program.True(civilizationStore.ReadPath == resolvedPath && civilizationStore.WritePath == resolvedPath,
+			"Civilization session must resolve relative requests using the injected root.");
+
+		foreach (string invalid in new[] { resolvedPath, "../outside.json" })
+		{
+			var rejectedStore = new MemoryStore();
+			var rejected = new GenerationConfigSession(rejectedStore, invalid, root);
+			Program.True(rejected.LoadProblem != null && rejectedStore.ReadPath == null,
+				"Invalid application paths must not reach low-level storage.");
+			Program.Throws(() => rejected.Save("Invalid"), "Rejected config paths must remain unwritable.");
+			var rejectedCivilizationStore = new CivilizationStore();
+			var rejectedCivilization = new World.Application.Civilization.CivilizationConfigSession(rejectedCivilizationStore, invalid, root);
+			Program.True(rejectedCivilization.LoadProblem != null && rejectedCivilizationStore.ReadPath == null,
+				"Invalid civilization paths must not reach low-level storage.");
+			Program.Throws(() => rejectedCivilization.Save("Invalid"), "Rejected civilization paths must remain unwritable.");
+		}
+	}
+
+	sealed class CivilizationStore : IFileStorage<World.Data.Civilization.CivilizationProfileCatalog>
+	{
+		internal string ReadPath;
+		internal string WritePath;
+
+		public World.Data.Civilization.CivilizationProfileCatalog Import(string path, IFileImportObserver observer = null,
+			CancellationToken cancellation = default)
+		{
+			ReadPath = path;
+			return new();
+		}
+
+		public void Export(string path, World.Data.Civilization.CivilizationProfileCatalog document) => WritePath = path;
 	}
 
 	sealed class MemoryStore : IFileStorage<GenerationProfileCatalog>
@@ -146,13 +226,17 @@ internal static class GenerationConfigLogicTests
 		public int Writes;
 		public bool FailWrite;
 		public bool FailLoad;
+		public string ReadPath;
+		public string WritePath;
 		public GenerationProfileCatalog Import(string path, IFileImportObserver observer = null, CancellationToken cancellation = default)
 		{
+			ReadPath = path;
 			if (FailLoad) throw new InvalidDataException("Broken catalog");
 			return Catalog;
 		}
 		public void Export(string path, GenerationProfileCatalog catalog)
 		{
+			WritePath = path;
 			if (FailWrite) throw new IOException("Write refused");
 			Writes++; Catalog = catalog;
 		}

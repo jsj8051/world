@@ -4,7 +4,7 @@ namespace World.Application.Pages;
 
 /// <summary>
 /// 地理演化页面需要的演化能力：状态只读、命令只表达意图。
-/// 由世界侧适配；页面控制器不持有 WorldManager、节点或线程。
+/// 由世界会话适配；页面控制器不持有 Godot 节点或线程。
 /// </summary>
 internal interface IGeographyEvolutionControl
 {

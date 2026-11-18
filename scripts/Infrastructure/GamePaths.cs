@@ -9,11 +9,10 @@ internal static class GamePaths
 {
 	internal static string GameDirectory => ResolveGameDirectory();
 
-	internal static string MapDirectory => Path.Combine(GameDirectory, "userdata", "saves");
-
-	internal static string ConfigDirectory => Path.Combine(GameDirectory, "userdata", "configs");
-
-	internal static string GenerationProfilesPath => Path.Combine(ConfigDirectory, "generation_profiles.json");
+	internal const string MapDirectory = "userdata/saves";
+	internal const string ConfigDirectory = "userdata/configs";
+	internal const string GenerationProfilesPath = ConfigDirectory + "/generation_profiles.json";
+	internal const string CivilizationProfilesPath = ConfigDirectory + "/civilization_profiles.json";
 
 	static string ResolveGameDirectory()
 	{

@@ -1,0 +1,20 @@
+[gd_scene format=3 uid="uid://dbtgwv2uc6v4s"]
+
+[ext_resource type="Theme" uid="uid://bql2gr5c53xj" path="res://themes/ui_app.tres" id="ui_theme"]
+[ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="world_presentation"]
+
+[node name="CivilizationEvolution" type="Node3D" unique_id=18308134]
+
+[node name="Presentation" parent="." unique_id=1197469083 instance=ExtResource("world_presentation")]
+
+[node name="Hud" type="CanvasLayer" parent="." unique_id=1426142918]
+layer = 5
+
+[node name="Layout" type="Control" parent="Hud" unique_id=1552506312]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("ui_theme")

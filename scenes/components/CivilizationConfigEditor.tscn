@@ -1,0 +1,40 @@
+[gd_scene format=3]
+
+[node name="CivilizationConfigEditor" type="TabContainer"]
+custom_minimum_size = Vector2(720, 240)
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="Basic" type="GridContainer" parent="."]
+layout_mode = 2
+columns = 3
+theme_override_constants/h_separation = 24
+theme_override_constants/v_separation = 18
+metadata/_tab_name = "基础"
+
+[node name="SeedCell" type="VBoxContainer" parent="Basic"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Basic/SeedCell"]
+layout_mode = 2
+text = "随机种子"
+
+[node name="Row" type="HBoxContainer" parent="Basic/SeedCell"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Seed" type="SpinBox" parent="Basic/SeedCell/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+min_value = -2147483648.0
+max_value = 2147483647.0
+value = 42.0
+update_on_text_changed = true
+
+[node name="RandomSeed" type="Button" parent="Basic/SeedCell/Row"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "随机"

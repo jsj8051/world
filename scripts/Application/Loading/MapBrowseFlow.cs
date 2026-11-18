@@ -63,7 +63,7 @@ internal interface IMapBrowseFlow : IDisposable
 internal sealed class MapBrowseFlow : IMapBrowseFlow
 {
 	readonly ConcurrentQueue<WorkSignal> _progress = new();
-	readonly IGeographyMapRepository _mapRepository;
+	readonly FileLoadComponent<GeographySnapshot> _mapLoader;
 	readonly CancellationTokenSource _cancellation = new();
 
 	Task<ImportedWorldFactsSource> _task;
@@ -71,8 +71,8 @@ internal sealed class MapBrowseFlow : IMapBrowseFlow
 	bool _started;
 	bool _disposed;
 
-	internal MapBrowseFlow(IGeographyMapRepository mapRepository)
-		=> _mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
+	internal MapBrowseFlow(FileLoadComponent<GeographySnapshot> mapLoader)
+		=> _mapLoader = mapLoader ?? throw new ArgumentNullException(nameof(mapLoader));
 
 	public bool TryReadProgress(out WorkSignal signal) => _progress.TryDequeue(out signal);
 
@@ -83,7 +83,7 @@ internal sealed class MapBrowseFlow : IMapBrowseFlow
 		if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("地图路径不能为空。", nameof(path));
 		_started = true;
 
-		var job = new MapBrowseJob(_mapRepository);
+		var job = new MapBrowseJob(_mapLoader);
 		job.Signal += _progress.Enqueue;
 		CancellationToken token = _cancellation.Token;
 		_task = Task.Run(() =>
@@ -137,17 +137,17 @@ internal sealed class MapBrowseJob : IWorkSignalSource
 	internal const string DecodeStage = "decode";
 	internal const string FactsStage = "facts";
 
-	readonly IGeographyMapRepository _mapRepository;
+	readonly FileLoadComponent<GeographySnapshot> _mapLoader;
 
-	internal MapBrowseJob(IGeographyMapRepository mapRepository)
-		=> _mapRepository = mapRepository ?? throw new ArgumentNullException(nameof(mapRepository));
+	internal MapBrowseJob(FileLoadComponent<GeographySnapshot> mapLoader)
+		=> _mapLoader = mapLoader ?? throw new ArgumentNullException(nameof(mapLoader));
 
 	public event Action<WorkSignal> Signal;
 
 	internal ImportedWorldFactsSource Run(string path, CancellationToken token)
 	{
 		Signal?.Invoke(WorkSignal.Started(DecodeStage, "读取地图存档"));
-		GeographySnapshot snapshot = _mapRepository.Load(path, new DecodeProgress(this), token);
+		GeographySnapshot snapshot = _mapLoader.Load(path, new DecodeProgress(this), token);
 
 		token.ThrowIfCancellationRequested();
 		Signal?.Invoke(WorkSignal.Started(FactsStage, "装配世界事实"));

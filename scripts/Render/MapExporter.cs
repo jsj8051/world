@@ -6,11 +6,10 @@ using World.Utils.H3;
 namespace World.Render;
 
 /// <summary>
-/// 2D 地形图导出：等距圆柱投影（经度 −180…180、纬度 90…−90），逐格多边形填充，输出 PNG。
+/// 2D 地图光栅化：等距圆柱投影（经度 −180…180、纬度 90…−90），逐格多边形填充，输出 RGBA8。
 /// 一格一色、无抗锯齿：海岸与色带边界就落在 H3 格边上。
 /// 只读世界事实与地图模式取色；不画河流、标注、经纬网或图面装饰。
-/// 默认 8192×4096（2:1），适合 A2 300 DPI 的世界图；一次导出在主线程完成。
-/// 输出到游戏目录下的 <c>map_exports/</c>（编辑器 = 项目根，导出后 = exe 同级）。
+/// 默认 8192×4096（2:1），适合 A2 300 DPI 的世界图。
 /// </summary>
 public static class MapExporter
 {
@@ -22,32 +21,6 @@ public static class MapExporter
 
 	/// <summary>每边外扩的像素数：盖住相邻格之间的扫描线缝。</summary>
 	const double PaddingPixels = 0.75;
-
-	const string EditorOutputDir = "res://map_exports";
-	const string OutputFolder = "map_exports";
-
-	/// <summary>导出当前世界的地形图，返回 PNG 的绝对路径。</summary>
-	/// <param name="source">世界事实来源（生成或已导入；读 <c>Facts.Ball</c> 与格数据）。</param>
-	/// <param name="mode">取色策略（地形模式传 <c>TerrainMode</c>）。</param>
-	/// <param name="width">输出宽（像素；建议 2:1）。</param>
-	/// <param name="height">输出高（像素）。</param>
-	public static string ExportTerrain(IWorldFactsSource source, MapMode mode,
-		int width = DefaultWidth, int height = DefaultHeight)
-	{
-		if (source == null) throw new ArgumentNullException(nameof(source));
-		if (mode == null) throw new ArgumentNullException(nameof(mode));
-		if (width <= 0 || height <= 0)
-			throw new ArgumentOutOfRangeException(nameof(width), "出图尺寸须为正");
-
-		byte[] pixels = RenderPixels(source, mode, width, height);
-		var image = Image.CreateFromData(width, height, false, Image.Format.Rgba8, pixels);
-		string dir = EnsureDirectory();
-		string file = System.IO.Path.Combine(dir, $"terrain_{DateTime.Now:yyyyMMdd_HHmmss_fff}.png");
-		Error err = image.SavePng(file);
-		if (err != Error.Ok)
-			throw new InvalidOperationException($"PNG 写入失败：{err}（{file}）");
-		return file;
-	}
 
 	/// <summary>
 	/// 只做光栅化：等距圆柱投影下逐格多边形填充，返回 RGBA8 像素。
@@ -213,19 +186,4 @@ public static class MapExporter
 	}
 
 	static byte ToByte(float v) => (byte)Math.Clamp((int)MathF.Round(v * 255f), 0, 255);
-
-	static string EnsureDirectory()
-	{
-		// 先试项目根（编辑器/源码运行可写）；导出后的 res:// 只读，落到 exe 同级。
-		string projectDir = ProjectSettings.GlobalizePath(EditorOutputDir);
-		Error err = DirAccess.MakeDirRecursiveAbsolute(projectDir);
-		if (err == Error.Ok || err == Error.AlreadyExists) return projectDir;
-
-		string exeDir = System.IO.Path.Combine(
-			System.IO.Path.GetDirectoryName(OS.GetExecutablePath()) ?? ".", OutputFolder);
-		err = DirAccess.MakeDirRecursiveAbsolute(exeDir);
-		if (err != Error.Ok && err != Error.AlreadyExists)
-			throw new InvalidOperationException($"创建导出目录失败：{err}（{exeDir}）");
-		return exeDir;
-	}
 }

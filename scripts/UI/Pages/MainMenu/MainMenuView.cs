@@ -8,6 +8,7 @@ namespace World.UI.Pages;
 public partial class MainMenuView : Control, IMainMenuActions
 {
 	[Export] public NodePath GeographyButtonPath { get; set; }
+	[Export] public NodePath CivilizationButtonPath { get; set; }
 	[Export] public NodePath LibraryButtonPath { get; set; }
 	[Export] public NodePath QuitButtonPath { get; set; }
 	[Export] public NodePath DisabledReasonPath { get; set; }
@@ -29,13 +30,18 @@ public partial class MainMenuView : Control, IMainMenuActions
 		var reason = this.Require<Label>(DisabledReasonPath, nameof(DisabledReasonPath));
 
 		geography.Pressed += () => _controller?.OpenGenerationConfig();
+		this.Require<Button>(CivilizationButtonPath, nameof(CivilizationButtonPath)).Pressed +=
+			() => _controller.OpenCivilizationConfig();
 		library.Pressed += () => _controller?.OpenMapLibrary();
 		quit.Pressed += () => _controller.QuitApplication();
-		reason.Text = "文明演化与游玩尚未实现：本版本只提供地理演化与地图库。";
+		reason.Text = "文明模拟与游玩尚未实现。";
 	}
 
 	void IMainMenuActions.OpenGenerationConfig()
 		=> SceneReplacement.Replace(this, GenerationConfigView.Create());
+
+	void IMainMenuActions.OpenCivilizationConfig()
+		=> SceneReplacement.Replace(this, CivilizationConfigView.Create());
 
 	void IMainMenuActions.OpenMapLibrary()
 		=> SceneReplacement.Replace(this, MapBrowsingHost.Create());

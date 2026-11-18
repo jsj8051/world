@@ -1,7 +1,6 @@
 using System;
 using Godot;
 using World.Application.Components;
-using World.Data.Generation;
 
 namespace World.UI.Components;
 
@@ -68,7 +67,7 @@ public partial class ProfileLibraryPanel : VBoxContainer
 	void ApplyState()
 	{
 		if (_controller == null) return;
-		GenerationProfile[] profiles = _controller.Profiles;
+		ProfileLibraryItem[] profiles = _controller.Profiles;
 		int selected = _controller.SelectedIndex;
 		_profiles.Clear();
 		for (int i = 0; i < profiles.Length; i++)

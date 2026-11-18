@@ -61,7 +61,8 @@ public sealed class FileGenerationProfileStore : IFileStorage<GenerationProfileC
 
 	static string Resolve(string path)
 	{
-		if (string.IsNullOrWhiteSpace(path)) throw new ArgumentException("配置路径不能为空。", nameof(path));
+		if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+			throw new ArgumentException("文件存储需要已解析的绝对路径。", nameof(path));
 		return Path.GetFullPath(path);
 	}
 }
@@ -72,6 +73,8 @@ public static class AtomicTextFile
 	public static void Write(string path, string text)
 	{
 		ArgumentNullException.ThrowIfNull(text);
+		if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+			throw new ArgumentException("文件存储需要已解析的绝对路径。", nameof(path));
 		string target = Path.GetFullPath(path);
 		string directory = Path.GetDirectoryName(target);
 		Directory.CreateDirectory(directory);

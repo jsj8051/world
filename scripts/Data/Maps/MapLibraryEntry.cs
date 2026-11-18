@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 
 namespace World.Data.Maps;
 
@@ -43,11 +42,7 @@ internal sealed class MapLibraryEntry
 	public MapLibraryEntry(string filePath, string displayName, long fileSizeBytes,
 		DateTimeOffset lastWriteUtc, MapProbeResult probe)
 	{
-		MapStructure.Require(!string.IsNullOrWhiteSpace(filePath) && Path.IsPathFullyQualified(filePath),
-			"library.filePath", "An absolute file path is required.");
-		string normalized = Path.GetFullPath(filePath);
-		MapStructure.Require(string.Equals(filePath, normalized, StringComparison.Ordinal),
-			"library.filePath", "The file path must already be normalized.");
+		string normalized = World.Utils.RootRelativePath.Normalize(filePath);
 		MapStructure.Require(!string.IsNullOrWhiteSpace(displayName), "library.displayName", "A display name is required.");
 		MapStructure.Require(fileSizeBytes >= 0 && fileSizeBytes <= GeographyManifest.MaxFileBytes,
 			"library.fileSizeBytes", "The file size is outside the supported bound.", MapIssueCode.SizeLimit);

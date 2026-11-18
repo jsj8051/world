@@ -1,0 +1,20 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/components/ConfigurationPageLayout.tscn" id="layout"]
+[ext_resource type="Script" path="res://scripts/UI/Pages/CivilizationConfig/CivilizationConfigView.cs" id="view"]
+[ext_resource type="PackedScene" path="res://scenes/components/CivilizationConfigEditor.tscn" id="editor"]
+
+[node name="CivilizationConfigPage" instance=ExtResource("layout")]
+script = ExtResource("view")
+
+[node name="Title" parent="Card/Scroll/Workspace/Header" index="0"]
+text = "文明演化配置"
+
+[node name="Generate" parent="Card/Scroll/Workspace/Footer" index="2"]
+disabled = true
+tooltip_text = "文明演化尚未实现"
+text = "开始演化"
+
+[node name="Editor" parent="Card/Scroll/Workspace/Body/Settings/EditorSlot" instance=ExtResource("editor")]
+unique_name_in_owner = true
+layout_mode = 2

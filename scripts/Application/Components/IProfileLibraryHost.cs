@@ -1,5 +1,4 @@
 using System;
-using World.Data.Generation;
 
 namespace World.Application.Components;
 
@@ -17,7 +16,7 @@ internal enum ProfileSelectOutcome
 /// </summary>
 internal interface IProfileLibraryHost
 {
-	GenerationProfile[] Profiles { get; }
+	ProfileLibraryItem[] Profiles { get; }
 	Guid? SelectedProfileId { get; }
 	bool HasUnappliedChanges { get; }
 

@@ -14,6 +14,7 @@ internal sealed class MainMenuController
 	}
 
 	internal void OpenGenerationConfig() => _actions.OpenGenerationConfig();
+	internal void OpenCivilizationConfig() => _actions.OpenCivilizationConfig();
 	internal void OpenMapLibrary() => _actions.OpenMapLibrary();
 	internal void QuitApplication() => _quitApplication();
 }

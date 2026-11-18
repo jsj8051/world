@@ -26,7 +26,7 @@ internal static class LoadStructureModelTests
 	public static void GenerationFailureReleasesGate()
 	{
 		var actions = new Actions();
-		var controller = new GenerationConfigController(new GenerationConfigSession(new Store(), "profiles.json"), actions);
+		var controller = new GenerationConfigController(new GenerationConfigSession(new Store(), "profiles.json", AppContext.BaseDirectory), actions);
 		Program.True(controller.PrepareGeneration(), "Initial generation must be allowed.");
 		controller.CommitGeneration();
 		Program.True(controller.IsStarting && actions.Starts == 1, "Pending generation must remain gated.");

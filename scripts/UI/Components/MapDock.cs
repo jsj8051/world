@@ -201,7 +201,7 @@ namespace World.UI.Components
 			else MoveDockTo(target, instant: false);
 		}
 
-		// 下行：外部切模式时同步按钮高亮（WorldManager 调）。
+		// 下行：外部切模式时同步按钮高亮（地图模式控制器调）。
 		public void SetMode(int modeId)
 		{
 			if (_modeButtons == null || modeId < 0 || modeId >= _modeButtons.Length) return;

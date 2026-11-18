@@ -4,7 +4,7 @@ using Godot;
 using World.Data;
 using World.Logic;
 using World.Render;
-using World.Runtime;
+using World.Application.World;
 using World.Application.Generation;
 using World.UI.Pages;
 
@@ -19,7 +19,8 @@ public partial class EvolutionStepCheck : Node
 			|| OS.GetCmdlineUserArgs().Contains("--evo-check");
 		if (!check) return;
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-		var world = GetTree().CurrentScene?.GetNodeOrNull<WorldManager>("WorldManager");
+		var root = (GeographyEvolutionView)GetTree().CurrentScene;
+		var world = root.World;
 		if (world?.EvolutionFrame == null
 			|| world.Sim.Ball.Res != WorldGenerationPresets.ProductionRes
 			|| world.EvolutionFrame.Definition.H3Resolution != world.Sim.Ball.Res
@@ -40,11 +41,10 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		var root = (GeographyEvolutionView)GetTree().CurrentScene;
 		var dock = root.GetNode(root.DockPath);
 		var modeRow = dock.GetNode("DockBox/ModeRow");
 		var crustButton = modeRow.GetChildren().OfType<Button>().FirstOrDefault(button => button.Text == "地壳");
-		var motion = root.GetNodeOrNull<PlateMotionOverlay>("Presentation/RenderManager/WorldView/PlateMotion");
+		var motion = root.GetNodeOrNull<PlateMotionOverlay>("Presentation/WorldView/PlateMotion");
 		var current = root.FindChild("CurrentFlow", recursive: true, owned: false) as CurrentFlowOverlay;
 		if (crustButton?.Text != "地壳" || motion == null || motion.Visible
 			|| current == null || current.Visible || current.Mesh != null
@@ -86,7 +86,7 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		root.Camera.LookAtPoint(initial.Ball.CellDirs[mixedCell]);
+		root.GetNode<OrbitalCamera>("Presentation/OrbitalCamera").LookAtPoint(initial.Ball.CellDirs[mixedCell]);
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		Vector2 mapPoint = GetViewport().GetCamera3D().UnprojectPosition(
 			initial.Ball.CellDirs[mixedCell] * initial.Ball.Radius);

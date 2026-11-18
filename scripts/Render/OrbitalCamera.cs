@@ -2,7 +2,7 @@ using System;
 using Godot;
 using World.Utils;
 
-namespace World.UI.Components;
+namespace World.Render;
 
 /// <summary>绕组件原点旋转和缩放的相机，取景距离和裁剪范围按传入的半径缩放。</summary>
 public partial class OrbitalCamera : Node3D

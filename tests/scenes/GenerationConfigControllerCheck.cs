@@ -49,7 +49,7 @@ internal static class GenerationConfigControllerCheck
 		}
 
 		var store = new Store();
-		var session = new GenerationConfigSession(store, "profiles.json");
+		var session = new GenerationConfigSession(store, "profiles.json", AppContext.BaseDirectory);
 		var actions = new Actions();
 		var controller = new GenerationConfigController(session, actions);
 		int notifications = 0;

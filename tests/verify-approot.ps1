@@ -30,7 +30,7 @@ try {
     $maps = Get-ChildItem (Join-Path $PWD 'userdata/saves') -Filter *.wmap -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending
     if ($maps) {
-        $mapPath = $maps[0].FullName
+        $mapPath = 'userdata/saves/' + $maps[0].Name
     }
     else {
         Write-Host '  没有样本地图，先保存一份…'
@@ -40,7 +40,7 @@ try {
         $mapPath = $found.Groups[1].Value.Trim()
     }
     $browse = (& $godot --headless --path . res://tests/scenes/MapBrowserLoadCheck.tscn -- $mapPath 2>&1 | Out-String)
-    if ($browse -notmatch '\[BROWSE-CHECK\] ok=True') { throw "浏览检查失败：$browse" }
+    if ($browse -notmatch '\[BROWSE-CHECK\] PASS relative-path') { throw "浏览检查失败：$browse" }
     ([regex]::Match($browse, '\[BROWSE-CHECK\][^\r\n]*')).Value
 
     Write-Host "`n全部通过（样本地图：$mapPath）"

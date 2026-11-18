@@ -1,35 +1,19 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=5 format=3]
 
-[ext_resource type="PackedScene" path="res://scenes/components/OrbitalCamera.tscn" id="1_cam"]
-[ext_resource type="Script" path="res://scripts/Render/RenderManager.cs" id="2_render"]
+[ext_resource type="PackedScene" path="res://scenes/render/OrbitalCamera.tscn" id="1_cam"]
+[ext_resource type="Script" path="res://scripts/Render/WorldPresentation.cs" id="2_presentation"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldView.tscn" id="3_view"]
-[ext_resource type="PackedScene" path="res://scenes/components/CellInfoCard.tscn" id="5_card"]
-[ext_resource type="PackedScene" path="res://scenes/components/MapDock.tscn" id="6_dock"]
+[ext_resource type="Script" path="res://scripts/Render/CellSelectionController.cs" id="4_selection"]
 
 [node name="WorldPresentation" type="Node3D"]
+script = ExtResource("2_presentation")
+WorldViewPath = NodePath("WorldView")
+OrbitalCameraPath = NodePath("OrbitalCamera")
+SelectionPath = NodePath("Selection")
 
 [node name="OrbitalCamera" parent="." instance=ExtResource("1_cam")]
 
-[node name="RenderManager" type="Node3D" parent="."]
-script = ExtResource("2_render")
-WorldViewPath = NodePath("WorldView")
+[node name="WorldView" parent="." instance=ExtResource("3_view")]
 
-[node name="WorldView" parent="RenderManager" instance=ExtResource("3_view")]
-
-[node name="PanelLayer" type="CanvasLayer" parent="."]
-
-[node name="CellInfoCard" parent="PanelLayer" instance=ExtResource("5_card")]
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = -12.0
-offset_right = 12.0
-offset_bottom = -12.0
-grow_vertical = 0
-
-[node name="MapDock" parent="PanelLayer" instance=ExtResource("6_dock")]
-
-[connection signal="ModeSelected" from="PanelLayer/MapDock" to="RenderManager" method="OnDockModeSelected"]
-[connection signal="ParameterSelected" from="PanelLayer/MapDock" to="RenderManager" method="OnDockParameterSelected"]
-[connection signal="VariantSelected" from="PanelLayer/MapDock" to="RenderManager" method="OnDockVariantSelected"]
+[node name="Selection" type="Node" parent="."]
+script = ExtResource("4_selection")

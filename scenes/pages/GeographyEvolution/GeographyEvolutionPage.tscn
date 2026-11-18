@@ -1,41 +1,37 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene format=3 uid="uid://dvcpa8w5ht0l4"]
 
-[ext_resource type="Script" path="res://scripts/UI/Pages/GeographyEvolution/GeographyEvolutionView.cs" id="1_root"]
-[ext_resource type="Script" path="res://scripts/Runtime/WorldManager.cs" id="2_world"]
+[ext_resource type="Script" uid="uid://pk0oeryte64u" path="res://scripts/UI/Pages/GeographyEvolution/GeographyEvolutionView.cs" id="1_root"]
 [ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="3_presentation"]
 [ext_resource type="PackedScene" path="res://scenes/components/AppMenu.tscn" id="4_menu"]
 [ext_resource type="PackedScene" path="res://scenes/components/EvolutionPanel.tscn" id="5_evolution"]
-[ext_resource type="Theme" path="res://themes/ui_app.tres" id="6_theme"]
+[ext_resource type="Theme" uid="uid://bql2gr5c53xj" path="res://themes/ui_app.tres" id="6_theme"]
 [ext_resource type="PackedScene" path="res://scenes/components/AppStatusBar.tscn" id="7_status"]
+[ext_resource type="PackedScene" path="res://scenes/components/CellInfoCard.tscn" id="cell_info"]
+[ext_resource type="PackedScene" path="res://scenes/components/MapDock.tscn" id="map_dock"]
 
-[node name="GeographyEvolution" type="Node3D"]
+[node name="GeographyEvolution" type="Node3D" unique_id=1596432478]
 script = ExtResource("1_root")
-WorldManagerPath = NodePath("WorldManager")
-RenderManagerPath = NodePath("Presentation/RenderManager")
-CameraPath = NodePath("Presentation/OrbitalCamera")
-DockPath = NodePath("Presentation/PanelLayer/MapDock")
-CellInfoCardPath = NodePath("Presentation/PanelLayer/CellInfoCard")
+WorldPresentationPath = NodePath("Presentation")
+DockPath = NodePath("PanelLayer/MapDock")
+CellInfoCardPath = NodePath("PanelLayer/CellInfoCard")
 AppMenuPath = NodePath("AppMenu")
 AppStatusBarPath = NodePath("AppStatusBar")
 EvolutionPanelPath = NodePath("PageOverlay/EvolutionPanel")
 
-[node name="WorldManager" type="Node3D" parent="."]
-script = ExtResource("2_world")
+[node name="Presentation" parent="." unique_id=1498508770 instance=ExtResource("3_presentation")]
 
-[node name="Presentation" parent="." instance=ExtResource("3_presentation")]
-
-[node name="PageOverlay" type="CanvasLayer" parent="."]
+[node name="PageOverlay" type="CanvasLayer" parent="." unique_id=467335214]
 layer = 2
 
-[node name="EvolutionPanel" parent="PageOverlay" instance=ExtResource("5_evolution")]
+[node name="EvolutionPanel" parent="PageOverlay" unique_id=1952796581 instance=ExtResource("5_evolution")]
 visible = false
 
-[node name="AppMenu" parent="." instance=ExtResource("4_menu")]
+[node name="AppMenu" parent="." unique_id=1298119510 instance=ExtResource("4_menu")]
 
-[node name="TopBar" type="CanvasLayer" parent="."]
+[node name="TopBar" type="CanvasLayer" parent="." unique_id=1786599807]
 layer = 5
 
-[node name="Title" type="Label" parent="TopBar"]
+[node name="Title" type="Label" parent="TopBar" unique_id=1841579516]
 offset_left = 112.0
 offset_top = 14.0
 offset_right = 332.0
@@ -45,4 +41,18 @@ theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
 theme_override_font_sizes/font_size = 22
 text = "地理演化"
 
-[node name="AppStatusBar" parent="." instance=ExtResource("7_status")]
+[node name="AppStatusBar" parent="." unique_id=184264861 instance=ExtResource("7_status")]
+
+[node name="PanelLayer" type="CanvasLayer" parent="." unique_id=1433923220]
+
+[node name="CellInfoCard" parent="PanelLayer" unique_id=735635670 instance=ExtResource("cell_info")]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -12.0
+offset_right = 12.0
+offset_bottom = -12.0
+grow_vertical = 0
+
+[node name="MapDock" parent="PanelLayer" unique_id=91398066 instance=ExtResource("map_dock")]

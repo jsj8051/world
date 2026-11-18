@@ -9,18 +9,12 @@ namespace World.Tests;
 /// <summary>地图目录控制器的纯逻辑检查：存档列表、选择、加载与宿主动作。</summary>
 internal static class MapCatalogControllerCheck
 {
-	sealed class Repository : IGeographyMapRepository
+	sealed class Repository : IGeographyMapCatalog
 	{
 		public readonly List<MapPackageCandidate> Candidates = new();
 		public bool ThrowOnList;
 
-		public string Directory => "/maps";
-
-		public string Save(GeographySnapshot snapshot) => throw new NotSupportedException("Not used.");
-
-		public GeographySnapshot Load(string path, IFileImportObserver observer = null,
-			System.Threading.CancellationToken cancellation = default)
-			=> throw new NotSupportedException("Not used.");
+		public string Directory => "maps";
 
 		public IReadOnlyList<MapPackageCandidate> List()
 		{
@@ -54,9 +48,9 @@ internal static class MapCatalogControllerCheck
 		}
 
 		var repository = new Repository();
-		repository.Candidates.Add(new MapPackageCandidate("/maps/alpha.wmap", Readable("Alpha")));
-		repository.Candidates.Add(new MapPackageCandidate("/maps/beta.wmap", Invalid()));
-		repository.Candidates.Add(new MapPackageCandidate("/maps/gamma.wmap",
+		repository.Candidates.Add(new MapPackageCandidate("maps/alpha.wmap", Readable("Alpha")));
+		repository.Candidates.Add(new MapPackageCandidate("maps/beta.wmap", Invalid()));
+		repository.Candidates.Add(new MapPackageCandidate("maps/gamma.wmap",
 			new MapProbeResult(MapProbeStatus.Unsupported, null, null, null, null,
 				new MapIssue(MapIssueCode.UnsupportedVersion, "manifest.schemaVersion", null, "version 2"))));
 		var actions = new Actions();
@@ -78,10 +72,10 @@ internal static class MapCatalogControllerCheck
 
 		controller.Select(0);
 		Require(controller.SelectedIndex == 0 && controller.CanLoad
-			&& controller.DetailText.Contains("/maps/alpha.wmap") && controller.DetailText.Contains("可识别"),
+			&& controller.DetailText.Contains("maps/alpha.wmap") && controller.DetailText.Contains("可识别"),
 			"Selecting a readable package must enable loading and show its path.");
 		controller.LoadSelected();
-		Require(actions.Loaded == "/maps/alpha.wmap", "Loading the selected package must reach the host.");
+		Require(actions.Loaded == "maps/alpha.wmap", "Loading the selected package must reach the host.");
 		Require(controller.StatusText.Length > 0 && !controller.StatusIsError,
 			"Loading must show an in-progress status.");
 

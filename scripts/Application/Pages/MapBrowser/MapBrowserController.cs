@@ -19,9 +19,9 @@ internal sealed class MapBrowserController : IDisposable
 	readonly IMapBrowserPageActions _actions;
 	IMapBrowserPresentation _presentation;
 
-	internal MapBrowserController(string path, IGeographyMapRepository repository,
+	internal MapBrowserController(string path, FileLoadComponent<global::World.Data.Maps.GeographySnapshot> loader,
 		IMapBrowserPageActions actions = null)
-		: this(path, new MapBrowseFlow(repository), actions) { }
+		: this(path, new MapBrowseFlow(loader), actions) { }
 
 	internal MapBrowserController(string path, IMapBrowseFlow flow, IMapBrowserPageActions actions = null)
 	{

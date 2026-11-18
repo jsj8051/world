@@ -9,6 +9,7 @@
     <Compile Include="tests/scenes/EvolutionStepCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
     <Compile Include="tests/scenes/MapSampleExport.cs" Condition="'$(Configuration)' == 'Debug'" />
     <Compile Include="tests/scenes/MapImportCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
+    <Compile Include="tests/scenes/WorldPresentationCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
     <Compile Include="tests/scenes/MapBrowserLoadCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
     <Compile Include="tests/scenes/WorldGenerationLoadCheck.cs" Condition="'$(Configuration)' == 'Debug'" />
     <Compile Include="tests/scenes/GenerationConfigCheck.cs" Condition="'$(Configuration)' == 'Debug'" />

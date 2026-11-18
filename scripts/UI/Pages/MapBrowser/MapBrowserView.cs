@@ -10,8 +10,7 @@ namespace World.UI.Pages;
 /// <summary>显示已经装配的地图并转发返回意图。</summary>
 public partial class MapBrowserView : Node3D, IMapBrowserPageActions
 {
-	[Export] public NodePath CameraPath { get; set; }
-	[Export] public NodePath RenderManagerPath { get; set; }
+	[Export] public NodePath WorldPresentationPath { get; set; }
 	[Export] public NodePath CellInfoCardPath { get; set; }
 	[Export] public NodePath DockPath { get; set; }
 	[Export] public NodePath PanelLayerPath { get; set; }
@@ -34,8 +33,7 @@ public partial class MapBrowserView : Node3D, IMapBrowserPageActions
 	}
 
 	internal IMapBrowserPresentation PreparePresentation() => _presentation = new MapBrowserPresentation(
-		this.Require<RenderManager>(RenderManagerPath, nameof(RenderManagerPath)),
-		this.Require<OrbitalCamera>(CameraPath, nameof(CameraPath)),
+		this.Require<WorldPresentation>(WorldPresentationPath, nameof(WorldPresentationPath)),
 		this.Require<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath)),
 		this.Require<MapDock>(DockPath, nameof(DockPath)),
 		this.Require<CanvasLayer>(PanelLayerPath, nameof(PanelLayerPath)));
@@ -82,8 +80,14 @@ public partial class MapBrowserView : Node3D, IMapBrowserPageActions
 		if (id == "back") ReturnToLibrary();
 	}
 
+	public override void _UnhandledInput(InputEvent input)
+	{
+		if (_presentation?.HandleInput(input) == true) GetViewport().SetInputAsHandled();
+	}
+
 	public override void _ExitTree()
 	{
+		_presentation?.Dispose();
 		if (_menu != null) _menu.ItemPressed -= OnMenuItemPressed;
 	}
 }

@@ -1,22 +1,22 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene format=3 uid="uid://ggiexvr6pex"]
 
-[ext_resource type="Script" path="res://scripts/UI/Pages/MapLibrary/MapLibraryView.cs" id="1_library"]
+[ext_resource type="Script" uid="uid://rrfoblqwogi1" path="res://scripts/UI/Pages/MapLibrary/MapLibraryView.cs" id="1_library"]
 [ext_resource type="Theme" path="res://themes/ui_app.tres" id="2_theme"]
 [ext_resource type="PackedScene" path="res://scenes/components/MapCatalogPanel.tscn" id="3_catalog"]
 
-[node name="MapLibrary" type="Control"]
+[node name="MapLibrary" type="Control" unique_id=1827478135]
 layout_mode = 3
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-script = ExtResource("1_library")
 theme = ExtResource("2_theme")
+script = ExtResource("1_library")
 CatalogPath = NodePath("Margin/Box/Catalog")
-BackButtonPath = NodePath("Margin/Box/Header/BackButton")
+BackButtonPath = NodePath("Footer/BackButton")
 
-[node name="Backdrop" type="ColorRect" parent="."]
+[node name="Backdrop" type="ColorRect" parent="." unique_id=713307374]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -25,7 +25,7 @@ grow_horizontal = 2
 grow_vertical = 2
 color = Color(0.55, 0.47, 0.35, 1)
 
-[node name="Margin" type="MarginContainer" parent="."]
+[node name="Margin" type="MarginContainer" parent="." unique_id=879255667]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -35,20 +35,16 @@ grow_vertical = 2
 theme_override_constants/margin_left = 32
 theme_override_constants/margin_top = 24
 theme_override_constants/margin_right = 32
-theme_override_constants/margin_bottom = 24
+theme_override_constants/margin_bottom = 80
 
-[node name="Box" type="VBoxContainer" parent="Margin"]
+[node name="Box" type="VBoxContainer" parent="Margin" unique_id=1815066989]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="Header" type="HBoxContainer" parent="Margin/Box"]
+[node name="Header" type="HBoxContainer" parent="Margin/Box" unique_id=750655041]
 layout_mode = 2
 
-[node name="BackButton" type="Button" parent="Margin/Box/Header"]
-layout_mode = 2
-text = "返回主界面"
-
-[node name="Title" type="Label" parent="Margin/Box/Header"]
+[node name="Title" type="Label" parent="Margin/Box/Header" unique_id=405944468]
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.984, 0.961, 0.878, 1)
@@ -56,5 +52,20 @@ theme_override_font_sizes/font_size = 26
 text = "地图库"
 horizontal_alignment = 1
 
-[node name="Catalog" parent="Margin/Box" instance=ExtResource("3_catalog")]
+[node name="Catalog" parent="Margin/Box" unique_id=845900708 instance=ExtResource("3_catalog")]
 layout_mode = 2
+
+[node name="Footer" type="HBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 18.0
+offset_top = -58.0
+offset_right = 218.0
+offset_bottom = -18.0
+grow_vertical = 0
+
+[node name="BackButton" type="Button" parent="Footer"]
+layout_mode = 2
+text = "返回主界面"

@@ -244,6 +244,18 @@ static class Program
 		Run("水文拒绝循环", MapHydrologyTests.HydrologyRejectsCycles);
 		Run("水文拒绝错配河线与引用", MapHydrologyTests.HydrologyRejectsMalformedLinesAndReferences);
 
+		Run("File save accepts arbitrary caller data and relative paths", FilePersistenceComponentTests.SavesCallerDataAndRelativePath);
+		Run("File load returns caller type and forwards options", FilePersistenceComponentTests.LoadsCallerTypeAndForwardsOptions);
+		Run("File persistence rejects absolute and escaping paths", FilePersistenceComponentTests.RejectsAbsoluteAndEscapingPaths);
+		Run("File persistence rejects invalid dependencies", FilePersistenceComponentTests.RejectsInvalidDependencies);
+		Run("Models normalize game-root-relative paths", RelativePersistencePathTests.ModelsUseNormalizedRelativePaths);
+		Run("Catalog paths survive moving game root", RelativePersistencePathTests.CatalogPathsSurviveMovingGameRoot);
+		Run("Config sessions resolve game-relative profile paths", GenerationConfigLogicTests.SessionsResolveRelativeProfilePaths);
+		Run("Fixed game locations are relative", RelativePersistencePathTests.FixedGameLocationsAreRelative);
+		Run("PNG writer returns game-relative path", TerrainMapExportTests.PngWriterReturnsGameRelativePath);
+		Run("PNG writer errors use relative paths", TerrainMapExportTests.PngWriterFailureUsesRelativePath);
+		Run("PNG directory errors use relative paths", TerrainMapExportTests.PngWriterDirectoryFailureUsesRelativePath);
+		Run("File persistence preserves storage failures", FilePersistenceComponentTests.PreservesStorageFailures);
 		Run("生成世界经快照往返保持一致", MapRoundTripTests.GeneratedWorldRoundTripsThroughSnapshot);
 		Run("地图包写入读出保持事实", MapRoundTripTests.PackageWriteReadPreservesFacts);
 		Run("地图包拒绝缺失与损坏文件", MapRoundTripTests.PackageRejectsMissingAndCorruptFiles);
@@ -271,6 +283,7 @@ static class Program
 		Run("Generation JSON structure", GenerationConfigStructureTests.JsonRequiresCompleteKnownFields);
 		Run("Generation structure boundaries", GenerationConfigStructureTests.AdditionalStructureBoundariesAreEnforced);
 
+		Run("通用配置状态委托领域策略", GenerationConfigLogicTests.ConfigurationDraftUsesDomainStrategy);
 		Run("Config defaults applied and dirty gate", GenerationConfigLogicTests.DefaultsStartAppliedAndEditsRequireExplicitApply);
 		Run("Config named profile lifecycle", GenerationConfigLogicTests.ProfileNamingSelectionAndDeletionRemainSeparateFromApply);
 		Run("Config failed storage rollback", GenerationConfigLogicTests.StoreFailuresDoNotPartiallyCommitSession);
@@ -279,6 +292,22 @@ static class Program
 		Run("Config parameter mapping", GenerationConfigLogicTests.MapperCopiesDefaultsAndMapsEveryPreset);
 		Run("Retired wind switch remains readable", ProductionWindCheck.ReadsRetiredTrialProfile);
 		Run("Config atomic file persistence", GenerationConfigLogicTests.FileStoreRoundTripsAndFailedReplacePreservesOriginal);
+
+		Run("Export rejects null dependencies", TerrainMapExportTests.RejectsNullDependencies);
+		Run("Export rejects invalid dimensions", TerrainMapExportTests.RejectsInvalidDimensions);
+		Run("Export defaults match renderer", TerrainMapExportTests.DefaultsMatchRenderer);
+		Run("Export missing terrain does not write", TerrainMapExportTests.MissingTerrainDoesNotWrite);
+		Run("Export unready world does not write", TerrainMapExportTests.UnreadyWorldDoesNotWrite);
+		Run("Export delegates terrain pixels to writer", TerrainMapExportTests.ExportsTerrainPixelsThroughWriter);
+		Run("Export propagates writer failures", TerrainMapExportTests.WriterFailurePropagates);
+
+		Run("Map mode rejects invalid registration", MapModeControllerTests.RejectsInvalidModeLists);
+		Run("Map mode registration copies input", MapModeControllerTests.CopiesInputList);
+		Run("Map mode starts with existing settings", MapModeControllerTests.StartsWithFirstModeAndExistingParameters);
+		Run("Map mode selection bounds and notifications", MapModeControllerTests.ModeSelectionHonorsBoundsAndNotifiesAfterChange);
+		Run("Map mode axis bounds and notifications", MapModeControllerTests.ParameterAndVariantSelectionsHonorBounds);
+		Run("Map mode missing and empty options", MapModeControllerTests.MissingAndEmptyOptionsIgnoreSelections);
+		Run("Map mode settings survive mode switches", MapModeControllerTests.SwitchingModesRetainsIndependentSettings);
 
 		Run("组件编辑器表单往返", ComponentLogicTests.EditorFormRoundTrip);
 		Run("组件编辑器拒绝非法选项", ComponentLogicTests.EditorRejectsInvalidSelections);

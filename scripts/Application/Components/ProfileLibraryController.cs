@@ -1,5 +1,4 @@
 using System;
-using World.Data.Generation;
 
 namespace World.Application.Components;
 
@@ -30,7 +29,7 @@ internal sealed class ProfileLibraryController
 	internal ProfileLibraryController(IProfileLibraryHost host)
 		=> _host = host ?? throw new ArgumentNullException(nameof(host));
 
-	internal GenerationProfile[] Profiles => _host.Profiles ?? Array.Empty<GenerationProfile>();
+	internal ProfileLibraryItem[] Profiles => _host.Profiles ?? Array.Empty<ProfileLibraryItem>();
 
 	internal int SelectedIndex
 	{
@@ -38,7 +37,7 @@ internal sealed class ProfileLibraryController
 		{
 			Guid? selected = _host.SelectedProfileId;
 			if (!selected.HasValue) return -1;
-			GenerationProfile[] profiles = Profiles;
+			ProfileLibraryItem[] profiles = Profiles;
 			for (int i = 0; i < profiles.Length; i++)
 				if (profiles[i].Id == selected.Value) return i;
 			return -1;
@@ -54,7 +53,7 @@ internal sealed class ProfileLibraryController
 
 	internal void Select(int index)
 	{
-		GenerationProfile[] profiles = Profiles;
+		ProfileLibraryItem[] profiles = Profiles;
 		if (index < 0 || index >= profiles.Length) return;
 		Guid id = profiles[index].Id;
 		ProfileSelectOutcome outcome = _host.TrySelectProfile(id);
@@ -150,7 +149,7 @@ internal sealed class ProfileLibraryController
 	{
 		Guid? selected = _host.SelectedProfileId;
 		if (!selected.HasValue) return string.Empty;
-		foreach (GenerationProfile profile in Profiles)
+		foreach (ProfileLibraryItem profile in Profiles)
 			if (profile.Id == selected.Value) return profile.Name;
 		return string.Empty;
 	}

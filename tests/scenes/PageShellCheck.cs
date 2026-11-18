@@ -10,8 +10,10 @@ internal static class PageShellCheck
 	sealed class MenuActions : IMainMenuActions
 	{
 		public int OpenedConfig;
+		public int OpenedCivilizationConfig;
 		public int OpenedLibrary;
 		public void OpenGenerationConfig() => OpenedConfig++;
+		public void OpenCivilizationConfig() => OpenedCivilizationConfig++;
 		public void OpenMapLibrary() => OpenedLibrary++;
 	}
 
@@ -23,19 +25,23 @@ internal static class PageShellCheck
 		var actions = new MenuActions();
 		int quitCalls = 0;
 		var controller = new MainMenuController(actions, () => quitCalls++);
-		Require(actions.OpenedConfig == 0 && actions.OpenedLibrary == 0 && quitCalls == 0,
+		Require(actions.OpenedConfig == 0 && actions.OpenedCivilizationConfig == 0 && actions.OpenedLibrary == 0 && quitCalls == 0,
 			"Constructing the controller must not invoke actions.");
 		controller.OpenGenerationConfig();
-		Require(actions.OpenedConfig == 1 && actions.OpenedLibrary == 0 && quitCalls == 0,
+		Require(actions.OpenedConfig == 1 && actions.OpenedCivilizationConfig == 0 && actions.OpenedLibrary == 0 && quitCalls == 0,
 			"The geography action must reach only the config action once.");
+		controller.OpenCivilizationConfig();
+		Require(actions.OpenedCivilizationConfig == 1 && actions.OpenedConfig == 1 && actions.OpenedLibrary == 0,
+			"The civilization action must reach only its config action once.");
 		controller.OpenMapLibrary();
-		Require(actions.OpenedConfig == 1 && actions.OpenedLibrary == 1 && quitCalls == 0,
+		Require(actions.OpenedConfig == 1 && actions.OpenedCivilizationConfig == 1 && actions.OpenedLibrary == 1 && quitCalls == 0,
 			"The library action must reach only the library action once.");
 		controller.QuitApplication();
 		Require(quitCalls == 1, "Quit must invoke its callback once.");
 		controller.OpenGenerationConfig();
+		controller.OpenCivilizationConfig();
 		controller.OpenMapLibrary();
-		Require(actions.OpenedConfig == 2 && actions.OpenedLibrary == 2 && quitCalls == 1,
+		Require(actions.OpenedConfig == 2 && actions.OpenedCivilizationConfig == 2 && actions.OpenedLibrary == 2 && quitCalls == 1,
 			"Repeated requests must be forwarded independently without quitting.");
 		Expect<ArgumentNullException>(() => new MainMenuController(null, () => { }), "Null menu actions");
 		Expect<ArgumentNullException>(() => new MainMenuController(actions, null), "Null quit callback");

@@ -17,12 +17,12 @@ public partial class MapLibraryView : Control, IMapCatalogActions
 	[Export] public NodePath CatalogPath { get; set; }
 	[Export] public NodePath BackButtonPath { get; set; }
 
-	IGeographyMapRepository _repository;
+	IGeographyMapCatalog _repository;
 	IMapCatalogActions _actions;
 	MapCatalogController _controller;
 	MapCatalogPanel _catalog;
 
-	internal static MapLibraryView Create(IGeographyMapRepository repository = null, IMapCatalogActions actions = null)
+	internal static MapLibraryView Create(IGeographyMapCatalog repository = null, IMapCatalogActions actions = null)
 	{
 		var page = GD.Load<PackedScene>("res://scenes/pages/MapLibrary/MapLibraryPage.tscn").Instantiate<MapLibraryView>();
 		page._repository = repository;
@@ -31,7 +31,7 @@ public partial class MapLibraryView : Control, IMapCatalogActions
 	}
 
 	/// <summary>注入测试或自定义存档库；默认使用游戏存档目录。</summary>
-	internal void SetRepository(IGeographyMapRepository repository)
+	internal void SetRepository(IGeographyMapCatalog repository)
 		=> _repository = repository ?? throw new ArgumentNullException(nameof(repository));
 
 	/// <summary>注入测试或自定义页面动作；默认由本页面处理导航。</summary>
@@ -42,7 +42,7 @@ public partial class MapLibraryView : Control, IMapCatalogActions
 		_catalog = this.Require<MapCatalogPanel>(CatalogPath, nameof(CatalogPath));
 		var back = this.Require<Button>(BackButtonPath, nameof(BackButtonPath));
 
-		_repository ??= World.Infrastructure.Maps.GameMapRepository.CreateDefault();
+		_repository ??= World.Infrastructure.Maps.GameMapCatalog.CreateDefault();
 		_controller = new MapCatalogController(_repository, _actions ?? this);
 		back.Pressed += () => _controller.BackToMainMenu();
 		_catalog.Bind(_controller);

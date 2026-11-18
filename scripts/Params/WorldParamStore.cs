@@ -93,11 +93,11 @@ public static class WorldParamStore
 		return false;
 	}
 
-	/// <summary>默认档的磁盘绝对路径（解析不到 ⇒ null）。路径拼装留在本层，管理器不碰 System.IO。</summary>
-	public static string ResolvePresetPath() => TryResolveDiskPath(PresetRelativePath);
+	/// <summary>默认档的内容根相对路径；无法定位磁盘内容根时返回 null。</summary>
+	public static string ResolvePresetPath() => FindContentRoot() == null ? null : PresetRelativePath;
 
-	/// <summary>用户档的磁盘绝对路径（解析不到 ⇒ `null`）。</summary>
-	public static string ResolveUserPath() => TryResolveDiskPath(UserRelativePath);
+	/// <summary>用户档的内容根相对路径；无法定位磁盘内容根时返回 null。</summary>
+	public static string ResolveUserPath() => FindContentRoot() == null ? null : UserRelativePath;
 
 	// ── 路径解析 ──
 
@@ -136,7 +136,7 @@ public static class WorldParamStore
 		{
 			if (File.Exists(diskPath)) return ReadDiskText(diskPath, what, list);
 			if (missingIsNormal) return "";
-			list.Add($"{what}在磁盘上不存在（{diskPath}）⇒ 试 `{resPath}`。");
+			list.Add($"{what}在磁盘上不存在（{relativePath}）⇒ 试 `{resPath}`。");
 		}
 
 		string res = TryReadResText(resPath, list);
@@ -170,7 +170,7 @@ public static class WorldParamStore
 			string dir = Path.GetDirectoryName(path);
 			if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 			File.WriteAllText(path, text);
-			list.Add($"已写入{what} → {path}");
+			list.Add($"已写入{what} → {UserRelativePath}");
 			return true;
 		}
 		catch (Exception e)

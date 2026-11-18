@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using World.Application.Configuration;
 using World.Application.Storage;
 using World.Data.Generation;
 
@@ -10,47 +11,48 @@ namespace World.Application.Generation;
 /// 会话创建即把默认配置视为已应用，进入配置页可直接生成；一旦编辑，仍需显式应用。</summary>
 public sealed class GenerationConfigSession
 {
-	readonly IFileStorage<GenerationProfileCatalog> _store;
-	readonly string _location;
+	readonly FileSaveComponent<GenerationProfileCatalog> _saver;
+	readonly string _relativePath;
+	readonly ConfigurationDraft<GenerationConfig> _configuration;
 	GenerationProfileCatalog _catalog = new();
-	GenerationConfig _draft = new();
-	GenerationConfig _applied;
-	public GenerationConfig Draft => Copy(_draft);
-	public GenerationConfig Applied => Copy(_applied);
-	public bool HasUnappliedChanges => !Equal(_draft, _applied);
+	public GenerationConfig Draft => _configuration.Draft;
+	public GenerationConfig Applied => _configuration.Applied;
+	public bool HasUnappliedChanges => _configuration.HasUnappliedChanges;
 	public Guid? SelectedProfileId { get; private set; }
 	public IReadOnlyList<GenerationProfile> Profiles => _catalog.Profiles.Select(Copy).ToArray();
 	public string LoadProblem { get; }
 
-	public GenerationConfigSession(IFileStorage<GenerationProfileCatalog> store, string location)
+	/// <summary>从游戏根目录下的相对路径读取档案；损坏档案将禁止后续覆盖。</summary>
+	/// <example><code>new GenerationConfigSession(store, "userdata/configs/generation_profiles.json", gameRootDirectory);</code></example>
+	public GenerationConfigSession(IFileStorage<GenerationProfileCatalog> store, string relativePath, string gameRootDirectory)
 	{
-		_store = store ?? throw new ArgumentNullException(nameof(store));
-		if (string.IsNullOrWhiteSpace(location)) throw new ArgumentException("配置位置不能为空。", nameof(location));
-		_location = location;
+		var loader = new FileLoadComponent<GenerationProfileCatalog>(store, gameRootDirectory);
+		_saver = new FileSaveComponent<GenerationProfileCatalog>(store, gameRootDirectory);
+		if (string.IsNullOrWhiteSpace(relativePath)) throw new ArgumentException("配置相对路径不能为空。", nameof(relativePath));
+		_relativePath = relativePath;
+		_configuration = new ConfigurationDraft<GenerationConfig>(GenerationConfigStrategy.Instance);
 		try
 		{
-			var loaded = store.Import(location) ?? throw new InvalidOperationException("配置目录为空。");
+			var loaded = loader.Load(_relativePath) ?? throw new InvalidOperationException("配置目录为空。");
 			loaded.Validate();
 			_catalog = Copy(loaded);
 		}
 		catch (Exception e) { LoadProblem = $"配置目录加载失败，已禁止覆盖原文件：{e.Message}"; }
 		// 默认配置无需用户确认即可生成；坏目录不影响这条内存路径。
-		_applied = Copy(_draft);
+		_configuration.Apply();
 	}
 
 	public void Edit(GenerationConfig config)
 	{
-		ArgumentNullException.ThrowIfNull(config);
-		config.Validate();
-		_draft = Copy(config);
+		_configuration.Edit(config);
 	}
 
-	public void Apply() { _draft.Validate(); _applied = Copy(_draft); }
+	public void Apply() => _configuration.Apply();
 
 	public void Select(Guid id)
 	{
 		var profile = Find(id);
-		_draft = Copy(profile.Config);
+		_configuration.SetDraft(profile.Config);
 		SelectedProfileId = id;
 	}
 
@@ -71,7 +73,7 @@ public sealed class GenerationConfigSession
 			next.Profiles.Add(profile);
 		}
 		profile.Name = name?.Trim();
-		profile.Config = Copy(_draft);
+		profile.Config = _configuration.Draft;
 		Commit(next);
 		SelectedProfileId = profile.Id;
 	}
@@ -100,11 +102,14 @@ public sealed class GenerationConfigSession
 
 	public GenerationConfig GetAppliedForGeneration()
 	{
-		if (HasUnappliedChanges) throw new InvalidOperationException("存在未应用的修改，请先点击应用。");
-		return Copy(_applied);
+		return _configuration.GetApplied();
 	}
 
-	public void ResetDraft() { _draft = new GenerationConfig(); SelectedProfileId = null; }
+	public void ResetDraft()
+	{
+		_configuration.ResetDraft();
+		SelectedProfileId = null;
+	}
 
 	GenerationProfile Find(Guid id) => _catalog.Profiles.FirstOrDefault(p => p.Id == id)
 		?? throw new ArgumentException("配置档案不存在。", nameof(id));
@@ -118,19 +123,11 @@ public sealed class GenerationConfigSession
 	{
 		next.Validate();
 		// 存储实现可能持有或修改传入对象，不能让它取得会话内部对象。
-		_store.Export(_location, Copy(next));
+		_saver.Save(Copy(next), _relativePath);
 		_catalog = next;
 	}
 
-	static bool Equal(GenerationConfig a, GenerationConfig b) =>
-		a.Seed == b.Seed && a.Layout == b.Layout && a.SeaLevel == b.SeaLevel && a.PlateCount == b.PlateCount &&
-		a.Relief == b.Relief && a.Temperature == b.Temperature && a.Seasonality == b.Seasonality && a.Rainfall == b.Rainfall;
-
-	internal static GenerationConfig Copy(GenerationConfig c) => new()
-	{
-		Seed = c.Seed, Layout = c.Layout, SeaLevel = c.SeaLevel, PlateCount = c.PlateCount,
-		Relief = c.Relief, Temperature = c.Temperature, Seasonality = c.Seasonality, Rainfall = c.Rainfall
-	};
+	internal static GenerationConfig Copy(GenerationConfig config) => GenerationConfigStrategy.Instance.Copy(config);
 	static GenerationProfile Copy(GenerationProfile p) => new()
 	{
 		Id = p.Id, Name = p.Name, CreatedUtc = p.CreatedUtc, UpdatedUtc = p.UpdatedUtc, Config = Copy(p.Config)

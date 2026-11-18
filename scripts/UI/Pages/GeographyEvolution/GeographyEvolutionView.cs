@@ -3,8 +3,11 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;
 using World.Application.Loading;
+using World.Application.Export;
+using World.Infrastructure.Export;
 using World.Application.Pages;
 using World.Application.Storage;
+using World.Application.World;
 using World.Data;
 using World.Data.Generation;
 using World.Data.Maps;
@@ -13,7 +16,6 @@ using World.Logic;
 using World.Params;
 using World.Params.Generation;
 using World.Render;
-using World.Runtime;
 using World.UI.Components;
 using World.Utils;
 
@@ -21,16 +23,14 @@ namespace World.UI.Pages;
 
 /// <summary>
 /// 地理演化页面根（`GeographyEvolutionPage.tscn`）：世界表现子树的装配点、生成生命周期与页面 UI。
-/// 初始化 <see cref="WorldManager"/>、<see cref="RenderManager"/> 和页面组件，
+/// 初始化 <see cref="WorldSession"/>、<see cref="WorldPresentation"/> 和页面组件，
 /// 转发每帧 Tick，把页面交互交给 <see cref="GeographyEvolutionController"/>；
 /// 演化命令、保存/导出与返回不在此类里实现。
 /// </summary>
 public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 {
-	[ExportGroup("管理器（NodePath）")]
-	[Export] public NodePath WorldManagerPath { get; set; }
-	[Export] public NodePath RenderManagerPath { get; set; }
-	[Export] public NodePath CameraPath { get; set; }
+	[ExportGroup("页面依赖（NodePath）")]
+	[Export] public NodePath WorldPresentationPath { get; set; }
 	[Export] public NodePath DockPath { get; set; }
 	[Export] public NodePath CellInfoCardPath { get; set; }
 
@@ -43,23 +43,22 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 
 	WorldGenerationResult _generatedWorld;
 	Action<Exception> _buildFailure;
-	IGeographyMapRepository _mapRepository = GameMapRepository.CreateDefault();
+	FileSaveComponent<GeographySnapshot> _mapSaver = new(new MapPackageFileStorage(), global::World.Infrastructure.GamePaths.GameDirectory);
 	IMainMenuReturn _mainMenu;
 	bool _renderBuilding;
 
+	MapDockPresenter _dockPresenter;
+	TerrainMapExport _mapExport;
 	AppMenu _menu;
 	GeographyEvolutionController _controller;
 
 	readonly List<ITickable> _ticks = new();
 
-	/// <summary>世界管理器（世界本体：持 <c>Sim</c> 世界事实）。</summary>
-	public WorldManager World { get; private set; }
+	/// <summary>页面拥有的世界会话（世界本体：持 <c>Sim</c> 世界事实）。</summary>
+	public WorldSession World { get; private set; }
 
 	/// <summary>渲染管理器（3D 世界表现子树的持有者）。</summary>
-	public RenderManager Render { get; private set; }
-
-	/// <summary>取景相机（拾取与渲染剔除共用）。</summary>
-	public OrbitalCamera Camera { get; private set; }
+	public WorldPresentation Render { get; private set; }
 
 	/// <summary>参数管理器（不进场景树）。</summary>
 	public WorldParams Params { get; private set; }
@@ -93,9 +92,8 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		_buildFailure = onBuildFailure;
 	}
 
-	/// <summary>应用装配在入树前注入地图存档库；独立运行时保留游戏目录默认实现。</summary>
-	internal void SetMapRepository(IGeographyMapRepository repository)
-		=> _mapRepository = repository ?? throw new ArgumentNullException(nameof(repository));
+	internal void SetMapSaver(FileSaveComponent<GeographySnapshot> saver)
+		=> _mapSaver = saver ?? throw new ArgumentNullException(nameof(saver));
 
 	/// <summary>应用装配在入树前注入返回主界面的端口；独立运行时为空，菜单项不跳转。</summary>
 	internal void SetMainMenuReturn(IMainMenuReturn mainMenu) => _mainMenu = mainMenu;
@@ -107,6 +105,9 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	public override void _Ready()
 	{
 		_mainMenu ??= this;
+		World = new WorldSession(
+			message => GD.Print(message),
+			error => GD.PushError($"[EVOLVE] 推进失败：{error.Message}"));
 		if (_generatedWorld == null)
 		{
 			try { InitializeWorld(); }
@@ -123,33 +124,23 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		BindManagers();
 		LoadParams();
 
-		World.Initialize(Params.Active, _mapRepository);
+		World.Initialize(Params.Active);
 		_ticks.Add(World);
 
-		Render.SetDock(this.Require<MapDock>(DockPath, nameof(DockPath)));
 		var modes = WorldGenMapModes.CreateAll(World.Sim);
-		Render.Initialize(World.Sim, modes);
+		Render.Initialize(World.Sim, modes, WorldMapLayers.CreateNatural());
 		World.WorldPublished += OnWorldPublished;
 		_ticks.Add(Render);
-		FrameCamera();
 
 		OnUiReady();
 
-		GD.Print($"[TERRAIN-EVOLUTION] 管理器树就绪：子系统 {_ticks.Count} 个" +
-				 $"（世界={World.Name} 渲染={Render.Name}）");
+		GD.Print($"[TERRAIN-EVOLUTION] 页面会话就绪：子系统 {_ticks.Count} 个" +
+				 $"（世界会话={nameof(WorldSession)} 渲染={Render.Name}）");
 	}
 
 	void BindManagers()
 	{
-		World = this.Require<WorldManager>(WorldManagerPath, nameof(WorldManagerPath));
-		Render = this.Require<RenderManager>(RenderManagerPath, nameof(RenderManagerPath));
-		Camera = this.Require<OrbitalCamera>(CameraPath, nameof(CameraPath));
-	}
-
-	void FrameCamera()
-	{
-		Camera.SetOrbitRadius(World.Sim.Ball.Radius);
-		if (Render.GetLandFocusDirection() is Vector3 direction) Camera.LookAtPoint(direction);
+		Render = this.Require<WorldPresentation>(WorldPresentationPath, nameof(WorldPresentationPath));
 	}
 
 	void LoadParams()
@@ -160,27 +151,30 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	}
 
 	/// <summary>接管宿主生成好的世界：先绑管理器与参数，再把画面装配交给分帧 <see cref="_Process"/>。</summary>
+	MapLoadingView _assemblyLoading;
+
 	void AdoptGeneratedWorld(WorldGenerationResult result)
 	{
+		_assemblyLoading = MapLoadingView.Create();
+		AddChild(_assemblyLoading);
+		_assemblyLoading.Begin();
+		_assemblyLoading.ShowProgress(0, "正在装配地图");
 		BindManagers();
 		Params = new WorldParams();
 		result.Spec.CopyTo(Params.Active);
-		World.SetMapRepository(_mapRepository);
-		Render.SetDock(this.Require<MapDock>(DockPath, nameof(DockPath)));
 
 		World.Adopt(result);
 		var modes = WorldGenMapModes.CreateAll(World.Sim);
-		Render.InitializeIncremental(World.Sim, modes);
+		Render.InitializeIncremental(World.Sim, modes, WorldMapLayers.CreateNatural());
 		World.WorldPublished += OnWorldPublished;
 		_ticks.Add(World);
 		_ticks.Add(Render);
 
-		FrameCamera();
 		OnUiReady();
 		_renderBuilding = true;
 
-		GD.Print($"[TERRAIN-EVOLUTION] 管理器树就绪：子系统 {_ticks.Count} 个" +
-				 $"（世界={World.Name} 渲染={Render.Name}）");
+		GD.Print($"[TERRAIN-EVOLUTION] 页面会话就绪：子系统 {_ticks.Count} 个" +
+				 $"（世界会话={nameof(WorldSession)} 渲染={Render.Name}）");
 	}
 
 	void FailBuild(Exception error)
@@ -213,7 +207,12 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		if (_renderBuilding && Render != null)
 		{
 			bool done = Render.StepBuild(8.0);
-			if (done) _renderBuilding = false;
+			if (done)
+			{
+				_renderBuilding = false;
+				_assemblyLoading?.QueueFree();
+				_assemblyLoading = null;
+			}
 		}
 		foreach (var tick in _ticks) tick.Tick(delta);
 		TickUi(delta);
@@ -225,15 +224,27 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		if (World != null) World.WorldPublished -= OnWorldPublished;
 		_renderBuilding = false;
 		_ticks.Clear();
-		World?.PauseEvolution();
+		World?.Dispose();
+		World = null;
+	}
+
+	internal string SaveMap()
+	{
+		WorldFacts facts = World?.Sim?.Facts ?? throw new InvalidOperationException("世界尚未生成");
+		var snapshot = GeographySnapshotCapture.Capture(facts, Guid.NewGuid(),
+			$"世界 {DateTime.Now:yyyy-MM-dd HH:mm}", string.Empty, DateTimeOffset.UtcNow, "0.5.0");
+		string relativePath = System.IO.Path.Combine("userdata", "saves", $"map_{DateTime.Now:yyyyMMdd_HHmmss_fff}.wmap");
+		return _mapSaver.Save(snapshot, relativePath);
 	}
 
 	void OnUiReady()
 	{
-		this.Require<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath)).Bind(Render, World.Sim);
+		_dockPresenter = new MapDockPresenter(this.Require<MapDock>(DockPath, nameof(DockPath)), Render.Modes);
+		_mapExport = new TerrainMapExport(World.Sim, Render.Modes.Modes, new PngMapImageWriter());
+		this.Require<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath)).Bind(Render.Selection, World.Sim, Render.Modes);
 		var notice = this.Require<AppStatusBar>(AppStatusBarPath, nameof(AppStatusBarPath));
 		_controller = new GeographyEvolutionController(World,
-			new GeographyEvolutionPageActions(World.SaveMap, Render.ExportTerrainMapNow,
+			new GeographyEvolutionPageActions(SaveMap, _mapExport.Export,
 				_mainMenu, notice.Notify));
 		_controller.StateChanged += RefreshEvolutionUi;
 
@@ -249,8 +260,18 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		_controller.Refresh();
 	}
 
+	public override void _UnhandledInput(InputEvent input)
+	{
+		if (_mapExport == null || Render.SwapActive || !MapExportShortcut.Matches(input)) return;
+		_controller?.ExportMapImage();
+		GetViewport().SetInputAsHandled();
+	}
+
 	void OnUiHidden()
 	{
+		_dockPresenter?.Dispose();
+		_dockPresenter = null;
+		_mapExport = null;
 		if (_controller != null) _controller.StateChanged -= RefreshEvolutionUi;
 		_controller = null;
 
@@ -332,9 +353,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	public override string[] _GetConfigurationWarnings()
 	{
 		var warnings = new List<string>();
-		this.Check<WorldManager>(WorldManagerPath, nameof(WorldManagerPath), warnings);
-		this.Check<RenderManager>(RenderManagerPath, nameof(RenderManagerPath), warnings);
-		this.Check<OrbitalCamera>(CameraPath, nameof(CameraPath), warnings);
+		this.Check<WorldPresentation>(WorldPresentationPath, nameof(WorldPresentationPath), warnings);
 		this.Check<MapDock>(DockPath, nameof(DockPath), warnings);
 		this.Check<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath), warnings);
 		this.Check<EvolutionPanel>(EvolutionPanelPath, nameof(EvolutionPanelPath), warnings);
@@ -344,7 +363,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 
 		foreach (var node in new Node[]
 		{
-			GetNodeOrNull(WorldManagerPath), GetNodeOrNull(RenderManagerPath),
+			GetNodeOrNull(WorldPresentationPath),
 		})
 		{
 			if (node == null) continue;

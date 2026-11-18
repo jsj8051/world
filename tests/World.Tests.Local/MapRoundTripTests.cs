@@ -36,11 +36,15 @@ internal static class MapRoundTripTests
 		string path = Path.Combine(directory, "roundtrip.wmap");
 		try
 		{
-			MapPackageWriter.Write(snapshot, path);
+			var storage = new MapPackageFileStorage();
+			var saver = new World.Application.Storage.FileSaveComponent<GeographySnapshot>(storage, directory);
+			var loader = new World.Application.Storage.FileLoadComponent<GeographySnapshot>(storage, directory);
+			Program.True(saver.Save(snapshot, "roundtrip.wmap") == "roundtrip.wmap", "Saver returned an unexpected path.");
+			Program.Throws(() => saver.Save(snapshot, "roundtrip.wmap"), "Map storage must refuse overwriting a saved map.");
 			MapProbeResult probe = MapPackageProbe.Probe(path);
 			Program.True(probe.Status == MapProbeStatus.HeaderReadable,
 				$"Probe failed: {probe.Status}/{probe.Issue?.Code}: {probe.Issue?.Message}");
-			GeographySnapshot read = MapPackageReader.Read(path);
+			GeographySnapshot read = loader.Load("roundtrip.wmap");
 			ImportedWorldFactsSource first = ImportedWorldFactsFactory.Build(snapshot);
 			ImportedWorldFactsSource second = ImportedWorldFactsFactory.Build(read);
 			Compare(first.Facts, second.Facts, read.Manifest.CellCount);
@@ -94,11 +98,11 @@ internal static class MapRoundTripTests
 		try
 		{
 			MapPackageWriter.Write(Capture(sim.Facts), path);
-			var repository = new GameMapRepository(new MapPackageFileStorage(), directory);
-			var job = new MapBrowseJob(repository);
+			var loader = new World.Application.Storage.FileLoadComponent<GeographySnapshot>(new MapPackageFileStorage(), directory);
+			var job = new MapBrowseJob(loader);
 			bool finished = false;
 			job.Signal += signal => finished |= signal.Kind == WorkSignalKind.JobCompleted;
-			ImportedWorldFactsSource source = job.Run(path, CancellationToken.None);
+			ImportedWorldFactsSource source = job.Run("job.wmap", CancellationToken.None);
 
 			Program.True(finished, "浏览 Job 未发出完成信号");
 			Program.True(source.Facts.Ball.CellIds.Length > 0, "浏览 Job 没有装配出世界事实");

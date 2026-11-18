@@ -13,6 +13,7 @@ grow_vertical = 2
 script = ExtResource("1_menu")
 theme = ExtResource("2_theme")
 GeographyButtonPath = NodePath("Center/Panel/Box/GeographyButton")
+CivilizationButtonPath = NodePath("Center/Panel/Box/CivilizationButton")
 LibraryButtonPath = NodePath("Center/Panel/Box/LibraryButton")
 QuitButtonPath = NodePath("Center/Panel/Box/QuitButton")
 DisabledReasonPath = NodePath("Center/Panel/Box/Reason")
@@ -63,9 +64,7 @@ text = "地图库"
 
 [node name="CivilizationButton" type="Button" parent="Center/Panel/Box"]
 layout_mode = 2
-disabled = true
-tooltip_text = "文明演化尚未实现"
-text = "文明演化（未实现）"
+text = "文明演化"
 
 [node name="PlayButton" type="Button" parent="Center/Panel/Box"]
 layout_mode = 2

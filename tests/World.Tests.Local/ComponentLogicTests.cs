@@ -11,7 +11,7 @@ internal static class ComponentLogicTests
 {
 	sealed class FakeProfileHost : IProfileLibraryHost
 	{
-		internal readonly List<GenerationProfile> Items = new();
+		internal readonly List<ProfileLibraryItem> Items = new();
 		internal Guid? Selected;
 		internal bool Dirty;
 		internal bool RejectSelection;
@@ -20,7 +20,7 @@ internal static class ComponentLogicTests
 		internal bool LastSaveAsNew;
 		internal Guid? LastDeleted;
 
-		public GenerationProfile[] Profiles => Items.ToArray();
+		public ProfileLibraryItem[] Profiles => Items.ToArray();
 		public Guid? SelectedProfileId => Selected;
 		public bool HasUnappliedChanges => Dirty;
 		internal bool AllowDraftSync = true;
@@ -46,7 +46,7 @@ internal static class ComponentLogicTests
 			Saves++;
 			LastName = name;
 			LastSaveAsNew = saveAsNew;
-			var profile = new GenerationProfile { Id = Guid.NewGuid(), Name = name };
+			var profile = new ProfileLibraryItem(Guid.NewGuid(), name);
 			Items.Add(profile);
 			Selected = profile.Id;
 		}
@@ -66,7 +66,7 @@ internal static class ComponentLogicTests
 		}
 	}
 
-	static GenerationProfile Profile(string name) => new() { Id = Guid.NewGuid(), Name = name };
+	static ProfileLibraryItem Profile(string name) => new(Guid.NewGuid(), name);
 
 	internal static void EditorFormRoundTrip()
 	{
@@ -141,6 +141,16 @@ internal static class ComponentLogicTests
 		controller.Confirm();
 		Program.True(host.Loads == 1 && host.Selected == second.Id && controller.Confirmation == null,
 			"确认后必须载入最初请求的配置");
+
+		host.Dirty = false;
+		host.RejectSelection = true;
+		controller.Select(0);
+		Program.True(host.Selected == second.Id && controller.Confirmation == null && host.Loads == 1,
+			"宿主拒绝选择时不得载入或创建确认操作");
+		controller.Select(-1);
+		controller.Select(host.Items.Count);
+		Program.True(host.Selected == second.Id && host.Loads == 1,
+			"非法列表下标不得执行档案操作");
 	}
 
 	internal static void ProfileNameDialogRoutesOperations()

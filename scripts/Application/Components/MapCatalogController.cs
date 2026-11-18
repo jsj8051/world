@@ -12,7 +12,7 @@ namespace World.Application.Components;
 /// </summary>
 internal sealed class MapCatalogController
 {
-	readonly IGeographyMapRepository _repository;
+	readonly IGeographyMapCatalog _repository;
 	readonly IMapCatalogActions _actions;
 	IReadOnlyList<MapCatalogEntry> _entries = Array.Empty<MapCatalogEntry>();
 	int _selectedIndex = -1;
@@ -25,7 +25,7 @@ internal sealed class MapCatalogController
 	/// <summary>选择或状态文字变化（视图只刷新选中态、详情与按钮）。</summary>
 	internal event Action StateChanged;
 
-	internal MapCatalogController(IGeographyMapRepository repository, IMapCatalogActions actions = null)
+	internal MapCatalogController(IGeographyMapCatalog repository, IMapCatalogActions actions = null)
 	{
 		_repository = repository ?? throw new ArgumentNullException(nameof(repository));
 		_actions = actions;

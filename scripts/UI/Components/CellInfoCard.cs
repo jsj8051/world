@@ -12,6 +12,8 @@ public partial class CellInfoCard : PanelContainer
 {
 	ICellSelectionSource _selectionSource;
 	IWorldFactsSource _factsSource;
+	MapModeController _modes;
+	PickedCell? _pickedCell;
 	Label _body;
 	Label _crust;
 	Button _boundaryToggle;
@@ -49,17 +51,20 @@ public partial class CellInfoCard : PanelContainer
 	}
 
 	/// <summary>卡片就绪后、启用地图交互前绑定。事实源与选中格应来自同一张地图。</summary>
-	public void Bind(ICellSelectionSource selectionSource, IWorldFactsSource factsSource = null)
+	public void Bind(ICellSelectionSource selectionSource, IWorldFactsSource factsSource = null, MapModeController modes = null)
 	{
 		ArgumentNullException.ThrowIfNull(selectionSource);
 		if (!IsInsideTree() || _body == null)
 			throw new InvalidOperationException("格子信息卡必须在场景树中就绪后绑定。");
-		if (ReferenceEquals(_selectionSource, selectionSource) && ReferenceEquals(_factsSource, factsSource)) return;
+		if (ReferenceEquals(_selectionSource, selectionSource) && ReferenceEquals(_factsSource, factsSource)
+			&& ReferenceEquals(_modes, modes)) return;
 
 		Unbind();
 		_selectionSource = selectionSource;
 		_factsSource = factsSource;
+		_modes = modes;
 		_selectionSource.CellPicked += OnCellPicked;
+		if (_modes != null) _modes.Changed += RefreshContent;
 	}
 
 	public override void _ExitTree() => Unbind();
@@ -67,15 +72,23 @@ public partial class CellInfoCard : PanelContainer
 	void Unbind()
 	{
 		if (_selectionSource != null) _selectionSource.CellPicked -= OnCellPicked;
+		if (_modes != null) _modes.Changed -= RefreshContent;
 		_selectionSource = null;
 		_factsSource = null;
+		_modes = null;
 		Clear();
 	}
 
 	void OnCellPicked(PickedCell? picked)
 	{
+		_pickedCell = picked;
+		RefreshContent();
+	}
+
+	void RefreshContent()
+	{
 		CellInfoCardContent content = CellInfoCardController.DescribeSelection(
-			picked, _selectionSource.ShowCrustDetails, _factsSource);
+			_pickedCell, _modes?.Current is CrustMode, _factsSource);
 		if (content == null) Clear();
 		else Present(content);
 	}
@@ -102,6 +115,7 @@ public partial class CellInfoCard : PanelContainer
 	public void Clear()
 	{
 		_cellId = null;
+		_pickedCell = null;
 		Visible = false;
 	}
 }

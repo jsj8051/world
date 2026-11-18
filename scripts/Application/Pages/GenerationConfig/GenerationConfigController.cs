@@ -28,7 +28,8 @@ internal sealed class GenerationConfigController
 	}
 
 	internal GenerationConfig Draft => _session.Draft;
-	internal GenerationProfile[] Profiles => _session.Profiles.ToArray();
+	internal ProfileLibraryItem[] Profiles => _session.Profiles
+		.Select(profile => new ProfileLibraryItem(profile.Id, profile.Name)).ToArray();
 	internal Guid? SelectedProfileId => _session.SelectedProfileId;
 	internal bool HasUnappliedChanges => _session.HasUnappliedChanges;
 	internal bool IsStarting => _starting;
