@@ -103,6 +103,11 @@ static class Program
 		Run("Layers keep one public data entry", VillageLayerTests.LayersExposeSingleUpdateEntry);
 		Run("World regression rejects invalid metrics and fingerprint drift",
 			WorldGenerationRegression.RejectsInvalidMetricsAndFingerprintDrift);
+		Run("雕刻模块依赖图稳定排序且可扩展", WorldSculptingTests.DependencyGraphSortsAndAllowsExtension);
+		Run("雕刻轮模块失败与取消不提交", WorldSculptingTests.FailureAndCancellationDoNotCommit);
+		Run("雕刻模块注册拒绝不完整依赖图", WorldSculptingTests.RegistrationValidationRejectsBrokenGraphs);
+		Run("雕刻执行计划稳定并隔离注册变更", WorldSculptingTests.PlanIsStableAndSnapshotsRegistration);
+		Run("雕刻会话拒绝过期候选", WorldSculptingTests.SessionRejectsStaleResult);
 
 		Run("年基温随纬度下降", ClimateTests.LatitudeCoolsTowardPoles);
 		Run("零倾角无季节", ClimateTests.ZeroObliquityRemovesSeasons);
