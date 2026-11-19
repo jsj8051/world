@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Godot;
+using World.Application.Geography;
 using World.Application.Loading;
 using World.Application.Export;
 using World.Infrastructure.Export;
@@ -30,9 +31,7 @@ namespace World.UI.Pages;
 public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 {
 	[ExportGroup("页面依赖（NodePath）")]
-	[Export] public NodePath WorldPresentationPath { get; set; }
-	[Export] public NodePath DockPath { get; set; }
-	[Export] public NodePath CellInfoCardPath { get; set; }
+	[Export] public NodePath MapViewerPath { get; set; }
 
 	/// <summary>共享应用菜单（左上按钮 + 居中面板）。</summary>
 	[Export] public NodePath AppMenuPath { get; set; }
@@ -47,7 +46,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	IMainMenuReturn _mainMenu;
 	bool _renderBuilding;
 
-	MapDockPresenter _dockPresenter;
+	MapViewer _viewer;
 	TerrainMapExport _mapExport;
 	AppMenu _menu;
 	GeographyEvolutionController _controller;
@@ -127,8 +126,9 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		World.Initialize(Params.Active);
 		_ticks.Add(World);
 
-		var modes = WorldGenMapModes.CreateAll(World.Sim);
-		Render.Initialize(World.Sim, modes, WorldMapLayers.CreateNatural());
+		_viewer.Configure(GeographyMapViewerContent.Create(World.Sim));
+		while (!Render.StepBuild(1000)) { }
+		_viewer.SetActive(true);
 		World.WorldPublished += OnWorldPublished;
 		_ticks.Add(Render);
 
@@ -140,7 +140,8 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 
 	void BindManagers()
 	{
-		Render = this.Require<WorldPresentation>(WorldPresentationPath, nameof(WorldPresentationPath));
+		_viewer = this.Require<MapViewer>(MapViewerPath, nameof(MapViewerPath));
+		Render = _viewer.Presentation;
 	}
 
 	void LoadParams()
@@ -164,8 +165,8 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 		result.Spec.CopyTo(Params.Active);
 
 		World.Adopt(result);
-		var modes = WorldGenMapModes.CreateAll(World.Sim);
-		Render.InitializeIncremental(World.Sim, modes, WorldMapLayers.CreateNatural());
+		_viewer.Configure(GeographyMapViewerContent.Create(World.Sim));
+		_viewer.SetActive(true);
 		World.WorldPublished += OnWorldPublished;
 		_ticks.Add(World);
 		_ticks.Add(Render);
@@ -239,9 +240,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 
 	void OnUiReady()
 	{
-		_dockPresenter = new MapDockPresenter(this.Require<MapDock>(DockPath, nameof(DockPath)), Render.Modes);
 		_mapExport = new TerrainMapExport(World.Sim, Render.Modes.Modes, new PngMapImageWriter());
-		this.Require<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath)).Bind(Render.Selection, World.Sim, Render.Modes);
 		var notice = this.Require<AppStatusBar>(AppStatusBarPath, nameof(AppStatusBarPath));
 		_controller = new GeographyEvolutionController(World,
 			new GeographyEvolutionPageActions(SaveMap, _mapExport.Export,
@@ -269,8 +268,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 
 	void OnUiHidden()
 	{
-		_dockPresenter?.Dispose();
-		_dockPresenter = null;
+		_viewer?.ReleaseBindings();
 		_mapExport = null;
 		if (_controller != null) _controller.StateChanged -= RefreshEvolutionUi;
 		_controller = null;
@@ -353,9 +351,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	public override string[] _GetConfigurationWarnings()
 	{
 		var warnings = new List<string>();
-		this.Check<WorldPresentation>(WorldPresentationPath, nameof(WorldPresentationPath), warnings);
-		this.Check<MapDock>(DockPath, nameof(DockPath), warnings);
-		this.Check<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath), warnings);
+		this.Check<MapViewer>(MapViewerPath, nameof(MapViewerPath), warnings);
 		this.Check<EvolutionPanel>(EvolutionPanelPath, nameof(EvolutionPanelPath), warnings);
 		this.Check<AppStatusBar>(AppStatusBarPath, nameof(AppStatusBarPath), warnings);
 		if (AppMenuPath != null && !AppMenuPath.IsEmpty)
@@ -363,7 +359,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 
 		foreach (var node in new Node[]
 		{
-			GetNodeOrNull(WorldPresentationPath),
+			GetNodeOrNull(MapViewerPath),
 		})
 		{
 			if (node == null) continue;

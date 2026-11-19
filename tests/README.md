@@ -37,3 +37,17 @@ dotnet run --project tests/World.Tests.Local
 - 测试工程带 `.gdignore`：Godot 不进这棵树，不生成 `.uid`。
 - 退出码 0 = 全绿；`.githooks/pre-commit` 与 `.github/workflows/ci.yml` 都调同一个入口。
 - 改 `tests/` 下的工程名时，同步改 `world.csproj` 的 `InternalsVisibleTo`（测试直测 internal 纯函数）。
+
+## 地图查看器检查
+
+先执行 `dotnet build world.csproj --configuration Debug`，再用 Godot Mono 控制台程序运行：
+
+```powershell
+& $godot --headless --path . res://tests/scenes/WorldPresentationCheck.tscn
+& $godot --headless --path . res://tests/scenes/MapBrowserLoadCheck.tscn -- userdata/saves/map_20261114_183708_449.wmap
+& $godot --headless --path . res://tests/scenes/MapBrowserLoadCheck.tscn -- userdata/saves/__missing_viewer_check__.wmap --expect-failure
+& $godot --headless --path . res://tests/scenes/MapBrowserLoadCheck.tscn -- userdata/saves/map_20261114_183708_449.wmap --cancel
+& $godot --headless --path . res://tests/scenes/GeographyEvolutionCheck.tscn -- --evo-check
+```
+
+`$godot` 为本机 Godot Mono 可执行文件路径；成功加载和取消检查的参数可替换为现有地图相对路径。查看器检查覆盖共用场景、地理与无自然图层组合、重复配置拒绝、交互门禁和失败图层清理；逻辑跑器覆盖内容注入和订阅释放。当前 `verify.sh` 未自动包含独立查看器及浏览加载检查。

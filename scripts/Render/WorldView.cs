@@ -100,6 +100,8 @@ public partial class WorldView : Node3D
 		if (_layersReady) layer.SetContext(_source.Facts, _mode);
 	}
 
+	internal bool OwnsLayer(IMapLayer layer) => _layers.Contains(layer);
+
 	public override void _ExitTree()
 	{
 		foreach (var layer in _layers)

@@ -1,7 +1,6 @@
 using System;
 using Godot;
 using World.Application.Pages;
-using World.Render;
 using World.UI.Components;
 using World.Utils;
 
@@ -10,10 +9,7 @@ namespace World.UI.Pages;
 /// <summary>显示已经装配的地图并转发返回意图。</summary>
 public partial class MapBrowserView : Node3D, IMapBrowserPageActions
 {
-	[Export] public NodePath WorldPresentationPath { get; set; }
-	[Export] public NodePath CellInfoCardPath { get; set; }
-	[Export] public NodePath DockPath { get; set; }
-	[Export] public NodePath PanelLayerPath { get; set; }
+	[Export] public NodePath MapViewerPath { get; set; }
 	[Export] public NodePath TitleLabelPath { get; set; }
 	[Export] public NodePath StatusLabelPath { get; set; }
 	[Export] public NodePath AppMenuPath { get; set; }
@@ -33,10 +29,7 @@ public partial class MapBrowserView : Node3D, IMapBrowserPageActions
 	}
 
 	internal IMapBrowserPresentation PreparePresentation() => _presentation = new MapBrowserPresentation(
-		this.Require<WorldPresentation>(WorldPresentationPath, nameof(WorldPresentationPath)),
-		this.Require<CellInfoCard>(CellInfoCardPath, nameof(CellInfoCardPath)),
-		this.Require<MapDock>(DockPath, nameof(DockPath)),
-		this.Require<CanvasLayer>(PanelLayerPath, nameof(PanelLayerPath)));
+		this.Require<MapViewer>(MapViewerPath, nameof(MapViewerPath)));
 
 	internal void Activate(string title)
 	{

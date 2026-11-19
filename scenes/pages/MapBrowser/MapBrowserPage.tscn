@@ -1,23 +1,17 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=4 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/Pages/MapBrowser/MapBrowserView.cs" id="1_browser"]
-[ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="2_presentation"]
+[ext_resource type="PackedScene" path="res://scenes/components/MapViewer.tscn" id="2_presentation"]
 [ext_resource type="PackedScene" path="res://scenes/components/AppMenu.tscn" id="3_menu"]
-
-[ext_resource type="PackedScene" path="res://scenes/components/CellInfoCard.tscn" id="cell_info"]
-[ext_resource type="PackedScene" path="res://scenes/components/MapDock.tscn" id="map_dock"]
 
 [node name="MapBrowser" type="Node3D"]
 script = ExtResource("1_browser")
-WorldPresentationPath = NodePath("Presentation")
-CellInfoCardPath = NodePath("PanelLayer/CellInfoCard")
-DockPath = NodePath("PanelLayer/MapDock")
-PanelLayerPath = NodePath("PanelLayer")
+MapViewerPath = NodePath("MapViewer")
 StatusLabelPath = NodePath("TopBar/Status")
 TitleLabelPath = NodePath("TopBar/Title")
 AppMenuPath = NodePath("AppMenu")
 
-[node name="Presentation" parent="." instance=ExtResource("2_presentation")]
+[node name="MapViewer" parent="." instance=ExtResource("2_presentation")]
 
 [node name="TopBar" type="CanvasLayer" parent="."]
 
@@ -48,17 +42,3 @@ autowrap_mode = 3
 text = "未指定地图，请从地图库打开。"
 
 [node name="AppMenu" parent="." instance=ExtResource("3_menu")]
-
-[node name="PanelLayer" type="CanvasLayer" parent="."]
-
-[node name="CellInfoCard" parent="PanelLayer" instance=ExtResource("cell_info")]
-anchors_preset = 2
-anchor_top = 1.0
-anchor_bottom = 1.0
-offset_left = 12.0
-offset_top = -12.0
-offset_right = 12.0
-offset_bottom = -12.0
-grow_vertical = 0
-
-[node name="MapDock" parent="PanelLayer" instance=ExtResource("map_dock")]

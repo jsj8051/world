@@ -1,13 +1,9 @@
 using System;
 using System.Text;
 using World.Data;
+using World.Application.MapViewing;
 
 namespace World.Application.Components;
-
-/// <summary>格子信息卡的展示内容（视图只负责写入控件）。</summary>
-internal sealed record CellInfoCardContent(
-	ulong CellId, string Summary, string Crust, bool ShowCrust, string BoundaryToggleText,
-	bool ShowBoundaryToggle, string Boundaries);
 
 /// <summary>
 /// 格子信息卡的文本逻辑：把一次拾取结果与可选地壳详情格式化成摘要、地壳段落与边界列表。
@@ -17,7 +13,7 @@ internal static class CellInfoCardFormatter
 {
 	static readonly string[] Headings = { "北", "东北", "东", "东南", "南", "西南", "西", "西北" };
 
-	internal static CellInfoCardContent Describe(in PickedCell cell, string bandName, CrustCellDetails crust)
+	internal static MapSelectionContent Describe(in PickedCell cell, string bandName, CrustCellDetails crust)
 	{
 		string lat = $"{Math.Abs(cell.LatDeg):F1}°{(cell.LatDeg >= 0f ? "N" : "S")}";
 		string lng = $"{Math.Abs(cell.LngDeg):F1}°{(cell.LngDeg >= 0f ? "E" : "W")}";
@@ -30,9 +26,9 @@ internal static class CellInfoCardFormatter
 
 		CrustCellBoundary[] edges = crust?.Boundaries ?? Array.Empty<CrustCellBoundary>();
 		bool showBoundaryToggle = edges.Length > 1;
-		return new CellInfoCardContent(cell.CellId, summary, CrustText(crust), crust != null,
+		return new MapSelectionContent(cell.CellId, summary, CrustText(crust),
 			showBoundaryToggle ? $"全部相邻边界（{edges.Length}）" : string.Empty,
-			showBoundaryToggle, showBoundaryToggle ? BoundariesText(edges) : string.Empty);
+			showBoundaryToggle ? BoundariesText(edges) : string.Empty);
 	}
 
 	static string CrustText(CrustCellDetails crust)

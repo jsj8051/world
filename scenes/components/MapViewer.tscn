@@ -1,0 +1,25 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/Components/MapViewer.cs" id="1_viewer"]
+[ext_resource type="PackedScene" path="res://scenes/render/WorldPresentation.tscn" id="2_presentation"]
+[ext_resource type="PackedScene" path="res://scenes/components/CellInfoCard.tscn" id="3_card"]
+[ext_resource type="PackedScene" path="res://scenes/components/MapDock.tscn" id="4_dock"]
+
+[node name="MapViewer" type="Node3D"]
+script = ExtResource("1_viewer")
+
+[node name="Presentation" parent="." instance=ExtResource("2_presentation")]
+
+[node name="Panels" type="CanvasLayer" parent="."]
+
+[node name="CellInfoCard" parent="Panels" instance=ExtResource("3_card")]
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 12.0
+offset_top = -12.0
+offset_right = 12.0
+offset_bottom = -12.0
+grow_vertical = 0
+
+[node name="MapDock" parent="Panels" instance=ExtResource("4_dock")]

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using World.Application.Components;
+using World.Application.MapViewing;
 using World.Data;
 using World.Data.Generation;
 
@@ -248,11 +249,11 @@ internal static class ComponentLogicTests
 			CellId = 0x2A, LatDeg = -12.34f, LngDeg = 56.78f, ElevM = 123f,
 			IsLand = true, LandFraction = 0.5f, DistToCoast = 3, DistToLand = 4,
 		};
-		CellInfoCardContent plain = CellInfoCardFormatter.Describe(cell, "丘陵", null);
+		MapSelectionContent plain = CellInfoCardFormatter.Describe(cell, "丘陵", null);
 		Program.True(plain.Summary.Contains("12.3°S") && plain.Summary.Contains("56.8°E")
 			&& plain.Summary.Contains("+123 m") && plain.Summary.Contains("丘陵") && plain.Summary.Contains("陆地"),
 			"摘要必须包含坐标、海拔档位与海陆");
-		Program.True(!plain.ShowCrust && !plain.ShowBoundaryToggle && plain.Crust.Length == 0,
+		Program.True(plain.Details.Length == 0 && plain.ExpandedDetails.Length == 0,
 			"无地壳详情必须隐藏地壳段");
 
 		CrustCellBoundary[] edges =
@@ -261,12 +262,12 @@ internal static class ComponentLogicTests
 			new(3, BoundaryKind.Divergent, ConvergenceKind.None, BoundarySideRole.None, 4, 1),
 		};
 		var crust = new CrustCellDetails(1, CrustType.Continental, 12.5, 0.25, 30, 90, 2.5, 800, 120, edges);
-		CellInfoCardContent detailed = CellInfoCardFormatter.Describe(cell, "丘陵", crust);
-		Program.True(detailed.ShowCrust && detailed.ShowBoundaryToggle, "有边界时必须显示地壳段与边界开关");
-		Program.True(detailed.BoundaryToggleText.Contains("2") && detailed.Boundaries.Contains("邻接板块 2")
-			&& detailed.Boundaries.Contains("邻接板块 3"), "边界列表必须列出全部相邻边界");
-		Program.True(detailed.Crust.Contains("表层板块 1") && detailed.Crust.Contains("陆壳")
-			&& detailed.Crust.Contains("俯冲") && detailed.Crust.Contains("东（90°）"),
+		MapSelectionContent detailed = CellInfoCardFormatter.Describe(cell, "丘陵", crust);
+		Program.True(detailed.Details.Length > 0 && detailed.ExpandedDetails.Length > 0, "有边界时必须显示地壳段与边界开关");
+		Program.True(detailed.ExpansionCaption.Contains("2") && detailed.ExpandedDetails.Contains("邻接板块 2")
+			&& detailed.ExpandedDetails.Contains("邻接板块 3"), "边界列表必须列出全部相邻边界");
+		Program.True(detailed.Details.Contains("表层板块 1") && detailed.Details.Contains("陆壳")
+			&& detailed.Details.Contains("俯冲") && detailed.Details.Contains("东（90°）"),
 			"地壳段必须包含板块、壳型、运动方向与首条边界摘要");
 	}
 }

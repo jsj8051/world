@@ -70,6 +70,8 @@ public partial class WorldPresentation : Node3D, ITickable
 	public int BuildStep => _view?.BuildStep ?? 0;
 	public string BuildStage => _view?.BuildStage ?? "完成";
 
+	internal bool OwnsLayer(IMapLayer layer) => _view?.OwnsLayer(layer) == true;
+
 	public void AddLayer(IMapLayer layer)
 	{
 		if (!_initialized) throw new InvalidOperationException("World presentation is not initialized.");

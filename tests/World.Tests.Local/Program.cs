@@ -95,6 +95,8 @@ static class Program
 		}
 
 		Console.WriteLine("World.Tests.Local");
+		Run("Viewer selection uses injected content and releases subscriptions", MapViewerTests.SelectionUsesInjectedContentAndReleasesSubscriptions);
+		Run("Viewer composition snapshots and validates registrations", MapViewerTests.CompositionSnapshotsRegistrationsAndRejectsInvalidInputs);
 		Run("Village layer is gated by session stage and map mode", VillageLayerTests.StageAndModeGateVisibility);
 		Run("Layer sources expose owner data without copying", VillageLayerTests.SourcesExposeOwnerData);
 		Run("Village dots reject the far hemisphere", VillageLayerTests.BackHemisphereIsOccluded);

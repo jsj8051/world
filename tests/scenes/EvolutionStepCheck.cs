@@ -41,10 +41,11 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		var dock = root.GetNode(root.DockPath);
+		var viewer = root.GetNode(root.MapViewerPath);
+		var dock = viewer.GetNode("Panels/MapDock");
 		var modeRow = dock.GetNode("DockBox/ModeRow");
 		var crustButton = modeRow.GetChildren().OfType<Button>().FirstOrDefault(button => button.Text == "地壳");
-		var motion = root.GetNodeOrNull<PlateMotionOverlay>("Presentation/WorldView/PlateMotion");
+		var motion = viewer.GetNodeOrNull<PlateMotionOverlay>("Presentation/WorldView/PlateMotion");
 		var current = root.FindChild("CurrentFlow", recursive: true, owned: false) as CurrentFlowOverlay;
 		if (crustButton?.Text != "地壳" || motion == null || motion.Visible
 			|| current == null || current.Visible || current.Mesh != null
@@ -74,11 +75,11 @@ public partial class EvolutionStepCheck : Node
 			return;
 		}
 		crustWithMotion.EmitSignal(BaseButton.SignalName.Pressed);
-		var card = root.GetNode<Control>(root.CellInfoCardPath);
+		var card = viewer.GetNode<Control>("Panels/CellInfoCard");
 		var cardSummary = card.FindChild("CellSummary", recursive: true, owned: false) as Label;
-		var crustSummary = card.FindChild("CrustSummary", recursive: true, owned: false) as Label;
-		var boundaryList = card.FindChild("CrustBoundaries", recursive: true, owned: false) as Label;
-		var boundaryToggle = card.FindChild("ToggleBoundaries", recursive: true, owned: false) as Button;
+		var crustSummary = card.FindChild("SelectionDetails", recursive: true, owned: false) as Label;
+		var boundaryList = card.FindChild("ExpandedDetails", recursive: true, owned: false) as Label;
+		var boundaryToggle = card.FindChild("ToggleDetails", recursive: true, owned: false) as Button;
 		int mixedCell = CheckCrustQueries(initial, initialFrame);
 		if (mixedCell < 0 || cardSummary == null || crustSummary == null || boundaryList == null || boundaryToggle == null)
 		{
@@ -86,7 +87,7 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		root.GetNode<OrbitalCamera>("Presentation/OrbitalCamera").LookAtPoint(initial.Ball.CellDirs[mixedCell]);
+		viewer.GetNode<OrbitalCamera>("Presentation/OrbitalCamera").LookAtPoint(initial.Ball.CellDirs[mixedCell]);
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		Vector2 mapPoint = GetViewport().GetCamera3D().UnprojectPosition(
 			initial.Ball.CellDirs[mixedCell] * initial.Ball.Radius);
