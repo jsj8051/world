@@ -101,7 +101,7 @@ static partial class SeasonalCirculationExperiment
 			var spec = new WorldSpec { Layout = sample.Layout, Seed = sample.Seed };
 			Console.WriteLine($"Generating H3 res4 {sample.Layout} seed {sample.Seed}...");
 			var simulation = new WorldGenSimulation(4, 2f);
-			simulation.Run(spec);
+			LegacyWorldGeneration.RunStatic(simulation, spec);
 			passed &= ValidateGeneratedWorld(coarseBall, simulation.Facts, spec, belts);
 		}
 		return passed;

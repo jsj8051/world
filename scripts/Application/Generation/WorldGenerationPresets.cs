@@ -3,7 +3,7 @@ using World.Application.Loading;
 namespace World.Application.Generation;
 
 /// <summary>
-/// 世界生产档：分辨率取世界生产档（res4）、开演化、不额外跑初始步。
+/// 世界生产档：res4，进入地图前从初始地表完成一轮雕刻。
 /// 生成参数类型本身不认识"生产"这个概念，因此生产策略由应用层决定；
 /// 它不依附场景节点，故与运行时宿主 <c>World.Runtime</c> 分开。
 /// </summary>
@@ -18,5 +18,5 @@ internal static class WorldGenerationPresets
 	internal const int ProductionRes = 4;
 
 	internal static readonly WorldGenerationOptions Production =
-		new(ProductionRes, EnableEvolution: true, EvolutionSteps: 0);
+		new(ProductionRes, InitialSculptingRounds: 1);
 }

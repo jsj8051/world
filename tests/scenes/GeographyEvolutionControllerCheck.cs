@@ -12,7 +12,8 @@ internal static class GeographyEvolutionControllerCheck
 		public EvolutionControlStatus Status { get; set; } = EvolutionControlStatus.Paused;
 		public bool Busy { get; set; }
 		public int Plays, Pauses, Steps, Recoveries;
-		public double SeekTarget, Speed;
+		public long SeekTarget;
+		public double Speed;
 		public string SeekMessage;
 		public bool ThrowOnSeek, ThrowOnSpeed;
 
@@ -21,17 +22,17 @@ internal static class GeographyEvolutionControllerCheck
 		public void Step() => Steps++;
 		public void ConfirmFault() => Recoveries++;
 
-		public string Seek(double targetMa)
+		public string Seek(long targetRound)
 		{
-			SeekTarget = targetMa;
+			SeekTarget = targetRound;
 			if (ThrowOnSeek) throw new InvalidOperationException("seek failed");
 			return SeekMessage;
 		}
 
-		public void SetSpeed(double yearsPerSecond)
+		public void SetSpeed(double roundsPerSecond)
 		{
-			if (ThrowOnSpeed) throw new ArgumentOutOfRangeException(nameof(yearsPerSecond));
-			Speed = yearsPerSecond;
+			if (ThrowOnSpeed) throw new ArgumentOutOfRangeException(nameof(roundsPerSecond));
+			Speed = roundsPerSecond;
 		}
 	}
 

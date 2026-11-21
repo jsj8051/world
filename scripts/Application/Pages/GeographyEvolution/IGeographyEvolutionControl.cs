@@ -15,6 +15,6 @@ internal interface IGeographyEvolutionControl
 	void Step();
 	void ConfirmFault();
 	/// <summary>返回不能开始跳转的原因；开始跳转时返回 null。</summary>
-	string Seek(double targetMa);
-	void SetSpeed(double yearsPerSecond);
+	string Seek(long targetRound);
+	void SetSpeed(double roundsPerSecond);
 }

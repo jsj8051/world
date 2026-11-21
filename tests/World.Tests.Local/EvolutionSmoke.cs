@@ -24,7 +24,7 @@ static class EvolutionSmoke
 			foreach (string problem in problems) Console.WriteLine(problem);
 		}
 		var world = new WorldGenSimulation(res, PlanetRadius);
-		var solver = world.CreateEvolutionSolver(spec, out var frame);
+		var solver = LegacyWorldGeneration.CreateEvolutionSolver(world, spec, out var frame);
 		var grid = solver.Grid;
 		double globe = grid.AreasKm2.Sum();
 		foreach (int ma in new[] { 0, 50, 100 })
@@ -61,8 +61,8 @@ static class EvolutionSmoke
 		spec.Evolution.StepYears = 100_000;
 		var sim = new WorldGenSimulation(res, PlanetRadius);
 		var build = Stopwatch.StartNew();
-		EvolutionSimulation evolution = sim.CreateEvolutionSolver(spec, out var frame);
-		sim.Publish(sim.PrepareEvolution(evolution, frame));
+		EvolutionSimulation evolution = LegacyWorldGeneration.CreateEvolutionSolver(sim, spec, out var frame);
+		sim.Publish(LegacyWorldGeneration.PrepareEvolution(sim, evolution, frame));
 		build.Stop();
 		EvolutionGrid grid = evolution.Grid;
 		if (res <= 2) CheckInitialTerrain(spec, sim, frame);
@@ -130,8 +130,8 @@ static class EvolutionSmoke
 		varied.Terrain.TrenchDepthM *= 4;
 		varied.Terrain.ArcIslandPeakM *= 4;
 		var comparison = new WorldGenSimulation(sim.Ball.Res, PlanetRadius);
-		var solver = comparison.CreateEvolutionSolver(varied, out var initial);
-		comparison.Publish(comparison.PrepareEvolution(solver, initial));
+		var solver = LegacyWorldGeneration.CreateEvolutionSolver(comparison, varied, out var initial);
+		comparison.Publish(LegacyWorldGeneration.PrepareEvolution(comparison, solver, initial));
 
 		if (!comparison.Facts.HeightM.SequenceEqual(sim.Facts.HeightM)
 			|| !frame.Projection.HeightM.SequenceEqual(sim.Facts.HeightM)
@@ -165,12 +165,12 @@ static class EvolutionSmoke
 		var spec = new WorldSpec { Seed = 42 };
 		var sim = new WorldGenSimulation(res, PlanetRadius);
 		var watch = Stopwatch.StartNew();
-		sim.Run(spec);
+		LegacyWorldGeneration.RunStatic(sim, spec);
 		WorldFacts initial = sim.Facts;
-		var solver = sim.CreateEvolutionSolver(spec, out var zero);
+		var solver = LegacyWorldGeneration.CreateEvolutionSolver(sim, spec, out var zero);
 		var frame = solver.CalculateToStep(zero, steps);
 		long evolutionMs = watch.ElapsedMilliseconds;
-		var state = sim.PrepareEvolution(solver, frame);
+		var state = LegacyWorldGeneration.PrepareEvolution(sim, solver, frame);
 		long downstreamMs = watch.ElapsedMilliseconds - evolutionMs;
 		if (!ReferenceEquals(sim.Facts, initial)) throw new Exception("候选世界不应提前发布");
 		sim.Publish(state);

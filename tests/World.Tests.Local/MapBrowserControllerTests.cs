@@ -193,7 +193,7 @@ internal static class MapBrowserControllerTests
 	static ImportedWorldFactsSource CreateSource()
 	{
 		var simulation = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-		simulation.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(simulation, new WorldSpec());
 		GeographySnapshot snapshot = GeographySnapshotCapture.Capture(simulation.Facts, Guid.NewGuid(),
 			"browser fixture", string.Empty, DateTimeOffset.UtcNow, "tests");
 		return ImportedWorldFactsFactory.Build(snapshot);

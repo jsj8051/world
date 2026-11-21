@@ -4,13 +4,12 @@ using Godot;
 using World.Data;
 using World.Logic;
 using World.Render;
-using World.Application.World;
 using World.Application.Generation;
 using World.UI.Pages;
 
 namespace World.Tests;
 
-/// <summary>验证地理演化页的真实 res4 演化；带 --evo-check 时单步一次并退出。</summary>
+/// <summary>验证地理页面的 res4 雕刻、单轮发布和跳转。</summary>
 public partial class EvolutionStepCheck : Node
 {
 	public override async void _Ready()
@@ -21,23 +20,18 @@ public partial class EvolutionStepCheck : Node
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		var root = (GeographyEvolutionView)GetTree().CurrentScene;
 		var world = root.World;
-		if (world?.EvolutionFrame == null
+		if (world?.SculptingRoundIndex != WorldGenerationPresets.Production.InitialSculptingRounds
 			|| world.Sim.Ball.Res != WorldGenerationPresets.ProductionRes
-			|| world.EvolutionFrame.Definition.H3Resolution != world.Sim.Ball.Res
-			|| world.EvolutionFrame.Material.CellCount != world.Sim.Facts.HeightM.Length)
+			|| world.Sim.Facts.BiomeByCell.Count != world.Sim.Ball.CellIds.Length)
 		{
 			GD.PushError("[EVO-CHECK] 主世界未使用同网格的 res4 演化");
 			GetTree().Quit(1);
 			return;
 		}
 		var initial = world.Sim.Facts;
-		var initialFrame = world.EvolutionFrame;
-		if (!ReferenceEquals(initial.Evolution, initialFrame)
-			|| !ReferenceEquals(initial.PlateBoundaries, initialFrame.Projection.PlateBoundaries)
-			|| !ReferenceEquals(initial.PlateMotions, initialFrame.Motions)
-			|| !initial.HeightM.SequenceEqual(initialFrame.Projection.HeightM))
+		if (initial.SourceTimeMa.HasValue || !initial.BiomeByCell.Any(type => type.HasValue))
 		{
-			GD.PushError("[EVO-CHECK] 初始世界未发布演化帧的地形与边界");
+			GD.PushError("[EVO-CHECK] 初始世界未发布完整的雕刻快照");
 			GetTree().Quit(1);
 			return;
 		}
@@ -80,7 +74,7 @@ public partial class EvolutionStepCheck : Node
 		var crustSummary = card.FindChild("SelectionDetails", recursive: true, owned: false) as Label;
 		var boundaryList = card.FindChild("ExpandedDetails", recursive: true, owned: false) as Label;
 		var boundaryToggle = card.FindChild("ToggleDetails", recursive: true, owned: false) as Button;
-		int mixedCell = CheckCrustQueries(initial, initialFrame);
+		int mixedCell = CheckCrustQueries(initial);
 		if (mixedCell < 0 || cardSummary == null || crustSummary == null || boundaryList == null || boundaryToggle == null)
 		{
 			GD.PushError("[EVO-CHECK] 地壳查询缺少验证样例或信息卡控件");
@@ -94,7 +88,7 @@ public partial class EvolutionStepCheck : Node
 		Click(mapPoint);
 		ulong selected = initial.Ball.CellIds[mixedCell];
 		if (!card.IsVisibleInTree() || !crustSummary.Visible || !boundaryToggle.Visible
-			|| !CardMatches(cardSummary, crustSummary, initial, initialFrame, mixedCell, selected))
+			|| !CardMatches(cardSummary, crustSummary, initial, mixedCell, selected))
 		{
 			GD.PushError("[EVO-CHECK] 点击混合边界没有显示正确的地壳读数");
 			GetTree().Quit(1);
@@ -102,21 +96,20 @@ public partial class EvolutionStepCheck : Node
 		}
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		Click(boundaryToggle);
-		if (!boundaryList.IsVisibleInTree() || !boundaryList.Text.Contains("张裂")
-			|| !(boundaryList.Text.Contains("俯冲") || boundaryList.Text.Contains("陆陆碰撞")))
+		if (!boundaryList.IsVisibleInTree() || boundaryList.Text.Split('\n').Length < 2)
 		{
-			GD.PushError("[EVO-CHECK] 混合格展开后没有同时列出汇聚与张裂边");
+			GD.PushError("[EVO-CHECK] 多边界格展开后未列出相邻板块边界");
 			GetTree().Quit(1);
 			return;
 		}
 
 		float before = initial.HeightM[0];
-		long expected = initialFrame.Clock.StepIndex + 1;
+		long expected = initial.SculptingRoundIndex.Value + 1;
 		var panel = root.EvolutionReadout;
 		var buttons = panel?.FindChildren("*", "Button", recursive: true, owned: false).OfType<Button>().ToArray();
 		var play = buttons?.FirstOrDefault(button => button.Text == "播放");
 		var pause = buttons?.FirstOrDefault(button => button.Text == "暂停");
-		var step = buttons?.FirstOrDefault(button => button.Text == "单步");
+		var step = buttons?.FirstOrDefault(button => button.Text == "单轮");
 		var jump = buttons?.FirstOrDefault(button => button.Text == "跳转");
 		var seek = panel?.FindChild("SeekTime", recursive: true, owned: false) as LineEdit;
 		var status = panel?.FindChild("Status", recursive: true, owned: false) as Label;
@@ -144,9 +137,9 @@ public partial class EvolutionStepCheck : Node
 			GetTree().Quit(1);
 			return;
 		}
-		seek.Text = world.EvolutionFrame.Clock.TimeMa.ToString(CultureInfo.InvariantCulture);
+		seek.Text = world.SculptingRoundIndex.Value.ToString(CultureInfo.InvariantCulture);
 		Click(jump);
-		if (!feedback.Visible || !feedback.Text.Contains("当前步") || world.EvolutionBusy)
+		if (!feedback.Visible || !feedback.Text.Contains("当前轮") || world.EvolutionBusy)
 		{
 			GD.PushError("[EVO-CHECK] 跳转到当前步没有可见提示");
 			GetTree().Quit(1);
@@ -166,13 +159,11 @@ public partial class EvolutionStepCheck : Node
 			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		float after = world.Sim.Facts.HeightM[0];
-		if (world.EvolutionBusy || world.EvolutionFrame.Clock.StepIndex != expected || panel?.Visible != true
+		if (world.EvolutionBusy || world.SculptingRoundIndex != expected || panel?.Visible != true
 			|| step.Disabled || status.Text != "暂停"
 			|| ReferenceEquals(world.Sim.Facts, initial)
-			|| !ReferenceEquals(world.Sim.Facts.Evolution, world.EvolutionFrame)
-			|| !ReferenceEquals(world.Sim.Facts.PlateMotions, world.EvolutionFrame.Motions)
 			|| !motion.IsVisibleInTree() || motion.ArrowCount == 0
-			|| !CardMatches(cardSummary, crustSummary, world.Sim.Facts, world.EvolutionFrame, mixedCell, selected)
+			|| !CardMatches(cardSummary, crustSummary, world.Sim.Facts, mixedCell, selected)
 			|| world.Sim.Facts.HeightM.SequenceEqual(initial.HeightM))
 		{
 			GD.PushError("[EVO-CHECK] 未能提交演化步、重建世界快照或显示面板");
@@ -180,15 +171,12 @@ public partial class EvolutionStepCheck : Node
 			return;
 		}
 		stepTime.Stop();
-		GD.Print($"[EVO-CHECK] res={world.Sim.Ball.Res} cells={world.EvolutionFrame.Material.CellCount} " +
-			$"step={world.EvolutionFrame.Clock.StepIndex} panel={panel != null} arrows={motion.ArrowCount} " +
-			$"height[0]={before:F2}->{after:F2} mantle={world.EvolutionFrame.Mantle.StoredVolumeKm3:G6} " +
-			$"residual={world.EvolutionFrame.Budget.CumulativeResidual:G6} step-to-view-ms={stepTime.ElapsedMilliseconds}");
+		GD.Print($"[EVO-CHECK] res={world.Sim.Ball.Res} cells={world.Sim.Ball.CellIds.Length} " +
+			$"round={world.SculptingRoundIndex} arrows={motion.ArrowCount} " +
+			$"height[0]={before:F2}->{after:F2} round-to-view-ms={stepTime.ElapsedMilliseconds}");
 
-		var clock = world.EvolutionFrame.Clock;
-		long target = OS.GetCmdlineUserArgs().Contains("--evo-check-10ma")
-			? System.Math.Max(expected + 2, clock.StepsFor(10_000_000)) : expected + 2;
-		seek.Text = (target * (double)clock.StepYears / 1_000_000d).ToString(CultureInfo.InvariantCulture);
+		long target = expected + 2;
+		seek.Text = target.ToString(CultureInfo.InvariantCulture);
 		string oldCard = crustSummary.Text;
 		var jumpTime = System.Diagnostics.Stopwatch.StartNew();
 		Click(jump);
@@ -201,21 +189,18 @@ public partial class EvolutionStepCheck : Node
 		while (jumpTime.Elapsed.TotalSeconds < 190 && world.EvolutionBusy)
 			await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
 		await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
-		if (world.EvolutionBusy || world.EvolutionFrame.Clock.StepIndex != target
-			|| !CardMatches(cardSummary, crustSummary, world.Sim.Facts, world.EvolutionFrame, mixedCell, selected))
+		if (world.EvolutionBusy || world.SculptingRoundIndex != target
+			|| !CardMatches(cardSummary, crustSummary, world.Sim.Facts, mixedCell, selected))
 		{
 			GD.PushError("[EVO-CHECK] 跳转后信息卡未刷新同一位置");
 			GetTree().Quit(1);
 			return;
 		}
-		GD.Print($"[EVO-CHECK] selected={selected:X} step={target} Ma={world.EvolutionFrame.Clock.TimeMa:F2} jump-to-view-ms={jumpTime.ElapsedMilliseconds}");
+		GD.Print($"[EVO-CHECK] selected={selected:X} round={target} jump-to-view-ms={jumpTime.ElapsedMilliseconds}");
 		if (System.Environment.GetEnvironmentVariable("WORLD_BUILD_PROFILE") == "1")
 		{
 			using var process = System.Diagnostics.Process.GetCurrentProcess();
-			var material = world.EvolutionFrame.Material;
-			long slotBytes = material.Rows.AllocatedEntries * System.Runtime.InteropServices.Marshal.SizeOf<CrustEntry>();
-			GD.Print($"[WORLD-PROFILE] peak-working-set={process.PeakWorkingSet64 / 1048576d:F1} MiB " +
-				$"slots={material.OccupiedSlotCount}/{material.Rows.AllocatedEntries} slot-storage={slotBytes / 1048576d:F1} MiB");
+			GD.Print($"[WORLD-PROFILE] peak-working-set={process.PeakWorkingSet64 / 1048576d:F1} MiB");
 		}
 		if (current.Mesh != null || current.Visible)
 		{
@@ -237,47 +222,23 @@ public partial class EvolutionStepCheck : Node
 		GetTree().Quit(0);
 	}
 
-	static int CheckCrustQueries(WorldFacts facts, EvolutionFrame frame)
+	static int CheckCrustQueries(WorldFacts facts)
 	{
 		var boundaries = facts.PlateBoundaries;
-		var field = frame.Projection.Boundary;
-		bool ridge = false, trench = false, collision = false, interior = false;
-		int mixed = -1;
 		for (int cell = 0; cell < facts.HeightM.Length; cell++)
 		{
 			var adjacent = boundaries.EdgesOfCell(cell);
-			if (adjacent.IsEmpty)
-			{
-				if (!interior) interior = CrustCellQuery.Read(facts, cell).Boundaries.Length == 0;
-				continue;
-			}
-			int dominant = facts.BoundaryFields.DominantNormalEdge(boundaries, cell);
-			if (dominant < 0) continue;
+			if (adjacent.Length < 2) continue;
 			var query = CrustCellQuery.Read(facts, cell);
-			var primary = query.Boundaries[0];
-			if (query.Boundaries.Length != adjacent.Length || query.TimeMa != frame.Clock.TimeMa
-				|| query.MaterialHeightM != frame.Projection.MaterialHeightM[cell]
-				|| query.ReliefM + query.MaterialHeightM != facts.HeightM[cell]
-				|| primary.NormalKmPerMa != field.NormalSpeedKmPerMa[dominant]
-				|| primary.ShearKmPerMa != field.TangentSpeedKmPerMa[dominant]) return -1;
-			ridge |= query.Type == CrustType.Oceanic && primary.Motion == BoundaryKind.Divergent;
-			trench |= primary.Convergence == ConvergenceKind.Subduction && primary.Role == BoundarySideRole.Underthrusting;
-			collision |= primary.Convergence == ConvergenceKind.Collision && primary.Role == BoundarySideRole.None;
-			if (mixed < 0 && query.Boundaries.Any(edge => edge.Motion == BoundaryKind.Divergent)
-				&& query.Boundaries.Any(edge => edge.Motion == BoundaryKind.Convergent)) mixed = cell;
-			if (ridge && trench && collision && interior && mixed >= 0) return mixed;
+			return query.Boundaries.Length == adjacent.Length && !query.TimeMa.HasValue ? cell : -1;
 		}
 		return -1;
 	}
 
-	static bool CardMatches(Label card, Label crust, WorldFacts facts, EvolutionFrame frame, int cell, ulong id)
+	static bool CardMatches(Label card, Label crust, WorldFacts facts, int cell, ulong id)
 	{
-		float material = frame.Projection.MaterialHeightM[cell];
-		double relief = facts.HeightM[cell] - (double)material;
 		return card.Text.Contains(id.ToString("X")) && card.Text.Contains($"{facts.HeightM[cell]:+0;-0;0} m")
-			&& crust.Text.Contains($"{frame.Clock.TimeMa:0.00####} Ma")
-			&& crust.Text.Contains($"材料海拔    {material:+0;-0;0} m")
-			&& crust.Text.Contains($"剖面净修正  {relief:+0;-0;0} m");
+			&& crust.Text.Contains($"表层板块 {facts.PlateOfCell[cell]}");
 	}
 
 	static bool Readable(Control text, Control backdrop, string style)

@@ -8,13 +8,10 @@ using World.H3Grid;
 namespace World.Logic;
 
 /// <summary>
-/// 一次全链生成的只读快照：世界事实的唯一取数口（下游只认它，不认阶段怎么分）。
-/// 只持有各阶段产物的引用——不存数据、不含算法；每次 <see cref="WorldGenSimulation.Run"/>
-/// 重新捕获一份，同一快照里的场必来自同一次生成。捕获即校验：五段齐备、逐格数组与
-/// <c>Ball.CellIds</c> 等长，否则抛。
+/// 一次完整世界生成、雕刻或导入发布的只读快照，供展示、查询和导出。
+/// 装配时检查所需事实存在，逐格数组与 <c>Ball.CellIds</c> 对齐。
 /// </summary>
 /// <example><code>
-/// sim.Run(spec);
 /// float h  = sim.Facts.HeightM[i];           // ① 地形
 /// int   d  = sim.Facts.FinalDistToCoast[i];  // ① 世界事实
 /// float mm = sim.Facts.PrecipitationMm[i];   // ② 气候
@@ -43,6 +40,9 @@ public sealed class WorldFacts
 
 	/// <summary>结果时刻（Ma）：生成时来自演化钟，导入时来自地图清单；静态为 null。</summary>
 	public double? SourceTimeMa { get; }
+
+	/// <summary>当前快照的雕刻轮号。初始雕刻世界为第 0 轮。</summary>
+	public long? SculptingRoundIndex { get; }
 
 	/// <summary>逐格生物群系。海洋与湖面格为空。</summary>
 	public IReadOnlyList<BiomeType?> BiomeByCell { get; }
@@ -156,14 +156,15 @@ public sealed class WorldFacts
 	/// <summary>世界事实的 nearest / distance 查询基础设施。</summary>
 	public FinalSpatialIndex SpatialIndex { get; }
 
-	// 只由 WorldGenSimulation 捕获：外部快照对应一次跑完的全链。
-	// imported 非空时，Surface 取自导入结果；管线必须已由导入工厂装配，不得现场生成。
+	// 完整生成、雕刻提交候选、导入工厂共用的快照入口。
+	// 导入时从快照装配基础事实，生物群系从已保存的气候与水文派生。
 	internal WorldFacts(Ball ball, PlatePipeline plate, TerrainPipeline terrain, ClimatePipeline climate,
 		HydrologyPipeline hydrology, IndexPipeline index, EvolutionFrame evolution, float seaLevelM,
-		GeographySnapshot imported = null)
+		GeographySnapshot imported = null, BiomeType?[] biomeByCell = null, long? sculptingRoundIndex = null)
 	{
 		Ball = ball ?? throw new ArgumentNullException(nameof(ball));
 		SeaLevelM = seaLevelM;
+		SculptingRoundIndex = sculptingRoundIndex;
 		int n = Ball.CellIds.Length;
 
 		PlateOfCell = Aligned(plate.PlateOfCell, n, nameof(PlateOfCell));
@@ -226,7 +227,7 @@ public sealed class WorldFacts
 		Basins = Present(hydrology.Basins, "流域拓扑");
 		Lakes = Present(hydrology.Lakes, "湖泊状态");
 		WaterSystem = Present(hydrology.WaterSystem, "水系拓扑");
-		BiomeByCell = Array.AsReadOnly(Aligned(BiomeClassifier.Classify(ball, terrain, climate, Lakes),
+		BiomeByCell = Array.AsReadOnly(Aligned(biomeByCell ?? BiomeClassifier.Classify(ball, terrain, climate, Lakes),
 			n, nameof(BiomeByCell)));
 
 		SpatialIndex = Present(index.Index, "空间索引");

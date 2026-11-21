@@ -37,7 +37,7 @@ internal static class RelativePersistencePathTests
 		try
 		{
 			var sim = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-			sim.Run(new WorldSpec());
+			LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 			var snapshot = GeographySnapshotCapture.Capture(sim.Facts, Guid.NewGuid(), "relative", "", DateTimeOffset.UtcNow, "tests");
 			const string relative = "userdata/saves/portable.wmap";
 			var storage = new MapPackageFileStorage();

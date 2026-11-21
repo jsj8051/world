@@ -1,0 +1,181 @@
+using System;
+using System.Linq;
+using System.Threading;
+using World.Data;
+using World.H3Grid;
+using World.Logic;
+using World.Utils;
+using SculptingData = World.Data.WorldSculptingRoundData<World.Data.WorldSculptingState, World.Data.WorldSculptingModuleOutput>;
+
+namespace World.Tests;
+
+static class SculptingSurfaceTransportTests
+{
+	internal static void RotationMovesSurfaceAndResolvesOverlapAndGaps()
+	{
+		var ball = new Ball(0, 2f);
+		var north = new SpherePointD(0, 1, 0);
+		var plates = new[]
+		{
+			new SculptingPlateState(0, 3.2, new SpherePointD(1, 0, 0), RotationD.Identity),
+			new SculptingPlateState(1, 3.0, new SpherePointD(-1, 0, 0), RotationD.Identity),
+		};
+		int[] owners = ball.CellDirs.Select(direction => direction.X > 0 ? 0 : 1).ToArray();
+		float[] heights = owners.Select((owner, cell) => owner == 0 ? 100f + cell : -50f).ToArray();
+		CrustType[] types = owners.Select(owner => owner == 0 ? CrustType.Continental : CrustType.Oceanic).ToArray();
+		int[] provinces = owners.Select(owner => owner == 0 ? 0 : -1).ToArray();
+		var sourceSurface = new SculptingSurfaceState(ball.Res, ball.CellIds, owners, heights, types, provinces,
+			new[] { new CrustProvince(0, CrustType.Continental, Array.IndexOf(owners, 0), 0, owners.Count(owner => owner == 0)) },
+			plates.Select(plate => plate.Orientation), 0);
+		var source = new WorldSculptingState(Guid.NewGuid(), ball.Res, ball.Radius, plates, sourceSurface);
+		var plan = new[]
+		{
+			new PlateRotation(0, north, .65),
+			new PlateRotation(1, north, 0),
+		};
+		var data = Run(ball, source, plan);
+		var poses = data.Read<PlateMovementResult>(PlateMovementModule.ModuleId);
+		var result = data.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
+		var repeat = Run(ball, source, plan).Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
+		var surface = result.Surface;
+		Program.True(ball.CellIds.SequenceEqual(surface.CellIds) && surface.HeightM.SequenceEqual(repeat.Surface.HeightM)
+			&& result.Contacts.SequenceEqual(repeat.Contacts),
+			"搬运保留 H3 格序且结果可复现");
+		Program.True(surface.HeightM.Any(height => height > 100f && height != MathF.Truncate(height)),
+			"搬运后的亚格位置用同板块邻格混合高程，避免重复最近格复制");
+		Program.True(surface.CrustProvinceIds.Count(id => id == 0) == surface.CrustProvinces[0].CellCount
+			&& surface.CrustProvinceIds[surface.CrustProvinces[0].SeedCell] == 0,
+			"省的格数和种子跟随搬运");
+		Program.True(ReferenceEquals(surface.SampledPlateOrientations[0], poses.Plates[0].Orientation)
+			&& source.Surface.HeightM.SequenceEqual(heights), "本轮更新采样姿态，保留来源快照");
+		var relief = data.Read<SculptingTerrainModule.Result>(SculptingTerrainModule.ModuleId).Surface;
+		var overlap = Enumerable.Range(0, surface.CellCount)
+			.Where(cell => result.Contacts[cell] == SculptingCrustContact.ContinentalMargin).ToArray();
+		Program.True(overlap.Length > 0 && overlap.All(cell => surface.CrustTypes[cell] == CrustType.Continental
+			&& relief.HeightM[cell] > surface.HeightM[cell]), "较密的陆壳在陆洋碰撞时也应保留并隆起");
+		CheckSampling(result, source.Surface);
+		var sampled = result.SampledCells.Where(sample => sample >= 0).ToArray();
+		Program.True(sampled.Length > sampled.Distinct().Count(), "反向采样允许复用旧格，无需一对一分配");
+
+		var common = Run(ball, source, new[] { new PlateRotation(0, north, .5), new PlateRotation(1, north, .5) });
+		var commonTransport = common.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
+		var commonTerrain = common.Read<SculptingTerrainModule.Result>(SculptingTerrainModule.ModuleId);
+		Program.True(commonTransport.Contacts.All(contact => contact == SculptingCrustContact.None)
+			&& commonTransport.Surface.HeightM.SequenceEqual(commonTerrain.Surface.HeightM),
+			"所有板块共同转动时，搬运不制造分离或碰撞地形");
+		CheckSampling(commonTransport, source.Surface);
+	}
+
+	static void CheckSampling(SculptingSurfaceTransportModule.Result transport, SculptingSurfaceState initial)
+	{
+		for (int target = 0; target < initial.CellCount; target++)
+		{
+			int sample = transport.SampledCells[target];
+			Program.True(sample < 0
+				? transport.Coverage.Openings[target].HasValue
+					&& transport.Contacts[target] is SculptingCrustContact.OceanSpreading or SculptingCrustContact.ContinentalStretch
+				: transport.Surface.PlateOfCell[target] == initial.PlateOfCell[sample]
+					&& transport.Surface.CrustTypes[target] == initial.CrustTypes[sample],
+				"目标格从旋转后的地表采样，只有张裂空缺才能生成新地表");
+		}
+	}
+
+	internal static void ContinentalOverlapKeepsBothSides()
+	{
+		var ball = new Ball(2, 2f);
+		var axis = new SpherePointD(0, 1, 0);
+		int[] owners = ball.CellDirs.Select(direction => direction.X > 0 ? 0 : 1).ToArray();
+		var plates = new[]
+		{
+			new SculptingPlateState(0, 3, new SpherePointD(1, 0, 0), RotationD.Identity),
+			new SculptingPlateState(1, 3, new SpherePointD(-1, 0, 0), RotationD.Identity),
+		};
+		var heights = owners.Select(owner => owner == 0 ? 600f : 900f).ToArray();
+		var surface = new SculptingSurfaceState(ball.Res, ball.CellIds, owners, heights,
+			Enumerable.Repeat(CrustType.Continental, owners.Length), new int[owners.Length],
+			new[] { new CrustProvince(0, CrustType.Continental, 0, owners[0], owners.Length) },
+			plates.Select(plate => plate.Orientation), 0);
+		var source = new WorldSculptingState(Guid.NewGuid(), ball.Res, ball.Radius, plates, surface);
+		var data = Run(ball, source, new[] { new PlateRotation(0, axis, .25), new PlateRotation(1, axis, -.25) });
+		var moved = data.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
+		var terrain = data.Read<SculptingTerrainModule.Result>(SculptingTerrainModule.ModuleId);
+		int[] collisions = Enumerable.Range(0, owners.Length)
+			.Where(cell => moved.Contacts[cell] == SculptingCrustContact.ContinentalCollision).ToArray();
+		Program.True(collisions.Select(cell => moved.ContactOwners[cell]).Distinct().Count() == 2,
+			"陆陆碰撞在重叠区域两侧各保留一块板，形成缝合线");
+		Program.True(collisions.All(cell => moved.SampledCells[cell] >= 0)
+			&& collisions.Any(cell => terrain.Surface.HeightM[cell] > moved.Surface.HeightM[cell])
+			&& moved.Surface.CrustTypes.All(type => type == CrustType.Continental),
+			"沿大陆缝合线抬升保留下来的地表");
+	}
+
+	internal static void DivergenceRespectsCrustAndElevation()
+	{
+		var ball = new Ball(2, 2f);
+		var axis = new SpherePointD(0, 1, 0);
+		int[] owners = ball.CellDirs.Select(direction => direction.X > 0 ? 0 : 1).ToArray();
+		var plates = new[]
+		{
+			new SculptingPlateState(0, 3, new SpherePointD(1, 0, 0), RotationD.Identity),
+			new SculptingPlateState(1, 3, new SpherePointD(-1, 0, 0), RotationD.Identity),
+		};
+		var plan = new[] { new PlateRotation(0, axis, .2), new PlateRotation(1, axis, -.2) };
+
+		SculptingData Open(CrustType type, float height)
+		{
+			bool continental = type == CrustType.Continental;
+			var provinces = continental ? new[] { new CrustProvince(0, type, 0, owners[0], owners.Length) }
+				: Array.Empty<CrustProvince>();
+			var surface = new SculptingSurfaceState(ball.Res, ball.CellIds, owners,
+				Enumerable.Repeat(height, owners.Length), Enumerable.Repeat(type, owners.Length),
+				Enumerable.Repeat(continental ? 0 : -1, owners.Length), provinces,
+				plates.Select(plate => plate.Orientation), 0);
+			var source = new WorldSculptingState(Guid.NewGuid(), ball.Res, ball.Radius, plates, surface);
+			return Run(ball, source, plan);
+		}
+
+		var land = Open(CrustType.Continental, 600);
+		var landTransport = land.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
+		var landTerrain = land.Read<SculptingTerrainModule.Result>(SculptingTerrainModule.ModuleId);
+		var landRifts = Enumerable.Range(0, owners.Length)
+			.Where(cell => landTransport.Contacts[cell] == SculptingCrustContact.ContinentalStretch).ToArray();
+		Program.True(landRifts.Length > 0 && landTransport.Surface.CrustTypes.All(type => type == CrustType.Continental)
+			&& landRifts.All(cell => landTerrain.Surface.HeightM[cell] > 0)
+			&& landRifts.Any(cell => landTerrain.Surface.HeightM[cell] < landTransport.Surface.HeightM[cell]),
+			"露出的陆壳沿真正的张开带下切成裂谷，保留陆壳与高程连续性");
+
+		CheckNewSeafloor(Open(CrustType.Oceanic, -600));
+		CheckNewSeafloor(Open(CrustType.Continental, -600));
+
+		void CheckNewSeafloor(SculptingData data)
+		{
+			var moved = data.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
+			var terrain = data.Read<SculptingTerrainModule.Result>(SculptingTerrainModule.ModuleId);
+			var rifts = Enumerable.Range(0, owners.Length)
+				.Where(cell => moved.Contacts[cell] == SculptingCrustContact.OceanSpreading).ToArray();
+			Program.True(rifts.Length > 0 && rifts.All(cell => moved.Surface.CrustTypes[cell] == CrustType.Oceanic
+				&& moved.Surface.CrustProvinceIds[cell] == -1 && moved.Surface.HeightM[cell] is >= -600 and <= -200
+				&& terrain.Surface.HeightM[cell] < 0),
+				"洋底扩张和宽海盆的新洋壳在两侧海床与配置深度间过渡");
+			Program.True(rifts.Any(cell => moved.Surface.HeightM[cell] < -200), "新洋壳边缘仍接回已有海床");
+		}
+	}
+
+	static SculptingData Run(Ball ball, WorldSculptingState source, PlateRotation[] rotations)
+	{
+		var movement = new PlateMovementModule(rotations);
+		var transport = new SculptingSurfaceTransportModule(ball, 200);
+		var terrain = new SculptingTerrainModule(ball, new TerrainSpec { VerticalScale = 1 });
+		var data = new SculptingData(source, new WorldSculptingRound(1));
+		data.BeginModule(PlateMovementModule.ModuleId, Array.Empty<string>());
+		movement.Execute(data, CancellationToken.None);
+		data.CloseModule();
+		data.BeginModule(SculptingSurfaceTransportModule.ModuleId, new[] { PlateMovementModule.ModuleId });
+		transport.Execute(data, CancellationToken.None);
+		data.CloseModule();
+		data.BeginModule(SculptingTerrainModule.ModuleId, new[] { PlateMovementModule.ModuleId, SculptingSurfaceTransportModule.ModuleId });
+		terrain.Execute(data, CancellationToken.None);
+		data.CloseModule();
+		return data;
+	}
+}

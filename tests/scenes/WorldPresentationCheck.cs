@@ -17,7 +17,9 @@ public partial class WorldPresentationCheck : Node
 		try
 		{
 			var source = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-			source.Run(new WorldSpec());
+			var result = new World.Application.Loading.WorldGenerationJob().Run(source, new WorldSpec(), 1,
+				System.Threading.CancellationToken.None);
+			source.Publish(result.State);
 			var presentation = GD.Load<PackedScene>("res://scenes/render/WorldPresentation.tscn").Instantiate<WorldPresentation>();
 			AddChild(presentation);
 			presentation.Initialize(source, WorldGenMapModes.CreateAll(source), null);

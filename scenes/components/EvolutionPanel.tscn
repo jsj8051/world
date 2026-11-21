@@ -30,7 +30,7 @@ text = "暂停"
 
 [node name="Time" type="Label" parent="Box"]
 layout_mode = 2
-text = "0.0 Ma · 第 0 步"
+text = "已完成 0 轮"
 
 [node name="Readout" type="Label" parent="Box"]
 layout_mode = 2
@@ -54,7 +54,7 @@ text = "暂停"
 [node name="Step" type="Button" parent="Box/Buttons"]
 layout_mode = 2
 size_flags_horizontal = 3
-text = "单步"
+text = "单轮"
 
 [node name="SeekRow" type="HBoxContainer" parent="Box"]
 layout_mode = 2
@@ -62,7 +62,7 @@ layout_mode = 2
 [node name="SeekTime" type="LineEdit" parent="Box/SeekRow"]
 layout_mode = 2
 size_flags_horizontal = 3
-placeholder_text = "目标时间（Ma）"
+placeholder_text = "目标轮号"
 
 [node name="Jump" type="Button" parent="Box/SeekRow"]
 layout_mode = 2
@@ -73,7 +73,7 @@ layout_mode = 2
 
 [node name="SpeedLabel" type="Label" parent="Box/SpeedRow"]
 layout_mode = 2
-text = "倍率"
+text = "播放速率"
 
 [node name="Speed" type="OptionButton" parent="Box/SpeedRow"]
 layout_mode = 2

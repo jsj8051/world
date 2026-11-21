@@ -20,7 +20,7 @@ static class WorldSmoke
 		if (oceanIterations > 0) spec.Climate.OceanIterations = oceanIterations;
 		var sim = new WorldGenSimulation(res, 1f);
 		var sw = Stopwatch.StartNew();
-		sim.Run(spec);
+		LegacyWorldGeneration.RunStatic(sim, spec);
 		sw.Stop();
 
 		// 单独再跑一遍气候阶段（球壳与地形产物不变，读数与全链内那次同输入）⇒ 气候耗时。
@@ -408,7 +408,7 @@ static class WorldSmoke
 	public static void ExportCrust(int res)
 	{
 		var sim = new WorldGenSimulation(res, 1f);
-		sim.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 		var mode = new CrustMode(sim);
 		mode.BeginBake();
 
@@ -441,7 +441,7 @@ static class WorldSmoke
 	public static void ExportTerrainMap(int res)
 	{
 		var sim = new WorldGenSimulation(res, 1f);
-		sim.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 		int width = res >= 4 ? 4096 : 2048;
 		Console.WriteLine($"terrain ppm={WritePpm(sim, new TerrainMode(sim), width, width / 2, $"terrain_res{res}.ppm")}");
 	}

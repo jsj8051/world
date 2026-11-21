@@ -1,9 +1,9 @@
 using System;
+using System.Threading;
 using World.Application.Generation;
 using World.Application.Loading;
 using World.Application.Pages;
 using World.Data;
-using World.Data.Work;
 using World.H3Grid;
 using World.Logic;
 using World.Render;
@@ -16,14 +16,13 @@ public sealed class WorldSession : ITickable, IGeographyEvolutionControl, IDispo
 {
 	readonly Action<string> _log;
 	readonly Action<Exception> _reportEvolutionFailure;
-	WorldEvolutionSession _evolution;
+	WorldSculptingPlayback _playback;
 	WorldSpec _spec;
 	bool _disposed;
 
-	public EvolutionFrame EvolutionFrame => Sim?.Facts?.Evolution;
-	public bool EvolutionBusy => _evolution?.Busy == true;
-	public EvolutionControlStatus EvolutionStatus => _evolution?.Status ?? EvolutionControlStatus.Uninitialized;
-	internal IWorkSignalSource EvolutionSource => _evolution;
+	public long? SculptingRoundIndex => Sim?.Facts?.SculptingRoundIndex;
+	public bool EvolutionBusy => _playback?.Busy == true;
+	public EvolutionControlStatus EvolutionStatus => _playback?.Status ?? EvolutionControlStatus.Uninitialized;
 	public event Action<WorldFacts> WorldPublished;
 	public WorldGenSimulation Sim { get; private set; }
 	public bool IsInitialized { get; private set; }
@@ -38,11 +37,9 @@ public sealed class WorldSession : ITickable, IGeographyEvolutionControl, IDispo
 	{
 		ThrowIfDisposed();
 		if (IsInitialized) return;
-		_spec = spec ?? throw new ArgumentNullException(nameof(spec));
-		Sim = new WorldGenSimulation(WorldGenerationPresets.ProductionRes, PlanetGeometry.ProductionRadius);
-		Regenerate();
-		LogGenerationSummary();
-		IsInitialized = true;
+		ArgumentNullException.ThrowIfNull(spec);
+		var result = new WorldGenerationJob().Run(spec, WorldGenerationPresets.Production, CancellationToken.None);
+		Install(result);
 	}
 
 	void LogGenerationSummary()
@@ -81,44 +78,37 @@ public sealed class WorldSession : ITickable, IGeographyEvolutionControl, IDispo
 	{
 		ThrowIfDisposed();
 		ArgumentNullException.ThrowIfNull(result);
-		_evolution?.Stop();
+		Install(result);
+		WorldPublished?.Invoke(Sim.Facts);
+	}
+
+	void Install(WorldGenerationResult result)
+	{
+		_playback?.Stop();
 		_spec = result.Spec;
 		Sim = result.Simulation;
 		Sim.Publish(result.State);
-		_evolution = result.Solver != null ? new WorldEvolutionSession(Sim, result.Solver) : null;
+		_playback = new WorldSculptingPlayback(Sim, result.Sculpting);
 		LogGenerationSummary();
 		IsInitialized = true;
-		WorldPublished?.Invoke(Sim.Facts);
 	}
 
 	public void Regenerate()
 	{
 		ThrowIfDisposed();
+		if (!IsInitialized) throw new InvalidOperationException("世界尚未初始化。");
 		WorldGenerationOptions options = WorldGenerationPresets.Production;
-		WorldGenSimulation.State candidate;
-		WorldEvolutionSession nextSession = null;
-		if (options.EnableEvolution)
-		{
-			var solver = Sim.CreateEvolutionSolver(_spec, out var initialFrame);
-			var frame = solver.CalculateToStep(initialFrame, options.EvolutionSteps);
-			candidate = Sim.PrepareEvolution(solver, frame);
-			nextSession = new WorldEvolutionSession(Sim, solver);
-			_log?.Invoke($"[EVOLVE] 已接入：res={frame.Definition.H3Resolution} cells={frame.Material.CellCount} slots={frame.Material.OccupiedSlotCount} stepYears={frame.Clock.StepYears} substeps={solver.TectonicSubstepCount}");
-		}
-		else candidate = Sim.PrepareStatic(_spec);
-
-		_evolution?.Stop();
-		Sim.Publish(candidate);
-		_evolution = nextSession;
-		if (IsInitialized) WorldPublished?.Invoke(Sim.Facts);
+		var result = new WorldGenerationJob().Run(Sim, _spec, options.InitialSculptingRounds,
+			CancellationToken.None);
+		Adopt(result);
 	}
 
-	public void PauseEvolution() => _evolution?.Pause();
+	public void PauseEvolution() => _playback?.Pause();
 
 	public void Tick(double delta)
 	{
 		ThrowIfDisposed();
-		var facts = _evolution?.Tick(delta, error => _reportEvolutionFailure?.Invoke(error));
+		var facts = _playback?.Tick(delta, error => _reportEvolutionFailure?.Invoke(error));
 		if (facts != null) WorldPublished?.Invoke(facts);
 	}
 
@@ -126,8 +116,8 @@ public sealed class WorldSession : ITickable, IGeographyEvolutionControl, IDispo
 	{
 		if (_disposed) return;
 		_disposed = true;
-		_evolution?.Stop();
-		_evolution = null;
+		_playback?.Stop();
+		_playback = null;
 		WorldPublished = null;
 	}
 
@@ -138,15 +128,15 @@ public sealed class WorldSession : ITickable, IGeographyEvolutionControl, IDispo
 
 	EvolutionControlStatus IGeographyEvolutionControl.Status => EvolutionStatus;
 	bool IGeographyEvolutionControl.Busy => EvolutionBusy;
-	void IGeographyEvolutionControl.Play() => _evolution?.Play();
+	void IGeographyEvolutionControl.Play() => _playback?.Play();
 	void IGeographyEvolutionControl.Pause() => PauseEvolution();
-	void IGeographyEvolutionControl.Step() => _evolution?.Step();
-	void IGeographyEvolutionControl.ConfirmFault() => _evolution?.ConfirmFault();
-	string IGeographyEvolutionControl.Seek(double targetMa)
-		=> _evolution == null ? "地理演化尚未初始化。" : _evolution.Seek(targetMa);
-	void IGeographyEvolutionControl.SetSpeed(double yearsPerSecond)
+	void IGeographyEvolutionControl.Step() => _playback?.Step();
+	void IGeographyEvolutionControl.ConfirmFault() => _playback?.ConfirmFault();
+	string IGeographyEvolutionControl.Seek(long targetRound)
+		=> _playback == null ? "世界雕刻尚未初始化。" : _playback.Seek(targetRound);
+	void IGeographyEvolutionControl.SetSpeed(double roundsPerSecond)
 	{
-		try { _evolution?.SetSpeed(yearsPerSecond); }
+		try { _playback?.SetSpeed(roundsPerSecond); }
 		catch (ArgumentOutOfRangeException error) { _log?.Invoke($"[EVOLVE] {error.Message}"); }
 	}
 }

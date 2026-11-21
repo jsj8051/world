@@ -15,7 +15,7 @@ internal static class MapRoundTripTests
 	public static void GeneratedWorldRoundTripsThroughSnapshot()
 	{
 		var sim = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-		sim.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 		WorldFacts facts = sim.Facts;
 		GeographySnapshot snapshot = Capture(facts);
 		Program.True(!snapshot.Manifest.HasProjectedSurface, "A static world must not claim a projected surface.");
@@ -28,7 +28,7 @@ internal static class MapRoundTripTests
 	public static void PackageWriteReadPreservesFacts()
 	{
 		var sim = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-		sim.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 		WorldFacts facts = sim.Facts;
 		GeographySnapshot snapshot = Capture(facts);
 		string directory = Path.Combine(Environment.CurrentDirectory, ".tmp-map-tests-" + Guid.NewGuid().ToString("N"));
@@ -60,7 +60,7 @@ internal static class MapRoundTripTests
 	public static void ParallelReadReportsBlockProgress()
 	{
 		var sim = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-		sim.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 		string directory = Path.Combine(Environment.CurrentDirectory, ".tmp-map-parallel-" + Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, "parallel.wmap");
@@ -91,7 +91,7 @@ internal static class MapRoundTripTests
 	public static void BrowseJobSignalsCompletionAndBuildsFacts()
 	{
 		var sim = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-		sim.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(sim, new WorldSpec());
 		string directory = Path.Combine(Environment.CurrentDirectory, ".tmp-map-job-" + Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, "job.wmap");

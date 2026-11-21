@@ -6,11 +6,11 @@ using World.Data.Work;
 using World.Logic;
 using World.Utils;
 
-namespace World.Application.World;
+namespace World.Tests;
 
-/// <summary>独占播放与后台请求状态。计算线程只产出候选快照，由场景线程提交。
+/// <summary>旧物理演化的诊断会话。计算线程只产出候选快照，由调用线程提交。
 /// 进度只通过 <see cref="Signal"/> 发出；不认识进度条与页面。</summary>
-internal sealed class WorldEvolutionSession(WorldGenSimulation world, EvolutionSimulation solver) : IWorkSignalSource
+internal sealed class LegacyEvolutionPlayback(WorldGenSimulation world, EvolutionSimulation solver) : IWorkSignalSource
 {
 	readonly record struct Result(WorldFacts Source, WorldGenSimulation.State Candidate, Exception Failure);
 
@@ -146,7 +146,7 @@ internal sealed class WorldEvolutionSession(WorldGenSimulation world, EvolutionS
 					});
 				WorldBuildProfile.Mark(ref timing, "tectonic-steps");
 				Signal?.Invoke(WorkSignal.Started("rebuild", "世界重建"));
-				return new Result(source, world.PrepareEvolution(solver, frame, stop), null);
+				return new Result(source, LegacyWorldGeneration.PrepareEvolution(world, solver, frame, stop), null);
 			}
 			catch (OperationCanceledException) when (stop.IsCancellationRequested) { return default; }
 			catch (Exception error) { return new Result(source, null, error); }

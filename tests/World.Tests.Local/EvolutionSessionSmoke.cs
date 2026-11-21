@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Threading;
 using World.Data;
 using World.Logic;
-using World.Application.World;
 
 namespace World.Tests;
 
@@ -14,7 +13,7 @@ static class EvolutionSessionSmoke
 		var world = new WorldGenSimulation(1, 2f);
 		var spec = new WorldSpec { Seed = 42 };
 		spec.Evolution.NewOceanicThicknessKm = 10_000;
-		var probe = world.CreateEvolutionSolver(spec, out var zero);
+		var probe = LegacyWorldGeneration.CreateEvolutionSolver(world, spec, out var zero);
 		var one = probe.CalculateToStep(zero, 1);
 		var two = probe.CalculateToStep(one, 2);
 		double firstCost = zero.Mantle.StoredVolumeKm3 - one.Mantle.StoredVolumeKm3;
@@ -67,14 +66,14 @@ static class EvolutionSessionSmoke
 		Console.WriteLine("[EVOLVE-SESSION] 失败回退、确认恢复、取消、重生成及播放提交通过");
 	}
 
-	static WorldEvolutionSession Initialize(WorldGenSimulation world, WorldSpec spec)
+	static LegacyEvolutionPlayback Initialize(WorldGenSimulation world, WorldSpec spec)
 	{
-		var solver = world.CreateEvolutionSolver(spec, out var frame);
-		world.Publish(world.PrepareEvolution(solver, frame));
-		return new WorldEvolutionSession(world, solver);
+		var solver = LegacyWorldGeneration.CreateEvolutionSolver(world, spec, out var frame);
+		world.Publish(LegacyWorldGeneration.PrepareEvolution(world, solver, frame));
+		return new LegacyEvolutionPlayback(world, solver);
 	}
 
-	static WorldFacts Drain(WorldEvolutionSession session, Action<Exception> report)
+	static WorldFacts Drain(LegacyEvolutionPlayback session, Action<Exception> report)
 	{
 		var timer = Stopwatch.StartNew();
 		WorldFacts published = null;

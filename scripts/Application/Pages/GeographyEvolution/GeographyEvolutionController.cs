@@ -51,11 +51,11 @@ internal sealed class GeographyEvolutionController
 		else Run(_control.Step);
 	}
 
-	internal void Seek(double targetMa)
+	internal void Seek(long targetRound)
 	{
 		try
 		{
-			SetFeedback(_control.Seek(targetMa), false);
+			SetFeedback(_control.Seek(targetRound), false);
 		}
 		catch (Exception error)
 		{
@@ -63,11 +63,11 @@ internal sealed class GeographyEvolutionController
 		}
 	}
 
-	internal void SetSpeed(double yearsPerSecond)
+	internal void SetSpeed(double roundsPerSecond)
 	{
 		try
 		{
-			_control.SetSpeed(yearsPerSecond);
+			_control.SetSpeed(roundsPerSecond);
 			SetFeedback(null, false);
 		}
 		catch (Exception error)

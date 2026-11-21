@@ -105,6 +105,12 @@ public sealed class PlateBoundaryFields
 	/// <summary>由边界集、板块表与逐格壳型算逐边事实。入参须同属一次板块划分。</summary>
 	public static PlateBoundaryFields Build(Ball ball, PlateBoundarySet boundaries,
 		CrustField crust, Plate[] plates)
+		=> Build(ball, boundaries, crust, plates, edge =>
+			PlateBoundaryOps.MotionOfEdge(ball.CellDirs[edge.CellA], ball.CellDirs[edge.CellB],
+				plates[edge.PlateA], plates[edge.PlateB]));
+
+	internal static PlateBoundaryFields Build(Ball ball, PlateBoundarySet boundaries,
+		CrustField crust, Plate[] plates, Func<PlateBoundaryEdge, float> measure)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (boundaries == null) throw new ArgumentNullException(nameof(boundaries));
@@ -120,12 +126,10 @@ public sealed class PlateBoundaryFields
 		var edgeKind = new BoundaryKind[edgeCount];
 		var edgeRoleA = new BoundarySideRole[edgeCount];
 		var edgeRoleB = new BoundarySideRole[edgeCount];
-		var dirs = ball.CellDirs;
 		Parallel.For(0, edgeCount, k =>
 		{
 			PlateBoundaryEdge edge = boundaries.Edges[k];
-			float motion = PlateBoundaryOps.MotionOfEdge(dirs[edge.CellA], dirs[edge.CellB],
-				plates[edge.PlateA], plates[edge.PlateB]);
+			float motion = measure(edge);
 			BoundaryKind kind = PlateBoundaryOps.KindOf(motion);
 			bool densityRides = PlateBoundaryOps.Overrides(edge.PlateA, edge.PlateB, plates);
 			bool aRides = PlateBoundaryOps.Rides(crust.Type[edge.CellA], crust.Type[edge.CellB], densityRides);

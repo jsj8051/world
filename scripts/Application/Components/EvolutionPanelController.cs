@@ -15,8 +15,8 @@ internal readonly record struct EvolutionPanelControls(
 /// </summary>
 internal sealed class EvolutionPanelController
 {
-	/// <summary>倍率下拉的注册序与地质年/秒的对应表。</summary>
-	internal static readonly double[] YearsPerSecondOptions = { 100_000d, 1_000_000d, 10_000_000d };
+	/// <summary>播放速率选项对应每秒可启动的轮数上限。</summary>
+	static readonly double[] RoundRateOptions = { 1d, 2d, 4d };
 
 	internal static EvolutionPanelControls Describe(EvolutionControlStatus status, bool busy)
 	{
@@ -28,26 +28,26 @@ internal sealed class EvolutionPanelController
 			EvolutionControlStatus.Paused => "暂停",
 			EvolutionControlStatus.Playing => "播放中",
 			EvolutionControlStatus.Seeking => "跳转中",
-			EvolutionControlStatus.Faulted => "演化失败，详情见输出",
+			EvolutionControlStatus.Faulted => "雕刻失败，详情见输出",
 			_ => "未初始化",
 		};
 		return new EvolutionPanelControls(
 			PlayEnabled: canStep,
 			PauseEnabled: status == EvolutionControlStatus.Playing,
 			StepEnabled: canStep || canRecover,
-			StepText: canRecover ? "恢复" : "单步",
+			StepText: canRecover ? "恢复" : "单轮",
 			JumpEnabled: canSeek,
 			SeekEditable: canSeek,
 			StatusText: text,
 			StatusIsError: status == EvolutionControlStatus.Faulted);
 	}
 
-	/// <summary>倍率下拉下标 → 地质年/秒；越界按最后一档处理。</summary>
-	internal static double YearsPerSecond(int optionIndex)
-		=> YearsPerSecondOptions[Math.Clamp(optionIndex, 0, YearsPerSecondOptions.Length - 1)];
+	/// <summary>下拉选项映射到轮每秒。</summary>
+	internal static double RoundsPerSecond(int optionIndex)
+		=> RoundRateOptions[Math.Clamp(optionIndex, 0, RoundRateOptions.Length - 1)];
 
-	/// <summary>解析跳转输入：非负有限数且使用不随语言变化的数字格式。</summary>
-	internal static bool TryParseSeekTarget(string text, out double targetMa)
-		=> double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out targetMa)
-			&& double.IsFinite(targetMa) && targetMa >= 0;
+	/// <summary>解析非负整数轮号。</summary>
+	internal static bool TryParseSeekTarget(string text, out long targetRound)
+		=> long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out targetRound)
+			&& targetRound >= 0;
 }

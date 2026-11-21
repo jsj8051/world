@@ -102,7 +102,7 @@ internal static class WorldGenerationRegression
 		// Each repeat owns a new grid and simulation; cached stage state cannot hide drift.
 		var input = new WorldSpec();
 		spec.CopyTo(input);
-		simulation.Run(input);
+		LegacyWorldGeneration.RunStatic(simulation, input);
 		run.BuildMilliseconds = watch.Elapsed.TotalMilliseconds;
 		run.Stage = "snapshot-validation";
 		var snapshot = GeographySnapshotCapture.Capture(simulation.Facts, Guid.Parse("00000000-0000-0000-0000-000000000001"), "Regression", "",

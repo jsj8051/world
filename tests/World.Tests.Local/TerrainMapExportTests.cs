@@ -179,7 +179,7 @@ internal static class TerrainMapExportTests
 	static IWorldFactsSource CreateReadySource()
 	{
 		var simulation = new WorldGenSimulation(1, PlanetGeometry.ProductionRadius);
-		simulation.Run(new WorldSpec());
+		LegacyWorldGeneration.RunStatic(simulation, new WorldSpec());
 		return simulation;
 	}
 

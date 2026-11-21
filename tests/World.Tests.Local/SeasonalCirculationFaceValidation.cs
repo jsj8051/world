@@ -24,7 +24,7 @@ static partial class SeasonalCirculationExperiment
 			var spec = new WorldSpec { Layout = sample.Item1, Seed = sample.Item2 };
 			Console.WriteLine($"Generating {spec.Layout} seed {spec.Seed} at res4...");
 			var simulation = new WorldGenSimulation(4, 2f);
-			simulation.Run(spec);
+			LegacyWorldGeneration.RunStatic(simulation, spec);
 			passed &= ValidateFaceTransport(coarseBall, simulation, spec, audit);
 		}
 		return passed ? 0 : 1;

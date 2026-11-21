@@ -140,7 +140,7 @@ public sealed class TerrainManager
 		return h;
 	}
 
-	static float HeightScale(TerrainSpec spec) => spec.VerticalScale > 0f ? spec.VerticalScale : 1f;
+	internal static float HeightScale(TerrainSpec spec) => spec.VerticalScale > 0f ? spec.VerticalScale : 1f;
 
 	/// <summary>
 	/// 用已保存的最终事实装配地形（导入地图用）。只校验，不派生距离或陆块。

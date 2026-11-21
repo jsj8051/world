@@ -313,7 +313,7 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	void ResolveEvolutionPanel()
 	{
 		EvolutionReadout = this.Require<EvolutionPanel>(EvolutionPanelPath, nameof(EvolutionPanelPath));
-		if (World?.Sim?.Facts?.Evolution == null)
+		if (World?.SculptingRoundIndex == null)
 		{
 			EvolutionReadout.Hide();
 			return;
@@ -337,8 +337,8 @@ public partial class GeographyEvolutionView : Node3D, IMainMenuReturn
 	void OnPausePressed() => _controller?.Pause();
 	void OnStepPressed() => _controller?.Step();
 	void OnRecoverPressed() => _controller?.Recover();
-	void OnSeekRequested(double targetMa) => _controller?.Seek(targetMa);
-	void OnSpeedChanged(double yearsPerSecond) => _controller?.SetSpeed(yearsPerSecond);
+	void OnSeekRequested(long targetRound) => _controller?.Seek(targetRound);
+	void OnSpeedChanged(double roundsPerSecond) => _controller?.SetSpeed(roundsPerSecond);
 
 	void RefreshEvolutionUi()
 	{

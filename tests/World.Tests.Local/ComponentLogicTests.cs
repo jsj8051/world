@@ -208,7 +208,7 @@ internal static class ComponentLogicTests
 	internal static void EvolutionPanelGating()
 	{
 		EvolutionPanelControls paused = EvolutionPanelController.Describe(EvolutionControlStatus.Paused, false);
-		Program.True(paused.PlayEnabled && !paused.PauseEnabled && paused.StepEnabled && paused.StepText == "单步"
+		Program.True(paused.PlayEnabled && !paused.PauseEnabled && paused.StepEnabled && paused.StepText == "单轮"
 			&& paused.JumpEnabled && paused.SeekEditable && paused.StatusText == "暂停" && !paused.StatusIsError,
 			"暂停态必须可播放、可单步、可跳转");
 
@@ -227,19 +227,18 @@ internal static class ComponentLogicTests
 
 	internal static void EvolutionPanelParsingAndSpeeds()
 	{
-		Program.True(EvolutionPanelController.TryParseSeekTarget("10", out double whole) && whole == 10,
-			"整数目标时间必须可解析");
-		Program.True(EvolutionPanelController.TryParseSeekTarget("1.5", out double fraction) && fraction == 1.5,
-			"小数目标时间必须可解析");
-		Program.True(!EvolutionPanelController.TryParseSeekTarget("-1", out _), "负目标时间必须拒绝");
+		Program.True(EvolutionPanelController.TryParseSeekTarget("10", out long whole) && whole == 10,
+			"整数轮号必须可解析");
+		Program.True(!EvolutionPanelController.TryParseSeekTarget("1.5", out _), "小数轮号必须拒绝");
+		Program.True(!EvolutionPanelController.TryParseSeekTarget("-1", out _), "负轮号必须拒绝");
 		Program.True(!EvolutionPanelController.TryParseSeekTarget("abc", out _), "非数字必须拒绝");
 		Program.True(!EvolutionPanelController.TryParseSeekTarget("NaN", out _), "非有限值必须拒绝");
 
-		Program.True(EvolutionPanelController.YearsPerSecond(0) == 100_000d
-			&& EvolutionPanelController.YearsPerSecond(1) == 1_000_000d
-			&& EvolutionPanelController.YearsPerSecond(2) == 10_000_000d
-			&& EvolutionPanelController.YearsPerSecond(-1) == 100_000d
-			&& EvolutionPanelController.YearsPerSecond(99) == 10_000_000d, "倍率下标必须映射到地质年/秒");
+		Program.True(EvolutionPanelController.RoundsPerSecond(0) == 1
+			&& EvolutionPanelController.RoundsPerSecond(1) == 2
+			&& EvolutionPanelController.RoundsPerSecond(2) == 4
+			&& EvolutionPanelController.RoundsPerSecond(-1) == 1
+			&& EvolutionPanelController.RoundsPerSecond(99) == 4, "播放选项必须映射到轮每秒");
 	}
 
 	internal static void CellInfoCardFormatting()

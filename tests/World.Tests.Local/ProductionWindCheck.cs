@@ -45,7 +45,7 @@ static class ProductionWindCheck
 			Console.WriteLine($"Generating res{sample.Res} {sample.Layout} seed {sample.Seed}...");
 			var watch = Stopwatch.StartNew();
 			var simulation = new WorldGenSimulation(sample.Res, 2f);
-			simulation.Run(spec);
+			LegacyWorldGeneration.RunStatic(simulation, spec);
 			double elapsed = watch.Elapsed.TotalMilliseconds;
 			var facts = simulation.Facts;
 			var grid = ClimateGrid.From(simulation.Ball, simulation.Terrain, facts.SeaLevelM);

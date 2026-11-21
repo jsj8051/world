@@ -1,5 +1,6 @@
 using Godot;
 using System;
+using System.Linq;
 using World.Application.Components;
 using World.Data;
 using World.Logic;
@@ -8,7 +9,7 @@ using World.Utils;
 namespace World.UI.Components;
 
 /// <summary>
-/// 演化控制面板（独立场景）：显示地质时间与账本，提供播放、暂停、单步、跳转、倍率与计算进度。
+/// 雕刻控制面板，显示完成轮数，支持播放、暂停、单轮和按轮号跳转。
 /// 按钮门禁、状态文字与跳转解析交给 <see cref="EvolutionPanelController"/>；
 /// 本类只绑定控件、订阅进度、格式化读数并发出意图。
 /// </summary>
@@ -18,8 +19,6 @@ public partial class EvolutionPanel : PanelContainer
 	static readonly Color MutedInk = new("#5F5144");
 	static readonly Color Border = new("#90704A");
 	static readonly Color ErrorInk = new("#842D23");
-
-	readonly EvolutionPanelController _controller = new();
 
 	[Export] public NodePath StatusPath { get; set; }
 	[Export] public NodePath TimePath { get; set; }
@@ -80,13 +79,13 @@ public partial class EvolutionPanel : PanelContainer
 	public event Action PlayPressed;
 	/// <summary>暂停请求。</summary>
 	public event Action PausePressed;
-	/// <summary>单步请求。</summary>
+	/// <summary>单轮请求。</summary>
 	public event Action StepPressed;
-	/// <summary>确认故障并回到上一个已发布的年代。</summary>
+	/// <summary>确认故障，保留最近一次发布的世界。</summary>
 	public event Action RecoverPressed;
-	/// <summary>跳转请求（目标 Ma）。</summary>
-	public event Action<double> SeekRequested;
-	/// <summary>倍率请求（地质年/秒）。</summary>
+	/// <summary>跳转请求，目标为完整轮号。</summary>
+	public event Action<long> SeekRequested;
+	/// <summary>播放速率请求。</summary>
 	public event Action<double> SpeedChanged;
 
 	public override void _Ready()
@@ -126,11 +125,11 @@ public partial class EvolutionPanel : PanelContainer
 		_seek.TextSubmitted += _ => OnSeek();
 		_jump.Pressed += OnSeek;
 
-		_speed.AddItem("0.1 Ma/s", 0);
-		_speed.AddItem("1 Ma/s", 1);
-		_speed.AddItem("10 Ma/s", 2);
+		_speed.AddItem("每秒至多 1 轮", 0);
+		_speed.AddItem("每秒至多 2 轮", 1);
+		_speed.AddItem("每秒至多 4 轮", 2);
 		_speed.Selected = 0;
-		_speed.ItemSelected += index => SpeedChanged?.Invoke(EvolutionPanelController.YearsPerSecond((int)index));
+		_speed.ItemSelected += index => SpeedChanged?.Invoke(EvolutionPanelController.RoundsPerSecond((int)index));
 		_speed.GetPopup().Theme = Theme;
 
 		SetStatus(EvolutionControlStatus.Paused, false);
@@ -139,8 +138,8 @@ public partial class EvolutionPanel : PanelContainer
 	void OnSeek()
 	{
 		if (_jump.Disabled) return;
-		if (EvolutionPanelController.TryParseSeekTarget(_seek.Text, out double ma)) SeekRequested?.Invoke(ma);
-		else SetFeedback("请输入非负的目标时间，例如 10。");
+		if (EvolutionPanelController.TryParseSeekTarget(_seek.Text, out long round)) SeekRequested?.Invoke(round);
+		else SetFeedback("请输入非负整数轮号，例如 10。");
 	}
 
 	static Theme CreatePanelTheme()
@@ -203,23 +202,9 @@ public partial class EvolutionPanel : PanelContainer
 	/// <summary>刷新读数；由界面管理器在每帧提交后调用。</summary>
 	public void Refresh(WorldFacts world)
 	{
-		EvolutionFrame frame = world.Evolution;
-		_time.Text = $"{frame.Clock.TimeMa:F2} Ma · 第 {frame.Clock.StepIndex} 步";
-
-		double minAge = double.MaxValue, maxAge = 0;
-		foreach (double? oceanAge in frame.Projection.OceanAgeMa)
-		{
-			if (oceanAge is double age)
-			{
-				minAge = Math.Min(minAge, age);
-				maxAge = Math.Max(maxAge, age);
-			}
-		}
-		string ages = minAge == double.MaxValue ? "—" : $"{minAge:F1}…{maxAge:F1} Ma";
-		_readout.Text = $"露出陆地 {frame.Projection.EmergentLandFraction:P1} · 海底年龄 {ages}\n" +
-			$"俯冲 {frame.Budget.TotalSubducted:G4} · 新生 {frame.Budget.TotalNewOceanic:G4}\n" +
-			$"火山 {frame.Budget.TotalVolcanic:G4} km³\n" +
-			$"地幔 {frame.Mantle.StoredVolumeKm3:G4} km³ · 残差 {frame.Budget.CumulativeResidual:G3}\n" +
-			$"材料槽 {frame.Material.OccupiedSlotCount} · 覆盖修正 {frame.CoverageCorrectionKm2:G3} km²";
+		_time.Text = $"已完成 {world.SculptingRoundIndex} 轮";
+		double landFraction = (double)world.FinalLand.Count(land => land) / world.FinalLand.Length;
+		int biomeCount = world.BiomeByCell.Where(type => type.HasValue).Distinct().Count();
+		_readout.Text = $"陆地格占比 {landFraction:P1} · 生物群系 {biomeCount} 类";
 	}
 }

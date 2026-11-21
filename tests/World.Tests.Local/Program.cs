@@ -13,6 +13,18 @@ static class Program
 
 	static int Main(string[] args)
 	{
+		if (args.Length == 2 && args[0] == "--discrete-rotation-audit")
+		{
+			DiscreteRotationAudit.Run(int.Parse(args[1]));
+			return 0;
+		}
+
+		if (args.Length == 1 && args[0] == "--sculpting-production")
+		{
+			SculptingGenerationTests.ProductionScaleSmoke();
+			return 0;
+		}
+
 		if (args.Length == 1 && args[0] == "--seasonal-circulation")
 			return SeasonalCirculationExperiment.Run();
 
@@ -96,7 +108,6 @@ static class Program
 
 		Console.WriteLine("World.Tests.Local");
 		Run("Sparse graph Laplacian matches dense reference", GroundedGraphLaplacianTests.MatchesDenseReferenceAndPreservesResidual);
-		Run("生物群系使用温度、降水及当地季节", BiomeClassifierTests.ClassifiesRepresentativeClimatesAndSeasonality);
 		Run("Viewer selection uses injected content and releases subscriptions", MapViewerTests.SelectionUsesInjectedContentAndReleasesSubscriptions);
 		Run("Viewer composition snapshots and validates registrations", MapViewerTests.CompositionSnapshotsRegistrationsAndRejectsInvalidInputs);
 		Run("Village layer is gated by session stage and map mode", VillageLayerTests.StageAndModeGateVisibility);
@@ -110,6 +121,23 @@ static class Program
 		Run("雕刻模块注册拒绝不完整依赖图", WorldSculptingTests.RegistrationValidationRejectsBrokenGraphs);
 		Run("雕刻执行计划稳定并隔离注册变更", WorldSculptingTests.PlanIsStableAndSnapshotsRegistration);
 		Run("雕刻会话拒绝过期候选", WorldSculptingTests.SessionRejectsStaleResult);
+		Run("真实雕刻状态冻结缓冲并校验输入", SculptingPlateMovementTests.StateOwnsBuffersAndRejectsInvalidData);
+		Run("板块移动支持零旋转、大角度与反向旋转", SculptingPlateMovementTests.ExplicitRotationsHandleZeroLargeAndNegativeAngles);
+		Run("板块移动跨轮累积且遵循世界轴旋转", SculptingPlateMovementTests.CommittedRoundsAccumulateWorldAxisRotations);
+		Run("板块移动拒绝非法计划并支持取消", SculptingPlateMovementTests.MovementRejectsBrokenPlansAndCancellation);
+		Run("真实生成世界可初始化雕刻并移动板块", SculptingPlateMovementTests.GeneratedWorldInitializesRealState);
+		Run("球面搬运解决板块重叠与空缺", SculptingSurfaceTransportTests.RotationMovesSurfaceAndResolvesOverlapAndGaps);
+		Run("陆陆缝合线两侧保留各自的地表", SculptingSurfaceTransportTests.ContinentalOverlapKeepsBothSides);
+		Run("真实张开依周围壳型形成裂谷或洋底", SculptingSurfaceTransportTests.DivergenceRespectsCrustAndElevation);
+		Run("碰撞消耗最后一个格子后结束板块", SculptingPlateCollisionTests.CollisionCanConsumeEntirePlate);
+		Run("共同旋转不会消耗板块领地", SculptingPlateCollisionTests.SharedRotationHasNoCollision);
+		Run("广泛碰撞且运动趋同时统一板块归属", SculptingPlateCollisionTests.CompatibleContactMergesPlateTerritories);
+		Run("超大板块裂解后两个碎片真实分开", SculptingPlateCollisionTests.OversizedPlateSplitsAndFragmentsMoveApart);
+		Run("裂解沿弯曲低地形成一条连续线", SculptingPlateCollisionTests.RiftFollowsContinuousLowland);
+		Run("全球板块沿单条闭合裂带拆分", SculptingPlateCollisionTests.GlobalPlateSplitsAlongClosedSeam);
+		Run("完整雕刻轮重建同轮事实并逐轮提交", SculptingGenerationTests.CompleteRoundsUseOneSurfaceAndCommitInOrder);
+		Run("生物群系使用温度、降水及当地季节", BiomeClassifierTests.ClassifiesRepresentativeClimatesAndSeasonality);
+		Run("生产生成和跳转逐轮发布完整地图", SculptingGenerationTests.ProductionEntryPublishesEveryCompleteRound);
 
 		Run("年基温随纬度下降", ClimateTests.LatitudeCoolsTowardPoles);
 		Run("零倾角无季节", ClimateTests.ZeroObliquityRemovesSeasons);

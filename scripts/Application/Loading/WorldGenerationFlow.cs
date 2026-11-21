@@ -110,8 +110,7 @@ internal sealed class WorldGenerationFlow : IDisposable
 		_task = Task.Run(() =>
 		{
 			token.ThrowIfCancellationRequested();
-			WorldGenerationResult result = job.Run(_spec, _options.Resolution, PlanetGeometry.ProductionRadius,
-				_options.EnableEvolution, _options.EvolutionSteps, token);
+			WorldGenerationResult result = job.Run(_spec, _options, token);
 			token.ThrowIfCancellationRequested();
 			return result;
 		});

@@ -29,7 +29,7 @@ public partial class WorldGenerationLoadCheck : Node
 			outcome = flow.Poll();
 		}
 
-		bool ok = outcome.State == WorldGenerationState.Succeeded && outcome.Result?.Simulation != null;
+		bool ok = outcome.State == WorldGenerationState.Succeeded && outcome.Result?.State.Facts.SculptingRoundIndex > 0;
 		GD.Print($"[GEN-CHECK] ok={ok} state={outcome.State} ms={Time.GetTicksMsec() - started} maxGap={maxGap}");
 		GetTree().Quit(ok ? 0 : 1);
 	}
