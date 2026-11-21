@@ -78,6 +78,11 @@ public static class HighlandOps
 	public static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental,
 		float[] landHeight, float[] inland, PlateBoundarySet boundaries,
 		PlateBoundaryFields boundary, TectonicInfluenceSet tectonic)
+		=> Build(ball, seed, spec, continental, landHeight, inland, boundaries, boundary, tectonic, null);
+
+	internal static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental,
+		float[] landHeight, float[] inland, PlateBoundarySet boundaries,
+		PlateBoundaryFields boundary, TectonicInfluenceSet tectonic, float? seaLevelM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -90,7 +95,7 @@ public static class HighlandOps
 
 		int n = ball.CellDirs.Length;
 		var dirs = ball.CellDirs;
-		float seaM = spec.SeaLevelM;
+		float seaM = seaLevelM ?? spec.SeaLevelM;
 
 		// ── ① 汇聚距离 / 强度 / 角色：全部由通道影响场现算，不再用 CellRole ──
 		(float[] convKm, float[] convStrength, BoundaryRole[] role) =

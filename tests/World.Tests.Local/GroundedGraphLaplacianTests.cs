@@ -47,6 +47,36 @@ static class GroundedGraphLaplacianTests
 		Program.True(disconnected, "Disconnected graph is rejected");
 	}
 
+	internal static void RepeatedInterfaceSolveMatchesFullSolution()
+	{
+		foreach (int size in new[] { 9, 65, 70 })
+		{
+			var edges = Enumerable.Range(0, size - 1).Select(cell => (cell, cell + 1, 1 + .04 * cell)).ToList();
+			var retained = new bool[size];
+			retained[1] = retained[size / 2] = retained[^1] = true;
+			var solver = new GroundedGraphLaplacian(size, edges, retained);
+			var rhs = Enumerable.Range(0, size).Select(cell => Math.Cos(cell * .23)).ToArray();
+			var state = (double[])rhs.Clone();
+			solver.Reduce(state);
+			solver.SolveReduced(state);
+			for (int pass = 0; pass < 3; pass++)
+			{
+				var direction = new double[size];
+				direction[1] = .3 * (pass + 1);
+				direction[size / 2] = -.8;
+				direction[^1] = .4;
+				for (int cell = 0; cell < size; cell++) rhs[cell] += direction[cell];
+				solver.SolveReduced(direction);
+				foreach (int cell in solver.ReducedVertices) state[cell] += direction[cell];
+			}
+			solver.RecoverEliminated(state);
+			var expected = DenseSolve(size, edges, rhs);
+			for (int cell = 0; cell < size; cell++)
+				Program.True(Math.Abs(state[cell] - expected[cell]) < 1e-9 * Math.Max(1, Math.Abs(expected[cell])),
+					$"Recovered potential at cell {cell} must match the full solve on {size} vertices.");
+		}
+	}
+
 	static double[] DenseSolve(int count, List<(int Left, int Right, double Weight)> edges, double[] rhs)
 	{
 		int n = count - 1;

@@ -15,6 +15,8 @@ public static class SeedDerivation
 	public const int Plate_Crust = 0x9150;
 	/// <summary>板块密度流（`PlateSeedOps.Build`；每块消费 1 次抽样）。</summary>
 	public const int Plate_Density = 0x9151;
+	/// <summary>陆壳生长阻力的区域细节。</summary>
+	public const int Plate_CrustDetail = 0x9153;
 
 	// ContinentLayouts（陆块布局档的抽取）
 	/// <summary>世界形态档（地球样 / 盘古 / 群岛 / 多大陆）——每世界消费 1 次抽样。</summary>
@@ -63,6 +65,10 @@ public static class SeedDerivation
 	public const int Terrain_CoastWarpZ = 0x7A1D;
 	/// <summary>山带距离场的横向弯曲（标量场，非三分量）。</summary>
 	public const int Terrain_BeltWarp = 0x7A1E;
+	/// <summary>大陆边缘较大尺度的湾岬起伏。</summary>
+	public const int Terrain_ContinentalMargin = 0x7A20;
+	/// <summary>大陆边缘较小尺度的湾岬起伏。</summary>
+	public const int Terrain_ContinentalMarginDetail = 0x7A21;
 
 	// OceanDepthOps（海底：洋中脊 / 大陆架 / 岛弧的噪声）
 	/// <summary>深海丘陵·大尺度起伏。</summary>
@@ -83,13 +89,14 @@ public static class SeedDerivation
 	/// <summary>全表标签（唯一性与覆盖率检查用）。</summary>
 	public static readonly int[] AllTags =
 	{
-		Plate_Seeds, Plate_Distort, Plate_Crust, Plate_Density, World_Layout,
+		Plate_Seeds, Plate_Distort, Plate_Crust, Plate_Density, Plate_CrustDetail, World_Layout,
 		Terrain_Large, Terrain_Medium, Terrain_Detail,
 		Terrain_Ridge, Terrain_OldRange, Terrain_Hills, Terrain_Reach, Terrain_Along, Terrain_Shield,
 		Terrain_RidgeBranch,
 		Terrain_MountainDetail,
 		Terrain_LandWarpX, Terrain_LandWarpY, Terrain_LandWarpZ,
 		Terrain_CoastWarpX, Terrain_CoastWarpY, Terrain_CoastWarpZ, Terrain_BeltWarp,
+		Terrain_ContinentalMargin, Terrain_ContinentalMarginDetail,
 		Ocean_Sea, Ocean_SeaFine, Ocean_Shelf, Ocean_ArcBead, Ocean_ArcIsle,
 	};
 }

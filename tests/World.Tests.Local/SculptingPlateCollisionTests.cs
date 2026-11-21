@@ -49,7 +49,8 @@ internal static class SculptingPlateCollisionTests
 	{
 		var ball = new Ball(2, 2f);
 		int[] owners = ball.CellDirs.Select(point => point.X > .86f ? 0 : 1).ToArray();
-		var state = OceanWorld(ball, owners, new[] { new SpherePointD(1, 0, 0), new SpherePointD(-1, 0, 0) });
+		float[] heights = owners.Select(owner => owner == 0 ? -550f : -1300f).ToArray();
+		var state = OceanWorld(ball, owners, new[] { new SpherePointD(1, 0, 0), new SpherePointD(-1, 0, 0) }, heights);
 		var axis = new SpherePointD(0, 1, 0);
 		var movement = new PlateMovementModule(new[] { new PlateRotation(0, axis, .05), new PlateRotation(1, axis, .02) });
 		var data = RunTransport(state, movement, new SculptingSurfaceTransportModule(ball, 1500), 1);
@@ -58,6 +59,13 @@ internal static class SculptingPlateCollisionTests
 			&& result.Surface.PlateOfCell.All(owner => owner == 1), "相近运动且广泛碰撞时合并两个仍有地表的板块");
 		Program.True(result.Plates[1].RotationOverride is { AngleRadians: > .02 and < .05 },
 			"合并后按面积合成下一轮运动，同时保留本轮接触记录");
+		var merged = SculptingElevationWriteback.Apply(ball, result.SourceElevations, result.Surface, result.Surface,
+			result.Plates, result.ContactOwners, result.SampledCells, result.MissingLocalElevations, CancellationToken.None);
+		int interior = Array.FindIndex(ball.CellDirs, point => point.X > .99f);
+		Program.True(merged.TryGet(1, interior, CrustType.Oceanic, out float inherited) && inherited > -560
+			&& !merged.TryGet(0, interior, CrustType.Oceanic, out _)
+			&& result.SourceElevations.TryGet(0, interior, CrustType.Oceanic, out float original) && original == -550,
+			"合并把较浅的地形写进接收板块，释放消亡板块的高程并保留旧快照");
 	}
 
 	internal static void OversizedPlateSplitsAndFragmentsMoveApart()
@@ -93,7 +101,12 @@ internal static class SculptingPlateCollisionTests
 			&& shaped.Surface.HeightM.SequenceEqual(divided.Surface.HeightM),
 			"分家当轮保留接缝，等到下一轮实际拉开才刻张裂地形");
 
-		var nextState = new WorldSculptingState(state.WorldId, ball.Res, ball.Radius, divided.Plates, shaped.Surface);
+		var nextState = new WorldSculptingGeneration.Composer(ball).Compose(first, CancellationToken.None);
+		int transferred = Enumerable.Range(0, owners.Length).First(cell => shaped.Surface.PlateOfCell[cell] == 4);
+		Program.True(nextState.PlateElevations.TryGet(4, transferred, CrustType.Oceanic, out float childHeight)
+			&& childHeight == shaped.Surface.HeightM[transferred]
+			&& !nextState.PlateElevations.TryGet(0, transferred, CrustType.Oceanic, out _),
+			"裂解沿同一世界位置转移持久高程");
 		var next = RunTransport(nextState, movement, transport, 2);
 		var moved = next.Read<PlateMovementResult>(PlateMovementModule.ModuleId);
 		var remapped = next.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);

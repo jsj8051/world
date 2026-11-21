@@ -1,4 +1,5 @@
 using World.H3Grid;               // Ball
+using World.Utils;
 
 namespace World.Logic;
 
@@ -42,8 +43,10 @@ public sealed class HydrologyPipeline
 	public void Run(Ball ball, TerrainPipeline terrain, float seaLevelM,
 		PrecipitationModel precipitation)
 	{
+		long timing = WorldBuildProfile.Start();
 		Rivers = new RiverNetwork();
 		Rivers.Generate(ball, terrain, seaLevelM, annualPrecipMm: precipitation.AnnualMm);
+		WorldBuildProfile.Mark(ref timing, "hydrology routing and accumulation");
 		// River 2B：水文事实（图）与几何表现（连续河线）分离——线只表达图，不改图
 		RiverTopology = new RiverGraph();
 		RiverTopology.Generate(ball, terrain, Rivers);
@@ -53,6 +56,7 @@ public sealed class HydrologyPipeline
 		// River 2C-A：流域拓扑（只读 flow graph 的终止事实；本轮不判湖，Lake 属 2C-B）
 		Basins = new BasinGraph();
 		Basins.Generate(ball, terrain, Rivers);
+		WorldBuildProfile.Mark(ref timing, "hydrology river graph and basins");
 
 		// ── D-16（2026-10-04）：原始地形的内流洼地分区 ──
 		//   Raw FinalHeight ─┬─ DetectDepressions ──→ LakeState（湖是否存在）
@@ -61,6 +65,7 @@ public sealed class HydrologyPipeline
 		//   （路由表面上的流域）派生，否则开启填洼后内流湖会全部消失（实测 3,671 → 0）。
 		RawHydro = new H3Hydrology();
 		RawHydro.Generate(ball, terrain.HeightM, seaLevelM, precipitation.AnnualMm);
+		WorldBuildProfile.Mark(ref timing, "hydrology raw accumulation");
 		DepressionBasins = new BasinGraph();
 		DepressionBasins.Generate(ball, terrain, RawHydro.Downstream, RawHydro.WeightedAccum);
 

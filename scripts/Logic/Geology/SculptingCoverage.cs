@@ -24,22 +24,24 @@ internal sealed class SculptingCoverage
 	internal byte[] BareSamples { get; }
 	internal Collision[] Collisions { get; }
 	internal Opening?[] Openings { get; }
-	internal int[] IdealCell { get; }
-	internal Vector3[] IdealDirection { get; }
 	internal float Spacing { get; }
+	readonly Ball _ball;
+	readonly IReadOnlyList<int> _owners;
+	readonly RotationD[] _forward;
 
 	SculptingCoverage(Ball ball, PlateMovementResult movement, CancellationToken cancellation)
 	{
 		var surface = movement.Source.Surface;
 		int size = surface.CellCount;
 		int plateCount = movement.Plates.Count;
+		_ball = ball;
+		_owners = surface.PlateOfCell;
+		_forward = new RotationD[plateCount];
 		Spacing = (float)(SpatialScale.Of(ball).NeighborCenterKm / SphericalFbmNoise.WorldRadiusKm);
 		Reference = new int[size];
 		BareSamples = new byte[size];
 		Collisions = new Collision[size];
 		Openings = new Opening?[size];
-		IdealCell = new int[size];
-		IdealDirection = new Vector3[size];
 		var depths = new int[size];
 		var sameCrust = new bool[size];
 		var sizes = new int[plateCount];
@@ -77,11 +79,10 @@ internal sealed class SculptingCoverage
 			caps[plate] = Math.Max(caps[plate], ball.CellDirs[cell].DistanceTo(centers[plate]));
 		}
 		var inverse = movement.InverseSurfaceMoves;
-		var forward = new RotationD[plateCount];
 		for (int plate = 0; plate < plateCount; plate++)
 		{
-			forward[plate] = RotationOps.Inverse(inverse[plate]);
-			centers[plate] = Rotate(forward[plate], centers[plate]);
+			_forward[plate] = RotationOps.Inverse(inverse[plate]);
+			centers[plate] = Rotate(_forward[plate], centers[plate]);
 			caps[plate] += 2.5f * Spacing;
 			caps[plate] *= caps[plate];
 		}
@@ -89,18 +90,15 @@ internal sealed class SculptingCoverage
 		Parallel.For(0, size, options, cell =>
 		{
 			Vector3 center = ball.CellDirs[cell];
-			IdealDirection[cell] = Rotate(forward[surface.PlateOfCell[cell]], center);
-			IdealCell[cell] = CellAt(ball, IdealDirection[cell]);
+			int[] neighbors = ball.CellNeighbors[cell];
 			Span<Vector3> probes = stackalloc Vector3[7];
-			probes[0] = center;
-			int sampleCount = 1;
-			foreach (int neighbor in ball.CellNeighbors[cell])
-				probes[sampleCount++] = center.Lerp(ball.CellDirs[neighbor], .36f).Normalized();
+			int sampleCount = neighbors.Length + 1;
+			bool probesReady = false;
 			uint all = (1u << sampleCount) - 1;
 			Span<Footprint> hits = stackalloc Footprint[plateCount];
 			hits.Clear();
 			uint covered = 0;
-			int best = -1, bestScore = 0;
+			int best = -1, bestScore = 0, hitCount = 0;
 			for (int plate = 0; plate < plateCount; plate++)
 			{
 				if (sizes[plate] == 0 || center.DistanceSquaredTo(centers[plate]) > caps[plate]) continue;
@@ -117,6 +115,12 @@ internal sealed class SculptingCoverage
 					bool near = centerInside;
 					foreach (int neighbor in ball.CellNeighbors[back]) near |= surface.PlateOfCell[neighbor] == plate;
 					if (!near) continue;
+					if (!probesReady)
+					{
+						for (int index = 0; index < neighbors.Length; index++)
+							probes[index + 1] = center.Lerp(ball.CellDirs[neighbors[index]], .36f).Normalized();
+						probesReady = true;
+					}
 					uint mask = 0, continental = 0;
 					int reference = -1, land = -1, ocean = -1;
 					for (int index = 0; index < sampleCount; index++)
@@ -135,6 +139,8 @@ internal sealed class SculptingCoverage
 					}
 					hit = new Footprint(mask, continental, reference, land, ocean);
 				}
+				if (hit.Mask == 0) continue;
+				hitCount++;
 				hits[plate] = hit;
 				covered |= hit.Mask;
 				int score = 2 * BitOperations.PopCount(hit.Mask) + (int)(hit.Mask & 1);
@@ -142,7 +148,7 @@ internal sealed class SculptingCoverage
 			}
 			Reference[cell] = best;
 			BareSamples[cell] = (byte)BitOperations.PopCount(all & ~covered);
-			if (best < 0) return;
+			if (hitCount < 2) return;
 
 			int winner = -1;
 			float winnerScore = float.NegativeInfinity;
@@ -188,6 +194,12 @@ internal sealed class SculptingCoverage
 	internal static SculptingCoverage Build(Ball ball, PlateMovementResult movement, CancellationToken cancellation)
 		=> new(ball, movement, cancellation);
 
+	internal (int Cell, Vector3 Direction) ProjectSource(int source)
+	{
+		Vector3 direction = Rotate(_forward[_owners[source]], _ball.CellDirs[source]);
+		return (CellAt(_ball, direction), direction);
+	}
+
 	static uint Shared(Footprint first, Footprint second)
 	{
 		uint mask = first.Mask & second.Mask;
@@ -229,12 +241,13 @@ internal sealed class SculptingCoverage
 				Openings[cell] = new Opening(a.Reference, cell, a.Distance, a.Distance + 1, separation);
 				continue;
 			}
-			int left = IdealCell[a.Reference], right = IdealCell[b.Reference];
+			var (left, leftDirection) = ProjectSource(a.Reference);
+			var (right, rightDirection) = ProjectSource(b.Reference);
 			float opening = left == right ? 0 : SculptingBoundaryMotion.NormalMotion(ball, left, right, owners[a.Reference],
 				owners[b.Reference], movement.InverseSurfaceMoves);
 			if (!uncovered && opening <= .12f) continue;
 			float width = Math.Max(uncovered ? Math.Min(a.Distance, b.Distance) : 0,
-				opening * IdealDirection[a.Reference].DistanceTo(IdealDirection[b.Reference]) / Spacing);
+				opening * leftDirection.DistanceTo(rightDirection) / Spacing);
 			Openings[cell] = new Opening(a.Reference, b.Reference, a.Distance, b.Distance, width);
 		}
 

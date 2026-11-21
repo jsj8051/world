@@ -61,13 +61,15 @@ public sealed class TerrainManager
 		// 陆壳掩码：决定基底铺陆面还是海底，不决定海陆——海陆由最终高度定。
 		var continental = ContinentalMask(crust);
 		float baseM = spec.LandBaseM - landBaseDropM;   // 群岛档压低陆面基线
+		float generationSeaM = spec.SeaLevelM / HeightScale(spec);
+		var margin = ContinentalMargin.Build(ball, seed, spec, continental);
 
 		TectonicInfluenceSet tectonic = TectonicInfluenceOps.Build(ball, boundaries, plates, crust, plateOfCell,
 			boundary.EdgeMotion, TectonicInfluenceOps.WorldSearchRadiusKm);
 
-		var land = LandFieldOps.Build(ball, seed, spec, continental, baseM);
+		var land = LandFieldOps.Build(ball, seed, spec, continental, baseM, margin, generationSeaM);
 		var highland = HighlandOps.Build(ball, seed, spec, continental,
-			land.HeightM, land.Inland, boundaries, boundary, tectonic);
+			land.HeightM, land.Inland, boundaries, boundary, tectonic, generationSeaM);
 
 		// 陆面合成 + 分布重映射：重映射只作用于海面以上、保号单调 ⇒ 海岸线不动。
 		var landComposite = new float[n];
@@ -77,7 +79,9 @@ public sealed class TerrainManager
 				landComposite[i] = land.HeightM[i] + highland.MountainM[i]
 					+ highland.PlateauM[i] - highland.SubsidenceM[i];
 		});
-		float[] height = ComposeSurface(ball, seed, spec, continental, landComposite, boundary, tectonic);
+		float[] height = ComposeSurface(ball, seed, spec, continental, landComposite, boundary, tectonic,
+			generationSeaM, margin: margin);
+		InitialInlandSeaOps.Fill(ball, height, crust.Type, spec.SeaLevelM);
 		SetSurface(ball, height, spec.SeaLevelM, tectonic);
 	}
 
@@ -94,7 +98,7 @@ public sealed class TerrainManager
 		float abyssDepth = (float)((evolution.NewOceanElevationM
 			- evolution.CoolingDepthMPerSqrtMa * Math.Sqrt(initialAge)) / HeightScale(terrain));
 		return ComposeSurface(ball, spec.Seed, terrain, continental, land.HeightM, PlateBoundaryFields.Empty,
-			TectonicInfluenceSet.Empty, abyssDepth);
+			TectonicInfluenceSet.Empty, terrain.SeaLevelM, abyssDepth);
 	}
 
 	static bool[] ContinentalMask(CrustField crust)
@@ -106,19 +110,24 @@ public sealed class TerrainManager
 	}
 
 	static float[] ComposeSurface(Ball ball, int seed, TerrainSpec spec, bool[] continental,
-		float[] landComposite, PlateBoundaryFields boundary, TectonicInfluenceSet tectonic, float? abyssDepth = null)
+		float[] landComposite, PlateBoundaryFields boundary, TectonicInfluenceSet tectonic,
+		float seaM, float? abyssDepth = null, ContinentalMargin margin = null)
 	{
 		int n = continental.Length;
-		float seaM = spec.SeaLevelM;
-		RemapOps.ApplyLand(ball, spec, landComposite, continental);
+		RemapOps.ApplyLand(ball, spec, landComposite, continental, seaM);
 
 		// 露出水面的格 = 陆壳且合成高度 > 海面；它是海底「离岸距离」与大陆架的源。
 		var aboveSea = new bool[n];
-		Parallel.For(0, n, i => aboveSea[i] = continental[i] && landComposite[i] > seaM);
+		Parallel.For(0, n, i =>
+		{
+			if (!continental[i]) return;
+			if (margin != null) landComposite[i] = margin.JoinLand(i, landComposite[i]);
+			aboveSea[i] = landComposite[i] > seaM;
+		});
 
 		var ocean = abyssDepth is float depth
 			? OceanDepthOps.BuildBase(ball, seed, spec, continental, aboveSea, depth)
-			: OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary, tectonic);
+			: OceanDepthOps.Build(ball, seed, spec, continental, aboveSea, boundary, tectonic, margin);
 
 		// 加性抬升恒 ≥ 0 ⇒ 不会把格压到海面之下；海岸线由合成高度穿过海面自然形成。
 		var h = new float[n];
@@ -130,7 +139,7 @@ public sealed class TerrainManager
 		});
 
 		// 平原浅下切：只在最终陆面、离海 ≥2 格处切浅槽（封顶 h − sea − 1 ⇒ 不造海、不后退海岸）。
-		ErosionOps.IncisePlains(ball, spec, h, continental);
+		ErosionOps.IncisePlains(ball, spec, h, continental, seaM);
 
 		// 垂直倍率：只放大高度，不改水平几何；海陆符号（海岸线）逐格不变。
 		float verticalScale = HeightScale(spec);

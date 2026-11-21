@@ -1,5 +1,8 @@
 using System;
+using System.Linq;
 using Godot;
+using World.Data;
+using World.H3Grid;
 using World.Logic;
 
 namespace World.Tests;
@@ -56,5 +59,46 @@ static class TerrainTests
 	{
 		Program.Throws(() => FreeboardOps.Build(Line, LineNeighbors, new[] { true, false }, 3000f, 12f),
 			"陆壳掩码长度不符");
+	}
+
+	public static void ContinentalMarginMeetsAtTheCrustBoundary()
+	{
+		var margin = new ContinentalMargin(new[] { 0f, 0f, 500f, 500f }, new[] { 1f, 1f, .6f, 1.5f }, 50f, -5f);
+		var spec = new TerrainSpec { ShelfDeepestM = -10, SlopeSpanKm = 500, SlopeBottomM = -175 };
+		Program.Near(margin.JoinLand(0, 35), -5, 1e-5, "陆侧向共同接缝高程收拢");
+		Program.Near(margin.ShelfHeight(1, 800, spec, -200), -5, 1e-5, "海侧向同一接缝高程收拢");
+		Program.True(margin.JoinLand(2, 35) > margin.JoinLand(3, 35)
+			&& margin.ShelfHeight(2, 800, spec, -200) < margin.ShelfHeight(3, 800, spec, -200),
+			"局部宽度同时改变陆岸过渡与大陆架宽度");
+	}
+
+	public static void InlandShallowsFillToTheirLowestRim()
+	{
+		var ball = new Ball(0, 2f);
+		const float sea = 100;
+		var height = Enumerable.Repeat(sea + 200, ball.CellIds.Length).ToArray();
+		var crust = Enumerable.Repeat(CrustType.Continental, height.Length).ToArray();
+		int ocean = 0, inlet = ball.CellNeighbors[ocean][0];
+		height[ocean] = sea - 1000;
+		crust[ocean] = CrustType.Oceanic;
+		height[inlet] = sea - 20;
+
+		int shallow = Enumerable.Range(1, height.Length - 1).First(cell => CanSeparate(cell)
+			&& ball.CellNeighbors[cell].Any(CanSeparate));
+		int shallowNeighbor = ball.CellNeighbors[shallow].First(CanSeparate);
+		height[shallow] = sea - 300;
+		height[shallowNeighbor] = sea - 200;
+		int deep = Enumerable.Range(1, height.Length - 1).First(CanSeparate);
+		height[deep] = sea - 600;
+		int rim = ball.CellNeighbors[shallow].First(cell => height[cell] > sea);
+		height[rim] = sea + 15;
+
+		InitialInlandSeaOps.Fill(ball, height, crust, sea);
+		Program.True(height[shallow] == height[rim] && height[shallowNeighbor] == height[rim],
+			"浅海填到最低出口，可沿出口排水");
+		Program.True(height[inlet] == sea - 20 && height[deep] == sea - 600,
+			"通海的浅水与封闭深盆地保留");
+
+		bool CanSeparate(int cell) => height[cell] > sea && ball.CellNeighbors[cell].All(neighbor => height[neighbor] > sea);
 	}
 }

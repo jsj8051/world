@@ -35,6 +35,7 @@ public sealed class PlateMovementModule : IWorldSculptingModule<WorldSculptingSt
 	public void Execute(WorldSculptingRoundData<WorldSculptingState, WorldSculptingModuleOutput> data,
 		CancellationToken cancellation)
 	{
+		long profile = WorldBuildProfile.Start();
 		var source = data.Source;
 		if (_rotations.Length > source.Plates.Count) throw new ArgumentException("旋转计划与世界板块数不一致");
 		var plates = new SculptingPlateState[source.Plates.Count];
@@ -52,5 +53,6 @@ public sealed class PlateMovementModule : IWorldSculptingModule<WorldSculptingSt
 		}
 		cancellation.ThrowIfCancellationRequested();
 		data.Write(new PlateMovementResult(source, data.Round, plates, rotations));
+		WorldBuildProfile.Mark(ref profile, "sculpting plate poses");
 	}
 }

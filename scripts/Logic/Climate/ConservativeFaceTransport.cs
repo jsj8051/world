@@ -12,16 +12,20 @@ namespace World.Logic;
 internal sealed class ConservativeFaceTransport
 {
 	readonly record struct Link(int Index, int Sign);
+	readonly record struct Crossing(Link[] Links, int Offset, double Length);
 	readonly record struct Fit(double EastEast, double EastNorth, double NorthNorth);
 	readonly record struct VertexFit(int First, int Second, int Third, float FirstWeight, float SecondWeight, float ThirdWeight);
 	readonly CirculationOperator.Edge[] _faces;
 	readonly CirculationOperator.Edge[] _coarseFaces;
-	readonly Link[][] _crossings;
+	readonly Crossing[] _crossings;
+	readonly int _crossingFaceCount;
 	readonly Link[] _unmatchedCrossings;
 	readonly int[] _parent;
 	readonly double[] _area;
 	readonly double[] _parentArea;
 	readonly ParentCorrection[] _corrections;
+	readonly int[] _interfaceCells;
+	readonly int[] _reducedCells;
 	readonly Fit[] _velocityFit;
 	readonly Vector3[] _east;
 	readonly Vector3[] _north;
@@ -48,6 +52,7 @@ internal sealed class ConservativeFaceTransport
 		var crossed = _coarseFaces.Select(_ => new List<Link>()).ToArray();
 		var lookup = _coarseFaces.Select((face, index) => ((face.Left, face.Right), index)).ToDictionary();
 		var unmatched = new List<Link>();
+		var onInterface = new bool[parent.Length];
 		_north = grid.Dirs.Select(TangentField.NorthTangent).ToArray();
 		_east = grid.Dirs.Select((dir, i) => TangentField.EastTangent(dir, _north[i])).ToArray();
 		_boundaryChord = prepareCurl ? new Vector3[_faces.Length] : null;
@@ -66,7 +71,11 @@ internal sealed class ConservativeFaceTransport
 			{
 				var key = (Math.Min(left, right), Math.Max(left, right));
 				var link = new Link(i, left < right ? 1 : -1);
-				if (lookup.TryGetValue(key, out int coarseIndex)) crossed[coarseIndex].Add(link);
+				if (lookup.TryGetValue(key, out int coarseIndex))
+				{
+					crossed[coarseIndex].Add(link);
+					onInterface[face.Left] = onInterface[face.Right] = true;
+				}
 				else unmatched.Add(link);
 			}
 			if (prepareCurl)
@@ -89,14 +98,24 @@ internal sealed class ConservativeFaceTransport
 			var (eastEast, eastNorth, northNorth) = CirculationOperator.InvertTangentFit(xx[i], xy[i], yy[i]);
 			_velocityFit[i] = new Fit(eastEast, eastNorth, northNorth);
 		}
-		_crossings = crossed.Select(list => list.ToArray()).ToArray();
-		if (_crossings.Any(links => links.Length == 0)) throw new InvalidOperationException("A coarse face has no fine crossings.");
+		_crossings = new Crossing[crossed.Length];
+		int offset = 0;
+		for (int i = 0; i < crossed.Length; i++)
+		{
+			var links = crossed[i].ToArray();
+			if (links.Length == 0) throw new InvalidOperationException("A coarse face has no fine crossings.");
+			_crossings[i] = new Crossing(links, offset, links.Sum(link => _faces[link.Index].LengthM));
+			offset += links.Length;
+		}
+		_crossingFaceCount = offset;
 		_unmatchedCrossings = unmatched.ToArray();
+		_interfaceCells = Enumerable.Range(0, parent.Length).Where(cell => onInterface[cell]).ToArray();
 		_corrections = children.Select((cells, i) =>
 		{
 			cancellation.ThrowIfCancellationRequested();
-			return new ParentCorrection(cells, internalFaces[i], _faces);
+			return new ParentCorrection(cells, internalFaces[i], _faces, onInterface);
 		}).ToArray();
+		_reducedCells = _corrections.SelectMany(correction => correction.ReducedCells).ToArray();
 		_vertexFit = vertexCells?.Select((cells, i) =>
 		{
 			var vertex = ball.Vertices.Positions[i].Normalized();
@@ -135,7 +154,8 @@ internal sealed class ConservativeFaceTransport
 	public (double Fine, double Parent, double Crossing) Correct(double[] coarseFlux, double[] flux, double[] desiredNet,
 		int redistributionPasses = 0, CancellationToken cancellation = default)
 	{
-		var initialFlux = redistributionPasses > 0 ? (double[])flux.Clone() : null;
+		// Only crossing fluxes are updated during redistribution. Interior corrections stay in potential form.
+		var initialCrossings = redistributionPasses > 0 ? new double[_crossingFaceCount] : null;
 		var coarseNet = new double[_parentArea.Length];
 		var provisionalParentNet = new double[_parentArea.Length];
 		for (int i = 0; i < desiredNet.Length; i++) provisionalParentNet[_parent[i]] += desiredNet[i];
@@ -144,16 +164,16 @@ internal sealed class ConservativeFaceTransport
 			var face = _coarseFaces[i];
 			coarseNet[face.Left] += coarseFlux[i];
 			coarseNet[face.Right] -= coarseFlux[i];
-			var links = _crossings[i];
-			double net = 0, length = 0;
-			foreach (var link in links)
+			var crossing = _crossings[i];
+			double net = 0;
+			foreach (var link in crossing.Links) net += link.Sign * flux[link.Index];
+			double adjustment = (coarseFlux[i] - net) / crossing.Length;
+			for (int j = 0; j < crossing.Links.Length; j++)
 			{
-				net += link.Sign * flux[link.Index];
-				length += _faces[link.Index].LengthM;
-			}
-			double adjustment = (coarseFlux[i] - net) / length;
-			foreach (var link in links)
+				var link = crossing.Links[j];
+				if (initialCrossings != null) initialCrossings[crossing.Offset + j] = flux[link.Index];
 				flux[link.Index] += link.Sign * adjustment * _faces[link.Index].LengthM;
+			}
 		}
 		foreach (var link in _unmatchedCrossings) flux[link.Index] = 0;
 		// Preserve the fine-scale divergence anomaly and give each parent its solved net flux.
@@ -164,9 +184,10 @@ internal sealed class ConservativeFaceTransport
 		}
 		var deficit = (double[])desiredNet.Clone();
 		AccumulateNet(flux, deficit, -1);
-		var potential = redistributionPasses > 0 ? new double[desiredNet.Length] : null;
-		foreach (var correction in _corrections) correction.Apply(deficit, flux, potential);
-		if (initialFlux != null) Redistribute(initialFlux, flux, potential, redistributionPasses, cancellation);
+		var potential = new double[desiredNet.Length];
+		foreach (var correction in _corrections) correction.Prepare(deficit, potential);
+		if (initialCrossings != null) Redistribute(initialCrossings, flux, potential, redistributionPasses, cancellation);
+		foreach (var correction in _corrections) correction.AddFlux(potential, flux);
 
 		var netAfter = new double[desiredNet.Length];
 		AccumulateNet(flux, netAfter, 1);
@@ -189,7 +210,7 @@ internal sealed class ConservativeFaceTransport
 		for (int i = 0; i < coarseFlux.Length; i++)
 		{
 			double sum = 0;
-			foreach (var link in _crossings[i]) sum += link.Sign * flux[link.Index];
+			foreach (var link in _crossings[i].Links) sum += link.Sign * flux[link.Index];
 			double error = sum - coarseFlux[i];
 			crossingError += error * error;
 			crossingReference += coarseFlux[i] * coarseFlux[i];
@@ -199,47 +220,56 @@ internal sealed class ConservativeFaceTransport
 		static double Relative(double error, double reference) => error == 0 ? 0 : Math.Sqrt(error / reference);
 	}
 
-	// Shift flux along each coarse crossing while preserving its sum, then rebalance its children.
-	// An exact line search minimizes the length-weighted squared change in normal wind along this step.
+	// Shift flux along each coarse crossing while preserving its sum. For a crossing step u,
+	// an interior potential q solves Lq = -B_cross u, where B is the signed cell/face incidence.
+	// Orthogonal projection makes the line search numerator the squared crossing norm.
+	// Its curvature adds q^T Lq, which is a dot product on the interface because Lq vanishes
+	// inside each parent. Recover the eliminated interior potentials after all line searches.
 	void Redistribute(double[] initial, double[] flux, double[] potential, int passes, CancellationToken cancellation)
 	{
-		var direction = new double[flux.Length];
+		var direction = new double[_crossingFaceCount];
 		var directionPotential = new double[potential.Length];
 		var deficit = new double[potential.Length];
 		for (int pass = 0; pass < passes; pass++)
 		{
 			cancellation.ThrowIfCancellationRequested();
-			Array.Clear(direction);
-			Array.Clear(directionPotential);
-			Array.Clear(deficit);
-			foreach (var links in _crossings)
+			foreach (int cell in _interfaceCells) deficit[cell] = 0;
+			double crossingEnergy = 0;
+			foreach (var crossing in _crossings)
 			{
-				double sum = 0, length = 0;
-				foreach (var link in links)
+				double sum = 0;
+				for (int j = 0; j < crossing.Links.Length; j++)
 				{
+					var link = crossing.Links[j];
+					int index = crossing.Offset + j;
 					var face = _faces[link.Index];
-					double gradient = (flux[link.Index] - initial[link.Index]) / face.LengthM
-						- (potential[face.Left] - potential[face.Right]);
-					direction[link.Index] = -face.LengthM * gradient;
-					sum += link.Sign * direction[link.Index];
-					length += face.LengthM;
+					direction[index] = initial[index] - flux[link.Index]
+						+ face.LengthM * (potential[face.Left] - potential[face.Right]);
+					sum += link.Sign * direction[index];
 				}
-				foreach (var link in links)
-					direction[link.Index] -= link.Sign * _faces[link.Index].LengthM * sum / length;
+				double mean = sum / crossing.Length;
+				for (int j = 0; j < crossing.Links.Length; j++)
+				{
+					var link = crossing.Links[j];
+					int index = crossing.Offset + j;
+					var face = _faces[link.Index];
+					double step = direction[index] - link.Sign * face.LengthM * mean;
+					direction[index] = step;
+					deficit[face.Left] -= step;
+					deficit[face.Right] += step;
+					crossingEnergy += step * step / face.LengthM;
+				}
 			}
-			AccumulateNet(direction, deficit, -1);
-			foreach (var correction in _corrections) correction.Apply(deficit, direction, directionPotential);
-			double numerator = 0, denominator = 0;
-			for (int i = 0; i < flux.Length; i++)
-			{
-				double weightedStep = direction[i] / _faces[i].LengthM;
-				numerator -= (flux[i] - initial[i]) * weightedStep;
-				denominator += direction[i] * weightedStep;
-			}
-			if (!(numerator > 0) || !(denominator > 0)) break;
-			double scale = numerator / denominator;
-			for (int i = 0; i < flux.Length; i++) flux[i] += scale * direction[i];
-			for (int i = 0; i < potential.Length; i++) potential[i] += scale * directionPotential[i];
+			if (!(crossingEnergy > 0)) break;
+			foreach (var correction in _corrections) correction.SolveInterface(deficit, directionPotential);
+			double interiorEnergy = 0;
+			foreach (int cell in _interfaceCells)
+				interiorEnergy += directionPotential[cell] * deficit[cell];
+			double scale = crossingEnergy / (crossingEnergy + interiorEnergy);
+			foreach (var crossing in _crossings)
+				for (int j = 0; j < crossing.Links.Length; j++)
+					flux[crossing.Links[j].Index] += scale * direction[crossing.Offset + j];
+			foreach (int cell in _reducedCells) potential[cell] += scale * directionPotential[cell];
 		}
 	}
 
@@ -323,9 +353,11 @@ internal sealed class ConservativeFaceTransport
 		readonly record struct LocalFace(int Index, int Left, int Right, double Weight);
 		readonly int[] _cells;
 		readonly LocalFace[] _faces;
+		readonly int[] _interface;
 		readonly GroundedGraphLaplacian _factor;
+		public int[] ReducedCells { get; }
 
-		public ParentCorrection(List<int> cells, List<int> faces, CirculationOperator.Edge[] geometry)
+		public ParentCorrection(List<int> cells, List<int> faces, CirculationOperator.Edge[] geometry, bool[] onInterface)
 		{
 			_cells = cells.ToArray();
 			var index = cells.Select((cell, i) => (cell, i)).ToDictionary();
@@ -334,20 +366,39 @@ internal sealed class ConservativeFaceTransport
 				var edge = geometry[face];
 				return new LocalFace(face, index[edge.Left], index[edge.Right], edge.LengthM);
 			}).ToArray();
+			var retained = _cells.Select(cell => onInterface[cell]).ToArray();
+			_interface = Enumerable.Range(0, _cells.Length).Where(cell => retained[cell]).ToArray();
 			_factor = new GroundedGraphLaplacian(_cells.Length,
-				_faces.Select(face => (face.Left, face.Right, face.Weight)));
+				_faces.Select(face => (face.Left, face.Right, face.Weight)), retained);
+			ReducedCells = _factor.ReducedVertices.ToArray();
+			for (int i = 0; i < ReducedCells.Length; i++) ReducedCells[i] = _cells[ReducedCells[i]];
 		}
 
-		public void Apply(double[] deficit, double[] flux, double[] potential = null)
+		public void Prepare(double[] deficit, double[] state)
 		{
-			int n = _cells.Length - 1;
 			Span<double> correction = stackalloc double[_cells.Length];
-			for (int i = 0; i <= n; i++) correction[i] = deficit[_cells[i]];
-			_factor.Solve(correction, correction);
+			for (int i = 0; i < _cells.Length; i++) correction[i] = deficit[_cells[i]];
+			_factor.Reduce(correction);
+			_factor.SolveReduced(correction);
+			for (int i = 0; i < _cells.Length; i++) state[_cells[i]] = correction[i];
+		}
+
+		public void SolveInterface(double[] deficit, double[] potential)
+		{
+			Span<double> correction = stackalloc double[_cells.Length];
+			correction.Clear();
+			foreach (int cell in _interface) correction[cell] = deficit[_cells[cell]];
+			_factor.SolveReduced(correction);
+			foreach (int cell in _factor.ReducedVertices) potential[_cells[cell]] = correction[cell];
+		}
+
+		public void AddFlux(double[] state, double[] flux)
+		{
+			Span<double> correction = stackalloc double[_cells.Length];
+			for (int i = 0; i < _cells.Length; i++) correction[i] = state[_cells[i]];
+			_factor.RecoverEliminated(correction);
 			foreach (var face in _faces)
 				flux[face.Index] += face.Weight * (correction[face.Left] - correction[face.Right]);
-			if (potential != null)
-				for (int i = 0; i < n; i++) potential[_cells[i]] += correction[i];
 		}
 	}
 }

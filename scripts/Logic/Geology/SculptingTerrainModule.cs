@@ -10,9 +10,11 @@ using SculptingData = World.Data.WorldSculptingRoundData<World.Data.WorldSculpti
 namespace World.Logic;
 
 /// <summary>将本轮相对位移作用在已搬运地表上，重建海陆和构造事实。</summary>
-internal sealed class SculptingTerrainModule(Ball ball, TerrainSpec spec)
+internal sealed class SculptingTerrainModule(Ball ball, TerrainSpec spec, bool fillInitialInlandSeas)
 	: IWorldSculptingModule<WorldSculptingState, WorldSculptingModuleOutput>
 {
+	internal SculptingTerrainModule(Ball ball, TerrainSpec spec) : this(ball, spec, false) { }
+
 	internal const string ModuleId = "terrain";
 	internal const string TerrainFact = "terrain.sculpted";
 	public string Id => ModuleId;
@@ -32,6 +34,7 @@ internal sealed class SculptingTerrainModule(Ball ball, TerrainSpec spec)
 
 	public void Execute(SculptingData data, CancellationToken cancellation)
 	{
+		long timing = WorldBuildProfile.Start();
 		var movement = data.Read<PlateMovementResult>(PlateMovementModule.ModuleId);
 		var transport = data.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
 		var surface = transport.Surface;
@@ -64,12 +67,15 @@ internal sealed class SculptingTerrainModule(Ball ball, TerrainSpec spec)
 		var tectonic = TectonicInfluenceOps.Build(ball, boundaries, plates, crust, owners, boundary.EdgeMotion,
 			TectonicInfluenceOps.WorldSearchRadiusKm, boundary);
 		SculptingRelief.Apply(ball, spec, heights, transport, cancellation);
+		if (fillInitialInlandSeas && data.Round.Index == 1)
+			InitialInlandSeaOps.Fill(ball, heights, crust.Type, surface.SeaLevelM);
 
 		var platePipeline = new PlatePipeline();
 		platePipeline.SetSurface(new WorldSurfaceInput(owners, plates, crust, heights, boundaries, boundary));
 		var terrainPipeline = new TerrainPipeline();
 		terrainPipeline.SetSurface(ball, heights, surface.SeaLevelM, tectonic);
 		data.Write(new Result(data.Source, data.Round, surface.WithHeights(heights), platePipeline, terrainPipeline));
+		WorldBuildProfile.Mark(ref timing, "sculpting terrain");
 	}
 
 	float Measure(PlateBoundaryEdge edge, IReadOnlyList<RotationD> inverseMoves, IReadOnlyList<int> contactOwners)

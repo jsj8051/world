@@ -35,6 +35,7 @@ public static class WorldSculptingStateFactory
 		var surface = new SculptingSurfaceState(ball.Res, ball.CellIds, plateOfCell,
 			heights, crust.Type, crust.ProvinceId, crust.Provinces,
 			plates.Select(plate => plate.Orientation), seaLevelM);
-		return new WorldSculptingState(worldId, ball.Res, ball.Radius, plates, surface);
+		return new WorldSculptingState(worldId, ball.Res, ball.Radius, plates, surface,
+			PlateElevationState.FromSurface(surface, default));
 	}
 }

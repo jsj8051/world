@@ -63,6 +63,9 @@ static class SculptingGenerationTests
 		Console.WriteLine($"  res{resolution} 初始雕刻至第 {start} 轮，耗时 {stopwatch.Elapsed.TotalSeconds:F1}s");
 		Program.True(start == options.InitialSculptingRounds && initial.SourceTimeMa == null
 			&& control.Status == EvolutionControlStatus.Paused, "生成入口发布完整轮次并处于暂停状态");
+		var drainedHeights = (float[])initial.HeightM.Clone();
+		InitialInlandSeaOps.Fill(sim.Ball, drainedHeights, initial.Crust.Type, initial.SeaLevelM);
+		Program.True(initial.HeightM.SequenceEqual(drainedHeights), "首张地图的地表在派生水系之前完成封闭浅海清理");
 		Program.True(control.Seek(start + 2) == null, "应可跳转到未来轮号");
 		var playback = Stopwatch.StartNew();
 		while (world.EvolutionBusy && playback.Elapsed < TimeSpan.FromMinutes(5))

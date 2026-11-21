@@ -31,6 +31,10 @@ public static class LandFieldOps
 	/// <param name="continental">逐格是否陆壳。</param>
 	/// <param name="baseM">陆面基线（米；已按布局档调整过）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental, float baseM)
+		=> Build(ball, seed, spec, continental, baseM, null, null);
+
+	internal static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental, float baseM,
+		ContinentalMargin margin, float? seaLevelM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -41,7 +45,7 @@ public static class LandFieldOps
 			throw new ArgumentException($"陆壳掩码长度 {continental.Length} ≠ 格数 {n}", nameof(continental));
 
 		var dirs = ball.CellDirs;
-		float seaM = spec.SeaLevelM;
+		float seaM = seaLevelM ?? spec.SeaLevelM;
 		double minWavelengthKm = 3.0 * SpatialScale.Of(ball).NeighborCenterKm;
 
 		var large = new SphericalFbmNoise(
@@ -66,12 +70,13 @@ public static class LandFieldOps
 
 		var landHeight = new float[n];
 		var inland = new float[n];
-		float[] freeboard = FreeboardOps.Build(ball, spec, continental);
+		float[] freeboard = margin == null ? FreeboardOps.Build(ball, spec, continental) : null;
 		Parallel.For(0, n, i =>
 		{
 			if (!continental[i]) return;
 			Vector3 q = landWarp.Apply(dirs[i]);
-			float h = SampleLand(spec, baseM, large, medium, detail, q) + freeboard[i];
+			float lift = margin?.FreeboardAt(spec, i) ?? freeboard[i];
+			float h = SampleLand(spec, baseM, large, medium, detail, q) + lift;
 			if (spec.CoastWarpKm > 0f)
 			{
 				float nearCoast = 1f - MathOps.Smoothstep(
@@ -79,7 +84,7 @@ public static class LandFieldOps
 				if (nearCoast > 0f)
 				{
 					q = q.Lerp(coastWarp.Apply(q), nearCoast).Normalized();
-					h = SampleLand(spec, baseM, large, medium, detail, q) + freeboard[i];
+					h = SampleLand(spec, baseM, large, medium, detail, q) + lift;
 				}
 			}
 			landHeight[i] = h;

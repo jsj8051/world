@@ -53,14 +53,18 @@ public static class OceanDepthOps
 	/// <param name="tectonic">逐通道构造影响场（与地图 / 陆地地形同一份）。</param>
 	public static Field Build(Ball ball, int seed, TerrainSpec spec,
 		bool[] continental, bool[] land, PlateBoundaryFields boundary, TectonicInfluenceSet tectonic)
-		=> Build(ball, seed, spec, continental, land, boundary, tectonic, null);
+		=> Build(ball, seed, spec, continental, land, boundary, tectonic, null, null);
+
+	internal static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental, bool[] land,
+		PlateBoundaryFields boundary, TectonicInfluenceSet tectonic, ContinentalMargin margin)
+		=> Build(ball, seed, spec, continental, land, boundary, tectonic, null, margin);
 
 	internal static Field BuildBase(Ball ball, int seed, TerrainSpec spec, bool[] continental, bool[] land,
 		float abyssDepthM) => Build(ball, seed, spec, continental, land, PlateBoundaryFields.Empty,
-			TectonicInfluenceSet.Empty, abyssDepthM);
+			TectonicInfluenceSet.Empty, abyssDepthM, null);
 
 	static Field Build(Ball ball, int seed, TerrainSpec spec, bool[] continental, bool[] land,
-		PlateBoundaryFields boundary, TectonicInfluenceSet tectonic, float? abyssDepthM)
+		PlateBoundaryFields boundary, TectonicInfluenceSet tectonic, float? abyssDepthM, ContinentalMargin margin)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -119,8 +123,8 @@ public static class OceanDepthOps
 			SeedDerivation.Derive(seed, SeedDerivation.Ocean_Sea), SeaLargeWavelengthKm, SeaLargeOctaves);
 		var seaFine = new SphericalFbmNoise(
 			SeedDerivation.Derive(seed, SeedDerivation.Ocean_SeaFine), SeaFineWavelengthKm, SeaFineOctaves);
-		var shelfNoise = new SphericalFbmNoise(
-			SeedDerivation.Derive(seed, SeedDerivation.Ocean_Shelf), ShelfNoiseWavelengthKm, ShelfNoiseOctaves);
+		var shelfNoise = margin == null ? new SphericalFbmNoise(
+			SeedDerivation.Derive(seed, SeedDerivation.Ocean_Shelf), ShelfNoiseWavelengthKm, ShelfNoiseOctaves) : null;
 		var beadNoise = new SphericalFbmNoise(
 			SeedDerivation.Derive(seed, SeedDerivation.Ocean_ArcBead), ArcBeadWavelengthKm, 1);
 		var isleNoise = new SphericalFbmNoise(
@@ -131,7 +135,13 @@ public static class OceanDepthOps
 		var arcIsland = new float[n];
 		Parallel.For(0, n, i =>
 		{
-			if (continental[i]) return;
+			if (continental[i])
+			{
+				// Smoothing reaches across the crust edge. Extend the shared join height
+				// into these unused depth cells so it has a matching boundary value.
+				if (margin != null) depth[i] = margin.JoinHeightM;
+				return;
+			}
 			Vector3 dir = dirs[i];
 
 			// ① 洋壳年龄 → 深度剖面（∝ √年龄）＋ 脊顶隆起 ＋ 深海丘陵
@@ -142,17 +152,25 @@ public static class OceanDepthOps
 			// ② 大陆架 / 大陆坡：离岸一段浅，出架后顺着坡下到深海
 			float active = withTectonics
 				? convStrength[i] * MathOps.GaussianBand(convDist[i], spec.ActiveMarginBandKm) : 0f;
-			float shelfWidth = (spec.ShelfMinWidthKm
-					+ (spec.ShelfMaxWidthKm - spec.ShelfMinWidthKm) * (1f - active)
-						* (0.35f + 0.65f * MathOps.Smoothstep(-0.4f, 0.5f, shelfNoise.Sample(dir))))
-				* (coast.DistKm[i] < spec.MarginWidenKm ? 1.3f : 0.7f);
-			if (shelfWidth < 1f) shelfWidth = 1f;
-
-			float dc = coast.DistKm[i];
-			float shelf = dc < shelfWidth
-				? spec.ShelfShallowestM + (spec.ShelfDeepestM - spec.ShelfShallowestM) * (dc / shelfWidth)
-				: spec.ShelfDeepestM + ((withTectonics ? spec.SlopeBottomM : d) - spec.ShelfDeepestM)
-					* MathOps.Smoothstep(0f, spec.SlopeSpanKm, dc - shelfWidth);
+			float shelfRange = (spec.ShelfMaxWidthKm - spec.ShelfMinWidthKm) * (1f - active);
+			float shelf;
+			if (margin != null)
+			{
+				float width = spec.ShelfMinWidthKm + .38f * shelfRange;
+				shelf = margin.ShelfHeight(i, width, spec, d);
+			}
+			else
+			{
+				float dc = coast.DistKm[i];
+				float width = (spec.ShelfMinWidthKm
+					+ shelfRange * (0.35f + 0.65f * MathOps.Smoothstep(-0.4f, 0.5f, shelfNoise.Sample(dir))))
+					* (dc < spec.MarginWidenKm ? 1.3f : 0.7f);
+				width = Math.Max(1, width);
+				shelf = dc < width
+					? spec.ShelfShallowestM + (spec.ShelfDeepestM - spec.ShelfShallowestM) * (dc / width)
+					: spec.ShelfDeepestM + ((withTectonics ? spec.SlopeBottomM : d) - spec.ShelfDeepestM)
+						* MathOps.Smoothstep(0f, spec.SlopeSpanKm, dc - width);
+			}
 			d = MathF.Max(d, shelf);
 
 			// ③ 上盘洋壳在海沟后方隆起，沿带的噪声峰处可抬出海面。

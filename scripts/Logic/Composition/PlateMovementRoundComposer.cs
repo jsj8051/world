@@ -16,6 +16,7 @@ public sealed class PlateMovementRoundComposer : IWorldSculptingRoundComposer<Wo
 		var movement = data.Read<PlateMovementResult>(PlateMovementModule.ModuleId);
 		if (data.ReadableModuleIds.Count != 1 || !ReferenceEquals(movement.Source, source) || movement.Round != data.Round)
 			throw new ArgumentException("板块移动轮必须提供本世界唯一的板块移动结果", nameof(data));
-		return new WorldSculptingState(source.WorldId, source.H3Resolution, source.Radius, movement.Plates, source.Surface);
+		return new WorldSculptingState(source.WorldId, source.H3Resolution, source.Radius, movement.Plates,
+			source.Surface, source.PlateElevations);
 	}
 }

@@ -10,7 +10,7 @@ namespace World.Logic;
 
 /// <summary>
 /// 逐格壳型：按布局选宿主板块放陆壳核，从核在全球格网生长陆壳省，剩余格为洋壳。
-/// 生长用低频噪声塑形 + 白噪声粗糙化；陆壳省可以跨板块（板块只决定核的位置）。
+/// 生长沿有空间连续性的低阻力区扩展，形成半岛和海湾；陆壳省可以跨板块。
 /// </summary>
 public static class PlateCrustOps
 {
@@ -44,17 +44,26 @@ public static class PlateCrustOps
         int hostArea = 0;
         foreach (int p in hosts) { host[p] = true; hostArea += sizeOfPlate[p]; }
 
-        // 低频噪声塑形（海湾 / 半岛），逐格白噪声只做边缘粗糙度。
-        var shape = new SphericalFbmNoise(
-            SeedDerivation.Derive(seed, SeedDerivation.Plate_Crust), 2600f, 4);
-        var wobble = new float[n];
-        Parallel.For(0, n, i => wobble[i] = shape.Sample(ball.CellDirs[i]));
+        const float broadWavelengthKm = 4300;
+        const float regionalWavelengthKm = 1450;
+        float minWavelength = (float)(3 * SpatialScale.Of(ball).NeighborCenterKm);
+        var broad = new SphericalFbmNoise(SeedDerivation.Derive(seed, SeedDerivation.Plate_Crust),
+            Math.Max(broadWavelengthKm, minWavelength), 1);
+        var regional = new SphericalFbmNoise(SeedDerivation.Derive(seed, SeedDerivation.Plate_CrustDetail),
+            Math.Max(regionalWavelengthKm, minWavelength), 1);
+        var resistance = new float[n];
+        Parallel.For(0, n, cell =>
+        {
+            var direction = ball.CellDirs[cell];
+            float shape = .72f * broad.Sample(direction) + .28f * regional.Sample(direction);
+            resistance[cell] = MathF.Exp(Math.Clamp(4.8f * shape, -2f, 2f));
+        });
 
         if (layout == ContinentLayout.Pangea)
         {
             int seedCell = Nucleus(ball, plateOfCell, host, -1, type);
             int pangeaTarget = Math.Min(target, (int)(hostArea * 0.9f));
-            int count = Grow(ball, seedCell, pangeaTarget, type, provinceId, 0, seed, wobble);
+            int count = Grow(ball, seedCell, pangeaTarget, type, provinceId, 0, seed, resistance);
             if (count > 0)
                 provinces.Add(new CrustProvince(0, CrustType.Continental, seedCell, plateOfCell[seedCell], count));
         }
@@ -66,7 +75,7 @@ public static class PlateCrustOps
                 int want = Math.Min(sizeOfPlate[p], Math.Max(1, (int)MathF.Round(sizeOfPlate[p] * coverage)));
                 int seedCell = Nucleus(ball, plateOfCell, host, p, type);
                 int count = Grow(ball, seedCell, want, type, provinceId,
-                    provinces.Count, seed + p * 7919, wobble);
+                    provinces.Count, seed + p * 7919, resistance);
                 if (count > 0)
                     provinces.Add(new CrustProvince(provinces.Count, CrustType.Continental,
                         seedCell, p, count));
@@ -139,7 +148,7 @@ public static class PlateCrustOps
     }
 
     static int Grow(Ball ball, int seedCell, int target, CrustType[] type, int[] provinceId,
-        int province, int noiseSeed, float[] wobble)
+        int province, int noiseSeed, float[] resistance)
     {
         if (seedCell < 0 || target <= 0) return 0;
         var dist = new double[type.Length];
@@ -160,8 +169,8 @@ public static class PlateCrustOps
             foreach (int nb in ball.CellNeighbors[cell])
             {
                 if (type[nb] == CrustType.Continental) continue;
-                // 代价 ∈ [1, 3.8]：低频噪声决定扩张快慢 ⇒ 海岸是平滑等值线，不是折线。
-                double cost = 1.0 + 2.5 * (0.5 + 0.5 * wobble[nb]) + 0.3 * Hash01(nb, noiseSeed);
+                double step = ball.CellDirs[cell].DistanceTo(ball.CellDirs[nb]);
+                double cost = step * (.5 * (resistance[cell] + resistance[nb])) * (1 + .12 * Hash01(nb, noiseSeed));
                 double nd = d + cost;
                 if (nd >= dist[nb]) continue;
                 dist[nb] = nd;

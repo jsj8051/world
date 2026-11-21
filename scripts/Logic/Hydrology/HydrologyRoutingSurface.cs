@@ -152,7 +152,7 @@ public sealed class HydrologyRoutingSurface
 
 	/// <summary>
 	/// priority-flood 填洼（Barnes 改进版；标准 D8 水文预处理）。
-	/// 从所有出口（海格 elev ≤ seaLevel）按高度升序 flood：遇到洼地格就抬到
+	/// 从与陆地相邻的海格按高度升序扩展，遇到洼地格就抬到
 	/// 刚好能溢出的水位（+ε 保证严格下降）。
 	/// ⚠️ **只改 `h`（副本），绝不回写源高度**——Final 地形事实保持不动。
 	/// </summary>
@@ -161,8 +161,18 @@ public sealed class HydrologyRoutingSurface
 		int n = h.Length;
 		var visited = new bool[n];
 		var pq = new PriorityQueue<int, float>();
+		for (int i = 0; i < n; i++) visited[i] = h[i] <= seaLevelM;
+		// All ocean cells are already closed. Only coastal cells can reach unvisited terrain.
 		for (int i = 0; i < n; i++)
-			if (h[i] <= seaLevelM) { visited[i] = true; pq.Enqueue(i, h[i]); }
+		{
+			if (!visited[i]) continue;
+			foreach (int neighbor in ball.CellNeighbors[i])
+			{
+				if ((uint)neighbor >= (uint)n || visited[neighbor]) continue;
+				pq.Enqueue(i, h[i]);
+				break;
+			}
+		}
 
 		while (pq.Count > 0)
 		{

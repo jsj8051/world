@@ -29,6 +29,9 @@ public static class RemapOps
 	/// <see cref="TerrainSpec.HypsometricTailCompress"/> 与海面）。</param>
 	/// <param name="heightM">逐格高度（陆壳格 = 陆面合成高度；洋壳格不参与）。</param>
 	public static void ApplyLand(Ball ball, TerrainSpec spec, float[] heightM, bool[] continental)
+		=> ApplyLand(ball, spec, heightM, continental, null);
+
+	internal static void ApplyLand(Ball ball, TerrainSpec spec, float[] heightM, bool[] continental, float? seaLevelM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -43,7 +46,7 @@ public static class RemapOps
 		if (continental.Length != n)
 			throw new ArgumentException($"陆壳掩码长度 {continental.Length} ≠ 格数 {n}", nameof(continental));
 
-		float seaM = spec.SeaLevelM;
+		float seaM = seaLevelM ?? spec.SeaLevelM;
 
 		var samples = new List<float>(n / 2);
 		for (int i = 0; i < n; i++)

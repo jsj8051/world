@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using World.H3Grid;    // Ball（H3 球壳数据层）
 
@@ -10,9 +11,9 @@ namespace World.Logic;
 //   海格（elev ≤ seaLevel）= 出口（Downstream −1，径流入海即终止）；
 //   陆格 = **严格更低**的邻居中最低者（平局取格索引最小 ⇒ 确定性；等高不走边 ⇒ 链上高程严格递减 ⇒ 无环）；
 //   无严格更低邻居 = 内流洼地（Downstream −1；框架期只登记，priority-flood 填洼/湖面扁平化留后续批次）。
-// 汇流累积：按高程降序处理（严格降 ⇒ 该序即拓扑序），每格把累积传给下游；海格不传递。
+// 汇流累积：上游支流全部完成后汇总该格；海格不传递，也不接收累积。
 //   FlowAccum[i] = 上游格数 + 1（含自身雨量）；河流判读（accum > 阈值）由消费方定。
-// 确定性红线：排序键 =（高程降序, 格索引升序）——同高程格的处理序固定，无调度依赖。
+// 逐格支流仍按（高程降序、格索引升序）累加，保留浮点加法顺序。
 /// <summary>
 /// H3 水文（框架版）：单流向 + 汇流累积。输入逐格海拔（米，海平面 0 口径）与 Ball 邻接。
 /// </summary>
@@ -51,11 +52,14 @@ public sealed class H3Hydrology
 		WeightedAccum = new float[n];
 		IsOcean = new bool[n];
 		SinkCount = 0;
+		bool unorderedHeight = false;
 
 		// pass1：海陆掩码 + 单流向（严格更低；平局取格索引最小）
 		for (int i = 0; i < n; i++)
 		{
 			FlowAccum[i] = 1;
+			WeightedAccum[i] = cellWeight != null ? cellWeight[i] : 1f;
+			unorderedHeight |= float.IsNaN(elevationM[i]);
 			if (elevationM[i] <= seaLevelM)
 			{
 				IsOcean[i] = true;
@@ -77,21 +81,56 @@ public sealed class H3Hydrology
 			if (best < 0) SinkCount++;
 		}
 
-		// pass2：高程降序（同高程按格索引升序）= 拓扑序（陆→陆边严格降 ⇒ 无环）；海格不传递
-		var order = Enumerable.Range(0, n)
-			.OrderByDescending(i => elevationM[i])
-			.ThenBy(i => i)
-			.ToArray();
-		for (int i = 0; i < n; i++)
-			WeightedAccum[i] = cellWeight != null ? cellWeight[i] : 1f;
-		foreach (int i in order)
+		if (unorderedHeight)
 		{
-			int d = Downstream[i];
-			if (d >= 0 && !IsOcean[d])
+			// NaN does not define a strictly descending edge. Preserve its historical sort order.
+			foreach (int cell in Enumerable.Range(0, n).OrderByDescending(i => elevationM[i]))
 			{
-				FlowAccum[d] += FlowAccum[i];
-				WeightedAccum[d] += WeightedAccum[i];
+				int target = Downstream[cell];
+				if (target < 0 || IsOcean[target]) continue;
+				FlowAccum[target] += FlowAccum[cell];
+				WeightedAccum[target] += WeightedAccum[cell];
 			}
+			return;
+		}
+
+		AccumulateTributaries(elevationM);
+	}
+
+	void AccumulateTributaries(float[] elevationM)
+	{
+		int n = Downstream.Length;
+		var firstUpstream = new int[n];
+		var nextUpstream = new int[n];
+		var pending = new int[n];
+		Array.Fill(firstUpstream, -1);
+		for (int source = 0; source < n; source++)
+		{
+			int target = Downstream[source];
+			if (target < 0 || IsOcean[target]) continue;
+			pending[target]++;
+			// H3 bounds this insertion by the local degree. Equal heights retain source index order.
+			ref int link = ref firstUpstream[target];
+			while (link >= 0 && elevationM[link] >= elevationM[source]) link = ref nextUpstream[link];
+			nextUpstream[source] = link;
+			link = source;
+		}
+
+		var ready = new Queue<int>();
+		for (int cell = 0; cell < n; cell++)
+		{
+			int target = Downstream[cell];
+			if (pending[cell] == 0 && target >= 0 && !IsOcean[target]) ready.Enqueue(cell);
+		}
+		while (ready.TryDequeue(out int cell))
+		{
+			for (int source = firstUpstream[cell]; source >= 0; source = nextUpstream[source])
+			{
+				FlowAccum[cell] += FlowAccum[source];
+				WeightedAccum[cell] += WeightedAccum[source];
+			}
+			int target = Downstream[cell];
+			if (target >= 0 && !IsOcean[target] && --pending[target] == 0) ready.Enqueue(target);
 		}
 	}
 }

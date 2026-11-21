@@ -206,6 +206,9 @@ public static class ErosionOps
 	/// <see cref="TerrainSpec.ErosionExponent"/> / 海面）。</param>
 	/// <param name="heightM">逐格最终高度（就地改写陆格）。</param>
 	public static void IncisePlains(Ball ball, TerrainSpec spec, float[] heightM, bool[] continental)
+		=> IncisePlains(ball, spec, heightM, continental, null);
+
+	internal static void IncisePlains(Ball ball, TerrainSpec spec, float[] heightM, bool[] continental, float? seaLevelM)
 	{
 		if (ball == null) throw new ArgumentNullException(nameof(ball));
 		if (spec == null) throw new ArgumentNullException(nameof(spec));
@@ -220,7 +223,7 @@ public static class ErosionOps
 		if (continental.Length != n)
 			throw new ArgumentException($"陆壳掩码长度 {continental.Length} ≠ 格数 {n}", nameof(continental));
 
-		float seaM = spec.SeaLevelM;
+		float seaM = seaLevelM ?? spec.SeaLevelM;
 		double neighborKm = SpatialScale.Of(ball).NeighborCenterKm;
 		float coastGuardKm = (float)(PlainsCoastCells * neighborKm);
 

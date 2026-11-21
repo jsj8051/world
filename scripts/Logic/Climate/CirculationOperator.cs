@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Godot;
@@ -185,6 +186,74 @@ internal sealed class CirculationOperator
 		for (int i = 0; i < _grid.Count; i++) _inverseDiagonal[i] = 1 / _inverseDiagonal[i];
 	}
 
+	// Compose the gradient, face mobility and divergence into one pressure stencil.
+	// Each row acts on pressure differences, so a spatially constant pressure has zero flux.
+	internal sealed class PressureStencil
+	{
+		internal readonly record struct Term(int Cell, double Weight);
+		readonly Term[][] _rows;
+
+		internal PressureStencil(Term[][] rows) => _rows = rows;
+
+		internal void Apply(double[] pressure, double[] output)
+		{
+			for (int cell = 0; cell < _rows.Length; cell++)
+			{
+				double center = pressure[cell], value = center;
+				foreach (var term in _rows[cell]) value += term.Weight * (pressure[term.Cell] - center);
+				output[cell] = value;
+			}
+		}
+	}
+
+	internal PressureStencil BuildPressureStencil(CancellationToken cancellation = default)
+	{
+		var rows = new Dictionary<int, double>[_grid.Count];
+		var selfRotation = new (double East, double North)[rows.Length];
+		for (int i = 0; i < rows.Length; i++) rows[i] = new Dictionary<int, double>();
+		for (int i = 0; i < _edges.Length; i++)
+		{
+			if ((i & 4095) == 0) cancellation.ThrowIfCancellationRequested();
+			var edge = _edges[i];
+			var geometry = _dynamics[i];
+			var mobility = _mobility[i];
+			double lengthScale = _fluxScale * edge.LengthM;
+			double leftScale = lengthScale / _area[edge.Left];
+			double rightScale = -lengthScale / _area[edge.Right];
+			Add(rows[edge.Left], edge.Right, -leftScale * mobility.Normal);
+			Add(rows[edge.Right], edge.Left, rightScale * mobility.Normal);
+			double leftRotation = leftScale * mobility.Rotation, rightRotation = rightScale * mobility.Rotation;
+			// The local gradient is shared by all faces of the cell. Sum its coefficients first.
+			selfRotation[edge.Left].East += leftRotation * geometry.LeftEast;
+			selfRotation[edge.Left].North += leftRotation * geometry.LeftNorth;
+			selfRotation[edge.Right].East += rightRotation * geometry.RightEast;
+			selfRotation[edge.Right].North += rightRotation * geometry.RightNorth;
+			AddGradient(edge.Left, edge.Right, leftRotation * geometry.RightEast, leftRotation * geometry.RightNorth);
+			AddGradient(edge.Right, edge.Left, rightRotation * geometry.LeftEast, rightRotation * geometry.LeftNorth);
+		}
+		for (int cell = 0; cell < rows.Length; cell++)
+			AddGradient(cell, cell, selfRotation[cell].East, selfRotation[cell].North);
+		return new PressureStencil(rows.Select(row => row
+			.Where(term => term.Value != 0)
+			.Select(term => new PressureStencil.Term(term.Key, term.Value)).ToArray()).ToArray());
+
+		void AddGradient(int cell, int center, double east, double north)
+		{
+			var row = rows[cell];
+			double sum = 0;
+			foreach (var neighbor in _neighbors[center])
+			{
+				double weight = east * neighbor.GradientWeight.X + north * neighbor.GradientWeight.Y;
+				if (neighbor.Cell != cell) Add(row, neighbor.Cell, weight);
+				sum += weight;
+			}
+			if (center != cell) Add(row, center, -sum);
+		}
+
+		static void Add(Dictionary<int, double> row, int cell, double weight)
+			=> row[cell] = row.GetValueOrDefault(cell) + weight;
+	}
+
 	void BuildGradient(double[] pressure)
 	{
 		for (int i = 0; i < _grid.Count; i++)
@@ -228,7 +297,7 @@ internal sealed class CirculationOperator
 
 	// Jacobi-preconditioned BiCGSTAB. Latitude-dependent Coriolis makes the operator nonsymmetric.
 	public int Solve(double[] target, double[] result, double[] initial = null, double tolerance = ResidualTolerance,
-		int iterationLimit = 500, CancellationToken cancellation = default)
+		int iterationLimit = 500, CancellationToken cancellation = default, PressureStencil stencil = null)
 	{
 		if (_synthetic && _grid.Count <= 128)
 		{
@@ -238,7 +307,7 @@ internal sealed class CirculationOperator
 		double[] residual = _work[0], shadow = _work[1], direction = _work[2], image = _work[3];
 		double[] step = _work[4], secondImage = _work[5], scaledDirection = _work[6], scaledStep = _work[7];
 		Array.Copy(initial ?? target, result, result.Length);
-		Apply(result, image);
+		ApplyEquation(result, image);
 		for (int i = 0; i < result.Length; i++) shadow[i] = residual[i] = target[i] - image[i];
 		double toleranceSquared = tolerance * tolerance * Dot(target, target);
 		if (Dot(residual, residual) <= toleranceSquared) return 0;
@@ -256,7 +325,7 @@ internal sealed class CirculationOperator
 				direction[i] = residual[i] + beta * (direction[i] - omega * image[i]);
 				scaledDirection[i] = _inverseDiagonal[i] * direction[i];
 			}
-			Apply(scaledDirection, image);
+			ApplyEquation(scaledDirection, image);
 			alpha = projection / Dot(shadow, image);
 			for (int i = 0; i < result.Length; i++)
 			{
@@ -265,7 +334,7 @@ internal sealed class CirculationOperator
 				scaledStep[i] = _inverseDiagonal[i] * step[i];
 			}
 			if (Dot(step, step) <= toleranceSquared) return iteration;
-			Apply(scaledStep, secondImage);
+			ApplyEquation(scaledStep, secondImage);
 			omega = Dot(secondImage, step) / Dot(secondImage, secondImage);
 			if (omega == 0 || !double.IsFinite(omega)) break;
 			for (int i = 0; i < result.Length; i++)
@@ -277,6 +346,12 @@ internal sealed class CirculationOperator
 			previousProjection = projection;
 		}
 		return -1;
+
+		void ApplyEquation(double[] pressure, double[] output)
+		{
+			if (stencil == null) Apply(pressure, output);
+			else stencil.Apply(pressure, output);
+		}
 	}
 
 	void SolveSmallGrid(double[] target, double[] result, CancellationToken cancellation)

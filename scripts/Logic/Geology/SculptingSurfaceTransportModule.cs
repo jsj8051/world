@@ -11,7 +11,7 @@ using SculptingData = World.Data.WorldSculptingRoundData<World.Data.WorldSculpti
 
 namespace World.Logic;
 
-/// <summary>按本轮姿态搬运旧地表，写入已配对的地壳并处理剩余空缺。</summary>
+/// <summary>按本轮姿态反向采样旧地表，重建高程并处理张裂空缺。</summary>
 internal sealed class SculptingSurfaceTransportModule(Ball ball, float newOceanDepthM, PlateRift rift = null)
 	: IWorldSculptingModule<WorldSculptingState, WorldSculptingModuleOutput>
 {
@@ -26,7 +26,8 @@ internal sealed class SculptingSurfaceTransportModule(Ball ball, float newOceanD
 
 	internal sealed class Result(WorldSculptingState source, WorldSculptingRound round, SculptingSurfaceState surface,
 		SculptingCrustContact[] contacts, IReadOnlyList<SculptingPlateState> plates, PlateRift.Split split,
-		IReadOnlyList<int> sampledCells, SculptingCoverage coverage, IReadOnlyList<int> contactOwners)
+		IReadOnlyList<int> sampledCells, SculptingCoverage coverage, IReadOnlyList<int> contactOwners,
+		PlateElevationState elevations, bool[] missingLocalElevations)
 		: WorldSculptingModuleOutput(source, round)
 	{
 		internal SculptingSurfaceState Surface { get; } = surface;
@@ -36,6 +37,8 @@ internal sealed class SculptingSurfaceTransportModule(Ball ball, float newOceanD
 		internal IReadOnlyList<int> SampledCells { get; } = sampledCells;
 		internal SculptingCoverage Coverage { get; } = coverage;
 		internal IReadOnlyList<int> ContactOwners { get; } = contactOwners;
+		internal PlateElevationState SourceElevations { get; } = elevations;
+		internal IReadOnlyList<bool> MissingLocalElevations { get; } = Array.AsReadOnly(missingLocalElevations);
 	}
 
 	public void Execute(SculptingData data, CancellationToken cancellation)
@@ -52,20 +55,31 @@ internal sealed class SculptingSurfaceTransportModule(Ball ball, float newOceanD
 		int count = previous.CellCount;
 		var contacts = new SculptingCrustContact[count];
 		cancellation.ThrowIfCancellationRequested();
-		if (rift == null && poses.SequenceEqual(previous.SampledPlateOrientations))
+		bool stationary = poses.SequenceEqual(previous.SampledPlateOrientations);
+		var elevations = source.PlateElevations ?? PlateElevationState.FromSurface(previous, cancellation);
+		if (rift == null && stationary)
 		{
 			data.Write(new Result(source, data.Round, previous, contacts, movement.Plates, null,
-				Array.AsReadOnly(Enumerable.Range(0, count).ToArray()), null, previous.PlateOfCell));
+				Array.AsReadOnly(Enumerable.Range(0, count).ToArray()), null, previous.PlateOfCell, elevations, new bool[count]));
 			return;
 		}
 
 		long profile = WorldBuildProfile.Start();
-		var coverage = poses.SequenceEqual(previous.SampledPlateOrientations)
-			? null : SculptingCoverage.Build(ball, movement, cancellation);
+		var coverage = stationary ? null : SculptingCoverage.Build(ball, movement, cancellation);
 		WorldBuildProfile.Mark(ref profile, "sculpting rotated coverage");
 		var sampledCells = coverage == null ? Enumerable.Range(0, count).ToArray()
 			: SculptingSurfaceSampling.Resolve(ball, coverage, contacts, cancellation);
 		var columns = new SculptingSurfaceGaps.Columns(count);
+		var missingLocalElevations = new bool[count];
+		var sampler = new SculptingElevationSampler(ball, elevations, previous.SeaLevelM);
+		var worldToPlate = new RotationD[poses.Length];
+		var referenceWasLastSample = new bool[poses.Length];
+		for (int plate = 0; plate < poses.Length; plate++)
+		{
+			RotationD reference = elevations.ReferencePose(plate);
+			worldToPlate[plate] = RotationOps.Compose(reference, RotationOps.Inverse(poses[plate]));
+			referenceWasLastSample[plate] = ReferenceEquals(reference, previous.SampledPlateOrientations[plate]);
+		}
 		Parallel.For(0, count, new ParallelOptions { CancellationToken = cancellation }, cell =>
 		{
 			int sample = sampledCells[cell];
@@ -76,10 +90,18 @@ internal sealed class SculptingSurfaceTransportModule(Ball ball, float newOceanD
 			}
 			int owner = previous.PlateOfCell[sample];
 			columns.Owners[cell] = owner;
-			Vector3 point = ball.CellDirs[cell];
-			var (x, y, z) = RotationOps.Apply(movement.InverseSurfaceMoves[owner], point.X, point.Y, point.Z);
-			columns.Heights[cell] = InterpolateHeight(previous, sample, new Vector3((float)x, (float)y, (float)z));
-			columns.CrustTypes[cell] = previous.CrustTypes[sample];
+			var crust = previous.CrustTypes[sample];
+			columns.Heights[cell] = previous.HeightM[sample];
+			if (!stationary)
+			{
+				Vector3 point = ball.CellDirs[cell];
+				var (x, y, z) = RotationOps.Apply(worldToPlate[owner], point.X, point.Y, point.Z);
+				if (sampler.TrySample(owner, crust, new Vector3((float)x, (float)y, (float)z),
+					referenceWasLastSample[owner] ? sample : -1, out float height))
+					columns.Heights[cell] = height;
+				else missingLocalElevations[cell] = true;
+			}
+			columns.CrustTypes[cell] = crust;
 			columns.ProvinceIds[cell] = previous.CrustProvinceIds[sample];
 		});
 
@@ -96,29 +118,8 @@ internal sealed class SculptingSurfaceTransportModule(Ball ball, float newOceanD
 		var surface = new SculptingSurfaceState(ball.Res, ball.CellIds, columns.Owners, columns.Heights, columns.CrustTypes,
 			columns.ProvinceIds, provinceTable, poses, previous.SeaLevelM);
 		WorldBuildProfile.Mark(ref profile, "sculpting surface sampling and topology");
-		data.Write(new Result(source, data.Round, surface, contacts, plates, split, Array.AsReadOnly(sampledCells), coverage, contactOwners));
-	}
-
-	float InterpolateHeight(SculptingSurfaceState surface, int sample, Vector3 direction)
-	{
-		float height = surface.HeightM[sample];
-		float offset = direction.DistanceSquaredTo(ball.CellDirs[sample]);
-		if (offset <= 1e-12f) return height;
-		int plate = surface.PlateOfCell[sample];
-		var crust = surface.CrustTypes[sample];
-		bool land = height > surface.SeaLevelM;
-		double sum = height, weights = 1;
-		foreach (int neighbor in ball.CellNeighbors[sample])
-		{
-			float other = surface.HeightM[neighbor];
-			if (surface.PlateOfCell[neighbor] != plate || surface.CrustTypes[neighbor] != crust
-				|| (other > surface.SeaLevelM) != land) continue;
-			float weight = offset / (offset + direction.DistanceSquaredTo(ball.CellDirs[neighbor]));
-			weight *= weight;
-			sum += (double)weight * other;
-			weights += weight;
-		}
-		return (float)(sum / weights);
+		data.Write(new Result(source, data.Round, surface, contacts, plates, split, Array.AsReadOnly(sampledCells),
+			coverage, contactOwners, elevations, missingLocalElevations));
 	}
 
 	static CrustProvince[] RebuildProvinces(SculptingSurfaceState previous, IReadOnlyList<int> samples,

@@ -25,12 +25,13 @@ internal sealed class WorldSculptingGeneration
 
 	internal WorldSculptingGeneration(Ball ball, PlatePipeline plate, TerrainPipeline terrain, WorldSpec spec)
 		: this(ball, WorldSculptingStateFactory.FromSurface(ball, plate.Plates, plate.PlateOfCell,
-			plate.Crust, terrain.HeightM, spec.Terrain.SeaLevelM, Guid.NewGuid()), plate.Plates, spec, null)
+			plate.Crust, terrain.HeightM, spec.Terrain.SeaLevelM, Guid.NewGuid()), plate.Plates, spec, null,
+			fillInitialInlandSeas: true)
 	{
 	}
 
 	WorldSculptingGeneration(Ball ball, WorldSculptingState seed, Plate[] initialPlates, WorldSpec spec,
-		IReadOnlyList<PlateRotation> rotations)
+		IReadOnlyList<PlateRotation> rotations, bool fillInitialInlandSeas = false)
 	{
 		_ball = ball;
 		var frozen = new WorldSpec();
@@ -44,7 +45,7 @@ internal sealed class WorldSculptingGeneration
 			{
 				new PlateMovementModule(plan),
 				new SculptingSurfaceTransportModule(_ball, oceanDepth, new PlateRift(_ball)),
-				new SculptingTerrainModule(_ball, frozen.Terrain),
+				new SculptingTerrainModule(_ball, frozen.Terrain, fillInitialInlandSeas),
 				new Stage<ClimatePipeline>("climate", "climate.fields", SculptingTerrainModule.ModuleId,
 					new[] { SculptingTerrainModule.TerrainFact }, (data, cancellation) =>
 					{
@@ -73,7 +74,7 @@ internal sealed class WorldSculptingGeneration
 						index.Run(_ball, Terrain(data).Terrain, Read<HydrologyPipeline>(data, "hydrology").Rivers);
 						return index;
 					}),
-			}, new Composer());
+			}, new Composer(_ball));
 		_session = new WorldSculptingSession<WorldSculptingState, WorldSculptingModuleOutput>(seed, pipeline);
 	}
 
@@ -115,13 +116,18 @@ internal sealed class WorldSculptingGeneration
 	static T Read<T>(SculptingData data, string id) where T : class
 		=> data.Read<Stage<T>.Result>(id).Value;
 
-	sealed class Composer : IWorldSculptingRoundComposer<WorldSculptingState, WorldSculptingModuleOutput>
+	internal sealed class Composer(Ball ball) : IWorldSculptingRoundComposer<WorldSculptingState, WorldSculptingModuleOutput>
 	{
 		public WorldSculptingState Compose(SculptingData data, CancellationToken cancellation)
 		{
 			var transport = data.Read<SculptingSurfaceTransportModule.Result>(SculptingSurfaceTransportModule.ModuleId);
 			var source = data.Source;
-			return new WorldSculptingState(source.WorldId, source.H3Resolution, source.Radius, transport.Plates, Terrain(data).Surface);
+			var surface = Terrain(data).Surface;
+			long profile = WorldBuildProfile.Start();
+			var elevations = SculptingElevationWriteback.Apply(ball, transport.SourceElevations, transport.Surface, surface,
+				transport.Plates, transport.ContactOwners, transport.SampledCells, transport.MissingLocalElevations, cancellation);
+			WorldBuildProfile.Mark(ref profile, "sculpting plate elevation writeback");
+			return new WorldSculptingState(source.WorldId, source.H3Resolution, source.Radius, transport.Plates, surface, elevations);
 		}
 	}
 

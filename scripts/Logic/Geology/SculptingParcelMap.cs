@@ -174,7 +174,7 @@ internal sealed class SculptingParcelMap
 				if ((source & 1023) == 0) cancellation.ThrowIfCancellationRequested();
 				if (reachable != null && !reachable[source]) continue;
 				int stamp = source + 1;
-				int ideal = coverage.IdealCell[source];
+				var (ideal, idealDirection) = coverage.ProjectSource(source);
 				candidates[0] = ideal;
 				seen[ideal] = stamp;
 				int length = 1, from = 0, first = 0;
@@ -197,7 +197,7 @@ internal sealed class SculptingParcelMap
 				for (int i = first; i < length; i++)
 				{
 					int cell = candidates[i];
-					float distance = coverage.IdealDirection[source].DistanceSquaredTo(ball.CellDirs[cell]) / spacingSquared;
+					float distance = idealDirection.DistanceSquaredTo(ball.CellDirs[cell]) / spacingSquared;
 					int travel = (int)MathF.Round(50 * distance);
 					var collision = coverage.Collisions[cell];
 					if (distance <= 2.25f || distance <= 6.25f && collision != null

@@ -108,6 +108,9 @@ static class Program
 
 		Console.WriteLine("World.Tests.Local");
 		Run("Sparse graph Laplacian matches dense reference", GroundedGraphLaplacianTests.MatchesDenseReferenceAndPreservesResidual);
+		Run("Repeated graph interface solve matches the full solution", GroundedGraphLaplacianTests.RepeatedInterfaceSolveMatchesFullSolution);
+		Run("Wind flux redistribution matches the analytic minimum", ConservativeFaceTransportTests.RedistributionMatchesAnalyticMinimum);
+		Run("Wind pressure stencil matches the original face divergence", ConservativeFaceTransportTests.PressureStencilMatchesFaceDivergence);
 		Run("Viewer selection uses injected content and releases subscriptions", MapViewerTests.SelectionUsesInjectedContentAndReleasesSubscriptions);
 		Run("Viewer composition snapshots and validates registrations", MapViewerTests.CompositionSnapshotsRegistrationsAndRejectsInvalidInputs);
 		Run("Village layer is gated by session stage and map mode", VillageLayerTests.StageAndModeGateVisibility);
@@ -127,6 +130,8 @@ static class Program
 		Run("板块移动拒绝非法计划并支持取消", SculptingPlateMovementTests.MovementRejectsBrokenPlansAndCancellation);
 		Run("真实生成世界可初始化雕刻并移动板块", SculptingPlateMovementTests.GeneratedWorldInitializesRealState);
 		Run("球面搬运解决板块重叠与空缺", SculptingSurfaceTransportTests.RotationMovesSurfaceAndResolvesOverlapAndGaps);
+		Run("多轮刚体搬运保留窄山脊地形", SculptingSurfaceTransportTests.RigidRotationPreservesRidgeRelief);
+		Run("地形改动回写后随板块运动且只应用一次", SculptingSurfaceTransportTests.ShapedElevationsFollowPlateWithoutApplyingTwice);
 		Run("陆陆缝合线两侧保留各自的地表", SculptingSurfaceTransportTests.ContinentalOverlapKeepsBothSides);
 		Run("真实张开依周围壳型形成裂谷或洋底", SculptingSurfaceTransportTests.DivergenceRespectsCrustAndElevation);
 		Run("碰撞消耗最后一个格子后结束板块", SculptingPlateCollisionTests.CollisionCanConsumeEntirePlate);
@@ -184,6 +189,8 @@ static class Program
 		Run("自由板偏置向内陆递增", TerrainTests.FreeboardRisesInland);
 		Run("自由板偏置可关断", TerrainTests.FreeboardGoesSilent);
 		Run("自由板偏置校验掩码长度", TerrainTests.FreeboardRejectsWrongMaskLength);
+		Run("大陆边缘陆海共用接缝与宽度", TerrainTests.ContinentalMarginMeetsAtTheCrustBoundary);
+		Run("封闭浅海填到最低出口", TerrainTests.InlandShallowsFillToTheirLowestRim);
 
 		Run("演化默认参数合法", EvolutionStructureTests.DefaultsAreValid);
 		Run("零步长被拒绝", EvolutionStructureTests.RejectsBadStepYears);
@@ -275,6 +282,8 @@ static class Program
 		Run("原生网格保持文件序并拒绝非法格", MapCoreStructureTests.NativeGridKeepsFileOrderAndRejectsInvalidCells);
 
 		Run("最小水文结构合法", MapHydrologyTests.MinimalHydrologyValidates);
+		Run("水文支流拓扑累加保留原高程顺序", HydrologyRoutingTests.AccumulationRetainsHeightOrderedSums);
+		Run("仅从海岸填洼与全海格填洼结果一致", HydrologyRoutingTests.CoastalFloodMatchesAllOceanSeeds);
 		Run("原始洼地与路由流域命名空间分离", MapHydrologyTests.RawDepressionsStaySeparateFromRoutedBasins);
 		Run("湖泊保留无溢口标记", MapHydrologyTests.LakeLayersPreserveNoRimMarker);
 		Run("水文拒绝错误长度", MapHydrologyTests.HydrologyRejectsWrongLengths);

@@ -25,6 +25,9 @@ internal sealed class ConservativeWindSolver
 	readonly int[] _parent;
 	readonly double[] _parentArea;
 	readonly CirculationInterpolation.InterpolationWeight[][] _interpolation;
+	readonly CirculationOperator.PressureStencil _surfacePressure;
+	readonly CirculationOperator.PressureStencil _lowPressure;
+	readonly CirculationOperator.PressureStencil _freePressure;
 	readonly float _referenceSpeed;
 	readonly float _lowFriction;
 	readonly float _freeFriction;
@@ -38,7 +41,9 @@ internal sealed class ConservativeWindSolver
 		_referenceSpeed = spec.WindSpeedRefMs;
 		_lowFriction = spec.FrictionLowFactor;
 		_freeFriction = spec.FrictionFreeFactor;
+		long setup = WorldBuildProfile.Start();
 		_fine = new CirculationOperator(ball, grid, spec, cancellation);
+		WorldBuildProfile.Mark(ref setup, "wind-setup fine operator");
 
 		// Keep the local flux correction bounded to at most two H3 levels.
 		var coarseBall = ball == null || ball.Res <= 2 ? ball : new Ball(Math.Max(2, ball.Res - 2), 1f);
@@ -69,11 +74,25 @@ internal sealed class ConservativeWindSolver
 				height.Select((value, i) => (float)(value / _parentArea[i])).ToArray(),
 				grid.RadiusKm, SpatialScale.Of(coarseBall).NeighborCenterKm);
 			_coarse = new CirculationOperator(coarseBall, coarseGrid, spec, cancellation);
+			WorldBuildProfile.Mark(ref setup, "wind-setup coarse operator");
 			_interpolation = CirculationInterpolation.BuildInterpolation(grid, coarseGrid, _parent, cancellation);
+			WorldBuildProfile.Mark(ref setup, "wind-setup interpolation");
 			_transport = new ConservativeFaceTransport(ball, grid, _fine, _coarse, _parent, prepareCurl: false, cancellation);
+			WorldBuildProfile.Mark(ref setup, "wind-setup transport factors");
 			if (_transport.UnmatchedCrossingCount != 0)
 				throw new InvalidOperationException("守恒风网格包含没有对应粗格边的细格边。");
+			_surfacePressure = BuildPressureStencil(1, true, cancellation);
+			_lowPressure = BuildPressureStencil(_lowFriction, false, cancellation);
+			_freePressure = BuildPressureStencil(_freeFriction, false, cancellation);
+			WorldBuildProfile.Mark(ref setup, "wind-setup pressure stencils");
 		}
+	}
+
+	CirculationOperator.PressureStencil BuildPressureStencil(double friction, bool terrain, CancellationToken cancellation)
+	{
+		_coarse.ConfigureMobility(friction, terrain);
+		_coarse.SetRelaxation(FluxScale);
+		return _coarse.BuildPressureStencil(cancellation);
 	}
 
 	public (Vector3[] Surface, Vector3[] Low, Vector3[] Free) SolveMonth(float[] targetPressureHpa,
@@ -81,13 +100,13 @@ internal sealed class ConservativeWindSolver
 	{
 		var target = ToPotential(_fine, targetPressureHpa);
 		var coarseTarget = _parent == null ? target : Aggregate(target);
-		return (Solve(target, coarseTarget, 1, true, null, null, cancellation),
-			Solve(target, coarseTarget, _lowFriction, false, upstream, speed, cancellation),
-			Solve(target, coarseTarget, _freeFriction, false, null, null, cancellation));
+		return (Solve(target, coarseTarget, 1, true, _surfacePressure, null, null, cancellation),
+			Solve(target, coarseTarget, _lowFriction, false, _lowPressure, upstream, speed, cancellation),
+			Solve(target, coarseTarget, _freeFriction, false, _freePressure, null, null, cancellation));
 	}
 
 	Vector3[] Solve(double[] target, double[] coarseTarget, double friction, bool terrain,
-		int[] upstream, float[] speed, CancellationToken cancellation)
+		CirculationOperator.PressureStencil stencil, int[] upstream, float[] speed, CancellationToken cancellation)
 	{
 		long timing = WorldBuildProfile.Start();
 		cancellation.ThrowIfCancellationRequested();
@@ -96,7 +115,7 @@ internal sealed class ConservativeWindSolver
 		WorldBuildProfile.Mark(ref timing, "wind-detail mobility");
 		_coarse.SetRelaxation(FluxScale);
 		var solution = new double[coarseTarget.Length];
-		_coarse.Solve(coarseTarget, solution, cancellation: cancellation);
+		_coarse.Solve(coarseTarget, solution, cancellation: cancellation, stencil: stencil);
 		double residual = _coarse.RelativeResidual(solution, coarseTarget);
 		// Restart from the best finite iterate when the recursive residual loses accuracy.
 		for (int retry = 0; retry < 3 && double.IsFinite(residual) && residual > CirculationOperator.ResidualTolerance; retry++)
@@ -112,6 +131,8 @@ internal sealed class ConservativeWindSolver
 		WorldBuildProfile.Mark(ref timing, "wind-detail coarse solve");
 		if (_parent == null) return _transport.BuildWind(coarseFlux, _referenceSpeed, upstream, speed);
 
+		// Interpolate the coarse solution's departure from its target, shared by all children.
+		for (int i = 0; i < solution.Length; i++) solution[i] -= coarseTarget[i];
 		var reconstructed = new double[target.Length];
 		var desired = new double[target.Length];
 		for (int i = 0; i < target.Length; i++)
@@ -119,7 +140,7 @@ internal sealed class ConservativeWindSolver
 			if ((i & 4095) == 0) cancellation.ThrowIfCancellationRequested();
 			double adjustment = 0;
 			foreach (var weight in _interpolation[i])
-				adjustment += weight.Weight * (solution[weight.Cell] - coarseTarget[weight.Cell]);
+				adjustment += weight.Weight * solution[weight.Cell];
 			reconstructed[i] = target[i] + adjustment;
 			desired[i] = -adjustment * _fine.CellAreas[i] / FluxScale;
 		}
