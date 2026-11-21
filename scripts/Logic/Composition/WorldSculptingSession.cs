@@ -24,6 +24,10 @@ public sealed class WorldSculptingSession<TWorldState, TModuleOutput>
 	public WorldSculptingRoundResult<TWorldState, TModuleOutput> PrepareNext(CancellationToken cancellation = default)
 		=> _pipeline.Prepare(Current, checked(CompletedRounds + 1), cancellation);
 
+	internal WorldSculptingRoundResult<TWorldState, TModuleOutput> PrepareNext(CancellationToken cancellation,
+		Action<string> onModuleStarted)
+		=> _pipeline.Prepare(Current, checked(CompletedRounds + 1), cancellation, onModuleStarted);
+
 	public void Commit(WorldSculptingRoundResult<TWorldState, TModuleOutput> result)
 	{
 		if (result == null) throw new ArgumentNullException(nameof(result));

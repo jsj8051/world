@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
-using System.Collections.ObjectModel;
 using World.Data;
 
 namespace World.Logic;
@@ -57,28 +56,27 @@ public sealed class WorldSculptingPipeline<TWorldState, TModuleOutput>
 
 	public WorldSculptingRoundResult<TWorldState, TModuleOutput> Prepare(TWorldState source,
 		long nextRoundIndex, CancellationToken cancellation = default)
+		=> Prepare(source, nextRoundIndex, cancellation, null);
+
+	internal WorldSculptingRoundResult<TWorldState, TModuleOutput> Prepare(TWorldState source,
+		long nextRoundIndex, CancellationToken cancellation, Action<string> onModuleStarted)
 	{
-		if (source == null) throw new ArgumentNullException(nameof(source));
-		var round = new WorldSculptingRound(nextRoundIndex);
-		var outputs = new Dictionary<string, TModuleOutput>(_modules.Length, StringComparer.Ordinal);
+		var data = new WorldSculptingRoundData<TWorldState, TModuleOutput>(source, new WorldSculptingRound(nextRoundIndex));
 		foreach (Registration registration in _modules)
 		{
 			cancellation.ThrowIfCancellationRequested();
-			var visibleDependencies = new Dictionary<string, TModuleOutput>(StringComparer.Ordinal);
-			foreach (string dependency in _dependencyClosure[registration.Id])
-				visibleDependencies.Add(dependency, outputs[dependency]);
-			var readOnlyDependencies = new ReadOnlyDictionary<string, TModuleOutput>(visibleDependencies);
-			TModuleOutput output = registration.Module.Execute(source, readOnlyDependencies, round, cancellation)
-				?? throw new InvalidOperationException($"雕刻模块 {registration.Id} 未返回候选输出");
-			outputs.Add(registration.Id, output);
+			onModuleStarted?.Invoke(registration.Id);
+			data.BeginModule(registration.Id, _dependencyClosure[registration.Id]);
+			try { registration.Module.Execute(data, cancellation); }
+			finally { data.CloseModule(); }
+			data.RequireOutput(registration.Id);
 		}
 
 		cancellation.ThrowIfCancellationRequested();
-		var readOnlyOutputs = new ReadOnlyDictionary<string, TModuleOutput>(outputs);
-		TWorldState candidate = _composer.Compose(source, readOnlyOutputs, cancellation)
+		TWorldState candidate = _composer.Compose(data, cancellation)
 			?? throw new InvalidOperationException("雕刻轮合并器未返回完整候选世界");
 		cancellation.ThrowIfCancellationRequested();
-		return new WorldSculptingRoundResult<TWorldState, TModuleOutput>(round, source, candidate);
+		return new WorldSculptingRoundResult<TWorldState, TModuleOutput>(data, candidate);
 	}
 
 	static Registration[] SortAndValidate(Dictionary<string, Registration> registrations,

@@ -44,6 +44,9 @@ public sealed class WorldFacts
 	/// <summary>结果时刻（Ma）：生成时来自演化钟，导入时来自地图清单；静态为 null。</summary>
 	public double? SourceTimeMa { get; }
 
+	/// <summary>逐格生物群系。海洋与湖面格为空。</summary>
+	public IReadOnlyList<BiomeType?> BiomeByCell { get; }
+
 	/// <summary>逐格壳型与陆壳省（壳型唯一真源）。</summary>
 	public CrustField Crust { get; }
 
@@ -223,6 +226,8 @@ public sealed class WorldFacts
 		Basins = Present(hydrology.Basins, "流域拓扑");
 		Lakes = Present(hydrology.Lakes, "湖泊状态");
 		WaterSystem = Present(hydrology.WaterSystem, "水系拓扑");
+		BiomeByCell = Array.AsReadOnly(Aligned(BiomeClassifier.Classify(ball, terrain, climate, Lakes),
+			n, nameof(BiomeByCell)));
 
 		SpatialIndex = Present(index.Index, "空间索引");
 

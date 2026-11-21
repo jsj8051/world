@@ -1,5 +1,5 @@
-using System.Collections.Generic;
 using System.Threading;
+using World.Data;
 
 namespace World.Logic;
 
@@ -8,7 +8,5 @@ public interface IWorldSculptingRoundComposer<TWorldState, TModuleOutput>
 	where TWorldState : class
 	where TModuleOutput : class
 {
-	TWorldState Compose(TWorldState source,
-		IReadOnlyDictionary<string, TModuleOutput> moduleOutputs,
-		CancellationToken cancellation);
+	TWorldState Compose(WorldSculptingRoundData<TWorldState, TModuleOutput> data, CancellationToken cancellation);
 }

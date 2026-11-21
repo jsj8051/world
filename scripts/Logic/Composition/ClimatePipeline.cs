@@ -101,7 +101,9 @@ public sealed class ClimatePipeline
 			? PressureGrids.GetValue(ball, static b => CoarseLayer.Parent(b, 2))
 			: CoarseLayer.Identity(grid);
 		WorldBuildProfile.Mark(ref timing, "monthly-input");
+		long windSetup = WorldBuildProfile.Start();
 		var windSolver = new ConservativeWindSolver(ball, grid, spec, cancellation);
+		WorldBuildProfile.Mark(ref windSetup, "monthly-detail wind setup");
 		monthly.Compute(grid, spec, baseTemperature.AnnualC, coastalWarmth, seed, coarse, cancellation, windSolver);
 		WorldBuildProfile.Mark(ref timing, "monthly-climate");
 		cancellation.ThrowIfCancellationRequested();

@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using World.Application.Loading;
+using World.Data.Work;
 using World.UI.Components;
 using World.Utils;
 
@@ -65,7 +66,14 @@ public partial class MapLoadingView : CanvasLayer
 		try
 		{
 			WorldGenerationOutcome outcome = _generation.Poll();
-			if (outcome.State == WorldGenerationState.Running) return;
+			if (outcome.State == WorldGenerationState.Running)
+			{
+				string stage = null;
+				while (_generation.TryReadProgress(out WorkSignal signal))
+					if (signal.Kind == WorkSignalKind.StageStarted) stage = signal.Stage;
+				if (stage != null) ShowProgress(0, stage);
+				return;
+			}
 			_generation.Dispose();
 			_generation = null;
 			_generationMode = false;

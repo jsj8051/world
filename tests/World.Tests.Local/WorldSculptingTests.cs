@@ -22,6 +22,7 @@ static class WorldSculptingTests
 		public IReadOnlyCollection<string> Dependencies { get; }
 		public IReadOnlyCollection<string> RequiredFacts { get; }
 		public IReadOnlyCollection<string> ProducedFacts { get; }
+		internal Action<WorldSculptingRoundData<State, State>> Inspect { get; set; }
 
 		public Module(string id, List<string> calls, List<long> rounds,
 			Dictionary<string, string[]> visibleDependencies,
@@ -38,26 +39,25 @@ static class WorldSculptingTests
 			_fail = fail;
 		}
 
-		public State Execute(State source, IReadOnlyDictionary<string, State> dependencyOutputs,
-			WorldSculptingRound round, CancellationToken cancellation)
+		public void Execute(WorldSculptingRoundData<State, State> data, CancellationToken cancellation)
 		{
 			cancellation.ThrowIfCancellationRequested();
 			_calls.Add(Id);
-			_rounds.Add(round.Index);
+			_rounds.Add(data.Round.Index);
+			Inspect?.Invoke(data);
 			if (_visibleDependencies != null)
-				_visibleDependencies[Id] = dependencyOutputs.Keys.OrderBy(id => id, StringComparer.Ordinal).ToArray();
+				_visibleDependencies[Id] = data.ReadableModuleIds.ToArray();
 			if (_fail) throw new InvalidOperationException("test failure");
-			return new State(1);
+			data.Write(new State(1));
 		}
 	}
 
 	sealed class Composer : IWorldSculptingRoundComposer<State, State>
 	{
-		public State Compose(State source, IReadOnlyDictionary<string, State> moduleOutputs,
-			CancellationToken cancellation)
+		public State Compose(WorldSculptingRoundData<State, State> data, CancellationToken cancellation)
 		{
 			cancellation.ThrowIfCancellationRequested();
-			return new State(source.Value + moduleOutputs.Values.Sum(output => output.Value));
+			return new State(data.Source.Value + data.ReadableModuleIds.Sum(id => data.Read<State>(id).Value));
 		}
 	}
 
@@ -212,13 +212,25 @@ static class WorldSculptingTests
 		};
 		var pipeline = BuildPipeline(modules);
 		var reversed = BuildPipeline(modules.AsEnumerable().Reverse());
-		pipeline.Prepare(new State(0), 1);
+		var seen = new List<WorldSculptingRoundData<State, State>>();
+		foreach (Module module in modules)
+			module.Inspect = seen.Add;
+		((Module)modules[0]).Inspect = data =>
+		{
+			seen.Add(data);
+			Program.Throws(() => data.Read<State>("alpha"), "无关模块不能从共享数据读取先前结果");
+		};
+		var first = pipeline.Prepare(new State(0), 1);
+		Program.True(seen.Count == 3 && seen.All(data => ReferenceEquals(data, first.Data)),
+			"同一轮所有模块必须读写同一份共享数据");
+		Program.Throws(() => first.Data.Write(new State(99)), "候选准备完成后必须关闭写入");
 		Program.True(visible["zeta"].Length == 0
 			&& visible["beta"].SequenceEqual(new[] { "alpha" }),
 			"后执行的无关模块不得看到先前模块输出，依赖消费者只能看到依赖闭包");
 		string[] expected = calls.ToArray();
 		calls.Clear();
-		reversed.Prepare(new State(0), 1);
+		var independent = reversed.Prepare(new State(0), 1);
+		Program.True(!ReferenceEquals(independent.Data, first.Data), "不同世界的工作数据相互独立");
 		Program.True(calls.SequenceEqual(expected) && calls.SequenceEqual(new[] { "alpha", "beta", "zeta" }),
 			"注册枚举顺序不影响依赖排序，无依赖模块按 ordinal ID 排序");
 

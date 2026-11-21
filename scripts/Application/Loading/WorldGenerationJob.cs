@@ -21,8 +21,11 @@ internal sealed class WorldGenerationJob : IWorkSignalSource
 	internal WorldGenerationResult Run(WorldSpec spec, int resolution, float radius,
 		bool evolution, int evolutionSteps, CancellationToken token)
 	{
+		token.ThrowIfCancellationRequested();
+		Signal?.Invoke(WorkSignal.Started("grid", "构建球面网格"));
 		var simulation = new WorldGenSimulation(resolution, radius);
-		simulation.Signal += signal => Signal?.Invoke(signal);
+		void OnSignal(WorkSignal signal) => Signal?.Invoke(signal);
+		simulation.Signal += OnSignal;
 
 		try
 		{
@@ -51,5 +54,6 @@ internal sealed class WorldGenerationJob : IWorkSignalSource
 			Signal?.Invoke(WorkSignal.Failed(error.Message));
 			throw;
 		}
+		finally { simulation.Signal -= OnSignal; }
 	}
 }

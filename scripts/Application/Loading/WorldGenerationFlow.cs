@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Threading;
 using System.Threading.Tasks;
+using World.Application.Generation;
 using World.Data;
 using World.Data.Generation;
-using World.Logic;
+using World.Data.Work;
 using World.Params;
 using World.Params.Generation;
 
@@ -77,6 +79,7 @@ internal sealed class WorldGenerationFlow : IDisposable
 {
 	readonly WorldSpec _spec;
 	readonly WorldGenerationOptions _options;
+	readonly ConcurrentQueue<WorkSignal> _progress = new();
 	readonly CancellationTokenSource _cancellation = new();
 
 	Task<WorldGenerationResult> _task;
@@ -90,6 +93,11 @@ internal sealed class WorldGenerationFlow : IDisposable
 		_options = options;
 	}
 
+	internal static WorldGenerationFlow CreateProduction(GenerationConfig config)
+		=> new(WorldGenerationSpecs.Create(config), WorldGenerationPresets.Production);
+
+	internal bool TryReadProgress(out WorkSignal signal) => _progress.TryDequeue(out signal);
+
 	internal void Start()
 	{
 		ObjectDisposedException.ThrowIf(_disposed, this);
@@ -97,6 +105,7 @@ internal sealed class WorldGenerationFlow : IDisposable
 		_started = true;
 
 		var job = new WorldGenerationJob();
+		job.Signal += _progress.Enqueue;
 		CancellationToken token = _cancellation.Token;
 		_task = Task.Run(() =>
 		{

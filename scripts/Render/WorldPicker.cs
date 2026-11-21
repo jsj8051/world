@@ -60,6 +60,7 @@ public sealed class WorldPicker
 			LandmassId = facts.FinalLandmassId[i],
 			DistToCoast = facts.FinalDistToCoast[i],
 			DistToLand = facts.FinalDistToLand[i],
+			Biome = facts.BiomeByCell[i],
 		};
 		return true;
 	}

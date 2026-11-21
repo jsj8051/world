@@ -95,6 +95,8 @@ static class Program
 		}
 
 		Console.WriteLine("World.Tests.Local");
+		Run("Sparse graph Laplacian matches dense reference", GroundedGraphLaplacianTests.MatchesDenseReferenceAndPreservesResidual);
+		Run("生物群系使用温度、降水及当地季节", BiomeClassifierTests.ClassifiesRepresentativeClimatesAndSeasonality);
 		Run("Viewer selection uses injected content and releases subscriptions", MapViewerTests.SelectionUsesInjectedContentAndReleasesSubscriptions);
 		Run("Viewer composition snapshots and validates registrations", MapViewerTests.CompositionSnapshotsRegistrationsAndRejectsInvalidInputs);
 		Run("Village layer is gated by session stage and map mode", VillageLayerTests.StageAndModeGateVisibility);

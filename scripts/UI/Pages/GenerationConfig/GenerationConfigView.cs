@@ -70,7 +70,7 @@ public partial class GenerationConfigView : Control, IGenerationConfigPageAction
 
 	void IGenerationConfigPageActions.StartGeneration(GenerationConfig config)
 	{
-		var generation = new WorldGenerationFlow(WorldGenerationSpecs.Create(config), WorldGenerationPresets.Production);
+		var generation = WorldGenerationFlow.CreateProduction(config);
 		SceneReplacement.Replace(this, MapLoadingView.CreateGeneration(generation));
 	}
 

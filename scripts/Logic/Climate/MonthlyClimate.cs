@@ -117,15 +117,19 @@ public sealed class MonthlyClimate
 		{
 			cancellation.ThrowIfCancellationRequested();
 			float deltaRad = insolation[m].DeclinationRad;
+			long timing = WorldBuildProfile.Start();
 			BuildMonthSeaLevelTemp(grid, spec, MonthTempC[m], seaLevel);
 			pressure.BuildMonth(seaLevel, deltaRad, MonthPressureHpa[m], workspace, thermalHpa: target);
 			for (int i = 0; i < n; i++)
 				target[i] = MonthPressureHpa[m][i] + (ConservativeWindSolver.ThermalGainMultiplier - 1f) * target[i];
+			WorldBuildProfile.Mark(ref timing, "monthly-detail pressure");
 			var winds = windSolver.SolveMonth(target, upstream, transportSpeed, cancellation);
+			WorldBuildProfile.Mark(ref timing, "monthly-detail wind total");
 			surfaceWind[m] = winds.Surface;
 			lowWind[m] = winds.Low;
 			freeWind[m] = winds.Free;
 			precipitation.BuildMonth(deltaRad, precipitationSolarWeight, winds.Low, MonthPrecipMm[m], upstream, transportSpeed);
+			WorldBuildProfile.Mark(ref timing, "monthly-detail precipitation");
 		}
 
 		Wind = new WindField(new WindSet(WindKind.Surface, surfaceWind, new Vector3[n], new float[n]),

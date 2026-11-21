@@ -23,6 +23,7 @@ internal static class CellInfoCardFormatter
 						 $"海拔    {elev}（{bandName}）\n" +
 						 $"海陆    {(cell.IsLand ? "陆地" : "海洋")}（陆占比 {cell.LandFraction:P0}）\n" +
 						 $"离海    {cell.DistToCoast} 格      离岸 {cell.DistToLand} 格";
+		if (cell.Biome is BiomeType biome) summary += $"\n群系    {BiomeName(biome)}";
 
 		CrustCellBoundary[] edges = crust?.Boundaries ?? Array.Empty<CrustCellBoundary>();
 		bool showBoundaryToggle = edges.Length > 1;
@@ -89,4 +90,27 @@ internal static class CellInfoCardFormatter
 	}
 
 	static string Rate(double kmPerMa) => (Math.Abs(kmPerMa) * 0.1).ToString("F2");
+
+	static string BiomeName(BiomeType biome) => biome switch
+	{
+		BiomeType.IceCap => "冰原",
+		BiomeType.Tundra => "苔原",
+		BiomeType.TropicalRainforest => "热带雨林",
+		BiomeType.TropicalMonsoon => "热带季风林",
+		BiomeType.TropicalSavanna => "热带稀树草原",
+		BiomeType.HotDesert => "热沙漠",
+		BiomeType.ColdDesertKoppen => "冷沙漠",
+		BiomeType.HotSteppe => "热半干旱草原",
+		BiomeType.ColdSteppe => "冷半干旱草原",
+		BiomeType.HumidSubtropical => "湿润亚热带",
+		BiomeType.Oceanic => "海洋性温带",
+		BiomeType.MonsoonSubtropical => "冬干亚热带",
+		BiomeType.MediterraneanHot => "热夏地中海",
+		BiomeType.MediterraneanCool => "凉夏地中海",
+		BiomeType.ContinentalHot => "热夏湿润大陆",
+		BiomeType.ContinentalWarm => "暖夏湿润大陆",
+		BiomeType.Subarctic => "亚寒带针叶林",
+		BiomeType.ContinentalDry => "冬干大陆",
+		_ => throw new ArgumentOutOfRangeException(nameof(biome)),
+	};
 }

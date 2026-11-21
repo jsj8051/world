@@ -17,8 +17,5 @@ public interface IWorldSculptingModule<TWorldState, TModuleOutput>
 	IReadOnlyCollection<string> RequiredFacts { get; }
 	IReadOnlyCollection<string> ProducedFacts { get; }
 
-	TModuleOutput Execute(TWorldState source,
-		IReadOnlyDictionary<string, TModuleOutput> dependencyOutputs,
-		WorldSculptingRound round,
-		CancellationToken cancellation);
+	void Execute(WorldSculptingRoundData<TWorldState, TModuleOutput> data, CancellationToken cancellation);
 }

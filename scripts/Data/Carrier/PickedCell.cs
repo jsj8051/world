@@ -14,4 +14,5 @@ public struct PickedCell
 	public float LandFraction;
 	public int LandmassId;
 	public int DistToCoast, DistToLand;
+	public BiomeType? Biome;
 }

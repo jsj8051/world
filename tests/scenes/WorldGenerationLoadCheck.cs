@@ -1,8 +1,5 @@
-using System;
 using Godot;
-using World.Application.Generation;
 using World.Application.Loading;
-using World.Data;
 using World.Data.Generation;
 
 namespace World.Tests;
@@ -16,8 +13,7 @@ public partial class WorldGenerationLoadCheck : Node
 {
 	public override async void _Ready()
 	{
-		WorldSpec spec = WorldGenerationSpecs.Create(new GenerationConfig());
-		using var flow = new WorldGenerationFlow(spec, WorldGenerationPresets.Production);
+		using var flow = WorldGenerationFlow.CreateProduction(new GenerationConfig());
 
 		ulong started = Time.GetTicksMsec();
 		ulong last = started;

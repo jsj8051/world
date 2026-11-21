@@ -89,9 +89,11 @@ internal sealed class ConservativeWindSolver
 	Vector3[] Solve(double[] target, double[] coarseTarget, double friction, bool terrain,
 		int[] upstream, float[] speed, CancellationToken cancellation)
 	{
+		long timing = WorldBuildProfile.Start();
 		cancellation.ThrowIfCancellationRequested();
 		_fine.ConfigureMobility(friction, terrain);
 		if (_parent != null) _coarse.ConfigureMobility(friction, terrain);
+		WorldBuildProfile.Mark(ref timing, "wind-detail mobility");
 		_coarse.SetRelaxation(FluxScale);
 		var solution = new double[coarseTarget.Length];
 		_coarse.Solve(coarseTarget, solution, cancellation: cancellation);
@@ -107,6 +109,7 @@ internal sealed class ConservativeWindSolver
 
 		var coarseFlux = new double[_coarse.Edges.Length];
 		_coarse.BuildFaceFlux(solution, coarseFlux);
+		WorldBuildProfile.Mark(ref timing, "wind-detail coarse solve");
 		if (_parent == null) return _transport.BuildWind(coarseFlux, _referenceSpeed, upstream, speed);
 
 		var reconstructed = new double[target.Length];
@@ -122,10 +125,14 @@ internal sealed class ConservativeWindSolver
 		}
 		var flux = new double[_fine.Edges.Length];
 		_fine.BuildFaceFlux(reconstructed, flux);
+		WorldBuildProfile.Mark(ref timing, "wind-detail fine reconstruction");
 		var budget = _transport.Correct(coarseFlux, flux, desired, RedistributionPasses, cancellation);
+		WorldBuildProfile.Mark(ref timing, "wind-detail flux correction");
 		if (!(Math.Max(budget.Fine, Math.Max(budget.Parent, budget.Crossing)) < 1e-9))
 			throw new InvalidOperationException("守恒风的粗细网格通量收支未闭合。");
-		return _transport.BuildWind(flux, _referenceSpeed, upstream, speed);
+		var wind = _transport.BuildWind(flux, _referenceSpeed, upstream, speed);
+		WorldBuildProfile.Mark(ref timing, "wind-detail vector reconstruction");
+		return wind;
 	}
 
 	internal static double[] ToPotential(CirculationOperator model, float[] pressureHpa)

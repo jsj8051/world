@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Godot;
 using World.H3Grid;
+using World.Utils;
 
 namespace World.Logic;
 
@@ -322,7 +323,7 @@ internal sealed class ConservativeFaceTransport
 		readonly record struct LocalFace(int Index, int Left, int Right, double Weight);
 		readonly int[] _cells;
 		readonly LocalFace[] _faces;
-		readonly double[] _factor;
+		readonly GroundedGraphLaplacian _factor;
 
 		public ParentCorrection(List<int> cells, List<int> faces, CirculationOperator.Edge[] geometry)
 		{
@@ -333,43 +334,16 @@ internal sealed class ConservativeFaceTransport
 				var edge = geometry[face];
 				return new LocalFace(face, index[edge.Left], index[edge.Right], edge.LengthM);
 			}).ToArray();
-			// One fixed potential removes the constant null space of the local graph Laplacian.
-			int n = _cells.Length - 1;
-			_factor = new double[n * n];
-			foreach (var face in _faces)
-			{
-				int i = face.Left, j = face.Right;
-				if (i < n) _factor[i * n + i] += face.Weight;
-				if (j < n) _factor[j * n + j] += face.Weight;
-				if (i < n && j < n) _factor[Math.Max(i, j) * n + Math.Min(i, j)] -= face.Weight;
-			}
-			for (int i = 0; i < n; i++)
-			for (int j = 0; j <= i; j++)
-			{
-				double value = _factor[i * n + j];
-				for (int k = 0; k < j; k++) value -= _factor[i * n + k] * _factor[j * n + k];
-				if (i == j && !(value > 0)) throw new InvalidOperationException("A parent's fine graph is disconnected.");
-				_factor[i * n + j] = i == j ? Math.Sqrt(value) : value / _factor[j * n + j];
-			}
+			_factor = new GroundedGraphLaplacian(_cells.Length,
+				_faces.Select(face => (face.Left, face.Right, face.Weight)));
 		}
 
 		public void Apply(double[] deficit, double[] flux, double[] potential = null)
 		{
 			int n = _cells.Length - 1;
 			Span<double> correction = stackalloc double[_cells.Length];
-			correction[n] = 0;
-			for (int i = 0; i < n; i++)
-			{
-				double value = deficit[_cells[i]];
-				for (int j = 0; j < i; j++) value -= _factor[i * n + j] * correction[j];
-				correction[i] = value / _factor[i * n + i];
-			}
-			for (int i = n - 1; i >= 0; i--)
-			{
-				double value = correction[i];
-				for (int j = i + 1; j < n; j++) value -= _factor[j * n + i] * correction[j];
-				correction[i] = value / _factor[i * n + i];
-			}
+			for (int i = 0; i <= n; i++) correction[i] = deficit[_cells[i]];
+			_factor.Solve(correction, correction);
 			foreach (var face in _faces)
 				flux[face.Index] += face.Weight * (correction[face.Left] - correction[face.Right]);
 			if (potential != null)
